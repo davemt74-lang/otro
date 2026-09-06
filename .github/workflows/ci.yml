@@ -17,8 +17,10 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile Python
         run: python -m compileall app desktop tests
-      - name: Validate browser JavaScript
+      - name: Validate control center JavaScript
         run: node --check ui/app.js
+      - name: Validate authorization JavaScript
+        run: node --check ui/authorize.js
       - name: Smoke test API and SQLite
         run: python tests/smoke.py
       - name: Build executable
