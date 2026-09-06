@@ -10,6 +10,7 @@ import uvicorn
 from PIL import Image, ImageDraw
 
 from app.config import settings
+from app.runtime import app as runtime_app
 from app.security import OWNER_CONTROL_TOKEN
 
 
@@ -22,7 +23,7 @@ def _icon() -> Image.Image:
 
 
 def _serve() -> None:
-    uvicorn.run("app.runtime:app", host=settings.host, port=settings.port, log_level="info")
+    uvicorn.run(runtime_app, host=settings.host, port=settings.port, log_level="info")
 
 
 def _open(path: str = "/") -> None:
