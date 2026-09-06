@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
-    from app.main import app  # noqa: E402
+    from app.runtime import app  # noqa: E402
+    from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
 
     with TestClient(app) as client:
         health = client.get("/api/v1/health")
@@ -19,6 +20,31 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         root = client.get("/")
         assert root.status_code == 200
         assert "HomeServer" in root.text
+
+        unauthorized = client.get("/api/v1/control/overview")
+        assert unauthorized.status_code == 401
+
+        pair = client.post(
+            "/api/v1/pairing/request",
+            json={
+                "app_key": "vp3-test",
+                "app_name": "VP3 Test",
+                "permissions": ["agent.chat", "knowledge.search", "memory.read", "memory.write", "not.real"],
+            },
+        )
+        assert pair.status_code == 200
+        code = pair.json()["code"]
+        assert "not.real" not in pair.json()["permissions"]
+
+        self_approval = client.post("/api/v1/pairing/approve", json={"code": code})
+        assert self_approval.status_code == 401
+
+        bad_bootstrap = client.post("/__owner/session", headers={"X-HomeServer-Owner": "wrong-token"})
+        assert bad_bootstrap.status_code == 401
+
+        bootstrap = client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN})
+        assert bootstrap.status_code == 200
+        assert client.cookies.get("homeserver_owner")
 
         overview = client.get("/api/v1/control/overview")
         assert overview.status_code == 200
@@ -41,18 +67,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             json={"memory_key": "architecture", "content": "HomeServer is application-neutral.", "importance": 0.9},
         )
         assert memory.status_code == 200
-
-        pair = client.post(
-            "/api/v1/pairing/request",
-            json={
-                "app_key": "vp3-test",
-                "app_name": "VP3 Test",
-                "permissions": ["agent.chat", "knowledge.search", "memory.read", "memory.write", "not.real"],
-            },
-        )
-        assert pair.status_code == 200
-        code = pair.json()["code"]
-        assert "not.real" not in pair.json()["permissions"]
 
         approval = client.post("/api/v1/pairing/approve", json={"code": code})
         assert approval.status_code == 200
