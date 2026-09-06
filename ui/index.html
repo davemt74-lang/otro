@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HomeServer</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#dashboard" aria-label="HomeServer dashboard"><span class="brand-mark"><span></span></span><span>HomeServer</span></a>
+      <div class="server-state"><span class="dot"></span><span>Local server online</span></div>
+      <nav class="nav" aria-label="HomeServer sections">
+        <button class="nav-item active" data-view="dashboard">Overview</button>
+        <button class="nav-item" data-view="agent">My Agent</button>
+        <button class="nav-item" data-view="knowledge">Knowledge</button>
+        <button class="nav-item" data-view="memory">Memory</button>
+        <button class="nav-item" data-view="apps">Connected Apps</button>
+        <button class="nav-item" data-view="activity">Activity</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="privacy-note"><strong>Local-first</strong><span>Your private database stays on this device.</span></div>
+        <a href="/docs" target="_blank" rel="noreferrer">API documentation</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><p class="eyebrow">PRIVATE AI CAPABILITY SERVER</p><h1 id="pageTitle">Overview</h1></div>
+        <div class="top-actions"><span class="version" id="version">v0.2.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
+      </header>
+      <div id="flash" class="flash" role="status" aria-live="polite"></div>
+
+      <section class="view active" id="view-dashboard">
+        <div class="hero-card">
+          <div><span class="pill">HomeServer ready</span><h2 id="heroAgentName">HomeServer Agent</h2><p>Your private agent brain, knowledge, memory and application permissions run from this machine.</p></div>
+          <button class="button primary" data-go="agent">Configure agent</button>
+        </div>
+        <div class="stats-grid">
+          <article class="stat"><span>Knowledge</span><strong id="statKnowledge">0</strong><small>local items</small></article>
+          <article class="stat"><span>Memory</span><strong id="statMemory">0</strong><small>agent memories</small></article>
+          <article class="stat"><span>Apps</span><strong id="statApps">0</strong><small>connected</small></article>
+          <article class="stat"><span>Pairing</span><strong id="statPairing">0</strong><small>pending</small></article>
+        </div>
+        <div class="two-col">
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">RECENT</p><h3>Activity</h3></div><button class="text-button" data-go="activity">View all</button></div><div id="recentActivity" class="list empty-state">No activity yet.</div></article>
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">CONNECTION</p><h3>Connect VP3</h3></div></div><div class="flow"><div><span>1</span><p><strong>Request pairing</strong><small>VP3 requests only the capabilities it needs.</small></p></div><div><span>2</span><p><strong>Approve locally</strong><small>Enter the one-time pairing code here.</small></p></div><div><span>3</span><p><strong>Control permissions</strong><small>Pause, revoke or change access at any time.</small></p></div></div><button class="button secondary full" data-go="apps">Manage connected apps</button></article>
+        </div>
+      </section>
+
+      <section class="view" id="view-agent">
+        <div class="section-intro"><div><h2>Primary agent</h2><p>This identity and instruction set is shared only with applications you explicitly permit.</p></div></div>
+        <form id="agentForm" class="panel form-panel">
+          <label>Agent name<input id="agentName" maxlength="120" required></label>
+          <label>Model<input id="agentModel" maxlength="120" placeholder="Leave blank until a model provider is configured"></label>
+          <label>Instructions<textarea id="agentInstructions" rows="12" maxlength="12000" placeholder="Describe how your HomeServer agent should behave, what it should prioritize, and what it should never do."></textarea></label>
+          <div class="form-actions"><span id="agentUpdated" class="muted"></span><button class="button primary" type="submit">Save agent</button></div>
+        </form>
+      </section>
+
+      <section class="view" id="view-knowledge">
+        <div class="section-intro split"><div><h2>Knowledge</h2><p>Store local notes and knowledge records. File ingestion and semantic indexing come next.</p></div><button class="button primary" id="showKnowledgeForm">Add knowledge</button></div>
+        <form id="knowledgeForm" class="panel compact-form hidden"><div class="form-grid"><label>Title<input id="knowledgeTitle" required maxlength="240"></label><label>Type<select id="knowledgeKind"><option value="note">Note</option><option value="document">Document</option><option value="reference">Reference</option><option value="profile">Profile</option></select></label></div><label>Content<textarea id="knowledgeContent" rows="8" maxlength="250000"></textarea></label><label>Source path <span class="muted">optional metadata only</span><input id="knowledgeSource" maxlength="1000" placeholder="C:\Users\... or another source reference"></label><div class="form-actions"><button class="button secondary" type="button" id="cancelKnowledge">Cancel</button><button class="button primary" type="submit">Save knowledge</button></div></form>
+        <div class="toolbar"><input id="knowledgeSearch" type="search" placeholder="Search local knowledge"><span id="knowledgeCount" class="muted"></span></div><div id="knowledgeList" class="cards-list"></div>
+      </section>
+
+      <section class="view" id="view-memory">
+        <div class="section-intro split"><div><h2>Memory</h2><p>Durable facts and context the primary agent can retain across sessions.</p></div><button class="button primary" id="showMemoryForm">Add memory</button></div>
+        <form id="memoryForm" class="panel compact-form hidden"><div class="form-grid"><label>Memory key<input id="memoryKey" maxlength="160" placeholder="Optional label"></label><label>Importance<input id="memoryImportance" type="number" min="0" max="1" step="0.1" value="0.5"></label></div><label>Memory<textarea id="memoryContent" rows="6" maxlength="50000" required></textarea></label><div class="form-actions"><button class="button secondary" type="button" id="cancelMemory">Cancel</button><button class="button primary" type="submit">Save memory</button></div></form>
+        <div id="memoryList" class="cards-list"></div>
+      </section>
+
+      <section class="view" id="view-apps">
+        <div class="section-intro"><div><h2>Connected apps</h2><p>VP3 and future clients receive independent tokens and explicit capability permissions.</p></div></div>
+        <div class="panel pairing-panel"><div><p class="eyebrow">PAIR APPLICATION</p><h3>Approve a one-time code</h3><p>Enter the code shown by VP3 or another HomeServer-compatible application.</p></div><form id="pairingForm"><input id="pairingCode" placeholder="AB12-CD34" maxlength="32" required><button class="button primary" type="submit">Approve</button></form><div id="pairingToken" class="token-box hidden"></div></div>
+        <div id="pendingPairing" class="pending-list"></div><div id="appsList" class="cards-list"></div>
+      </section>
+
+      <section class="view" id="view-activity">
+        <div class="section-intro"><div><h2>Activity</h2><p>A local audit trail of meaningful HomeServer actions.</p></div></div>
+        <div class="panel table-wrap"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th></tr></thead><tbody id="activityTable"></tbody></table></div>
+      </section>
+    </main>
+  </div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

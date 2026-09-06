@@ -23,8 +23,16 @@ def _serve() -> None:
     uvicorn.run("app.main:app", host=settings.host, port=settings.port, log_level="info")
 
 
+def _open(path: str = "/") -> None:
+    webbrowser.open(f"http://{settings.host}:{settings.port}{path}")
+
+
 def open_control_center(_: pystray.Icon | None = None, __=None) -> None:
-    webbrowser.open(f"http://{settings.host}:{settings.port}/docs")
+    _open("/")
+
+
+def open_api_docs(_: pystray.Icon | None = None, __=None) -> None:
+    _open("/docs")
 
 
 def main() -> None:
@@ -37,6 +45,8 @@ def main() -> None:
         "HomeServer",
         menu=pystray.Menu(
             pystray.MenuItem("Open HomeServer", open_control_center, default=True),
+            pystray.MenuItem("API Docs", open_api_docs),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda icon, item: icon.stop()),
         ),
     )
