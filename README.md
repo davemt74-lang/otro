@@ -2,49 +2,61 @@
 
 HomeServer is a local-first private capability server for personal AI agents and authorized applications such as VP3.
 
-## v0.1 foundation
+The Windows desktop runtime runs a private FastAPI service on `127.0.0.1:4377`, stores durable data in SQLite, and opens a local control center for managing the primary agent, knowledge, memory, application pairing, permissions and activity.
 
-- FastAPI local service bound to `127.0.0.1:4377`
-- SQLite database with WAL mode, foreign keys, schema versioning, agents, memory, knowledge, paired apps, permissions, notifications and activity history
-- One-time application pairing codes
-- SHA-256 hashed pairing codes and bearer tokens at rest
-- Permission-scoped application access
-- Initial VP3-compatible API contract
-- Windows system-tray launcher
-- PyInstaller Windows executable build
-- Windows CI that compiles the code, initializes SQLite and builds `HomeServer.exe`
+## Current v0.2 foundation
 
-## Local development
+- Windows tray application and PyInstaller `HomeServer.exe` build
+- Local control center at `http://127.0.0.1:4377/`
+- SQLite database with WAL mode and foreign keys
+- Primary agent configuration
+- Local knowledge records and search
+- Durable agent memory
+- One-time application pairing
+- Hashed bearer tokens; raw tokens are not stored
+- Per-application capability permissions
+- Pause/revoke controls for connected applications
+- Local activity/audit log
+- VP3 connector contract
+- Windows CI with API/SQLite smoke test and executable build verification
 
-```powershell
+## Data location
+
+By default HomeServer stores its database under:
+
+`~/.homeserver/homeserver.db`
+
+Set `HOMESERVER_DATA_DIR` to use another local directory.
+
+Documents and other large source files should remain on disk. SQLite stores structured records, extracted/indexable content, metadata, permissions and relationships rather than becoming a general file container.
+
+## Run locally
+
+```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.venv\\Scripts\\activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 4377
+python desktop/launcher.py
 ```
 
-Open `http://127.0.0.1:4377/docs` for the current API control surface.
+The tray menu opens the HomeServer control center or API documentation.
 
-HomeServer stores runtime data in `%USERPROFILE%\.homeserver` by default. Set `HOMESERVER_DATA_DIR` to override that location.
+## VP3 integration
 
-## Pairing contract
+VP3 does not read `homeserver.db`. It pairs with HomeServer and uses permission-checked local API endpoints. See [`connectors/vp3/README.md`](connectors/vp3/README.md).
 
-1. An app requests pairing at `POST /api/v1/pairing/request` with an app key, display name and requested permissions.
-2. HomeServer returns a temporary pairing code that expires after ten minutes.
-3. The local owner approves that code at `POST /api/v1/pairing/approve`.
-4. HomeServer returns the raw bearer token once. Only its hash is stored locally.
-5. The paired app uses `Authorization: Bearer <token>` for authorized API calls.
+## Build Windows executable
 
-Initial permissions are `agent.chat`, `knowledge.search`, `memory.read`, `memory.write`, and `notifications.read`.
-
-## Windows build
-
-```powershell
+```bash
 pyinstaller HomeServer.spec --clean --noconfirm
 ```
 
-The resulting executable is created at `dist/HomeServer.exe`.
+Output:
 
-## Architecture
+`dist/HomeServer.exe`
 
-VP3 is an authorized client of HomeServer, not the owner of HomeServer data. The SQLite database and private source files remain under local user control; connected products receive only the capabilities explicitly granted to them.
+## Security model
+
+HomeServer binds to loopback in the desktop runtime. Pairing codes are one-time and expire. Pairing codes and bearer tokens are stored only as SHA-256 hashes. Each connected application receives explicit capabilities that can be changed or revoked by the owner.
+
+The next security phase will add owner-session protection for the local control surface, encrypted secret storage, backup/export encryption and a stronger automated pairing handshake so applications do not require manual token transfer.

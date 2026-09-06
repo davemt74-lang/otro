@@ -16,11 +16,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Python
-        run: python -m compileall app desktop
-      - name: Initialize SQLite
-        shell: pwsh
-        run: |
-          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-test'
-          python -c "from app.database import initialize_database; initialize_database(); print('database initialized')"
+        run: python -m compileall app desktop tests
+      - name: Validate control center JavaScript
+        run: node --check ui/app.js
+      - name: Validate authorization JavaScript
+        run: node --check ui/authorize.js
+      - name: Smoke test API and SQLite
+        run: python tests/smoke.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
+      - name: Verify control center packaged
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist/HomeServer.exe')) { throw 'HomeServer.exe was not built' }

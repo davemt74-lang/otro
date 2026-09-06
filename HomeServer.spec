@@ -8,7 +8,7 @@ a = Analysis(
     ['desktop/launcher.py'],
     pathex=['.'],
     binaries=[],
-    datas=[('database/schema.sql', 'database')],
+    datas=[('database/schema.sql', 'database'), ('ui', 'ui')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
