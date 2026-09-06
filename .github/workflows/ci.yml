@@ -1,0 +1,26 @@
+name: HomeServer CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Python
+        run: python -m compileall app desktop
+      - name: Initialize SQLite
+        shell: pwsh
+        run: |
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-test'
+          python -c "from app.database import initialize_database; initialize_database(); print('database initialized')"
+      - name: Build executable
+        run: pyinstaller HomeServer.spec --clean --noconfirm
