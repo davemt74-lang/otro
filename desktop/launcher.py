@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import threading
 import time
 import urllib.parse
@@ -44,6 +45,10 @@ def open_api_docs(_: pystray.Icon | None = None, __=None) -> None:
 
 
 def main() -> None:
+    if "--headless" in sys.argv:
+        _serve()
+        return
+
     server = threading.Thread(target=_serve, name="homeserver-api", daemon=True)
     server.start()
     time.sleep(0.8)
