@@ -49,7 +49,7 @@
       <div class="notification ${n.read_at?'':'unread'}" data-notification-id="${n.id}"><strong>${esc(n.title)}</strong><p>${esc(n.body || '')}</p><div class="meta"><span class="chip">${esc(n.level)}</span>${n.task_id ? `<span class="chip">Task #${n.task_id}</span>`:''}<span class="chip">${esc(fmt(n.created_at))}</span></div><div class="task-actions">${n.read_at?'':`<button class="button" data-read="${n.id}">Mark read</button>`}<button class="button" data-dismiss="${n.id}">Dismiss</button></div></div>`).join('') : '<div class="empty">No notifications yet.</div>';
   };
   const loadTasks = async () => { const q = $('search').value.trim(); const data = await api(`/api/v1/control/tasks?q=${encodeURIComponent(q)}`); state.tasks = data.items || []; renderTasks(); };
-  const loadNotifications = async () => { const data = await api('/api/v1/control/notifications'); state.notifications = data.items || []; renderNotifications(); };
+  const loadNotifications = async () => { const data = await api('/api/v1/control/task-notifications'); state.notifications = data.items || []; renderNotifications(); };
   const loadAll = async () => { try { await Promise.all([loadTasks(), loadNotifications()]); flash(''); } catch (e) { flash(e.message,'error'); } };
   const resetForm = () => {
     $('taskId').value=''; $('taskFormTitle').textContent='Create task or reminder'; $('title').value=''; $('description').value=''; $('priority').value='normal'; $('status').value='pending'; $('dueAt').value=''; $('remindAt').value=''; $('recurrence').value='none'; $('recurrenceInterval').value='1'; $('contactId').value=''; $('cancelEdit').classList.add('hidden');
