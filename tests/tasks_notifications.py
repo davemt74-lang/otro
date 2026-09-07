@@ -24,6 +24,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-tasks-") as data_dir:
     from app.services.tasks import run_due_reminders, scheduler  # noqa: E402
 
     with TestClient(app) as client:
+        assert scheduler._thread is not None and scheduler._thread.is_alive()
         scheduler.stop()
         assert client.get("/api/v1/health").json()["version"] == "0.13.0"
         assert client.get("/api/v1/status").json()["schema_version"] == 11
