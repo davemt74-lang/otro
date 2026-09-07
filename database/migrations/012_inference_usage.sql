@@ -14,7 +14,7 @@ VALUES
 
 CREATE TABLE IF NOT EXISTS inference_usage_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_id TEXT NOT NULL UNIQUE,
+    event_id TEXT NOT NULL,
     source_app_key TEXT NOT NULL DEFAULT 'owner',
     compute_source TEXT NOT NULL CHECK (compute_source IN ('homeserver_local','user_provider','vp3_cloud')),
     provider_key TEXT NOT NULL DEFAULT '',
@@ -26,11 +26,15 @@ CREATE TABLE IF NOT EXISTS inference_usage_events (
     billable_tokens INTEGER NOT NULL DEFAULT 0 CHECK (billable_tokens >= 0),
     balance_after_tokens INTEGER CHECK (balance_after_tokens IS NULL OR balance_after_tokens >= 0),
     metadata_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source_app_key, event_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_inference_usage_created
 ON inference_usage_events(created_at DESC, id DESC);
 
-CREATE INDEX IF NOT EXISTS idx_inference_usage_source
-ON inference_usage_events(compute_source, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_inference_usage_compute
+ON inference_usage_events(compute_source, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_inference_usage_app
+ON inference_usage_events(source_app_key, created_at DESC, id DESC);
