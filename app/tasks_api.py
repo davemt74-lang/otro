@@ -147,8 +147,8 @@ def control_task_delete(task_id: int) -> dict:
     return {"deleted": True}
 
 
-@router.get("/api/v1/control/notifications")
-def control_notifications_v13(unread_only: bool = False, include_dismissed: bool = False) -> dict:
+@router.get("/api/v1/control/task-notifications")
+def control_task_notifications(unread_only: bool = False, include_dismissed: bool = False) -> dict:
     return {"items": list_notifications(unread_only=unread_only, include_dismissed=include_dismissed, limit=500)}
 
 
