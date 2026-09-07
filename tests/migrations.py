@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
@@ -53,6 +53,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         }
         assert system_settings["first_run_complete"] == "false"
         assert system_settings["first_run_prompted"] == "false"
+        bridge = migrated.execute("SELECT enabled, broker_url FROM remote_bridge_settings WHERE id=1").fetchone()
+        assert bridge is not None
+        assert bridge["enabled"] == 0
+        assert bridge["broker_url"] == ""
+        assert migrated.execute("SELECT COUNT(*) FROM remote_bridge_events").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_chunks").fetchone()[0] >= 1
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_chunks_fts WHERE knowledge_chunks_fts MATCH 'merchant'").fetchone()[0] >= 1
         provider = migrated.execute("SELECT provider_key, enabled FROM model_providers WHERE provider_key='ollama'").fetchone()
@@ -84,12 +89,14 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert versions_again == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0] == 2
+        assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_settings").fetchone()[0] == 1
+        assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_events").fetchone()[0] == 0
 
 print("HomeServer migration upgrade test passed")
