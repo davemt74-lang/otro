@@ -182,8 +182,8 @@ def list_inference_providers() -> list[dict]:
 
 def inference_status() -> dict:
     settings = get_inference_settings()
-    providers = list_inference_providers()
-    ready = {item["provider_key"]: item for item in providers if item.get("ready")}
+    provider_items = list_inference_providers()
+    ready = {item["provider_key"]: item for item in provider_items if item.get("ready")}
     preferred = settings.get("preferred_provider") or "auto"
     selection: dict | None = None
     if preferred != "auto" and preferred in ready:
@@ -200,7 +200,7 @@ def inference_status() -> dict:
         "model": selection.get("model") if selection else None,
         "compute_source": selection.get("compute_source") if selection else None,
         "cloud_fallback_required": selection is None,
-        "providers": providers,
+        "providers": provider_items,
     }
 
 
@@ -531,7 +531,9 @@ def generate_step(
     provider, model = _selected_provider(model_override)
     key = provider["provider_key"]
     if key == "ollama":
-        return _generate_ollama_step(provider, model, messages, tools)
+        # Keep all routed Ollama traffic on the same public seam used by the
+        # existing Agent Brain regressions and downstream integrations.
+        return generate_ollama_step(messages, tools=tools, model_override=model)
     if key == "anthropic":
         return _generate_anthropic_step(provider, model, messages, tools)
     if key in {"openai", "openrouter"}:
@@ -540,7 +542,11 @@ def generate_step(
 
 
 def generate(messages: list[dict[str, Any]], model_override: str | None = None) -> dict:
-    generated = generate_step(messages, model_override=model_override)
+    provider, model = _selected_provider(model_override)
+    if provider["provider_key"] == "ollama":
+        # Preserve the long-standing non-tool Ollama seam as well.
+        return generate_ollama(messages, model_override=model)
+    generated = generate_step(messages, model_override=model)
     if not generated["content"]:
         raise ProviderError("Inference provider returned no final response text.")
     return generated
