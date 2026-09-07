@@ -2,14 +2,17 @@
 
 HomeServer is a local-first private capability server for personal AI agents and explicitly authorized applications such as VP3.
 
-The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in SQLite, and provides owner-controlled agent chat, knowledge, memory, contacts, tasks/reminders, notifications, skills/tools, approvals, pairing, inference routing, token history, backup/restore, setup/diagnostics and an optional outbound Remote Bridge.
+The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in SQLite, and provides owner-controlled agent chat, context retrieval, knowledge, memory, contacts, tasks/reminders, notifications, skills/tools, approvals, pairing, inference routing, token history, backup/restore, setup/diagnostics and an optional outbound Remote Bridge.
 
-## Current v0.15 foundation
+## Current v0.16 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
 - Agent Chat as the primary owner workspace with a ChatGPT-style composer and live conversation sidebar
 - Sidebar keeps New Chat, Approvals, Knowledge, Memory and Contacts visible; secondary workspaces live in the bottom user menu
 - Canonical conversation history with per-chat rename and delete controls
+- Agent Brain Context Engine with relevance-based Memory, Knowledge and Contacts retrieval
+- Per-chat Memory/Knowledge/Contacts controls, context budget and local-only privacy mode
+- Sanitized source attribution/history without exposing source content, filesystem paths, email addresses or phone numbers
 - AGENT BRAIN provider settings for local Ollama plus user-owned Anthropic/Claude, OpenAI and OpenRouter inference
 - ElevenLabs credential storage for voice integration
 - Provider API keys protected with Windows DPAPI outside SQLite; APIs expose only configured state/key suffixes
@@ -18,7 +21,7 @@ The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in
 - Token Usage History with provider/model, input/output/total tokens, VP3 cloud debit and latest reported balance
 - App-scoped usage history and app-scoped idempotency keys
 - Watched local Knowledge Sources with scheduled synchronization and SQLite FTS indexing
-- SQLite WAL database with transactional migrations through schema 13
+- SQLite WAL database with transactional migrations through schema 14
 - Supervised Windows tray runtime with graceful restart/shutdown and single-instance enforcement
 - `%LOCALAPPDATA%\HomeServer\Data` as the installed Windows data location
 - Windows DPAPI protection for owner, Remote Bridge and provider credentials
@@ -29,9 +32,48 @@ The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in
 - Browser-safe claim-token pairing for VP3/future clients
 - Optional outbound-only Remote Bridge and deployable trusted relay
 
+## Agent Brain Context Engine
+
+HomeServer v0.16 makes private context retrieval part of the canonical chat path instead of treating Knowledge, Memory and Contacts as separate databases the user must query manually.
+
+For each chat request HomeServer can retrieve relevant:
+
+- Memory records
+- Knowledge and watched-document results
+- Contacts, when the caller is permitted to read them
+
+Retrieval is relevance-based and bounded. A hard per-conversation character budget prevents large private datasets from being dumped into a model prompt, and the budget can be changed per chat within HomeServer-defined limits.
+
+Each conversation stores independent context controls for:
+
+- Memory on/off
+- Knowledge on/off
+- Contacts on/off
+- cloud providers allowed/on-off
+- maximum retrieved context size
+
+For paired applications, these toggles are never an authorization mechanism. The paired app's current permissions remain the hard ceiling: `memory.read`, `knowledge.search` and `contacts.read` must still be granted before those context classes can be retrieved. If a permission is later revoked, context/source-history responses are filtered against the app's current permissions.
+
+Retrieved private data is explicitly framed as **untrusted factual context**. The system prompt instructs the Agent Brain not to follow commands or instructions embedded inside Memory, documents, notes or contact notes, reducing prompt-injection risk from local content.
+
+Source attribution is intentionally metadata-only. Chat can report the source kind, record ID, title and update timestamp, while retrieval/audit history does not duplicate the underlying private content. Generic paired-app responses do not expose watched-folder paths, contact email addresses or phone numbers through source attribution.
+
+A conversation can also be switched to **Private / local-only** by disabling cloud providers. When that setting is active, HomeServer refuses a hosted user-provider route instead of silently transmitting private context; a configured local Ollama route can continue to serve the conversation.
+
+Agent run and token-usage metadata records context counts and total retrieved size, not the retrieved private text itself.
+
+The capabilities endpoint explicitly advertises:
+
+- `agent.context`
+- `agent.context.budget`
+- `agent.context.sources`
+- `agent.privacy.local_only`
+
+This allows future clients such as VP3 to negotiate Context Engine support without guessing from HomeServer's version number.
+
 ## Local Knowledge Sync
 
-HomeServer v0.15 adds owner-managed watched folders. A watched source points at an existing local directory; HomeServer reads supported documents and maintains canonical `knowledge_items`/FTS rows as files change.
+HomeServer v0.15 added owner-managed watched folders. A watched source points at an existing local directory; HomeServer reads supported documents and maintains canonical `knowledge_items`/FTS rows as files change.
 
 Supported file types:
 
@@ -214,6 +256,8 @@ pyinstaller HomeServer.spec --clean --noconfirm
 ```
 
 Windows CI validates JavaScript syntax, the agent-first shell, schema migrations, Knowledge Sources synchronization/privacy, inference routing/usage isolation, legacy-data bootstrap, single-instance behavior, DPAPI owner protection, recovery mode, Agent/Tools/Approvals/Contacts/Tasks/Backup regressions, Remote Bridge security/protocol, packaged EXE startup/restart/shutdown, packaged relay permissions, staged restore, installer upgrade preservation and distribution hashes.
+
+Context Engine CI separately validates relevance-based Memory/Knowledge/Contacts retrieval, context budgets, source-attribution privacy, prompt-injection framing, local-only hosted-provider refusal, paired-app permission ceilings and the Agent Chat context UI contract.
 
 Knowledge Sync CI separately validates that the Knowledge Sources module is actually loaded by the owner UI and runs the folder-sync regression as a fast integration gate.
 
