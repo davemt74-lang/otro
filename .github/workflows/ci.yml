@@ -164,10 +164,13 @@ jobs:
           $env:HOMESERVER_REMOTE_TEST_PORT = '48765'
           $marker = Join-Path $env:RUNNER_TEMP 'homeserver-remote-marker.json'
           $tokenFile = Join-Path $env:RUNNER_TEMP 'homeserver-remote-token.txt'
+          $progress = Join-Path $env:RUNNER_TEMP 'homeserver-remote-progress.txt'
           Remove-Item $marker -ErrorAction SilentlyContinue
           Remove-Item $tokenFile -ErrorAction SilentlyContinue
+          Remove-Item $progress -ErrorAction SilentlyContinue
           $env:HOMESERVER_REMOTE_MARKER = $marker
           $env:HOMESERVER_REMOTE_TOKEN_FILE = $tokenFile
+          $env:HOMESERVER_REMOTE_PROGRESS = $progress
           python tests/remote_packaged_setup.py
           if ($LASTEXITCODE -ne 0) { throw 'Could not configure the packaged remote bridge fixture' }
           $broker = Start-Process -FilePath 'python' -ArgumentList 'tests/mock_remote_broker.py' -PassThru
@@ -181,12 +184,20 @@ jobs:
               $process.Refresh()
               if ($process.HasExited) { throw "HomeServer.exe exited during remote bridge smoke with code $($process.ExitCode)" }
               $broker.Refresh()
-              if ($broker.HasExited) { throw "Mock broker exited before exchange with code $($broker.ExitCode)" }
+              if ($broker.HasExited) {
+                $stage = if (Test-Path $progress) { (Get-Content $progress -Raw).Trim() } else { 'unknown' }
+                throw "Mock broker exited before exchange with code $($broker.ExitCode) at stage $stage"
+              }
             }
-            if (-not $completed) { throw 'Packaged HomeServer did not complete the outbound relay exchange' }
-            $result = Get-Content $marker -Raw | ConvertFrom-Json
+            if (-not $completed) {
+              $stage = if (Test-Path $progress) { (Get-Content $progress -Raw).Trim() } else { 'unknown' }
+              throw "Packaged HomeServer did not complete the outbound relay exchange; broker stage: $stage"
+            }
+            $rawResult = Get-Content $marker -Raw
+            Write-Host "Remote bridge result: $rawResult"
+            $result = $rawResult | ConvertFrom-Json
             if ($result.ok -ne $true -or $result.response_status -ne 200 -or $result.allowed_status -ne 200 -or $result.denied_status -ne 403) {
-              throw 'Packaged remote bridge permission marker was invalid'
+              throw "Packaged remote bridge permission marker was invalid at stage $($result.stage)"
             }
           } finally {
             $process.Refresh()
@@ -195,6 +206,7 @@ jobs:
             if (-not $broker.HasExited) { & taskkill.exe /PID $broker.Id /T /F | Out-Null }
             Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
             Remove-Item $tokenFile -ErrorAction SilentlyContinue
+            Remove-Item $progress -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 750
           }
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
