@@ -41,7 +41,7 @@ def _default_data_dir() -> Path:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "HomeServer"
-    version: str = "0.11.0"
+    version: str = "0.12.0"
     host: str = "127.0.0.1"
     port: int = 4377
     data_dir: Path = field(default_factory=_default_data_dir)
@@ -49,6 +49,7 @@ class Settings:
     max_backup_upload_bytes: int = 512 * 1024 * 1024
     max_backup_uncompressed_bytes: int = 2 * 1024 * 1024 * 1024
     max_backup_entries: int = 10000
+    max_remote_bridge_message_bytes: int = 256 * 1024
     allowed_origins: tuple[str, ...] = field(default_factory=_allowed_origins)
 
     @property
@@ -78,6 +79,10 @@ class Settings:
     @property
     def owner_secret_path(self) -> Path:
         return self.data_dir / "security" / "owner-bootstrap.dat"
+
+    @property
+    def remote_bridge_secret_path(self) -> Path:
+        return self.data_dir / "security" / "remote-bridge.dat"
 
     @property
     def bootstrap_state_path(self) -> Path:
