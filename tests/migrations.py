@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     connection.commit()
     connection.close()
 
-    # Build an authentic schema-10 database first so migrations 11 through 13
+    # Build an authentic schema-10 database first so migrations 11 through 14
     # are tested as upgrades rather than only as a fresh install.
     for version, path in migration_files():
         if version >= 11:
@@ -62,11 +62,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 14))
+        assert versions == list(range(1, 15))
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
-        assert "tool_call_count" in agent_run_columns
+        assert {"tool_call_count", "contact_count", "context_chars"}.issubset(agent_run_columns)
         agent_policy_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_tool_policy)").fetchall()}
         assert "allow_write_proposals" in agent_policy_columns
         contact_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(contacts)").fetchall()}
@@ -97,8 +97,20 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "source_id", "relative_path", "knowledge_item_id", "content_hash", "size_bytes",
             "modified_ns", "status", "last_error", "last_seen_scan"
         }.issubset(source_file_columns)
+        context_setting_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(conversation_context_settings)").fetchall()}
+        assert {
+            "conversation_id", "include_memory", "include_knowledge", "include_contacts",
+            "cloud_allowed", "max_context_chars", "updated_at"
+        }.issubset(context_setting_columns)
+        context_event_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(context_retrieval_events)").fetchall()}
+        assert {
+            "conversation_id", "source_app_key", "memory_count", "knowledge_count",
+            "contact_count", "context_chars", "source_refs_json", "created_at"
+        }.issubset(context_event_columns)
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_sources").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_source_files").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM conversation_context_settings").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM context_retrieval_events").fetchone()[0] == 0
         source_delete_trigger = migrated.execute(
             "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='knowledge_source_item_before_delete'"
         ).fetchone()
@@ -186,7 +198,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 14))
+        assert versions_again == list(range(1, 15))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
@@ -201,6 +213,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated_again.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM knowledge_sources").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM knowledge_source_files").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM conversation_context_settings").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM context_retrieval_events").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0] == 2
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_events").fetchone()[0] == 0
