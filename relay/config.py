@@ -34,6 +34,8 @@ class RelaySettings:
     request_timeout_seconds: int
     max_message_bytes: int
     max_devices: int
+    unclaimed_device_ttl_hours: int
+    event_retention_days: int
 
 
 def load_settings() -> RelaySettings:
@@ -56,6 +58,12 @@ def load_settings() -> RelaySettings:
             "HOMESERVER_RELAY_MAX_MESSAGE_BYTES", 262_144, 16_384, 1_048_576
         ),
         max_devices=_bounded_int("HOMESERVER_RELAY_MAX_DEVICES", 10_000, 1, 1_000_000),
+        unclaimed_device_ttl_hours=_bounded_int(
+            "HOMESERVER_RELAY_UNCLAIMED_TTL_HOURS", 24, 1, 168
+        ),
+        event_retention_days=_bounded_int(
+            "HOMESERVER_RELAY_EVENT_RETENTION_DAYS", 30, 1, 365
+        ),
     )
 
 
