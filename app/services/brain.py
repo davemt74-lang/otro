@@ -162,6 +162,7 @@ def _generate_with_agent_tools(
     selected_model: str,
     granted_permissions: set[str],
     owner: bool,
+    state: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     policy = agent_tools.get_policy()
     schemas = (
@@ -169,13 +170,17 @@ def _generate_with_agent_tools(
         if policy["enabled"]
         else []
     )
-    tool_state = {
-        "policy_enabled": bool(policy["enabled"]),
-        "available": bool(schemas),
-        "max_calls": int(policy["max_calls"]),
-        "call_count": 0,
-        "run_ids": [],
-    }
+    tool_state = state if state is not None else {}
+    tool_state.clear()
+    tool_state.update(
+        {
+            "policy_enabled": bool(policy["enabled"]),
+            "available": bool(schemas),
+            "max_calls": int(policy["max_calls"]),
+            "call_count": 0,
+            "run_ids": [],
+        }
+    )
 
     if not schemas:
         generated = providers.generate_ollama(messages, model_override=selected_model or None)
@@ -323,6 +328,7 @@ def chat(
             selected_model=selected_model,
             granted_permissions=set(tool_permissions or set()),
             owner=owner_tools,
+            state=tool_state,
         )
     except providers.ProviderError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
