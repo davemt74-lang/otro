@@ -128,12 +128,21 @@ with tempfile.TemporaryDirectory(prefix="homeserver-context-") as data_dir:
     assert private_bundle.context_chars <= 2000
 
     original_status = providers.inference_status
+    original_generate_ollama = providers.generate_ollama
     providers.inference_status = lambda: {
         "available": True,
         "selected_provider": "openai",
-        "model": "test-model",
+        "model": "test-hosted-model",
         "compute_source": "user_provider",
         "cloud_fallback_required": False,
+        "providers": [
+            {
+                "provider_key": "openai",
+                "model": "test-hosted-model",
+                "compute_source": "user_provider",
+                "ready": True,
+            }
+        ],
     }
     try:
         try:
@@ -145,12 +154,65 @@ with tempfile.TemporaryDirectory(prefix="homeserver-context-") as data_dir:
                 include_knowledge=False,
                 include_contacts=False,
             )
-            raise AssertionError("Private conversation unexpectedly allowed a hosted provider")
+            raise AssertionError("Private conversation unexpectedly allowed a hosted provider without local inference")
         except brain.BrainError as exc:
             assert exc.status_code == 409
             assert "Private" in str(exc)
     finally:
         providers.inference_status = original_status
+
+    captured_local: dict = {}
+
+    def fake_local_generate(messages, model_override=None):
+        captured_local["model"] = model_override
+        return {
+            "provider": "ollama",
+            "model": model_override or "local-private-model",
+            "content": "Private local answer.",
+            "usage": {"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+        }
+
+    providers.inference_status = lambda: {
+        "available": True,
+        "preferred_provider": "openai",
+        "selected_provider": "openai",
+        "model": "test-hosted-model",
+        "compute_source": "user_provider",
+        "cloud_fallback_required": False,
+        "providers": [
+            {
+                "provider_key": "ollama",
+                "model": "local-private-model",
+                "compute_source": "homeserver_local",
+                "ready": True,
+            },
+            {
+                "provider_key": "openai",
+                "model": "test-hosted-model",
+                "compute_source": "user_provider",
+                "ready": True,
+            },
+        ],
+    }
+    providers.generate_ollama = fake_local_generate
+    try:
+        local_private = context_chat.chat(
+            "owner",
+            "Use local private inference",
+            context_options={"cloud_allowed": False},
+            include_memory=False,
+            include_knowledge=False,
+            include_contacts=False,
+        )
+        assert local_private["provider"] == "ollama"
+        assert local_private["model"] == "local-private-model"
+        assert local_private["compute_source"] == "homeserver_local"
+        assert local_private["cloud_tokens_debited"] == 0
+        assert local_private["context"]["settings"]["cloud_allowed"] is False
+        assert captured_local["model"] == "local-private-model"
+    finally:
+        providers.inference_status = original_status
+        providers.generate_ollama = original_generate_ollama
 
     with db() as connection:
         run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_runs)").fetchall()}
