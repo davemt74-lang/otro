@@ -36,6 +36,7 @@ from PIL import Image, ImageDraw  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
 from app.services import backups  # noqa: E402
+from app.services.restore_runtime import apply_pending_restore_for_startup  # noqa: E402
 from app.services.runtime_control import register_runtime_handler  # noqa: E402
 from app.services.windows_integration import open_folder  # noqa: E402
 from desktop.single_instance import SingleInstance  # noqa: E402
@@ -81,10 +82,11 @@ def _wait_until_listening() -> dict | None:
 
 def _apply_staged_restore_before_server() -> None:
     try:
-        backups.apply_pending_restore()
+        apply_pending_restore_for_startup()
     except backups.BackupError:
-        # The service rolls back old data, clears the bad stage and records the
-        # failure. Continue so the owner can inspect it instead of restart-looping.
+        # The restore layer either rolls normal state back or leaves unreadable
+        # live data quarantined/recoverable. Continue into normal preflight so a
+        # restricted recovery server can start instead of restart-looping.
         pass
 
 
