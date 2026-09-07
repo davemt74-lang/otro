@@ -1,0 +1,58 @@
+name: HomeServer Relay CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install relay dependencies
+        run: pip install -r relay/requirements.txt
+      - name: Compile relay and relay tests
+        run: python -m compileall relay tests/relay_process.py
+      - name: Validate VP3 remote connector JavaScript
+        run: node --check connectors/vp3/remote-client.js
+      - name: Run deployable relay process regression
+        run: python tests/relay_process.py
+      - name: Build relay container
+        run: docker build -f relay/Dockerfile -t homeserver-relay:test .
+      - name: Smoke test relay container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name homeserver-relay-ci -p 18080:8080 \
+            -e HOMESERVER_RELAY_ALLOWED_ORIGINS=https://vp3.me \
+            homeserver-relay:test
+          cleanup() {
+            docker logs homeserver-relay-ci || true
+            docker rm -f homeserver-relay-ci >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          healthy=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:18080/health > /tmp/relay-health.json; then
+              healthy=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$healthy" -ne 1 ]; then
+            echo 'Relay container did not become healthy'
+            exit 1
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path('/tmp/relay-health.json').read_text())
+          assert payload['ok'] is True
+          assert payload['protocol'] == 'homeserver-relay-v1'
+          assert payload['end_to_end_payload_encryption'] is False
+          print('Relay container health test passed')
+          PY
