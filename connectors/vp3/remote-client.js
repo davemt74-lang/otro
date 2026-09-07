@@ -31,7 +31,13 @@
         if (!this.relayToken) throw new Error('This HomeServer has not been claimed through the relay.');
         headers.Authorization = `Bearer ${this.relayToken}`;
       }
-      const response = await fetch(`${this.relayBaseUrl}${path}`, {mode:'cors', credentials:'omit', cache:'no-store', ...options, headers});
+      const response = await fetch(`${this.relayBaseUrl}${path}`, {
+        mode:'cors',
+        credentials:'omit',
+        cache:'no-store',
+        ...options,
+        headers,
+      });
       let data = {};
       try { data = await response.json(); } catch (_) {}
       if (!response.ok) {
@@ -48,17 +54,22 @@
     setHomeServerToken(token) { this.homeServerToken = token || null; return this; }
     clearRelayToken() { this.relayToken = null; }
     clearHomeServerToken() { this.homeServerToken = null; }
+
     health() { return this._relay('/health', {}, false); }
 
     async claimHomeServer(claimCode) {
       if (!claimCode) throw new Error('HomeServer relay claim code is required.');
-      const result = await this._relay('/v1/claim', {method:'POST', body:JSON.stringify({claim_code:String(claimCode)})}, false);
+      const result = await this._relay('/v1/claim', {
+        method:'POST',
+        body:JSON.stringify({claim_code:String(claimCode)}),
+      }, false);
       if (!result.relay_token || !result.device_id) throw new Error('Relay returned an invalid claim response.');
       this.relayToken = result.relay_token;
       return result;
     }
 
     session() { return this._relay('/v1/session'); }
+
     async rotateRelaySession() {
       const result = await this._relay('/v1/session/rotate', {method:'POST'});
       if (!result.relay_token) throw new Error('Relay did not return a replacement session token.');
@@ -70,21 +81,44 @@
       const op = String(operation || '');
       if (!op) throw new Error('Remote HomeServer operation is required.');
       const isPublic = PUBLIC_OPERATIONS.has(op);
-      if (!isPublic && !this.homeServerToken) throw new Error('HomeServer is not paired for protected remote capabilities.');
-      const result = await this._relay('/v1/request', {method:'POST', body:JSON.stringify({operation:op, payload:payload || {}, bearer_token:isPublic ? null : this.homeServerToken})});
+      if (!isPublic && !this.homeServerToken) {
+        throw new Error('HomeServer is not paired for protected remote capabilities.');
+      }
+      const result = await this._relay('/v1/request', {
+        method:'POST',
+        body:JSON.stringify({
+          operation:op,
+          payload:payload || {},
+          bearer_token:isPublic ? null : this.homeServerToken,
+        }),
+      });
       return result.payload || {};
     }
 
     capabilities() { return this.request('capabilities'); }
+
     async requestPairing(permissions = DEFAULT_PERMISSIONS) {
-      const pairing = await this.request('pair.request', {app_key:this.appKey, app_name:this.appName, permissions});
-      if (!pairing.request_id || !pairing.claim_token || !pairing.code) throw new Error('HomeServer returned an unsupported remote pairing response.');
+      const pairing = await this.request('pair.request', {
+        app_key:this.appKey,
+        app_name:this.appName,
+        permissions,
+      });
+      if (!pairing.request_id || !pairing.claim_token || !pairing.code) {
+        throw new Error('HomeServer returned an unsupported remote pairing response.');
+      }
       return pairing;
     }
+
     pairingStatus(pairing) {
-      if (!pairing?.request_id || !pairing?.claim_token) throw new Error('Pairing request_id and claim_token are required.');
-      return this.request('pair.status', {request_id:pairing.request_id, claim_token:pairing.claim_token});
+      if (!pairing?.request_id || !pairing?.claim_token) {
+        throw new Error('Pairing request_id and claim_token are required.');
+      }
+      return this.request('pair.status', {
+        request_id:pairing.request_id,
+        claim_token:pairing.claim_token,
+      });
     }
+
     async waitForApproval(pairing, options = {}) {
       const intervalMs = Math.max(500, Number(options.intervalMs || 1500));
       const timeoutMs = Math.max(intervalMs, Number(options.timeoutMs || 10 * 60 * 1000));
@@ -92,13 +126,17 @@
       while (Date.now() - started < timeoutMs) {
         const status = await this.pairingStatus(pairing);
         if (typeof options.onStatus === 'function') options.onStatus(status);
-        if (status.ready) { this.homeServerToken = pairing.claim_token; return status; }
+        if (status.ready) {
+          this.homeServerToken = pairing.claim_token;
+          return status;
+        }
         if (status.status === 'expired') throw new Error('HomeServer pairing request expired. Start pairing again.');
         if (status.status === 'denied') throw new Error('HomeServer pairing request was denied.');
         await new Promise(resolve => setTimeout(resolve, intervalMs));
       }
       throw new Error('HomeServer remote pairing approval timed out.');
     }
+
     async pair(permissions = DEFAULT_PERMISSIONS, options = {}) {
       const pairing = await this.requestPairing(permissions);
       if (typeof options.onCode === 'function') options.onCode(pairing.code, pairing);
@@ -106,29 +144,56 @@
       return {pairing, status, homeServerToken:this.homeServerToken};
     }
 
-    chat(message, conversationId = null) { return this.request('chat', {message, conversation_id:conversationId}); }
-    conversations(limit = 50) { return this.request('conversations.list', {limit:Math.max(1, Math.min(100, Number(limit || 50)))}); }
-    conversation(conversationId) { if (!conversationId) throw new Error('conversationId is required.'); return this.request('conversation.get', {conversation_id:Number(conversationId)}); }
+    chat(message, conversationId = null) {
+      return this.request('chat', {message, conversation_id:conversationId});
+    }
+    conversations(limit = 50) {
+      return this.request('conversations.list', {limit:Math.max(1, Math.min(100, Number(limit || 50)))});
+    }
+    conversation(conversationId) {
+      if (!conversationId) throw new Error('conversationId is required.');
+      return this.request('conversation.get', {conversation_id:Number(conversationId)});
+    }
     contacts(query = '') { return this.request('contacts.search', {query:String(query)}); }
     searchKnowledge(query = '') { return this.request('knowledge.search', {query:String(query)}); }
     memory() { return this.request('memory.read'); }
-    writeMemory(content, options = {}) { return this.request('memory.write', {content, memory_key:options.memoryKey || null, importance:options.importance ?? 0.5, agent_id:options.agentId || null}); }
+    writeMemory(content, options = {}) {
+      return this.request('memory.write', {
+        content,
+        memory_key:options.memoryKey || null,
+        importance:options.importance ?? 0.5,
+        agent_id:options.agentId || null,
+      });
+    }
     tools() { return this.request('tools.list'); }
     skills() { return this.request('skills.list'); }
-    executeTool(toolKey, args = {}) { if (!toolKey) throw new Error('toolKey is required.'); return this.request('tool.execute', {tool_key:toolKey, arguments:args}); }
+    executeTool(toolKey, args = {}) {
+      if (!toolKey) throw new Error('toolKey is required.');
+      return this.request('tool.execute', {tool_key:toolKey, arguments:args});
+    }
     async tasks(options = {}) {
-      const result = await this.executeTool('tasks.list', {status:options.status || null, query:options.query || '', limit:options.limit || 50});
+      const result = await this.executeTool('tasks.list', {
+        status:options.status || null,
+        query:options.query || '',
+        limit:options.limit || 50,
+      });
       return result.result || result;
     }
     async notifications(unreadOnly = false, limit = 50) {
-      const result = await this.executeTool('notifications.list', {unread_only:Boolean(unreadOnly), limit});
+      const result = await this.executeTool('notifications.list', {
+        unread_only:Boolean(unreadOnly),
+        limit,
+      });
       return result.result || result;
     }
     async createTask(task) {
       const result = await this.executeTool('tasks.create', task || {});
       return result.result || result;
     }
-    actionRequest(requestId) { if (!requestId) throw new Error('requestId is required.'); return this.request('action.status', {request_id:requestId}); }
+    actionRequest(requestId) {
+      if (!requestId) throw new Error('requestId is required.');
+      return this.request('action.status', {request_id:requestId});
+    }
   }
 
   VP3HomeServerRemoteConnector.DEFAULT_PERMISSIONS = [...DEFAULT_PERMISSIONS];
