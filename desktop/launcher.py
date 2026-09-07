@@ -17,8 +17,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from desktop.bootstrap import prepare_data_directory  # noqa: E402
+from desktop.bootstrap import ensure_loopback_proxy_bypass, prepare_data_directory  # noqa: E402
 
+# HomeServer's API is loopback-only. Ambient machine/user proxy settings must
+# never intercept its own health checks or permission-enforced local dispatch.
+ensure_loopback_proxy_bypass()
 BOOTSTRAP_STATE = prepare_data_directory()
 
 import json  # noqa: E402
@@ -36,6 +39,7 @@ from PIL import Image, ImageDraw  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
 from app.services import backups  # noqa: E402
+from app.services.remote_bridge import RemoteBridgeWorker  # noqa: E402
 from app.services.restore_runtime import apply_pending_restore_for_startup  # noqa: E402
 from app.services.runtime_control import register_runtime_handler  # noqa: E402
 from app.services.windows_integration import open_folder  # noqa: E402
@@ -136,6 +140,7 @@ class RuntimeController:
         self.server = uvicorn.Server(self.config)
         self.thread: threading.Thread | None = None
         self.tray: pystray.Icon | None = None
+        self.remote_bridge = None if recovery_mode else RemoteBridgeWorker()
         self.restart_requested = False
         self.shutdown_requested = False
         self._command_lock = threading.Lock()
@@ -147,6 +152,14 @@ class RuntimeController:
     def start_threaded(self) -> None:
         self.thread = threading.Thread(target=self._run_server, name="homeserver-api", daemon=False)
         self.thread.start()
+
+    def start_remote_bridge(self) -> None:
+        if self.remote_bridge is not None:
+            self.remote_bridge.start()
+
+    def stop_remote_bridge(self) -> None:
+        if self.remote_bridge is not None:
+            self.remote_bridge.stop()
 
     def stop_server(self) -> None:
         self.server.should_exit = True
@@ -181,9 +194,11 @@ class RuntimeController:
 
     def run_headless(self) -> None:
         register_runtime_handler(self.handle_command)
+        self.start_remote_bridge()
         try:
             self.server.run()
         finally:
+            self.stop_remote_bridge()
             register_runtime_handler(None)
 
     def open_control_center(self, _icon=None, _item=None) -> None:
@@ -191,6 +206,9 @@ class RuntimeController:
 
     def open_system(self, _icon=None, _item=None) -> None:
         _open(_recovery_path() if self.recovery_mode else _authorized_path("/system"))
+
+    def open_remote_bridge(self, _icon=None, _item=None) -> None:
+        _open(_recovery_path() if self.recovery_mode else _authorized_path("/remote"))
 
     def open_api_docs(self, _icon=None, _item=None) -> None:
         if self.recovery_mode:
@@ -223,6 +241,7 @@ class RuntimeController:
             self.stop_server()
             raise SystemExit(EXIT_SERVER_NOT_READY)
 
+        self.start_remote_bridge()
         register_runtime_handler(self.handle_command)
         try:
             self.tray = pystray.Icon(
@@ -232,6 +251,7 @@ class RuntimeController:
                 menu=pystray.Menu(
                     pystray.MenuItem("Open HomeServer", self.open_control_center, default=True),
                     pystray.MenuItem("Setup & Diagnostics", self.open_system),
+                    pystray.MenuItem("Remote Bridge", self.open_remote_bridge, enabled=not self.recovery_mode),
                     pystray.MenuItem("Open Data Folder", self.open_data_folder),
                     pystray.MenuItem("Create Backup", self.create_backup, enabled=not self.recovery_mode),
                     pystray.MenuItem("API Docs", self.open_api_docs, enabled=not self.recovery_mode),
@@ -255,6 +275,7 @@ class RuntimeController:
             self.tray.run()
         finally:
             register_runtime_handler(None)
+            self.stop_remote_bridge()
             self.stop_server()
 
 

@@ -10,6 +10,7 @@ from .brain_api import router as brain_router
 from .contacts_api import router as contacts_router
 from .config import settings
 from .main import app
+from .remote_bridge_api import router as remote_bridge_router
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tools_api import router as tools_router
@@ -26,6 +27,7 @@ app.include_router(approvals_router)
 app.include_router(contacts_router)
 app.include_router(backups_router)
 app.include_router(system_router)
+app.include_router(remote_bridge_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -55,6 +57,7 @@ def capabilities() -> dict:
             "memory.read",
             "memory.write",
             "ollama.local",
+            "remote.bridge.v1",
             "skills",
             "tools.execute",
             "owner.control",

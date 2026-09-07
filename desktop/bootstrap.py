@@ -8,6 +8,35 @@ from pathlib import Path
 from typing import MutableMapping
 
 
+_LOOPBACK_PROXY_BYPASS = ("127.0.0.1", "localhost", "::1")
+
+
+def ensure_loopback_proxy_bypass(environ: MutableMapping[str, str] | None = None) -> str:
+    """Keep HomeServer's loopback traffic out of ambient HTTP/WebSocket proxies."""
+    env = environ if environ is not None else os.environ
+    values: list[str] = []
+    seen: set[str] = set()
+
+    for key in ("NO_PROXY", "no_proxy"):
+        for raw in str(env.get(key) or "").split(","):
+            value = raw.strip()
+            normalized = value.lower()
+            if value and normalized not in seen:
+                values.append(value)
+                seen.add(normalized)
+
+    for value in _LOOPBACK_PROXY_BYPASS:
+        normalized = value.lower()
+        if normalized not in seen:
+            values.append(value)
+            seen.add(normalized)
+
+    merged = ",".join(values)
+    env["NO_PROXY"] = merged
+    env["no_proxy"] = merged
+    return merged
+
+
 def preferred_windows_data_dir(local_app_data: str | Path | None = None) -> Path:
     if local_app_data is None:
         local_app_data = os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
