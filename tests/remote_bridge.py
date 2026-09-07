@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
     from app.services import remote_bridge  # noqa: E402
     from app.services.remote_identity import load_or_create_remote_identity, remote_identity_metadata  # noqa: E402
 
-    assert settings.version == "0.16.0"
+    assert settings.version == "0.17.0"
     assert remote_bridge.normalize_broker_url("wss://bridge.example.test/homeserver") == "wss://bridge.example.test/homeserver"
     assert remote_bridge.normalize_broker_url("ws://127.0.0.1:8765/bridge") == "ws://127.0.0.1:8765/bridge"
     for invalid in (
@@ -103,6 +103,55 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
         assert calls[-1]["path"] == "/api/v1/chat"
         assert calls[-1]["headers"]["Authorization"] == f"Bearer {token}"
 
+        conversation_id = "550e8400-e29b-41d4-a716-446655440000"
+        conversation = remote_bridge.dispatch_remote_request(
+            "conversation.get", {"conversation_id": conversation_id}, token
+        )
+        assert conversation["ok"] is True
+        assert calls[-1]["path"] == f"/api/v1/conversations/{conversation_id}"
+
+        inference = remote_bridge.dispatch_remote_request("inference.status", {}, token)
+        assert inference["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/inference/status"
+
+        emitted = remote_bridge.dispatch_remote_request(
+            "events.emit",
+            {"event_id": "remote-event-1", "event_type": "campaign.claimed", "summary": "Claimed"},
+            token,
+        )
+        assert emitted["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/events"
+        assert calls[-1]["method"] == "POST"
+
+        events = remote_bridge.dispatch_remote_request(
+            "events.list", {"limit": 25, "event_type": "campaign.claimed"}, token
+        )
+        assert events["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/events"
+        assert calls[-1]["params"] == {"limit": 25, "event_type": "campaign.claimed"}
+
+        awareness = remote_bridge.dispatch_remote_request("awareness.list", {"limit": 12}, token)
+        assert awareness["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/awareness"
+        assert calls[-1]["params"] == {"limit": 12}
+
+        plugin_list = remote_bridge.dispatch_remote_request("plugins.list", {}, token)
+        assert plugin_list["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/plugins"
+
+        usage_write = remote_bridge.dispatch_remote_request(
+            "usage.cloud",
+            {"event_id": "charge-1", "billable_tokens": 20, "total_tokens": 10},
+            token,
+        )
+        assert usage_write["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/usage/cloud"
+
+        usage_read = remote_bridge.dispatch_remote_request("usage.read", {"limit": 40}, token)
+        assert usage_read["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/usage"
+        assert calls[-1]["params"] == {"limit": 40}
+
         tool = remote_bridge.dispatch_remote_request(
             "tool.execute",
             {"tool_key": "knowledge.search", "arguments": {"query": "synthetic query"}},
@@ -115,6 +164,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
             ("owner.control", {}),
             ("http.proxy", {"url": "http://127.0.0.1:4377/api/v1/control/system"}),
             ("conversation.get", {"conversation_id": "../../system"}),
+            ("events.list", {"event_type": "../../control"}),
+            ("awareness.list", {"limit": 1000}),
             ("tool.execute", {"tool_key": "../../control", "arguments": {}}),
         ):
             try:
