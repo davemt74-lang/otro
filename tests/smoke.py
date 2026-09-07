@@ -39,23 +39,30 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         scheduler.stop()
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.13.0"
+        assert health.json()["version"] == "0.14.0"
 
         capabilities = client.get("/api/v1/capabilities", headers={"Origin": "https://vp3.me"})
         assert capabilities.status_code == 200
         capability_json = capabilities.json()
         assert capability_json["pairing_protocol"] == "claim-v1"
+        assert capability_json["inference"]["available"] is False
+        assert capability_json["inference"]["cloud_fallback_required"] is True
         for feature in (
             "action.approvals",
             "agent.chat",
             "agent.tools.read",
             "contacts.read",
+            "inference.routing",
+            "inference.status",
             "notifications.read",
+            "provider.credentials",
             "skills",
             "tasks.read",
             "tasks.write",
             "tasks.reminders",
             "tools.execute",
+            "usage.history",
+            "usage.sync",
         ):
             assert feature in capability_json["features"]
         for permission in (
@@ -64,6 +71,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "tasks.read",
             "tasks.write",
             "tools.execute",
+            "usage.read",
+            "usage.write",
         ):
             assert permission in capability_json["permissions"]
         assert capabilities.headers.get("access-control-allow-origin") == "https://vp3.me"
@@ -89,7 +98,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 11
+        assert status.json()["schema_version"] == 12
 
         assert client.get("/api/v1/control/overview").status_code == 401
         assert client.get("/api/v1/control/tasks").status_code == 401
@@ -143,6 +152,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         )
         assert provider.status_code == 200
         assert provider.json()["provider"]["enabled"] is True
+        inference = client.get("/api/v1/control/inference")
+        assert inference.status_code == 200
+        assert inference.json()["selected_provider"] == "ollama"
+        assert inference.json()["compute_source"] == "homeserver_local"
+        assert inference.json()["cloud_fallback_required"] is False
 
         agent = client.put(
             "/api/v1/control/agent",
@@ -253,6 +267,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         owner_chat_json = owner_chat.json()
         owner_conversation_id = owner_chat_json["conversation_id"]
         assert owner_chat_json["reply"] == "Local HomeServer answer."
+        assert owner_chat_json["compute_source"] == "homeserver_local"
+        assert owner_chat_json["cloud_tokens_debited"] == 0
         assert owner_chat_json["context"]["memory_count"] >= 1
         assert owner_chat_json["context"]["knowledge_count"] >= 1
         assert owner_chat_json["tools"]["policy_enabled"] is False
