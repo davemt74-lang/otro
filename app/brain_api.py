@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import agent_tools, brain, providers
+from .services import agent_tools, brain, provider_secrets, providers
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -14,10 +14,22 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = Field(default=None, max_length=64)
 
 
+class ConversationRename(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+
+
 class ProviderUpdate(BaseModel):
     base_url: str = Field(min_length=8, max_length=300)
     model: str = Field(default="", max_length=160)
     enabled: bool = False
+
+
+class ProviderCredentialUpdate(BaseModel):
+    anthropic: str | None = Field(default=None, max_length=4000)
+    openai: str | None = Field(default=None, max_length=4000)
+    openrouter: str | None = Field(default=None, max_length=4000)
+    elevenlabs: str | None = Field(default=None, max_length=4000)
+    clear: list[str] = Field(default_factory=list, max_length=4)
 
 
 class AgentToolPolicyUpdate(BaseModel):
@@ -115,6 +127,14 @@ def control_conversation(conversation_id: str) -> dict:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+@router.patch("/api/v1/control/conversations/{conversation_id}")
+def control_conversation_rename(conversation_id: str, payload: ConversationRename) -> dict:
+    try:
+        return {"conversation": brain.rename_conversation("owner", conversation_id, payload.title)}
+    except brain.BrainError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @router.delete("/api/v1/control/conversations/{conversation_id}")
 def control_conversation_delete(conversation_id: str) -> dict:
     if not brain.delete_conversation("owner", conversation_id):
@@ -145,6 +165,30 @@ def control_provider_test(payload: ProviderUpdate) -> dict:
         return providers.discover_ollama_models(payload.base_url)
     except providers.ProviderError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/v1/control/provider-credentials")
+def control_provider_credentials() -> dict:
+    try:
+        return provider_secrets.credential_status()
+    except provider_secrets.ProviderSecretError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.put("/api/v1/control/provider-credentials")
+def control_provider_credentials_update(payload: ProviderCredentialUpdate) -> dict:
+    try:
+        return provider_secrets.save_credentials(
+            {
+                "anthropic": payload.anthropic,
+                "openai": payload.openai,
+                "openrouter": payload.openrouter,
+                "elevenlabs": payload.elevenlabs,
+            },
+            clear=payload.clear,
+        )
+    except provider_secrets.ProviderSecretError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/api/v1/control/agent-tools")
