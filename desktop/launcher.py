@@ -4,8 +4,6 @@ import os
 import sys
 from pathlib import Path
 
-# PyInstaller's Windows no-console bootloader sets standard streams to None.
-# Restore harmless sinks before importing Uvicorn or other console-aware libraries.
 if sys.stdin is None:
     sys.stdin = open(os.devnull, "r", encoding="utf-8")
 if sys.stdout is None:
@@ -19,8 +17,6 @@ if str(ROOT_DIR) not in sys.path:
 
 from desktop.bootstrap import ensure_loopback_proxy_bypass, prepare_data_directory  # noqa: E402
 
-# HomeServer's API is loopback-only. Ambient machine/user proxy settings must
-# never intercept its own health checks or permission-enforced local dispatch.
 ensure_loopback_proxy_bypass()
 BOOTSTRAP_STATE = prepare_data_directory()
 
@@ -88,9 +84,6 @@ def _apply_staged_restore_before_server() -> None:
     try:
         apply_pending_restore_for_startup()
     except backups.BackupError:
-        # The restore layer either rolls normal state back or leaves unreadable
-        # live data quarantined/recoverable. Continue into normal preflight so a
-        # restricted recovery server can start instead of restart-looping.
         pass
 
 
@@ -121,9 +114,6 @@ def _restart_command() -> list[str]:
 def _restart_environment() -> dict[str, str]:
     env = os.environ.copy()
     if getattr(sys, "frozen", False):
-        # PyInstaller 6.9+ treats sys.executable children as worker processes by
-        # default. A self-restart must be a new top-level onefile instance so it
-        # unpacks into its own temporary directory and can outlive this process.
         env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     return env
 
@@ -131,12 +121,7 @@ def _restart_environment() -> dict[str, str]:
 class RuntimeController:
     def __init__(self, asgi_app, *, recovery_mode: bool = False):
         self.recovery_mode = recovery_mode
-        self.config = uvicorn.Config(
-            asgi_app,
-            host=settings.host,
-            port=settings.port,
-            log_level="info",
-        )
+        self.config = uvicorn.Config(asgi_app, host=settings.host, port=settings.port, log_level="info")
         self.server = uvicorn.Server(self.config)
         self.thread: threading.Thread | None = None
         self.tray: pystray.Icon | None = None
@@ -187,8 +172,6 @@ class RuntimeController:
                 self.shutdown_requested = True
             if not self._stop_scheduled:
                 self._stop_scheduled = True
-                # Give the HTTP request that initiated restart/shutdown a chance
-                # to flush its response before Uvicorn begins graceful shutdown.
                 threading.Timer(0.25, self._finish_runtime_command).start()
         return True
 
@@ -209,6 +192,9 @@ class RuntimeController:
 
     def open_remote_bridge(self, _icon=None, _item=None) -> None:
         _open(_recovery_path() if self.recovery_mode else _authorized_path("/remote"))
+
+    def open_tasks(self, _icon=None, _item=None) -> None:
+        _open(_recovery_path() if self.recovery_mode else _authorized_path("/tasks"))
 
     def open_api_docs(self, _icon=None, _item=None) -> None:
         if self.recovery_mode:
@@ -250,6 +236,7 @@ class RuntimeController:
                 "HomeServer Recovery" if self.recovery_mode else "HomeServer",
                 menu=pystray.Menu(
                     pystray.MenuItem("Open HomeServer", self.open_control_center, default=True),
+                    pystray.MenuItem("Tasks & Notifications", self.open_tasks, enabled=not self.recovery_mode),
                     pystray.MenuItem("Setup & Diagnostics", self.open_system),
                     pystray.MenuItem("Remote Bridge", self.open_remote_bridge, enabled=not self.recovery_mode),
                     pystray.MenuItem("Open Data Folder", self.open_data_folder),
@@ -299,11 +286,7 @@ def main() -> None:
 
     if restart_requested:
         time.sleep(0.15)
-        subprocess.Popen(
-            _restart_command(),
-            close_fds=True,
-            env=_restart_environment(),
-        )
+        subprocess.Popen(_restart_command(), close_fds=True, env=_restart_environment())
 
 
 if __name__ == "__main__":
