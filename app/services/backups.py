@@ -25,6 +25,12 @@ MANIFEST_NAME = "manifest.json"
 RESTORE_STATE_NAME = "restore-state.json"
 RESTORE_RESULT_NAME = "restore-result.json"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
+WINDOWS_FORBIDDEN_CHARS = set('<>:"|?*')
 
 
 class BackupError(RuntimeError):
@@ -189,6 +195,9 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
             f"knowledge/files/{path.relative_to(knowledge_root).as_posix()}"
             for path in copied_files
         )
+        archive_paths = [_safe_member_name(path) for path in archive_paths]
+        if len({path.casefold() for path in archive_paths}) != len(archive_paths):
+            raise BackupError("Knowledge storage contains file names that collide on Windows.")
         file_entries = [_manifest_file_entry(root, path) for path in sorted(archive_paths)]
         manifest = {
             "format": BACKUP_FORMAT,
@@ -235,7 +244,7 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
 
 def _safe_backup_name(name: str) -> str:
     value = str(name or "").strip()
-    if not value or Path(value).name != value:
+    if not value or "/" in value or "\\" in value or Path(value).name != value:
         raise BackupError("Invalid backup name.", 404)
     if not value.startswith(BACKUP_PREFIX) or not value.endswith(BACKUP_SUFFIX):
         raise BackupError("Invalid backup name.", 404)
@@ -305,11 +314,19 @@ def delete_backup(name: str) -> bool:
 
 
 def _safe_member_name(name: str) -> str:
-    if not name or "\\" in name:
+    if not name or "\\" in name or len(name) > 1024:
         raise BackupError("Backup contains an unsafe archive path.")
     pure = PurePosixPath(name)
     if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
         raise BackupError("Backup contains an unsafe archive path.")
+    for part in pure.parts:
+        if len(part) > 255 or part != part.rstrip(" ."):
+            raise BackupError("Backup contains a path that is not portable to Windows.")
+        if any(ord(char) < 32 or char in WINDOWS_FORBIDDEN_CHARS for char in part):
+            raise BackupError("Backup contains a path that is not portable to Windows.")
+        stem = part.split(".", 1)[0].upper()
+        if stem in WINDOWS_RESERVED_NAMES:
+            raise BackupError("Backup contains a Windows-reserved file name.")
     return pure.as_posix()
 
 
@@ -335,13 +352,16 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         raise BackupError("Backup manifest does not contain a file inventory.")
     entries: list[dict[str, Any]] = []
     seen: set[str] = set()
+    seen_casefold: set[str] = set()
     for raw in raw_files:
         if not isinstance(raw, dict):
             raise BackupError("Backup manifest contains an invalid file entry.")
         path = _safe_member_name(str(raw.get("path") or ""))
-        if path in seen:
-            raise BackupError("Backup manifest contains duplicate file paths.")
+        folded = path.casefold()
+        if path in seen or folded in seen_casefold:
+            raise BackupError("Backup manifest contains duplicate or Windows-colliding file paths.")
         seen.add(path)
+        seen_casefold.add(folded)
         if path != "database/homeserver.db" and not path.startswith("knowledge/files/"):
             raise BackupError("Backup manifest contains a file outside the HomeServer backup allowlist.")
         try:
@@ -364,13 +384,17 @@ def _extract_and_validate_archive(archive_path: Path, target_root: Path) -> dict
             if len(infos) > settings.max_backup_entries:
                 raise BackupError("Backup archive contains too many entries.")
             seen_names: set[str] = set()
+            seen_casefold: set[str] = set()
             total_uncompressed = 0
             info_by_name: dict[str, zipfile.ZipInfo] = {}
             for info in infos:
-                name = _safe_member_name(info.filename.rstrip("/")) if info.filename.endswith("/") else _safe_member_name(info.filename)
-                if name in seen_names:
-                    raise BackupError("Backup archive contains duplicate paths.")
+                raw_name = info.filename.rstrip("/") if info.filename.endswith("/") else info.filename
+                name = _safe_member_name(raw_name)
+                folded = name.casefold()
+                if name in seen_names or folded in seen_casefold:
+                    raise BackupError("Backup archive contains duplicate or Windows-colliding paths.")
                 seen_names.add(name)
+                seen_casefold.add(folded)
                 if _is_symlink(info):
                     raise BackupError("Backup archive contains a symbolic link.")
                 if info.flag_bits & 0x1:
