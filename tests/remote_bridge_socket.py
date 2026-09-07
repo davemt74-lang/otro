@@ -29,6 +29,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-socket-") as data_dir
     listening.listen()
     port = listening.getsockname()[1]
     completed = threading.Event()
+    release_broker = threading.Event()
     captured: dict = {}
     synthetic_token = "synthetic_socket_token_" + "s" * 36
 
@@ -50,6 +51,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-socket-") as data_dir
         }))
         captured["response"] = json.loads(websocket.recv(timeout=5))
         completed.set()
+        # Keep the broker connection alive until the test inspects live runtime
+        # state. Production intentionally clears transient claim data after a
+        # disconnect, so closing here would make this assertion racy.
+        release_broker.wait(5)
 
     server = serve(
         handler,
@@ -88,6 +93,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-socket-") as data_dir
         assert response["payload"]["bearer_present"] is True
 
         status = remote_bridge.bridge_status()
+        assert status["runtime"]["connected"] is True
         assert status["runtime"]["claimed"] is False
         assert status["runtime"]["claim_code"] == "TEST-4821"
         audit_blob = json.dumps(remote_bridge.list_bridge_events(100), ensure_ascii=False)
@@ -95,6 +101,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-socket-") as data_dir
         assert "synthetic relay payload" not in audit_blob
         assert "chat" in audit_blob
     finally:
+        release_broker.set()
         worker.stop()
         remote_bridge.dispatch_remote_request = original_dispatch
         server.shutdown()
