@@ -32,8 +32,6 @@ def _default_data_dir() -> Path:
     if preferred.exists():
         return preferred
     if legacy.exists():
-        # Direct module users remain backward compatible. The Windows launcher
-        # performs the one-time legacy -> LocalAppData move before importing us.
         return legacy
     return preferred
 
@@ -41,7 +39,7 @@ def _default_data_dir() -> Path:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "HomeServer"
-    version: str = "0.12.0"
+    version: str = "0.13.0"
     host: str = "127.0.0.1"
     port: int = 4377
     data_dir: Path = field(default_factory=_default_data_dir)
