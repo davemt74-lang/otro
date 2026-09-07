@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .services import knowledge_sources
 
 
-router = APIRouter()
+@asynccontextmanager
+async def knowledge_source_lifespan(_):
+    knowledge_sources.scheduler.start()
+    try:
+        yield
+    finally:
+        knowledge_sources.scheduler.stop()
+
+
+router = APIRouter(lifespan=knowledge_source_lifespan)
 
 
 class KnowledgeSourceCreate(BaseModel):
