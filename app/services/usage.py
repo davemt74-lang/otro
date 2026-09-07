@@ -11,6 +11,13 @@ class UsageError(RuntimeError):
     pass
 
 
+def _normalize_source(source_app_key: str) -> str:
+    source = str(source_app_key or "owner").strip()[:160]
+    if not source:
+        raise UsageError("Usage source is required.")
+    return source
+
+
 def record_usage(
     *,
     source_app_key: str,
@@ -28,6 +35,7 @@ def record_usage(
 ) -> dict:
     if compute_source not in {"homeserver_local", "user_provider", "vp3_cloud"}:
         raise UsageError("Invalid compute source.")
+    source = _normalize_source(source_app_key)
     prompt = max(0, int(prompt_tokens or 0))
     completion = max(0, int(completion_tokens or 0))
     total = max(0, int(total_tokens if total_tokens is not None else prompt + completion))
@@ -44,11 +52,11 @@ def record_usage(
                 request_kind, prompt_tokens, completion_tokens, total_tokens,
                 billable_tokens, balance_after_tokens, metadata_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(event_id) DO NOTHING
+            ON CONFLICT(source_app_key, event_id) DO NOTHING
             """,
             (
                 key,
-                str(source_app_key or "owner")[:160],
+                source,
                 compute_source,
                 str(provider_key or "")[:80],
                 str(model or "")[:200],
@@ -66,9 +74,10 @@ def record_usage(
             SELECT id, event_id, source_app_key, compute_source, provider_key, model,
                    request_kind, prompt_tokens, completion_tokens, total_tokens,
                    billable_tokens, balance_after_tokens, created_at
-            FROM inference_usage_events WHERE event_id=?
+            FROM inference_usage_events
+            WHERE source_app_key=? AND event_id=?
             """,
-            (key,),
+            (source, key),
         ).fetchone()
     if row is None:
         raise UsageError("Usage event could not be recorded.")
@@ -88,11 +97,8 @@ def _usage_where(
         clauses.append("compute_source=?")
         params.append(compute_source)
     if source_app_key is not None:
-        source = str(source_app_key).strip()
-        if not source:
-            raise UsageError("Invalid usage source filter.")
         clauses.append("source_app_key=?")
-        params.append(source[:160])
+        params.append(_normalize_source(source_app_key))
     return ("WHERE " + " AND ".join(clauses) if clauses else "", params)
 
 
@@ -142,11 +148,8 @@ def usage_summary(source_app_key: str | None = None) -> dict:
         balance_clauses = ["compute_source='vp3_cloud'", "balance_after_tokens IS NOT NULL"]
         balance_params: list[Any] = []
         if source_app_key is not None:
-            source = str(source_app_key).strip()
-            if not source:
-                raise UsageError("Invalid usage source filter.")
             balance_clauses.append("source_app_key=?")
-            balance_params.append(source[:160])
+            balance_params.append(_normalize_source(source_app_key))
         balance_where = " AND ".join(balance_clauses)
         balance = connection.execute(
             f"""
