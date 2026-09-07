@@ -25,6 +25,8 @@ jobs:
         run: node --check ui/tools.js
       - name: Validate Approvals JavaScript
         run: node --check ui/approvals.js
+      - name: Validate Contacts JavaScript
+        run: node --check ui/contacts.js
       - name: Validate authorization JavaScript
         run: node --check ui/authorize.js
       - name: Validate VP3 bridge JavaScript
@@ -41,6 +43,8 @@ jobs:
         run: python tests/agent_tools_failure.py
       - name: Action approval regression
         run: python tests/action_approvals.py
+      - name: Contacts permission and Agent Tool regression
+        run: python tests/contacts.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
       - name: Smoke test packaged executable
@@ -54,7 +58,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.8.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.9.0') {
                   $healthy = $true
                   break
                 }
@@ -65,7 +69,7 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.8.0' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.9.0' }
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
