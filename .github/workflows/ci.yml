@@ -35,6 +35,8 @@ jobs:
         run: python tests/tools_security.py
       - name: Agent read-tool regression
         run: python tests/agent_tools.py
+      - name: Agent tool failure-audit regression
+        run: python tests/agent_tools_failure.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
       - name: Smoke test packaged executable
