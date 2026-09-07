@@ -131,6 +131,7 @@ def register_or_auth_device(device_id: str, device_secret: str) -> dict:
     now = _now()
     claim_code: str | None = None
     with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
             "SELECT device_id, secret_hash, claimed FROM relay_devices WHERE device_id=? LIMIT 1",
             (candidate_id,),
@@ -185,6 +186,7 @@ def claim_device(claim_code: str) -> dict:
     token_hash = _sha256(token)
 
     with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
             """
             SELECT device_id, claim_expires_at
@@ -256,29 +258,42 @@ def authenticate_session(token: str) -> dict:
 
 
 def rotate_session(token: str) -> dict:
-    current = authenticate_session(token)
+    candidate = str(token or "").strip()
+    if len(candidate) < 40 or len(candidate) > 512:
+        raise RelayAuthError("Invalid relay session.")
+    digest = _sha256(candidate)
     now = _iso()
     new_token = _new_session_token()
     new_hash = _sha256(new_token)
     with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
-            "SELECT revoked_at FROM relay_sessions WHERE id=? LIMIT 1",
-            (current["session_id"],),
+            """
+            SELECT s.id, s.device_id
+            FROM relay_sessions s
+            JOIN relay_devices d ON d.device_id=s.device_id
+            WHERE s.token_hash=? AND s.revoked_at IS NULL AND d.claimed=1
+            LIMIT 1
+            """,
+            (digest,),
         ).fetchone()
-        if row is None or row["revoked_at"] is not None:
+        if row is None:
             raise RelayAuthError("Invalid relay session.")
-        connection.execute(
+        updated = connection.execute(
             "UPDATE relay_sessions SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
-            (now, current["session_id"]),
+            (now, row["id"]),
         )
+        if updated.rowcount != 1:
+            raise RelayAuthError("Invalid relay session.")
+        device_id = str(row["device_id"])
         connection.execute(
             """
             INSERT INTO relay_sessions(device_id, token_hash, created_at, last_seen_at)
             VALUES (?, ?, ?, ?)
             """,
-            (current["device_id"], new_hash, now, now),
+            (device_id, new_hash, now, now),
         )
-    return {"device_id": current["device_id"], "relay_token": new_token}
+    return {"device_id": device_id, "relay_token": new_token}
 
 
 def record_event(
