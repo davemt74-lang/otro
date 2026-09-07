@@ -13,6 +13,9 @@ from ..config import settings
 from . import backups
 
 
+LATEST_UNREADABLE_STATE = "unreadable-live-latest.json"
+
+
 def _healthy_live_database() -> bool:
     if not settings.db_path.is_file():
         return True
@@ -64,12 +67,43 @@ def _copy_knowledge_snapshot(target: Path) -> bool:
     return True
 
 
-def _write_snapshot_metadata(target: Path, payload: dict[str, Any]) -> None:
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "README.json").write_text(
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+    os.replace(temporary, path)
+
+
+def _write_snapshot_metadata(target: Path, payload: dict[str, Any]) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    _write_json(target / "README.json", payload)
+
+
+def _record_latest_quarantine(target: Path, *, status: str, error: str | None = None) -> None:
+    _write_json(
+        settings.restore_dir / LATEST_UNREADABLE_STATE,
+        {
+            "status": status,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+            "path": str(target),
+            "error": error,
+            "warning": "This path contains raw pre-restore data from an unreadable HomeServer database and is not a validated backup archive.",
+        },
+    )
+
+
+def latest_unreadable_snapshot() -> dict[str, Any] | None:
+    path = settings.restore_dir / LATEST_UNREADABLE_STATE
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def apply_pending_restore_for_startup() -> dict[str, Any] | None:
@@ -87,10 +121,8 @@ def apply_pending_restore_for_startup() -> dict[str, Any] | None:
         return backups.apply_pending_restore()
 
     quarantine = _recovery_snapshot_dir()
-    quarantine.mkdir(parents=True, exist_ok=False)
-    moved_database: list[str] = []
-    knowledge_copied = False
     try:
+        quarantine.mkdir(parents=True, exist_ok=False)
         moved_database = _move_database_family(quarantine)
         knowledge_copied = _copy_knowledge_snapshot(quarantine)
         _write_snapshot_metadata(
@@ -106,8 +138,28 @@ def apply_pending_restore_for_startup() -> dict[str, Any] | None:
         result = backups.apply_pending_restore()
         if result is None:
             raise backups.BackupError("The staged restore disappeared before recovery application.")
+        _record_latest_quarantine(quarantine, status="preserved")
         result["unreadable_live_snapshot"] = str(quarantine)
         return result
-    except Exception:
-        _restore_database_family(quarantine)
-        raise
+    except Exception as exc:
+        rollback_error: Exception | None = None
+        try:
+            _restore_database_family(quarantine)
+        except Exception as restore_exc:  # pragma: no cover - catastrophic filesystem failure
+            rollback_error = restore_exc
+        try:
+            _record_latest_quarantine(
+                quarantine,
+                status="restore_failed",
+                error=f"{type(exc).__name__}: {str(exc)[:500]}",
+            )
+        except OSError:
+            pass
+        if rollback_error is not None:
+            raise backups.BackupError(
+                "Recovery restore failed and the unreadable live database could not be moved back automatically. "
+                f"Preserved data remains under {quarantine}."
+            ) from rollback_error
+        if isinstance(exc, backups.BackupError):
+            raise
+        raise backups.BackupError(f"Recovery restore preparation failed: {type(exc).__name__}") from exc
