@@ -31,6 +31,8 @@ jobs:
         run: python tests/migrations.py
       - name: Smoke test API, pairing, Agent Brain and tools
         run: python tests/smoke.py
+      - name: Tool audit privacy regression
+        run: python tests/tools_security.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
       - name: Smoke test packaged executable
