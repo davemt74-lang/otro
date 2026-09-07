@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from ..database import db
-from . import approvals, tools
+from . import approvals, plugins, tools
 
 MODEL_TOOL_NAMES = {
     "homeserver_contacts_search": "contacts.search",
@@ -102,6 +103,22 @@ def model_tool_schemas(
             }
         )
 
+    # v0.17 plugin tools are intentionally read-only and only appear when a
+    # packaged/in-process handler has explicitly bound to the manifest tool.
+    for item in plugins.available_model_tools(granted_permissions, owner=owner):
+        if not item.get("available") or item.get("mode") != "read":
+            continue
+        schemas.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": item["model_name"],
+                    "description": f"{item.get('name')}: {item.get('description') or ''}"[:1200],
+                    "parameters": item["input_schema"],
+                },
+            }
+        )
+
     if allow_write_proposals:
         memory_tool = by_key.get(MEMORY_PROPOSAL_TOOL_KEY)
         if memory_tool and memory_tool.get("available"):
@@ -159,6 +176,56 @@ def _record_unknown_model_call(source_app_key: str, actor_type: str) -> int:
     return run_id
 
 
+def _record_plugin_run(
+    *,
+    source_app_key: str,
+    owner: bool,
+    plugin_key: str,
+    tool_key: str,
+    status: str,
+    arguments: dict[str, Any],
+    result: dict[str, Any] | None,
+    duration_ms: int,
+    error: str | None = None,
+) -> int:
+    actor_type = "owner" if owner else "app"
+    audit_key = f"plugin:{plugin_key}:{tool_key}"[:240]
+    with db() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO tool_runs(
+                tool_key, source_app_key, actor_type, status, required_permissions_json,
+                arguments_meta_json, result_meta_json, duration_ms, error, completed_at
+            ) VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                audit_key,
+                source_app_key,
+                actor_type,
+                status,
+                json.dumps({"argument_count": len(arguments)}, separators=(",", ":")),
+                json.dumps({"result_key_count": len(result or {})}, separators=(",", ":")),
+                duration_ms,
+                (error or "")[:1000] or None,
+            ),
+        )
+        run_id = int(cursor.lastrowid)
+        connection.execute(
+            """
+            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
+            VALUES (?, ?, ?, 'tool', ?, ?)
+            """,
+            (
+                actor_type,
+                source_app_key,
+                f"tool.{status}",
+                audit_key,
+                json.dumps({"run_id": run_id, "plugin_key": plugin_key, "tool_key": tool_key}, separators=(",", ":")),
+            ),
+        )
+    return run_id
+
+
 def _deny_unavailable(source_app_key: str, owner: bool) -> AgentToolError:
     run_id = _record_unknown_model_call(source_app_key, "owner" if owner else "app")
     return AgentToolError(f"Tool is not available to this conversation. Run {run_id} was recorded.")
@@ -195,24 +262,69 @@ def execute_model_tool(
             raise AgentToolError(str(exc)) from exc
 
     tool_key = MODEL_TOOL_NAMES.get(model_tool_name)
-    if tool_key is None:
+    if tool_key is not None:
+        read_tool = available.get(tool_key)
+        if not read_tool or read_tool.get("mode") != "read":
+            raise _deny_unavailable(source_app_key, owner)
+        try:
+            return tools.execute_tool(
+                source_app_key,
+                tool_key,
+                arguments or {},
+                granted,
+                owner=owner,
+            )
+        except tools.ToolError as exc:
+            raise AgentToolError(str(exc)) from exc
+
+    plugin_tool = next(
+        (
+            item
+            for item in plugins.available_model_tools(granted, owner=owner)
+            if item.get("model_name") == model_tool_name
+        ),
+        None,
+    )
+    if plugin_tool is None or not plugin_tool.get("available"):
         run_id = _record_unknown_model_call(source_app_key, "owner" if owner else "app")
         raise AgentToolError(f"Tool is not available to the agent. Run {run_id} was recorded.")
 
-    read_tool = available.get(tool_key)
-    if not read_tool or read_tool.get("mode") != "read":
-        raise _deny_unavailable(source_app_key, owner)
-
+    started = time.perf_counter()
+    args = arguments or {}
     try:
-        return tools.execute_tool(
-            source_app_key,
-            tool_key,
-            arguments or {},
+        plugin_result = plugins.execute_model_tool(
+            model_tool_name,
+            args,
             granted,
             owner=owner,
+            source_app_key=source_app_key,
         )
-    except tools.ToolError as exc:
-        raise AgentToolError(str(exc)) from exc
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        run_id = _record_plugin_run(
+            source_app_key=source_app_key,
+            owner=owner,
+            plugin_key=plugin_result["plugin_key"],
+            tool_key=plugin_result["tool_key"],
+            status="completed",
+            arguments=args,
+            result=plugin_result.get("result"),
+            duration_ms=duration_ms,
+        )
+        return {"run_id": run_id, "result": plugin_result.get("result", {})}
+    except plugins.PluginError as exc:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        run_id = _record_plugin_run(
+            source_app_key=source_app_key,
+            owner=owner,
+            plugin_key=plugin_tool["plugin_key"],
+            tool_key=plugin_tool["key"],
+            status="failed",
+            arguments=args,
+            result=None,
+            duration_ms=duration_ms,
+            error=str(exc),
+        )
+        raise AgentToolError(f"Plugin tool failed. Run {run_id} was recorded.") from exc
 
 
 def tool_result_message(result: dict[str, Any], max_chars: int = 6000) -> str:
