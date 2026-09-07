@@ -31,8 +31,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     connection.commit()
     connection.close()
 
-    # Build an authentic v0.12/schema-10 database first so migrations 11 and
-    # 12 are tested as upgrades rather than only as a fresh install.
+    # Build an authentic schema-10 database first so migrations 11 through 13
+    # are tested as upgrades rather than only as a fresh install.
     for version, path in migration_files():
         if version >= 11:
             break
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 13))
+        assert versions == list(range(1, 14))
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
@@ -87,6 +87,24 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "prompt_tokens", "completion_tokens", "total_tokens", "billable_tokens",
             "balance_after_tokens", "created_at"
         }.issubset(usage_columns)
+        source_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(knowledge_sources)").fetchall()}
+        assert {
+            "path", "label", "enabled", "recursive", "scan_interval_seconds", "exclude_json",
+            "status", "last_scan_completed_at", "last_scan_error_count", "updated_at"
+        }.issubset(source_columns)
+        source_file_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(knowledge_source_files)").fetchall()}
+        assert {
+            "source_id", "relative_path", "knowledge_item_id", "content_hash", "size_bytes",
+            "modified_ns", "status", "last_error", "last_seen_scan"
+        }.issubset(source_file_columns)
+        assert migrated.execute("SELECT COUNT(*) FROM knowledge_sources").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM knowledge_source_files").fetchone()[0] == 0
+        source_delete_trigger = migrated.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='knowledge_source_item_before_delete'"
+        ).fetchone()
+        assert source_delete_trigger is not None
+        assert "re-indexed on the next scan" in source_delete_trigger["sql"]
+
         system_settings = {
             row["setting_key"]: row["value_json"]
             for row in migrated.execute("SELECT setting_key, value_json FROM system_settings").fetchall()
@@ -168,7 +186,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 13))
+        assert versions_again == list(range(1, 14))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
@@ -181,6 +199,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         ).fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM knowledge_sources").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM knowledge_source_files").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0] == 2
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_events").fetchone()[0] == 0
