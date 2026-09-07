@@ -36,7 +36,7 @@
     <main class="main">
       <header class="topbar">
         <div><p class="eyebrow">PRIVATE AI CAPABILITY SERVER</p><h1 id="pageTitle">Overview</h1></div>
-        <div class="top-actions"><span class="version" id="version">v0.14.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
+        <div class="top-actions"><span class="version" id="version">v0.15.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
       </header>
       <div id="flash" class="flash" role="status" aria-live="polite"></div>
 
@@ -112,7 +112,7 @@
       </section>
 
       <section class="view" id="view-knowledge">
-        <div class="section-intro split"><div><h2>Knowledge</h2><p>Import local documents or add notes. HomeServer extracts text, chunks it, and builds a private SQLite full-text index.</p></div><button class="button primary" id="showKnowledgeForm">Add knowledge</button></div>
+        <div class="section-intro split"><div><h2>Knowledge</h2><p>Add notes, import documents, or watch local folders. HomeServer extracts text, chunks it, and maintains a private SQLite full-text index.</p></div><button class="button primary" id="showKnowledgeForm">Add knowledge</button></div>
         <form id="knowledgeForm" class="panel compact-form hidden"><div class="form-grid"><label>Title<input id="knowledgeTitle" required maxlength="240"></label><label>Type<select id="knowledgeKind"><option value="note">Note</option><option value="document">Document</option><option value="reference">Reference</option><option value="profile">Profile</option></select></label></div><label>Content<textarea id="knowledgeContent" rows="8" maxlength="250000"></textarea></label><label>Source path <span class="muted">optional metadata only</span><input id="knowledgeSource" maxlength="1000" placeholder="C:\Users\... or another source reference"></label><div class="form-actions"><button class="button secondary" type="button" id="cancelKnowledge">Cancel</button><button class="button primary" type="submit">Save knowledge</button></div></form>
         <div class="toolbar"><input id="knowledgeSearch" type="search" placeholder="Search local knowledge"><span id="knowledgeCount" class="muted"></span></div><div id="knowledgeList" class="cards-list"></div>
       </section>
@@ -155,6 +155,7 @@
   <script src="/assets/tools.js" defer></script>
   <script src="/assets/approvals.js" defer></script>
   <script src="/assets/contacts.js" defer></script>
+  <script src="/assets/knowledge-sources.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
 </body>
 </html>
