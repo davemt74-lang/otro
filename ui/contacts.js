@@ -134,4 +134,7 @@
   });
 
   window.loadHomeServerContacts = loadContacts;
+  if (byId('view-contacts')?.classList.contains('active')) {
+    loadContacts().catch(err => flash(err.message, true));
+  }
 })();
