@@ -51,6 +51,11 @@ def normalize_contact(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _like_pattern(query: str) -> str:
+    escaped = query.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def list_contacts(query: str = "", limit: int = 100) -> list[dict[str, Any]]:
     safe_limit = max(1, min(500, int(limit)))
     q = str(query or "").strip()
@@ -70,20 +75,20 @@ def list_contacts(query: str = "", limit: int = 100) -> list[dict[str, Any]]:
                 (safe_limit,),
             ).fetchall()
         else:
-            pattern = f"%{q.lower()}%"
+            pattern = _like_pattern(q)
             rows = connection.execute(
                 """
                 SELECT id, display_name, first_name, last_name, organization, email, phone,
                        relationship, notes, created_at, updated_at
                 FROM contacts
-                WHERE lower(display_name) LIKE ?
-                   OR lower(COALESCE(first_name,'')) LIKE ?
-                   OR lower(COALESCE(last_name,'')) LIKE ?
-                   OR lower(COALESCE(organization,'')) LIKE ?
-                   OR lower(COALESCE(email,'')) LIKE ?
-                   OR lower(COALESCE(phone,'')) LIKE ?
-                   OR lower(COALESCE(relationship,'')) LIKE ?
-                   OR lower(COALESCE(notes,'')) LIKE ?
+                WHERE lower(display_name) LIKE ? ESCAPE '\\'
+                   OR lower(COALESCE(first_name,'')) LIKE ? ESCAPE '\\'
+                   OR lower(COALESCE(last_name,'')) LIKE ? ESCAPE '\\'
+                   OR lower(COALESCE(organization,'')) LIKE ? ESCAPE '\\'
+                   OR lower(COALESCE(email,'')) LIKE ? ESCAPE '\\'
+                   OR lower(COALESCE(phone,'')) LIKE ? ESCAPE '\\'
+                   OR lower(COALESCE(relationship,'')) LIKE ? ESCAPE '\\'
+                   OR lower(COALESCE(notes,'')) LIKE ? ESCAPE '\\'
                 ORDER BY display_name COLLATE NOCASE, id
                 LIMIT ?
                 """,
