@@ -22,6 +22,15 @@
     document.head.appendChild(link);
   }
 
+  function ensureCognitionRuntime() {
+    if (document.querySelector('script[data-homeserver-cognition]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/cognition.js';
+    script.dataset.homeserverCognition = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function activeConversationId() {
     return document.querySelector('[data-brain-conversation].active')?.dataset.brainConversation || null;
   }
@@ -160,6 +169,7 @@
   const observer = new MutationObserver(() => scheduleRefresh(120));
   const watch = () => {
     ensureControls();
+    ensureCognitionRuntime();
     const conversations = byId('conversationList');
     const messages = byId('chatMessages');
     if (conversations) observer.observe(conversations, {subtree:true, childList:true, attributes:true, attributeFilter:['class']});
@@ -168,6 +178,7 @@
   };
 
   ensureStyles();
+  ensureCognitionRuntime();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch, {once:true});
   else watch();
 })();
