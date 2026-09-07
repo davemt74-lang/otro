@@ -57,3 +57,16 @@ BEGIN
         updated_at=CURRENT_TIMESTAMP
     WHERE knowledge_item_id=OLD.id;
 END;
+
+CREATE TRIGGER IF NOT EXISTS knowledge_source_before_delete
+BEFORE DELETE ON knowledge_sources
+BEGIN
+    UPDATE knowledge_items
+    SET source_path=NULL,
+        updated_at=CURRENT_TIMESTAMP
+    WHERE id IN (
+        SELECT knowledge_item_id
+        FROM knowledge_source_files
+        WHERE source_id=OLD.id AND knowledge_item_id IS NOT NULL
+    );
+END;
