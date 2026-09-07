@@ -200,6 +200,6 @@ with serve(
     port,
     subprotocols=["homeserver.bridge.v1"],
     ping_interval=None,
-):
+) as server:
     publish_progress(f"listening|{latest_worker_progress()}")
-    threading.Event().wait()
+    server.serve_forever()
