@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -31,6 +32,12 @@ def _backup_error(exc: backups.BackupError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=str(exc))
 
 
+def _revalidate_created_backup(path: Path) -> None:
+    """Prove the completed archive is restorable before exposing it to the owner."""
+    with tempfile.TemporaryDirectory(prefix="homeserver-backup-check-", dir=backups.settings.data_dir) as temp_name:
+        backups._extract_and_validate_archive(path, Path(temp_name))
+
+
 @router.get("/api/v1/control/backups")
 def control_backups() -> dict:
     return {
@@ -42,9 +49,13 @@ def control_backups() -> dict:
 
 @router.post("/api/v1/control/backups/create")
 def control_backup_create() -> dict:
+    item: dict | None = None
     try:
         item = backups.create_backup("manual")
+        _revalidate_created_backup(Path(item["path"]))
     except backups.BackupError as exc:
+        if item is not None:
+            Path(item["path"]).unlink(missing_ok=True)
         raise _backup_error(exc) from exc
     _audit(
         "backup.created",
