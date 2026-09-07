@@ -40,20 +40,22 @@ def setup() -> None:
 
 
 def verify() -> None:
+    result = backups.last_restore_result()
+    print("Packaged restore result:", json.dumps(result, ensure_ascii=False, sort_keys=True))
+    assert result is not None
+    assert result["status"] == "applied", result
+
     connection = sqlite3.connect(settings.db_path)
     try:
         row = connection.execute(
             "SELECT content FROM agent_memory WHERE memory_key='packaged-restore' LIMIT 1"
         ).fetchone()
         assert row is not None
-        assert row[0] == BEFORE
+        assert row[0] == BEFORE, {"expected": BEFORE, "actual": row[0], "restore": result}
         assert row[0] != AFTER
     finally:
         connection.close()
 
-    result = backups.last_restore_result()
-    assert result is not None
-    assert result["status"] == "applied"
     assert result["pre_restore_backup"]
     assert (settings.backups_dir / result["pre_restore_backup"]).is_file()
     assert not settings.pending_restore_dir.exists()
