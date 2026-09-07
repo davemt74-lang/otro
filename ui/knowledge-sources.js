@@ -29,6 +29,10 @@
     notify.timer = setTimeout(() => { node.className = 'flash'; }, 3500);
   }
 
+  async function refreshKnowledge() {
+    if (typeof window.loadKnowledge === 'function') await window.loadKnowledge();
+  }
+
   function ensureStyles() {
     if (byId('knowledgeSourcesStyles')) return;
     const style = document.createElement('style');
@@ -180,7 +184,7 @@
       try {
         const result = await sourceApi(`/api/v1/control/knowledge/sources/${scan.dataset.sourceScan}/scan`, {method:'POST'});
         await loadSources();
-        if (typeof window.loadKnowledge === 'function') await window.loadKnowledge();
+        await refreshKnowledge();
         const info = result.scan || {};
         notify(`Folder scan complete · ${info.indexed || 0} new · ${info.updated || 0} updated · ${info.removed || 0} removed.`);
       } catch (err) { notify(err.message, true); }
@@ -205,6 +209,7 @@
       try {
         await sourceApi(`/api/v1/control/knowledge/sources/${remove.dataset.sourceDelete}`, {method:'DELETE'});
         await loadSources();
+        await refreshKnowledge();
         notify('Knowledge source removed. Original local files were left untouched.');
       } catch (err) { notify(err.message, true); }
     }
@@ -233,6 +238,7 @@
       byId('knowledgeSourceInterval').value = '120';
       event.target.classList.add('hidden');
       await loadSources();
+      await refreshKnowledge();
       const scan = data.scan || {};
       notify(`Folder added · ${scan.indexed || 0} files indexed${scan.errors ? ` · ${scan.errors} errors` : ''}.`);
     } catch (err) { notify(err.message, true); }
