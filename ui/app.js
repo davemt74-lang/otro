@@ -33,7 +33,7 @@ function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach(v => v.classList.toggle('active', v.dataset.view === name));
-  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',apps:'Connected Apps',activity:'Activity'};
+  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',apps:'Connected Apps',activity:'Activity'};
   $('pageTitle').textContent = labels[name] || 'HomeServer';
   loadView(name).catch(err => flash(err.message, true));
 }
@@ -160,6 +160,7 @@ async function loadView(name) {
   if (name === 'agent') return loadAgent();
   if (name === 'knowledge') return loadKnowledge();
   if (name === 'memory') return loadMemory();
+  if (name === 'contacts' && typeof window.loadHomeServerContacts === 'function') return window.loadHomeServerContacts();
   if (name === 'apps') return loadApps();
   if (name === 'activity') return loadActivity();
   return Promise.resolve();
@@ -197,7 +198,7 @@ $('memoryForm').addEventListener('submit', async (event) => { event.preventDefau
 $('pairingForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const data = await api('/api/v1/pairing/approve', {method:'POST', body:JSON.stringify({code:$('pairingCode').value})}); $('pairingToken').classList.remove('hidden'); if (data.delivery === 'claim_token') { $('pairingToken').innerHTML = `<strong>Pairing approved.</strong><span class="muted">Return to ${esc(data.app_key)}. It can complete the connection automatically; there is no token to copy.</span>`; } else { $('pairingToken').innerHTML = `<strong>Legacy pairing approved — copy this token into the requesting app now.</strong>${esc(data.token || '')}<br><span class="muted">For security, HomeServer will not display this token again.</span>`; } $('pairingCode').value = ''; await loadApps(); flash(`${data.app_key} paired successfully.`); } catch (err) { flash(err.message, true); } });
 $('knowledgeSearch').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => loadKnowledge().catch(err => flash(err.message, true)), 180); });
 $('refreshButton').addEventListener('click', () => loadView(state.view).then(() => flash('HomeServer refreshed.')).catch(err => flash(err.message, true)));
-const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','apps','activity'];
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','apps','activity'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();
