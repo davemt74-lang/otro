@@ -56,6 +56,15 @@ def _like_pattern(query: str) -> str:
     return f"%{escaped}%"
 
 
+def _search_tokens(query: str) -> list[str]:
+    tokens: list[str] = []
+    for value in query.split():
+        token = value.strip()
+        if token and token not in tokens:
+            tokens.append(token)
+    return tokens[:16]
+
+
 def list_contacts(query: str = "", limit: int = 100) -> list[dict[str, Any]]:
     safe_limit = max(1, min(500, int(limit)))
     q = str(query or "").strip()
@@ -75,24 +84,32 @@ def list_contacts(query: str = "", limit: int = 100) -> list[dict[str, Any]]:
                 (safe_limit,),
             ).fetchall()
         else:
-            pattern = _like_pattern(q)
+            tokens = _search_tokens(q) or [q]
+            search_text = """
+                lower(
+                    COALESCE(display_name,'') || ' ' ||
+                    COALESCE(first_name,'') || ' ' ||
+                    COALESCE(last_name,'') || ' ' ||
+                    COALESCE(organization,'') || ' ' ||
+                    COALESCE(email,'') || ' ' ||
+                    COALESCE(phone,'') || ' ' ||
+                    COALESCE(relationship,'') || ' ' ||
+                    COALESCE(notes,'')
+                )
+            """
+            where = " AND ".join(f"({search_text}) LIKE ? ESCAPE '\\'" for _ in tokens)
+            params = [_like_pattern(token) for token in tokens]
+            params.append(safe_limit)
             rows = connection.execute(
-                """
+                f"""
                 SELECT id, display_name, first_name, last_name, organization, email, phone,
                        relationship, notes, created_at, updated_at
                 FROM contacts
-                WHERE lower(display_name) LIKE ? ESCAPE '\\'
-                   OR lower(COALESCE(first_name,'')) LIKE ? ESCAPE '\\'
-                   OR lower(COALESCE(last_name,'')) LIKE ? ESCAPE '\\'
-                   OR lower(COALESCE(organization,'')) LIKE ? ESCAPE '\\'
-                   OR lower(COALESCE(email,'')) LIKE ? ESCAPE '\\'
-                   OR lower(COALESCE(phone,'')) LIKE ? ESCAPE '\\'
-                   OR lower(COALESCE(relationship,'')) LIKE ? ESCAPE '\\'
-                   OR lower(COALESCE(notes,'')) LIKE ? ESCAPE '\\'
+                WHERE {where}
                 ORDER BY display_name COLLATE NOCASE, id
                 LIMIT ?
                 """,
-                (pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, safe_limit),
+                params,
             ).fetchall()
     return [dict(row) for row in rows]
 
