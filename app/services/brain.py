@@ -175,6 +175,7 @@ def _generate_with_agent_tools(
     granted_permissions: set[str],
     owner: bool,
     state: dict[str, Any] | None = None,
+    provider_key: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     policy = agent_tools.get_policy()
     schemas = (
@@ -200,8 +201,26 @@ def _generate_with_agent_tools(
             "provider_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
     )
+
+    def generate_for_route(tool_schemas: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        if provider_key == "ollama":
+            if tool_schemas is None:
+                return providers.generate_ollama(messages, model_override=selected_model or None)
+            return providers.generate_ollama_step(
+                messages,
+                tools=tool_schemas,
+                model_override=selected_model or None,
+            )
+        if tool_schemas is None:
+            return providers.generate(messages, model_override=selected_model or None)
+        return providers.generate_step(
+            messages,
+            tools=tool_schemas,
+            model_override=selected_model or None,
+        )
+
     if not schemas:
-        generated = providers.generate(messages, model_override=selected_model or None)
+        generated = generate_for_route()
         _add_provider_usage(tool_state, generated)
         return generated, tool_state
 
@@ -213,7 +232,7 @@ def _generate_with_agent_tools(
     )
 
     max_calls = int(policy["max_calls"])
-    generated = providers.generate_step(messages, tools=schemas, model_override=selected_model or None)
+    generated = generate_for_route(schemas)
     _add_provider_usage(tool_state, generated)
     while generated.get("tool_calls"):
         messages.append(_assistant_tool_message(generated))
@@ -256,10 +275,10 @@ def _generate_with_agent_tools(
             })
 
         if tool_state["call_count"] >= max_calls:
-            generated = providers.generate_step(messages, model_override=selected_model or None)
+            generated = generate_for_route()
             _add_provider_usage(tool_state, generated)
             break
-        generated = providers.generate_step(messages, tools=schemas, model_override=selected_model or None)
+        generated = generate_for_route(schemas)
         _add_provider_usage(tool_state, generated)
 
     if not generated.get("content"):
