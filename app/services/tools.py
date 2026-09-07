@@ -152,24 +152,41 @@ def set_tool_enabled(tool_key: str, enabled: bool) -> dict[str, Any]:
             """,
             (tool["key"], 1 if enabled else 0),
         )
+        connection.execute(
+            """
+            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
+            VALUES ('owner', 'control-center', 'tool.policy', 'tool', ?, ?)
+            """,
+            (tool["key"], json.dumps({"enabled": bool(enabled)}, separators=(",", ":"))),
+        )
     return next(item for item in list_tools(owner=True) if item["key"] == tool["key"])
+
+
+def _safe_numeric(value: Any, default: int | float | None = None) -> int | float | None:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    return None
 
 
 def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if tool_key == "knowledge.search":
         query = str(arguments.get("query") or "")
-        return {"query_length": len(query), "limit": arguments.get("limit", 8)}
+        return {"query_length": len(query), "limit": _safe_numeric(arguments.get("limit"), 8)}
     if tool_key == "memory.list":
-        return {"limit": arguments.get("limit", 20)}
+        return {"limit": _safe_numeric(arguments.get("limit"), 20)}
     if tool_key == "memory.write":
         content = str(arguments.get("content") or "")
         key = arguments.get("memory_key")
         return {
             "content_length": len(content),
             "memory_key_length": len(str(key)) if key is not None else 0,
-            "importance": arguments.get("importance", 0.5),
+            "importance": _safe_numeric(arguments.get("importance"), 0.5),
         }
-    return {"argument_keys": sorted(arguments.keys())[:20]}
+    return {"argument_count": len(arguments)}
 
 
 def _record_run(
@@ -372,6 +389,14 @@ def execute_tool(
             duration_ms=duration_ms, error=str(exc),
         )
         raise ToolError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        run_id = _record_run(
+            tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
+            status="failed", required_permissions=required, arguments_meta=arguments_meta,
+            duration_ms=duration_ms, error="Internal tool failure.",
+        )
+        raise ToolError(f"Tool failed safely. Run {run_id} was recorded.", 500) from exc
 
     duration_ms = int((time.perf_counter() - started) * 1000)
     run_id = _record_run(
