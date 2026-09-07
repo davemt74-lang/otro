@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .brain_api import router as brain_router
 from .config import settings
 from .main import app
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
@@ -13,6 +14,8 @@ class PairStatusRequest(BaseModel):
     request_id: str = Field(min_length=10, max_length=128)
     claim_token: str = Field(min_length=20, max_length=256)
 
+
+app.include_router(brain_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,10 +36,12 @@ def capabilities() -> dict:
         "local_bridge": True,
         "permissions": sorted(DEFAULT_PERMISSIONS),
         "features": [
-            "agent",
+            "agent.chat",
+            "conversations",
             "knowledge.search",
             "memory.read",
             "memory.write",
+            "ollama.local",
             "owner.control",
         ],
     }

@@ -115,6 +115,20 @@
         }),
       });
     }
+    chat(message, conversationId = null) {
+      return this._authorized('/api/v1/chat', {
+        method: 'POST',
+        body: JSON.stringify({message, conversation_id: conversationId}),
+      });
+    }
+    conversations(limit = 50) {
+      const safeLimit = Math.max(1, Math.min(100, Number(limit || 50)));
+      return this._authorized(`/api/v1/conversations?limit=${safeLimit}`);
+    }
+    conversation(conversationId) {
+      if (!conversationId) throw new Error('conversationId is required.');
+      return this._authorized(`/api/v1/conversations/${encodeURIComponent(conversationId)}`);
+    }
   }
 
   VP3HomeServerConnector.DEFAULT_PERMISSIONS = [...DEFAULT_PERMISSIONS];

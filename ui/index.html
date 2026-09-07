@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HomeServer</title>
   <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/brain.css">
 </head>
 <body>
   <div class="shell">
@@ -14,6 +15,7 @@
       <nav class="nav" aria-label="HomeServer sections">
         <button class="nav-item active" data-view="dashboard">Overview</button>
         <button class="nav-item" data-view="agent">My Agent</button>
+        <button class="nav-item" data-view="chat">Agent Chat</button>
         <button class="nav-item" data-view="knowledge">Knowledge</button>
         <button class="nav-item" data-view="memory">Memory</button>
         <button class="nav-item" data-view="apps">Connected Apps</button>
@@ -28,14 +30,14 @@
     <main class="main">
       <header class="topbar">
         <div><p class="eyebrow">PRIVATE AI CAPABILITY SERVER</p><h1 id="pageTitle">Overview</h1></div>
-        <div class="top-actions"><span class="version" id="version">v0.2.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
+        <div class="top-actions"><span class="version" id="version">v0.5.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
       </header>
       <div id="flash" class="flash" role="status" aria-live="polite"></div>
 
       <section class="view active" id="view-dashboard">
         <div class="hero-card">
           <div><span class="pill">HomeServer ready</span><h2 id="heroAgentName">HomeServer Agent</h2><p>Your private agent brain, knowledge, memory and application permissions run from this machine.</p></div>
-          <button class="button primary" data-go="agent">Configure agent</button>
+          <button class="button primary" data-go="chat">Open Agent Chat</button>
         </div>
         <div class="stats-grid">
           <article class="stat"><span>Knowledge</span><strong id="statKnowledge">0</strong><small>local items</small></article>
@@ -53,14 +55,40 @@
         <div class="section-intro"><div><h2>Primary agent</h2><p>This identity and instruction set is shared only with applications you explicitly permit.</p></div></div>
         <form id="agentForm" class="panel form-panel">
           <label>Agent name<input id="agentName" maxlength="120" required></label>
-          <label>Model<input id="agentModel" maxlength="120" placeholder="Leave blank until a model provider is configured"></label>
+          <label>Model override <span class="muted">optional — leave blank to use the Ollama default below</span><input id="agentModel" maxlength="120" placeholder="Example: llama3.2:3b"></label>
           <label>Instructions<textarea id="agentInstructions" rows="12" maxlength="12000" placeholder="Describe how your HomeServer agent should behave, what it should prioritize, and what it should never do."></textarea></label>
           <div class="form-actions"><span id="agentUpdated" class="muted"></span><button class="button primary" type="submit">Save agent</button></div>
         </form>
+
+        <form id="providerForm" class="panel provider-panel">
+          <div class="panel-head"><div><p class="eyebrow">LOCAL MODEL</p><h3>Ollama provider</h3></div><span id="providerState" class="provider-state">Loading…</span></div>
+          <p class="muted">HomeServer v0.5 only permits a loopback Ollama server. Prompts, memory and knowledge are not sent to a remote model provider.</p>
+          <div class="provider-grid">
+            <label>Ollama URL<input id="providerUrl" value="http://127.0.0.1:11434" maxlength="300"></label>
+            <label>Default model<input id="providerModel" list="ollamaModels" maxlength="160" placeholder="Example: llama3.2:3b"><datalist id="ollamaModels"></datalist></label>
+            <label class="check-inline"><input id="providerEnabled" type="checkbox"> Enabled</label>
+          </div>
+          <div class="provider-actions"><button class="button secondary" type="button" id="detectOllama">Detect Ollama</button><button class="button primary" type="submit">Save provider</button></div>
+        </form>
+      </section>
+
+      <section class="view" id="view-chat">
+        <div class="section-intro split"><div><h2>Agent Chat</h2><p>Chat through the private HomeServer brain. Relevant local memory and indexed knowledge are assembled into context automatically.</p></div><span id="chatContext" class="brain-context"></span></div>
+        <div class="chat-layout">
+          <aside class="panel conversation-panel">
+            <button class="button secondary" id="newChat" type="button">New conversation</button>
+            <div id="conversationList" class="conversation-list"><div class="empty-state">No conversations yet.</div></div>
+          </aside>
+          <article class="panel chat-panel">
+            <div class="chat-head"><h3 id="chatConversationTitle">New conversation</h3><button class="text-button danger" id="deleteChat" type="button">Delete</button></div>
+            <div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local memory and knowledge are added to the model context automatically.</div></div>
+            <form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="2" maxlength="32000" placeholder="Message your HomeServer agent…" required></textarea><button class="button primary" type="submit">Send</button></form>
+          </article>
+        </div>
       </section>
 
       <section class="view" id="view-knowledge">
-        <div class="section-intro split"><div><h2>Knowledge</h2><p>Store local notes and knowledge records. File ingestion and semantic indexing come next.</p></div><button class="button primary" id="showKnowledgeForm">Add knowledge</button></div>
+        <div class="section-intro split"><div><h2>Knowledge</h2><p>Import local documents or add notes. HomeServer extracts text, chunks it, and builds a private SQLite full-text index.</p></div><button class="button primary" id="showKnowledgeForm">Add knowledge</button></div>
         <form id="knowledgeForm" class="panel compact-form hidden"><div class="form-grid"><label>Title<input id="knowledgeTitle" required maxlength="240"></label><label>Type<select id="knowledgeKind"><option value="note">Note</option><option value="document">Document</option><option value="reference">Reference</option><option value="profile">Profile</option></select></label></div><label>Content<textarea id="knowledgeContent" rows="8" maxlength="250000"></textarea></label><label>Source path <span class="muted">optional metadata only</span><input id="knowledgeSource" maxlength="1000" placeholder="C:\Users\... or another source reference"></label><div class="form-actions"><button class="button secondary" type="button" id="cancelKnowledge">Cancel</button><button class="button primary" type="submit">Save knowledge</button></div></form>
         <div class="toolbar"><input id="knowledgeSearch" type="search" placeholder="Search local knowledge"><span id="knowledgeCount" class="muted"></span></div><div id="knowledgeList" class="cards-list"></div>
       </section>
@@ -84,5 +112,6 @@
     </main>
   </div>
   <script src="/assets/app.js" defer></script>
+  <script src="/assets/brain.js" defer></script>
 </body>
 </html>

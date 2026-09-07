@@ -2,42 +2,46 @@
 
 HomeServer is a local-first private capability server for personal AI agents and authorized applications such as VP3.
 
-The Windows desktop runtime runs a private FastAPI service on `127.0.0.1:4377`, stores durable data in SQLite, and opens a local control center for managing the primary agent, knowledge, memory, application pairing, permissions and activity.
+The Windows desktop runtime runs on `127.0.0.1:4377`, stores durable state in SQLite, and provides a local Control Center for the primary agent, private chat, knowledge, memory, pairing, permissions and activity.
 
-## Current v0.4 foundation
+## Current v0.5 foundation
 
 - Windows tray application and packaged `HomeServer.exe`
 - Per-user `HomeServerSetup.exe` installer with optional Start-with-Windows
-- Local control center at `http://127.0.0.1:4377/`
-- SQLite database with WAL mode, foreign keys and versioned migrations
-- Primary agent configuration
+- SQLite WAL database with versioned, transactional migrations
+- Persistent primary agent configuration
+- **Agent Brain** with persistent conversations and run tracking
+- Local-only Ollama provider with loopback URL enforcement
+- Automatic bounded context assembly from agent instructions, recent conversation history, durable memory and FTS knowledge
+- App-isolated conversations for VP3 and other paired clients
 - Durable agent memory
-- Local knowledge notes and document ingestion
-- Private SQLite FTS5 knowledge index with chunked search
-- TXT, Markdown, JSON, CSV, HTML, PDF and DOCX text extraction
-- SHA-256 document duplicate detection
-- Browser-safe claim-token pairing with no manual bearer-token copying
-- One-time local owner approval codes
-- Hashed bearer tokens; raw tokens are not stored
-- Per-application capability permissions
-- Pause/revoke controls for connected applications
-- Local activity/audit log
-- VP3 browser connector contract and helper
-- Windows CI that tests database upgrades, secured APIs, the packaged executable and installer
+- Local TXT, Markdown, JSON, CSV, HTML, PDF and DOCX knowledge ingestion
+- SQLite FTS5 chunked knowledge search and SHA-256 duplicate detection
+- Browser-safe claim-token pairing with local owner approval
+- Hashed application credentials and per-app capability permissions
+- Local activity/audit trail
+- Windows CI that tests database upgrades, security boundaries, Agent Brain behavior, the packaged executable and installer
+
+## Local model privacy
+
+v0.5 supports Ollama as the first model provider. The configured URL must resolve to `localhost`, `127.0.0.1`, or `::1`; remote model-provider URLs are rejected. The default is `http://127.0.0.1:11434`, disabled until the owner selects a model and enables it.
+
+HomeServer sends a bounded prompt to Ollama containing the primary agent instructions, up to six high-importance memory items, up to four relevant knowledge results, and up to eight recent conversation messages. Knowledge and memory excerpts are explicitly treated as supporting data rather than higher-priority instructions.
+
+## Agent Chat
+
+The local Control Center includes Agent Chat and persistent owner conversations. Paired applications with `agent.chat` use `POST /api/v1/chat`; their conversation history is isolated by application key.
+
+Each run is recorded locally with provider, model, source application, retrieved-context counts, duration and completion/failure state.
 
 ## Data location
 
-By default HomeServer stores its runtime data under `~/.homeserver/`.
+By default HomeServer stores runtime data under `~/.homeserver/`:
 
-The SQLite database is `~/.homeserver/homeserver.db` and imported knowledge files are copied locally to `~/.homeserver/knowledge/files/`. Set `HOMESERVER_DATA_DIR` to use another local directory.
+- SQLite: `~/.homeserver/homeserver.db`
+- imported knowledge files: `~/.homeserver/knowledge/files/`
 
-## Knowledge ingestion
-
-The control center can import local files up to 10 MB each. HomeServer keeps the imported source file on the user's machine, extracts readable text locally, chunks that text, and indexes the chunks in SQLite FTS5.
-
-Supported file types: `.txt`, `.md`, `.markdown`, `.json`, `.csv`, `.html`, `.htm`, `.pdf`, and `.docx`.
-
-Identical imported files are detected by SHA-256 and are not stored twice. Existing pre-v0.3 knowledge records are indexed automatically after migration.
+Set `HOMESERVER_DATA_DIR` to use another local directory.
 
 ## Run locally
 
@@ -48,21 +52,13 @@ pip install -r requirements.txt
 python desktop/launcher.py
 ```
 
-The tray menu opens the secured HomeServer control center or API documentation.
+Then open HomeServer from the tray, configure the primary agent, use **Detect Ollama** to find installed local models, save/enable the provider, and open **Agent Chat**.
 
 ## VP3 browser bridge
 
-VP3 can connect from `https://vp3.me` to the user's loopback HomeServer. HomeServer exposes only public capability/pairing endpoints and permission-scoped client APIs to configured browser origins; owner-control routes remain protected by the local owner session.
-
-The `claim-v1` flow gives VP3 an opaque future credential when it requests pairing. That credential cannot authenticate until the user approves the short code in HomeServer. After approval, VP3 detects readiness by polling pairing status and can use the same claim token as its bearer credential. No long token is copied by hand.
-
-Re-pairing is authoritative: the previous token is invalidated and capabilities not requested by the new connection are revoked.
+VP3 connects to the local loopback API through `claim-v1` pairing. The future credential returned to VP3 remains unusable until the user approves the short code locally. After approval, VP3 automatically detects readiness and uses the claim token as its bearer credential; no manual long-token copying is required.
 
 See [`connectors/vp3/README.md`](connectors/vp3/README.md) and [`connectors/vp3/client.js`](connectors/vp3/client.js).
-
-## VP3 integration
-
-VP3 does not read `homeserver.db` or HomeServer's local files. It pairs with HomeServer and uses permission-checked local API endpoints. The `knowledge.search` capability returns indexed knowledge through the API without exposing direct filesystem access.
 
 ## Build Windows distribution
 
@@ -70,18 +66,4 @@ VP3 does not read `homeserver.db` or HomeServer's local files. It pairs with Hom
 pyinstaller HomeServer.spec --clean --noconfirm
 ```
 
-The GitHub Actions workflow additionally builds the Inno Setup installer and publishes a `HomeServer-Windows` artifact containing:
-
-- `HomeServer.exe`
-- `HomeServerSetup.exe`
-- `SHA256SUMS.txt`
-
-## Security model
-
-HomeServer binds to loopback in the desktop runtime. Pairing codes are one-time and expire. Application credentials are stored only as SHA-256 hashes. Each connected application receives explicit capabilities that can be changed or revoked by the owner.
-
-Owner-only control routes require an ephemeral HomeServer owner session issued by the desktop tray runtime. A local or browser client may request pairing, but it cannot approve its own request.
-
-Browser CORS access defaults to `https://vp3.me` and `https://www.vp3.me`; additional origins must be explicitly configured with `HOMESERVER_ALLOWED_ORIGINS`. No wildcard browser origin is enabled.
-
-Imported documents remain local. Connected apps can query extracted/indexed knowledge only when the owner grants `knowledge.search`.
+CI also builds `HomeServerSetup.exe`, verifies SHA-256 hashes, launches the packaged executable against `/api/v1/health`, and publishes the `HomeServer-Windows` artifact.
