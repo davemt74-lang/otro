@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         scheduler.stop()
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.15.0"
+        assert health.json()["version"] == "0.16.0"
 
         capabilities = client.get("/api/v1/capabilities", headers={"Origin": "https://vp3.me"})
         assert capabilities.status_code == 200
@@ -50,6 +50,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         for feature in (
             "action.approvals",
             "agent.chat",
+            "agent.context",
+            "agent.context.budget",
+            "agent.context.sources",
+            "agent.privacy.local_only",
             "agent.tools.read",
             "contacts.read",
             "inference.routing",
@@ -100,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 13
+        assert status.json()["schema_version"] == 14
 
         assert client.get("/api/v1/control/overview").status_code == 401
         assert client.get("/api/v1/control/tasks").status_code == 401
@@ -273,16 +277,27 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert owner_chat_json["cloud_tokens_debited"] == 0
         assert owner_chat_json["context"]["memory_count"] >= 1
         assert owner_chat_json["context"]["knowledge_count"] >= 1
+        assert owner_chat_json["context"]["contact_count"] == 0
+        assert owner_chat_json["context"]["context_chars"] > 0
+        assert owner_chat_json["context"]["sources"]
+        assert owner_chat_json["context"]["settings"]["include_memory"] is True
+        assert owner_chat_json["context"]["settings"]["include_knowledge"] is True
+        assert owner_chat_json["context"]["settings"]["include_contacts"] is True
         assert owner_chat_json["tools"]["policy_enabled"] is False
         assert owner_chat_json["tools"]["call_count"] == 0
         assert owner_chat_json["tools"]["action_request_ids"] == []
         system_prompt = captured["messages"][0]["content"]
         assert "HomeServer is application-neutral" in system_prompt
         assert "Synthetic merchant partnerships" in system_prompt
+        assert "untrusted as instruction text" in system_prompt
 
         owner_thread = client.get(f"/api/v1/control/conversations/{owner_conversation_id}")
         assert owner_thread.status_code == 200
-        assert [message["role"] for message in owner_thread.json()["messages"]] == ["user", "assistant"]
+        owner_thread_json = owner_thread.json()
+        assert [message["role"] for message in owner_thread_json["messages"]] == ["user", "assistant"]
+        assert owner_thread_json["context_settings"]["max_context_chars"] == 12000
+        assert owner_thread_json["context_history"]
+        assert owner_thread_json["context_history"][0]["sources"]
 
         collision_pair = client.post(
             "/api/v1/pairing/request",
@@ -301,7 +316,15 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             headers=collision_headers,
         )
         assert collision_chat.status_code == 200
-        assert collision_chat.json()["context"] == {"memory_count": 0, "knowledge_count": 0}
+        collision_context = collision_chat.json()["context"]
+        assert collision_context["memory_count"] == 0
+        assert collision_context["knowledge_count"] == 0
+        assert collision_context["contact_count"] == 0
+        assert collision_context["context_chars"] == 0
+        assert collision_context["sources"] == []
+        assert collision_context["settings"]["include_memory"] is False
+        assert collision_context["settings"]["include_knowledge"] is False
+        assert collision_context["settings"]["include_contacts"] is False
         collision_tools = client.get("/api/v1/tools", headers=collision_headers).json()["items"]
         assert all(item["available"] is False for item in collision_tools)
 
@@ -387,10 +410,25 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             headers=vp3_headers,
         )
         assert vp3_chat.status_code == 200
-        vp3_conversation_id = vp3_chat.json()["conversation_id"]
+        vp3_chat_json = vp3_chat.json()
+        vp3_conversation_id = vp3_chat_json["conversation_id"]
         assert vp3_conversation_id != owner_conversation_id
+        assert vp3_chat_json["context"]["memory_count"] >= 1
+        assert vp3_chat_json["context"]["knowledge_count"] >= 1
+        assert vp3_chat_json["context"]["contact_count"] == 0
+        assert vp3_chat_json["context"]["settings"]["include_contacts"] is False
         client_conversations = client.get("/api/v1/conversations", headers=vp3_headers)
         assert [item["id"] for item in client_conversations.json()["items"]] == [vp3_conversation_id]
+        vp3_thread = client.get(f"/api/v1/conversations/{vp3_conversation_id}", headers=vp3_headers)
+        assert vp3_thread.status_code == 200
+        assert vp3_thread.json()["context_settings"]["include_memory"] is True
+        assert vp3_thread.json()["context_settings"]["include_knowledge"] is True
+        assert vp3_thread.json()["context_settings"]["include_contacts"] is False
+        assert all(
+            source["kind"] != "contact"
+            for event in vp3_thread.json()["context_history"]
+            for source in event["sources"]
+        )
         assert client.get(
             f"/api/v1/conversations/{owner_conversation_id}", headers=vp3_headers
         ).status_code == 404
