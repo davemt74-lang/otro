@@ -114,9 +114,7 @@ def _normalize_task_input(payload: dict[str, Any], *, partial: bool = False) -> 
                 raise TaskError("contact_id must be a positive integer.")
             result["contact_id"] = contact_id
 
-    recurrence = result.get("recurrence", payload.get("recurrence"))
-    remind_at = result.get("remind_at", payload.get("remind_at"))
-    if recurrence and recurrence != "none" and not remind_at:
+    if not partial and result["recurrence"] != "none" and not result["remind_at"]:
         raise TaskError("Recurring tasks require remind_at.")
 
     return result
@@ -193,6 +191,11 @@ def update_task(task_id: int, payload: dict[str, Any], *, source_app_key: str | 
         if "contact_id" in normalized and not _contact_exists(connection, normalized["contact_id"]):
             raise TaskError("Linked contact was not found.", 404)
 
+        effective_recurrence = normalized.get("recurrence", current["recurrence"])
+        effective_remind_at = normalized.get("remind_at", current["remind_at"])
+        if effective_recurrence != "none" and not effective_remind_at:
+            raise TaskError("Recurring tasks require remind_at.")
+
         assignments: list[str] = []
         values: list[Any] = []
         for key in (
@@ -220,14 +223,16 @@ def update_task(task_id: int, payload: dict[str, Any], *, source_app_key: str | 
 
 
 def delete_task(task_id: int) -> bool:
+    deleted = False
     with db() as connection:
         cursor = connection.execute("DELETE FROM tasks WHERE id=?", (int(task_id),))
-        if cursor.rowcount:
+        deleted = bool(cursor.rowcount)
+        if deleted:
             connection.execute(
                 "INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json) VALUES ('owner', 'control-center', 'task.deleted', 'task', ?, '{}')",
                 (str(task_id),),
             )
-    return bool(cursor.rowcount)
+    return deleted
 
 
 def list_tasks(*, status: str | None = None, q: str = "", limit: int = 250) -> list[dict[str, Any]]:
