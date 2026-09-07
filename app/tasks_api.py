@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,17 @@ from .services.tasks import (
 ROOT_DIR = Path(__file__).resolve().parents[1]
 UI_DIR = ROOT_DIR / "ui"
 
-router = APIRouter()
+
+@asynccontextmanager
+async def task_lifespan(_):
+    scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.stop()
+
+
+router = APIRouter(lifespan=task_lifespan)
 
 
 class TaskCreate(BaseModel):
@@ -60,16 +71,6 @@ def _task_payload(model: BaseModel, *, exclude_unset: bool = False) -> dict[str,
 
 def _raise(exc: TaskError):
     raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-
-
-@router.on_event("startup")
-def start_task_scheduler() -> None:
-    scheduler.start()
-
-
-@router.on_event("shutdown")
-def stop_task_scheduler() -> None:
-    scheduler.stop()
 
 
 @router.get("/tasks", include_in_schema=False)
