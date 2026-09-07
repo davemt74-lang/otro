@@ -40,6 +40,28 @@ def _effective_settings(
     return result
 
 
+def _private_inference_route(inference: dict[str, Any]) -> tuple[str, str, str | None]:
+    selected_provider = str(inference.get("selected_provider") or "")
+    selected_model = str(inference.get("model") or "")
+    compute_source = str(inference.get("compute_source") or "")
+    if selected_provider == "ollama" and compute_source == "homeserver_local":
+        return "ollama", selected_model, "ollama"
+
+    for item in inference.get("providers") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("provider_key") != "ollama" or not item.get("ready"):
+            continue
+        model = str(item.get("model") or "").strip()
+        if model:
+            return "ollama", model, "ollama"
+
+    raise brain.BrainError(
+        "This conversation is set to Private. Configure and enable a local Ollama model to continue, or enable cloud providers for this chat.",
+        409,
+    )
+
+
 def chat(
     source_app_key: str,
     message: str,
@@ -67,12 +89,9 @@ def chat(
     inference = providers.inference_status()
     provider_key = str(inference.get("selected_provider") or "unavailable")
     provider_model = str(inference.get("model") or "")
-    compute_source = str(inference.get("compute_source") or "unavailable")
-    if compute_source == "user_provider" and not settings["cloud_allowed"]:
-        raise brain.BrainError(
-            "This conversation is set to Private. Enable cloud providers for this chat or configure a local Ollama model.",
-            409,
-        )
+    provider_override: str | None = None
+    if not settings["cloud_allowed"]:
+        provider_key, provider_model, provider_override = _private_inference_route(inference)
 
     with db() as connection:
         connection.execute(
@@ -102,7 +121,14 @@ def chat(
         *brain._history(conversation_id),
     ]
 
-    selected_model = (agent.get("model") or provider_model).strip()
+    # Private mode pins this request to the configured local model. It never
+    # mutates the user's global provider preference and never carries a hosted
+    # agent-model override into Ollama.
+    selected_model = (
+        provider_model.strip()
+        if provider_override == "ollama"
+        else (agent.get("model") or provider_model).strip()
+    )
     with db() as connection:
         cursor = connection.execute(
             """
@@ -143,6 +169,7 @@ def chat(
             granted_permissions=set(tool_permissions or set()),
             owner=owner_tools,
             state=tool_state,
+            provider_key=provider_override,
         )
     except providers.ProviderError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
