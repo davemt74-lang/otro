@@ -91,7 +91,7 @@ def get_settings(conversation_id: str) -> dict[str, Any]:
             "include_memory": True,
             "include_knowledge": True,
             "include_contacts": True,
-            "cloud_allowed": False,
+            "cloud_allowed": True,
             "max_context_chars": DEFAULT_CONTEXT_CHARS,
             "updated_at": None,
         }
@@ -380,7 +380,12 @@ def record_retrieval(conversation_id: str, source_app_key: str, bundle: ContextB
         return int(cursor.lastrowid)
 
 
-def recent_sources(conversation_id: str, limit: int = 5) -> list[dict[str, Any]]:
+def recent_sources(
+    conversation_id: str,
+    limit: int = 5,
+    *,
+    allowed_kinds: set[str] | None = None,
+) -> list[dict[str, Any]]:
     safe_limit = max(1, min(20, int(limit)))
     with db() as connection:
         rows = connection.execute(
@@ -400,6 +405,13 @@ def recent_sources(conversation_id: str, limit: int = 5) -> list[dict[str, Any]]
             refs = json.loads(item.pop("source_refs_json") or "[]")
         except json.JSONDecodeError:
             refs = []
-        item["sources"] = refs if isinstance(refs, list) else []
+        if not isinstance(refs, list):
+            refs = []
+        if allowed_kinds is not None:
+            refs = [ref for ref in refs if isinstance(ref, dict) and str(ref.get("kind") or "") in allowed_kinds]
+            item["memory_count"] = sum(1 for ref in refs if ref.get("kind") == "memory")
+            item["knowledge_count"] = sum(1 for ref in refs if ref.get("kind") == "knowledge")
+            item["contact_count"] = sum(1 for ref in refs if ref.get("kind") == "contact")
+        item["sources"] = refs
         result.append(item)
     return result
