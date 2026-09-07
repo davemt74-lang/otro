@@ -16,3 +16,6 @@ CREATE TABLE IF NOT EXISTS contacts (
 CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_contacts_organization ON contacts(organization COLLATE NOCASE);
+
+INSERT OR IGNORE INTO tool_policies(tool_key, enabled)
+VALUES ('contacts.search', 1);
