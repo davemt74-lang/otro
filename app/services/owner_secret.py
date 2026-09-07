@@ -17,9 +17,23 @@ class _DataBlob(ctypes.Structure):
     _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
 
 
-def _protect_windows(data: bytes) -> bytes:
+def _windows_libraries():
     crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    return crypt32, kernel32
+
+
+def _free_blob(kernel32, blob: _DataBlob) -> None:
+    if blob.pbData:
+        kernel32.LocalFree(ctypes.cast(blob.pbData, ctypes.c_void_p))
+        blob.pbData = ctypes.POINTER(ctypes.c_ubyte)()
+        blob.cbData = 0
+
+
+def _protect_windows(data: bytes) -> bytes:
+    crypt32, kernel32 = _windows_libraries()
     source_buffer = (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
     source = _DataBlob(len(data), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
     output = _DataBlob()
@@ -33,25 +47,25 @@ def _protect_windows(data: bytes) -> bytes:
         ctypes.POINTER(_DataBlob),
     ]
     crypt32.CryptProtectData.restype = wintypes.BOOL
-    if not crypt32.CryptProtectData(
-        ctypes.byref(source),
-        "HomeServer owner bootstrap secret",
-        None,
-        None,
-        None,
-        CRYPTPROTECT_UI_FORBIDDEN,
-        ctypes.byref(output),
-    ):
-        raise OSError(ctypes.get_last_error(), "CryptProtectData failed")
     try:
+        if not crypt32.CryptProtectData(
+            ctypes.byref(source),
+            "HomeServer owner bootstrap secret",
+            None,
+            None,
+            None,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            ctypes.byref(output),
+        ):
+            raise OSError(ctypes.get_last_error(), "CryptProtectData failed")
         return ctypes.string_at(output.pbData, output.cbData)
     finally:
-        kernel32.LocalFree(output.pbData)
+        ctypes.memset(source_buffer, 0, len(data))
+        _free_blob(kernel32, output)
 
 
 def _unprotect_windows(data: bytes) -> bytes:
-    crypt32 = ctypes.WinDLL("crypt32", use_last_error=True)
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    crypt32, kernel32 = _windows_libraries()
     source_buffer = (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
     source = _DataBlob(len(data), ctypes.cast(source_buffer, ctypes.POINTER(ctypes.c_ubyte)))
     output = _DataBlob()
@@ -65,20 +79,21 @@ def _unprotect_windows(data: bytes) -> bytes:
         ctypes.POINTER(_DataBlob),
     ]
     crypt32.CryptUnprotectData.restype = wintypes.BOOL
-    if not crypt32.CryptUnprotectData(
-        ctypes.byref(source),
-        None,
-        None,
-        None,
-        None,
-        CRYPTPROTECT_UI_FORBIDDEN,
-        ctypes.byref(output),
-    ):
-        raise OSError(ctypes.get_last_error(), "CryptUnprotectData failed")
     try:
+        if not crypt32.CryptUnprotectData(
+            ctypes.byref(source),
+            None,
+            None,
+            None,
+            None,
+            CRYPTPROTECT_UI_FORBIDDEN,
+            ctypes.byref(output),
+        ):
+            raise OSError(ctypes.get_last_error(), "CryptUnprotectData failed")
         return ctypes.string_at(output.pbData, output.cbData)
     finally:
-        kernel32.LocalFree(output.pbData)
+        ctypes.memset(source_buffer, 0, len(data))
+        _free_blob(kernel32, output)
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
