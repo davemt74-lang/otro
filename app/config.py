@@ -21,7 +21,7 @@ def _allowed_origins() -> tuple[str, ...]:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "HomeServer"
-    version: str = "0.6.0"
+    version: str = "0.7.0"
     host: str = "127.0.0.1"
     port: int = 4377
     data_dir: Path = Path(os.environ.get("HOMESERVER_DATA_DIR", Path.home() / ".homeserver"))
