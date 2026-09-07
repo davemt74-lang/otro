@@ -63,6 +63,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
             "updated_at": default_policy.json()["policy"]["updated_at"],
         }
         assert set(default_policy.json()["available_tools"]) == {
+            "homeserver_contacts_search",
             "homeserver_knowledge_search",
             "homeserver_memory_list",
         }
@@ -97,7 +98,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
         assert owner_json["tools"]["action_request_ids"] == []
         assert len(owner_json["tools"]["run_ids"]) == 1
         offered = {item["function"]["name"] for item in step_calls[0]["tools"]}
-        assert offered == {"homeserver_knowledge_search", "homeserver_memory_list"}
+        assert offered == {
+            "homeserver_contacts_search",
+            "homeserver_knowledge_search",
+            "homeserver_memory_list",
+        }
         assert "homeserver_memory_write_request" not in offered
         second_messages = step_calls[1]["messages"]
         assert any(item.get("role") == "tool" and item.get("tool_name") == "homeserver_knowledge_search" for item in second_messages)
