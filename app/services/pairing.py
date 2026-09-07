@@ -9,11 +9,15 @@ from ..database import db
 
 DEFAULT_PERMISSIONS = {
     "agent.chat",
+    "awareness.read",
     "contacts.read",
+    "events.read",
+    "events.write",
     "knowledge.search",
     "memory.read",
     "memory.write",
     "notifications.read",
+    "plugins.read",
     "tasks.read",
     "tasks.write",
     "tools.execute",
