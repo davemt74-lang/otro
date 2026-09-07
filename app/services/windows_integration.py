@@ -22,10 +22,19 @@ def _quoted_executable() -> str:
     return f'"{Path(sys.executable).resolve()}"'
 
 
+def _legacy_startup_shortcut() -> Path | None:
+    if os.name != "nt":
+        return None
+    appdata = str(os.environ.get("APPDATA") or "").strip()
+    if not appdata:
+        return None
+    return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "HomeServer.lnk"
+
+
 def startup_state() -> dict:
     supported = _is_frozen_windows()
-    enabled = False
     command: str | None = None
+    registry_enabled = False
     if os.name == "nt":
         try:
             import winreg
@@ -33,12 +42,17 @@ def startup_state() -> dict:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_READ) as key:
                 value, _ = winreg.QueryValueEx(key, _RUN_VALUE)
                 command = str(value)
-                enabled = bool(command.strip())
+                registry_enabled = bool(command.strip())
         except (FileNotFoundError, OSError):
             pass
+    shortcut = _legacy_startup_shortcut()
+    legacy_enabled = bool(shortcut and shortcut.is_file())
     return {
         "supported": supported,
-        "enabled": enabled,
+        "enabled": registry_enabled or legacy_enabled,
+        "registry_enabled": registry_enabled,
+        "legacy_shortcut": legacy_enabled,
+        "mode": "registry" if registry_enabled else ("legacy-shortcut" if legacy_enabled else "disabled"),
         "command": command,
         "executable": str(Path(sys.executable).resolve()) if _is_frozen_windows() else None,
     }
@@ -59,6 +73,9 @@ def set_startup_enabled(enabled: bool) -> dict:
                     winreg.DeleteValue(key, _RUN_VALUE)
                 except FileNotFoundError:
                     pass
+        shortcut = _legacy_startup_shortcut()
+        if shortcut is not None:
+            shortcut.unlink(missing_ok=True)
     except OSError as exc:
         raise WindowsIntegrationError("Windows startup registration could not be updated.") from exc
     return startup_state()
