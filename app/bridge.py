@@ -11,6 +11,7 @@ from .contacts_api import router as contacts_router
 from .config import settings
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
+from .services import providers
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tasks_api import router as tasks_router
@@ -45,11 +46,19 @@ app.add_middleware(
 
 @app.get("/api/v1/capabilities")
 def capabilities() -> dict:
+    inference = providers.inference_status()
     return {
         "service": settings.app_name,
         "version": settings.version,
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
+        "inference": {
+            "available": bool(inference["available"]),
+            "selected_provider": inference["selected_provider"],
+            "model": inference["model"],
+            "compute_source": inference["compute_source"],
+            "cloud_fallback_required": bool(inference["cloud_fallback_required"]),
+        },
         "permissions": sorted(DEFAULT_PERMISSIONS),
         "features": [
             "action.approvals",
