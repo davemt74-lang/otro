@@ -6,7 +6,9 @@ HomeServer is application-neutral. VP3 is an authorized browser client that conn
 
 Default: `http://127.0.0.1:4377`
 
-VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.10 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, contacts, knowledge, memory, skills, direct tools, optional Agent Tool Use and local action approvals.
+VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.11 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, contacts, knowledge, memory, skills, direct tools, optional Agent Tool Use and local action approvals.
+
+Windows lifecycle, Setup & Diagnostics, owner security, recovery mode and Backup & Restore are deliberately **not** pairing capabilities. They remain local owner operations.
 
 ## Browser pairing
 
@@ -35,8 +37,6 @@ Conversation APIs:
 
 ## Contacts & relationship context
 
-v0.9 added the scoped permission `contacts.read`.
-
 `GET /api/v1/contacts?q=<query>` requires `contacts.read` and can return the owner's local contact records, including relationship notes. VP3 should request this capability only when it has a user-facing need for private relationship context.
 
 The browser helper exposes:
@@ -57,7 +57,7 @@ Agent Tool Use is controlled only by the local HomeServer owner and is disabled 
 
 The corresponding model function for relationship search is `homeserver_contacts_search`.
 
-HomeServer enforces a hard owner-selected 1–3 executed-tool-call limit per chat turn. Tool result messages stay inside the local Ollama exchange and are not stored as conversation messages. The contact search audit stores query length and result count, not raw query text or returned contact notes.
+HomeServer enforces a hard owner-selected 1–3 executed-tool-call limit per chat turn. Tool result messages stay inside the local Ollama exchange and are not stored as conversation messages. Contact search audit stores query length and result count, not raw query text or returned contact notes.
 
 ## Approval-gated memory-write proposals
 
@@ -101,11 +101,23 @@ The built-in `relationship.context` skill groups contact search without granting
 
 The owner can globally disable any built-in tool. HomeServer exposes no shell, PowerShell, arbitrary HTTP or unrestricted filesystem tool.
 
+## Owner-only Windows and recovery surfaces
+
+HomeServer v0.11 adds local Windows lifecycle and recovery controls that are intentionally outside the pairing model:
+
+- `/system` Setup & Diagnostics workspace
+- Start with Windows
+- Open Data Folder
+- Restart / Quit HomeServer
+- Windows-protected owner bootstrap storage
+- restricted recovery mode when the normal SQLite runtime cannot start
+- local Backup & Restore
+
+These controls are not present in `DEFAULT_PERMISSIONS`, are not returned as client capabilities, and are not methods on `VP3HomeServerConnector`. A valid VP3 bearer token cannot invoke `/api/v1/control/*` routes or the local recovery owner endpoints.
+
 ## Owner-only backup portability
 
-v0.10 adds local backup/export and staged restore to the **owner Control Center only**. These routes live under `/api/v1/control/*` and are protected by the local owner-session gateway.
-
-Backup/restore is intentionally **not** a pairing permission, is not returned in `DEFAULT_PERMISSIONS`, and is not exposed through the VP3 connector helper. A VP3 bearer token cannot create, download, delete, upload, stage, cancel, or apply HomeServer backups.
+Backup/export and staged restore remain local-owner-only. Backup/restore is intentionally **not** a pairing permission and is not exposed through the VP3 connector helper. A VP3 bearer token cannot create, download, delete, upload, stage, cancel or apply HomeServer backups.
 
 ## Other protected APIs
 
@@ -120,4 +132,4 @@ Backup/restore is intentionally **not** a pairing permission, is not returned in
 
 `connectors/vp3/client.js` provides `VP3HomeServerConnector` with `pair()`, `chat()`, conversation helpers, `contacts()`, knowledge/memory helpers, `tools()`, `skills()`, `executeTool()` and `actionRequest()`.
 
-Persistent claim-token storage remains VP3's responsibility. Owner-only `/api/v1/control/*` routes and pairing approval remain behind HomeServer's local owner-session gateway.
+Persistent claim-token storage remains VP3's responsibility. Owner-only `/api/v1/control/*` routes, `/system`, recovery operations and pairing approval remain behind HomeServer's local owner security boundary.
