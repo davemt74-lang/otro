@@ -19,5 +19,7 @@ jobs:
         run: node --check ui/knowledge-sources.js
       - name: Knowledge Sources UI integration contract
         run: python tests/knowledge_sources_contract.py
+      - name: Knowledge Sync scheduler lifespan regression
+        run: python tests/knowledge_scheduler_lifespan.py
       - name: Watched knowledge source regression
         run: python tests/knowledge_sources.py
