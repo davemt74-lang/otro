@@ -114,6 +114,16 @@ def _restart_command() -> list[str]:
     return [sys.executable, str(Path(__file__).resolve()), *args, "--restart-child"]
 
 
+def _restart_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    if getattr(sys, "frozen", False):
+        # PyInstaller 6.9+ treats sys.executable children as worker processes by
+        # default. A self-restart must be a new top-level onefile instance so it
+        # unpacks into its own temporary directory and can outlive this process.
+        env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 class RuntimeController:
     def __init__(self, asgi_app, *, recovery_mode: bool = False):
         self.recovery_mode = recovery_mode
@@ -268,7 +278,11 @@ def main() -> None:
 
     if restart_requested:
         time.sleep(0.15)
-        subprocess.Popen(_restart_command(), close_fds=True)
+        subprocess.Popen(
+            _restart_command(),
+            close_fds=True,
+            env=_restart_environment(),
+        )
 
 
 if __name__ == "__main__":
