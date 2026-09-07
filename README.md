@@ -250,6 +250,6 @@ python desktop/launcher.py
 pyinstaller HomeServer.spec --clean --noconfirm
 ```
 
-Windows CI validates migrations, inference routing/usage isolation, legacy-data bootstrap, single-instance behavior, DPAPI owner protection, recovery mode, Agent/Tools/Approvals/Contacts/Tasks/Backup regressions, Remote Bridge security/protocol, packaged EXE startup, packaged restart/session rotation/shutdown, the packaged outbound relay permission boundary, staged restore, installer upgrade preservation and distribution hashes.
+Windows CI validates the agent-first shell integration contract, migrations, inference routing/usage isolation, legacy-data bootstrap, single-instance behavior, DPAPI owner protection, recovery mode, Agent/Tools/Approvals/Contacts/Tasks/Backup regressions, Remote Bridge security/protocol, packaged EXE startup, packaged restart/session rotation/shutdown, the packaged outbound relay permission boundary, staged restore, installer upgrade preservation and distribution hashes.
 
 Relay CI independently validates the deployable relay process, VP3 remote connector, Docker image and live container health.
