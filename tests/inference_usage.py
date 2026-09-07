@@ -196,6 +196,38 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
         assert final["cloud_tokens_debited"] == 225
         assert final["balance_tokens"] == 9775
 
+        # Idempotency is scoped to an app. Another authorized integration may
+        # legitimately use the same cloud event id without colliding with or
+        # learning the first app's billing row.
+        other_pair = client.post(
+            "/api/v1/pairing/request",
+            json={
+                "app_key": "vp3-cloud-other",
+                "app_name": "VP3 Cloud Other",
+                "permissions": ["usage.read", "usage.write"],
+            },
+        ).json()
+        assert client.post("/api/v1/pairing/approve", json={"code": other_pair["code"]}).status_code == 200
+        other_headers = {"Authorization": f"Bearer {other_pair['claim_token']}"}
+        other_event = {**cloud_event, "billable_tokens": 10, "total_tokens": 8, "balance_after_tokens": 4990}
+        other_charge = client.post("/api/v1/usage/cloud", json=other_event, headers=other_headers)
+        assert other_charge.status_code == 200
+        assert other_charge.json()["event"]["source_app_key"] == "app:vp3-cloud-other"
+        other_usage = client.get("/api/v1/usage", headers=other_headers).json()
+        assert len(other_usage["items"]) == 1
+        assert other_usage["summary"]["cloud_tokens_debited"] == 10
+        assert other_usage["summary"]["balance_tokens"] == 4990
+        assert other_usage["items"][0]["source_app_key"] == "app:vp3-cloud-other"
+
+        first_app_after_collision = client.get("/api/v1/usage", headers=headers).json()
+        assert len(first_app_after_collision["items"]) == 1
+        assert first_app_after_collision["summary"]["cloud_tokens_debited"] == 225
+        assert first_app_after_collision["summary"]["balance_tokens"] == 9775
+
+        owner_after_collision = client.get("/api/v1/control/usage").json()["summary"]
+        assert owner_after_collision["cloud_requests"] == 2
+        assert owner_after_collision["cloud_tokens_debited"] == 235
+
         cleared = client.put("/api/v1/control/provider-credentials", json={"clear": ["anthropic"]})
         assert cleared.status_code == 200
         assert cleared.json()["providers"]["anthropic"]["configured"] is False
