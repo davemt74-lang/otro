@@ -47,6 +47,10 @@ jobs:
         run: python tests/contacts.py
       - name: Contact literal wildcard regression
         run: python tests/contacts_wildcards.py
+      - name: Backup integrity, staging and rollback regression
+        run: python tests/backups.py
+      - name: Backup owner boundary and path security regression
+        run: python tests/backup_security.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
       - name: Smoke test packaged executable
@@ -60,7 +64,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.9.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.10.0') {
                   $healthy = $true
                   break
                 }
@@ -71,11 +75,57 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.9.0' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.10.0' }
           } finally {
             $process.Refresh()
-            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            if (-not $process.HasExited) {
+              & taskkill.exe /PID $process.Id /T /F | Out-Null
+            }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
           }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Packaged smoke left a HomeServer listener on port 4377'
+          }
+      - name: Smoke test packaged staged restore
+        shell: pwsh
+        run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is already occupied before the staged-restore smoke test'
+          }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-restore'
+          python tests/packaged_restore.py setup
+          $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          $healthy = $false
+          try {
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              Start-Sleep -Seconds 1
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
+                if ($response.ok -eq $true -and $response.version -eq '0.10.0') {
+                  $healthy = $true
+                  break
+                }
+              } catch {
+                $process.Refresh()
+                if ($process.HasExited) {
+                  throw "HomeServer.exe exited during staged restore with code $($process.ExitCode)"
+                }
+              }
+            }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy after applying the staged restore' }
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) {
+              & taskkill.exe /PID $process.Id /T /F | Out-Null
+            }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Packaged restore smoke left a HomeServer listener on port 4377'
+          }
+          python tests/packaged_restore.py verify
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y

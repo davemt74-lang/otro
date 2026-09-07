@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
     with TestClient(app) as client:
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.9.0"
+        assert health.json()["version"] == "0.10.0"
 
         capabilities = client.get("/api/v1/capabilities", headers={"Origin": "https://vp3.me"})
         assert capabilities.status_code == 200

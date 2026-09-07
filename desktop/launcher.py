@@ -24,6 +24,7 @@ from PIL import Image, ImageDraw
 from app.config import settings
 from app.runtime import app as runtime_app
 from app.security import OWNER_CONTROL_TOKEN
+from app.services import backups
 
 
 def _icon() -> Image.Image:
@@ -55,7 +56,19 @@ def open_api_docs(_: pystray.Icon | None = None, __=None) -> None:
     _open(_authorized_path("/docs"))
 
 
+def _apply_staged_restore_before_server() -> None:
+    try:
+        backups.apply_pending_restore()
+    except backups.BackupError:
+        # apply_pending_restore() rolls the old data back, clears the bad stage,
+        # and records the failure for the Control Center. Starting the server is
+        # safer than trapping the user in a restart loop.
+        pass
+
+
 def main() -> None:
+    _apply_staged_restore_before_server()
+
     if "--headless" in sys.argv:
         _serve()
         return

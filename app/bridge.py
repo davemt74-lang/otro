@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .approvals_api import router as approvals_router
+from .backups_api import router as backups_router
 from .brain_api import router as brain_router
 from .contacts_api import router as contacts_router
 from .config import settings
@@ -22,6 +23,7 @@ app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(approvals_router)
 app.include_router(contacts_router)
+app.include_router(backups_router)
 
 app.add_middleware(
     CORSMiddleware,

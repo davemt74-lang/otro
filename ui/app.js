@@ -29,11 +29,54 @@ function flash(message, error = false) {
   flash.timer = setTimeout(() => node.className = 'flash', 3500);
 }
 
+function ensureBackupWorkspace() {
+  if ($('view-backups')) return;
+
+  if (!document.querySelector('link[href="/assets/backups.css"]')) {
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet';
+    stylesheet.href = '/assets/backups.css';
+    document.head.append(stylesheet);
+  }
+
+  const activityNav = document.querySelector('.nav-item[data-view="activity"]');
+  if (activityNav && !document.querySelector('.nav-item[data-view="backups"]')) {
+    const button = document.createElement('button');
+    button.className = 'nav-item';
+    button.dataset.view = 'backups';
+    button.textContent = 'Backup & Restore';
+    activityNav.parentNode.insertBefore(button, activityNav);
+  }
+
+  const activityView = $('view-activity');
+  if (activityView) {
+    const section = document.createElement('section');
+    section.className = 'view';
+    section.id = 'view-backups';
+    section.innerHTML = `
+      <div class="section-intro split">
+        <div><h2>Backup & Restore</h2><p>Create portable local snapshots of your HomeServer brain, contacts, memory, permissions and imported knowledge files.</p></div>
+        <div class="backup-actions"><button class="button secondary" id="stageRestoreButton" type="button">Stage restore</button><button class="button primary" id="createBackupButton" type="button">Create backup</button><input class="hidden" id="restoreBackupFile" type="file" accept=".zip,application/zip"></div>
+      </div>
+      <div class="backup-warning"><strong>Private archive:</strong> backup ZIPs contain private HomeServer data and are not encrypted by the ZIP format. Keep exported copies somewhere you control and protect.</div>
+      <div id="restoreStatus"></div>
+      <div class="panel backup-explainer"><div><span>1</span><p><strong>Consistent snapshot</strong><small>SQLite's backup API captures a coherent database even while HomeServer is running.</small></p></div><div><span>2</span><p><strong>Integrity manifest</strong><small>Every database and knowledge file is SHA-256 checked before a restore can be staged.</small></p></div><div><span>3</span><p><strong>Restart-safe restore</strong><small>HomeServer makes a pre-restore backup and applies the validated stage before the API starts.</small></p></div></div>
+      <div class="panel-head backup-list-head"><div><p class="eyebrow">LOCAL ARCHIVES</p><h3>Backups</h3></div><span id="backupCount" class="muted"></span></div>
+      <div id="backupList" class="backup-list"><div class="panel empty-state">No backups yet.</div></div>`;
+    activityView.parentNode.insertBefore(section, activityView);
+  }
+
+  const providerCopy = document.querySelector('#providerForm > p.muted');
+  if (providerCopy && providerCopy.textContent.includes('HomeServer v0.9')) {
+    providerCopy.textContent = providerCopy.textContent.replace('HomeServer v0.9', 'HomeServer v0.10');
+  }
+}
+
 function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach(v => v.classList.toggle('active', v.dataset.view === name));
-  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',apps:'Connected Apps',activity:'Activity'};
+  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',apps:'Connected Apps',backups:'Backup & Restore',activity:'Activity'};
   $('pageTitle').textContent = labels[name] || 'HomeServer';
   loadView(name).catch(err => flash(err.message, true));
 }
@@ -155,6 +198,36 @@ async function loadActivity() {
   $('activityTable').innerHTML = data.items.length ? data.items.map(item => `<tr><td>${esc(fmt(item.created_at))}</td><td>${esc(item.actor_type)}${item.actor_key ? ` · ${esc(item.actor_key)}` : ''}</td><td>${esc(item.action)}</td><td>${esc([item.resource_type, item.resource_key].filter(Boolean).join(' · '))}</td></tr>`).join('') : '<tr><td colspan="4">No activity yet.</td></tr>';
 }
 
+function restoreStatusMarkup(data) {
+  const pending = data.pending_restore;
+  const last = data.last_restore;
+  const parts = [];
+  if (pending) {
+    if (pending.valid) {
+      parts.push(`<div class="panel restore-state pending"><div><p class="eyebrow">RESTORE STAGED</p><h3>Restart required</h3><p>${esc(pending.original_name || 'HomeServer backup')} passed integrity validation and will be applied before the server starts next time.</p><div class="item-meta"><span>Backup ${esc(fmt(pending.backup_created_at))}</span><span>schema v${esc(pending.schema_version)}</span><span>${esc(formatBytes(pending.upload_size_bytes))}</span></div></div><button class="button secondary danger" id="cancelRestoreButton" type="button">Cancel restore</button></div>`);
+    } else {
+      parts.push(`<div class="panel restore-state failed"><div><p class="eyebrow">RESTORE INVALID</p><h3>Staged restore needs attention</h3><p>${esc(pending.error || 'The staged restore could not be revalidated.')}</p></div><button class="button secondary danger" id="cancelRestoreButton" type="button">Clear staged restore</button></div>`);
+    }
+  }
+  if (last?.status === 'applied') {
+    parts.push(`<div class="restore-result success"><strong>Last restore applied ${esc(fmt(last.applied_at))}.</strong>${last.pre_restore_backup ? ` A safety backup was created first: ${esc(last.pre_restore_backup)}.` : ''}</div>`);
+  } else if (last?.status === 'failed') {
+    parts.push(`<div class="restore-result failure"><strong>Last restore was rolled back safely.</strong> ${esc(last.error || 'The staged data could not be applied.')}</div>`);
+  }
+  return parts.join('');
+}
+
+async function loadBackups() {
+  ensureBackupWorkspace();
+  const data = await api('/api/v1/control/backups');
+  $('restoreStatus').innerHTML = restoreStatusMarkup(data);
+  $('backupCount').textContent = `${data.items.length} archive${data.items.length === 1 ? '' : 's'}`;
+  $('backupList').innerHTML = data.items.length ? data.items.map(item => {
+    const invalid = item.invalid ? '<span class="tag danger">invalid manifest</span>' : '';
+    return `<article class="panel backup-card"><div><h3>${esc(item.name)}</h3><div class="backup-meta"><span>${esc(fmt(item.created_at))}</span><span>${esc(formatBytes(item.size_bytes))}</span><span>schema ${item.schema_version == null ? 'unknown' : `v${esc(item.schema_version)}`}</span><span>${esc(item.reason || 'manual')}</span>${invalid}</div></div><div class="backup-card-actions"><a class="button secondary" href="/api/v1/control/backups/download/${encodeURIComponent(item.name)}">Download</a><button class="text-button danger" data-delete-backup="${esc(item.name)}" type="button">Delete</button></div></article>`;
+  }).join('') : '<div class="panel empty-state">No backups yet. Create one before major changes or moving HomeServer to another machine.</div>';
+}
+
 async function loadView(name) {
   if (name === 'dashboard') return loadOverview();
   if (name === 'agent') return loadAgent();
@@ -162,6 +235,7 @@ async function loadView(name) {
   if (name === 'memory') return loadMemory();
   if (name === 'contacts' && typeof window.loadHomeServerContacts === 'function') return window.loadHomeServerContacts();
   if (name === 'apps') return loadApps();
+  if (name === 'backups') return loadBackups();
   if (name === 'activity') return loadActivity();
   return Promise.resolve();
 }
@@ -174,6 +248,29 @@ document.addEventListener('click', async (event) => {
   if (event.target.id === 'showMemoryForm') $('memoryForm').classList.remove('hidden');
   if (event.target.id === 'cancelMemory') $('memoryForm').classList.add('hidden');
   if (event.target.id === 'importKnowledgeFiles') $('knowledgeFiles')?.click();
+  if (event.target.id === 'stageRestoreButton') $('restoreBackupFile')?.click();
+  if (event.target.id === 'createBackupButton') {
+    const button = event.target;
+    button.disabled = true;
+    button.textContent = 'Creating…';
+    try {
+      const result = await api('/api/v1/control/backups/create', {method:'POST'});
+      await loadBackups();
+      flash(`Backup created: ${result.backup.name}`);
+    } catch (err) { flash(err.message, true); }
+    finally { button.disabled = false; button.textContent = 'Create backup'; }
+  }
+  if (event.target.id === 'cancelRestoreButton') {
+    if (confirm('Cancel the staged restore? Your current HomeServer data will remain unchanged.')) {
+      try { await api('/api/v1/control/restore/pending', {method:'DELETE'}); await loadBackups(); flash('Staged restore cancelled.'); }
+      catch (err) { flash(err.message, true); }
+    }
+  }
+  const deleteBackup = event.target.closest('[data-delete-backup]');
+  if (deleteBackup && confirm(`Delete ${deleteBackup.dataset.deleteBackup}?`)) {
+    try { await api(`/api/v1/control/backups/${encodeURIComponent(deleteBackup.dataset.deleteBackup)}`, {method:'DELETE'}); await loadBackups(); flash('Backup deleted.'); }
+    catch (err) { flash(err.message, true); }
+  }
   if (event.target.id === 'reindexKnowledge') {
     try { const result = await api('/api/v1/control/knowledge/reindex', {method:'POST'}); await loadKnowledge(); flash(`Reindexed ${result.items} items into ${result.chunks} chunks.`); }
     catch (err) { flash(err.message, true); }
@@ -186,6 +283,19 @@ document.addEventListener('click', async (event) => {
 
 document.addEventListener('change', async (event) => {
   if (event.target.id === 'knowledgeFiles') { await importKnowledgeFiles(); return; }
+  if (event.target.id === 'restoreBackupFile') {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file, file.name);
+    event.target.value = '';
+    try {
+      const result = await api('/api/v1/control/restore/stage', {method:'POST', body:form});
+      await loadBackups();
+      flash(result.message || 'Restore validated and staged. Restart HomeServer to apply it.');
+    } catch (err) { flash(err.message, true); }
+    return;
+  }
   const status = event.target.closest('[data-app-status]');
   if (status) { try { await api(`/api/v1/control/apps/${status.dataset.appStatus}`, {method:'PATCH', body:JSON.stringify({status:status.value})}); flash('Application status updated.'); await loadApps(); } catch (err) { flash(err.message, true); } }
   const permission = event.target.closest('[data-app-permission]');
@@ -198,7 +308,9 @@ $('memoryForm').addEventListener('submit', async (event) => { event.preventDefau
 $('pairingForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const data = await api('/api/v1/pairing/approve', {method:'POST', body:JSON.stringify({code:$('pairingCode').value})}); $('pairingToken').classList.remove('hidden'); if (data.delivery === 'claim_token') { $('pairingToken').innerHTML = `<strong>Pairing approved.</strong><span class="muted">Return to ${esc(data.app_key)}. It can complete the connection automatically; there is no token to copy.</span>`; } else { $('pairingToken').innerHTML = `<strong>Legacy pairing approved — copy this token into the requesting app now.</strong>${esc(data.token || '')}<br><span class="muted">For security, HomeServer will not display this token again.</span>`; } $('pairingCode').value = ''; await loadApps(); flash(`${data.app_key} paired successfully.`); } catch (err) { flash(err.message, true); } });
 $('knowledgeSearch').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => loadKnowledge().catch(err => flash(err.message, true)), 180); });
 $('refreshButton').addEventListener('click', () => loadView(state.view).then(() => flash('HomeServer refreshed.')).catch(err => flash(err.message, true)));
-const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','apps','activity'];
+
+ensureBackupWorkspace();
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','apps','backups','activity'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();
