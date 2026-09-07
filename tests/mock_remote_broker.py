@@ -4,7 +4,6 @@ import json
 import os
 import sqlite3
 import threading
-import time
 from pathlib import Path
 
 from websockets.sync.server import serve
@@ -51,32 +50,34 @@ def latest_worker_progress() -> str:
             setting = connection.execute(
                 "SELECT enabled, broker_url FROM remote_bridge_settings WHERE id=1 LIMIT 1"
             ).fetchone()
-            event = connection.execute(
+            events = connection.execute(
                 """
                 SELECT event, status, metadata_json
                 FROM remote_bridge_events
                 WHERE event IN ('bridge.worker', 'bridge.connection', 'bridge.connected', 'bridge.disconnected')
-                ORDER BY id DESC LIMIT 1
+                ORDER BY id DESC LIMIT 6
                 """
-            ).fetchone()
+            ).fetchall()
         finally:
             connection.close()
 
         setting_state = "on" if setting is not None and bool(setting["enabled"]) and bool(setting["broker_url"]) else "off"
         identity_state = "yes" if (data_dir / "security" / "remote-bridge.dat").is_file() else "no"
-        if event is None:
+        if not events:
             return f"worker=none;settings={setting_state};identity={identity_state}"
-        try:
-            metadata = json.loads(event["metadata_json"] or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            metadata = {}
-        stage = str(metadata.get("stage") or "unknown")[:80]
-        error_type = str(metadata.get("error_type") or "")[:80]
-        suffix = f";error={error_type}" if error_type else ""
-        return (
-            f"worker={event['event']}:{event['status']}:{stage}{suffix};"
-            f"settings={setting_state};identity={identity_state}"
-        )
+
+        event_parts: list[str] = []
+        for event in events:
+            try:
+                metadata = json.loads(event["metadata_json"] or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                metadata = {}
+            stage = str(metadata.get("stage") or "unknown")[:50]
+            error_type = str(metadata.get("error_type") or "")[:60]
+            suffix = f"/{error_type}" if error_type else ""
+            event_parts.append(f"{event['event']}:{event['status']}:{stage}{suffix}")
+        history = ">".join(event_parts)
+        return f"worker={history};settings={setting_state};identity={identity_state}"
     except (sqlite3.Error, OSError) as exc:
         return f"worker=diagnostic-{type(exc).__name__}"
 
