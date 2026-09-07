@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -20,6 +21,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-recovery-") as data_dir:
     from app.recovery import build_recovery_app  # noqa: E402
     from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
     from app.services import backups  # noqa: E402
+    from app.services.restore_runtime import apply_pending_restore_for_startup  # noqa: E402
     from app.services.runtime_control import register_runtime_handler  # noqa: E402
 
     initialize_database()
@@ -33,7 +35,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-recovery-") as data_dir:
 
     for suffix in ("-wal", "-shm"):
         Path(str(settings.db_path) + suffix).unlink(missing_ok=True)
-    settings.db_path.write_bytes(b"not-a-sqlite-database")
+    corrupt_bytes = b"not-a-sqlite-database"
+    settings.db_path.write_bytes(corrupt_bytes)
 
     app = build_recovery_app("DatabaseError: test recovery mode")
     commands: list[str] = []
@@ -69,5 +72,22 @@ with tempfile.TemporaryDirectory(prefix="homeserver-recovery-") as data_dir:
             assert commands == ["restart"]
         finally:
             register_runtime_handler(None)
+
+    restored = apply_pending_restore_for_startup()
+    assert restored is not None and restored["status"] == "applied"
+    quarantine = Path(restored["unreadable_live_snapshot"])
+    assert quarantine.is_dir()
+    assert (quarantine / "homeserver.db").read_bytes() == corrupt_bytes
+    assert not settings.pending_restore_dir.exists()
+
+    connection = sqlite3.connect(settings.db_path)
+    try:
+        row = connection.execute(
+            "SELECT content FROM agent_memory WHERE memory_key='recovery-test' LIMIT 1"
+        ).fetchone()
+        assert row is not None and row[0] == "known-good-state"
+        assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+    finally:
+        connection.close()
 
 print("HomeServer recovery-mode test passed")
