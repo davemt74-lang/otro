@@ -53,7 +53,7 @@ function renderDiagnostics(data) {
   const bootstrap = storage.bootstrap || {};
   const startup = data.startup || {};
 
-  byId('systemVersion').textContent = `v${data.version || '0.11.0'}`;
+  byId('systemVersion').textContent = data.version ? `v${data.version}` : 'Version unavailable';
   byId('diagnosticGrid').innerHTML = [
     diagnosticCard('SQLite', Boolean(db.ok), [['Integrity', db.quick_check], ['Schema', `${db.schema_version ?? '—'} / ${db.supported_schema_version ?? '—'}`], ['Foreign keys', db.foreign_key_violations === 0 ? 'clean' : db.foreign_key_violations]]),
     diagnosticCard('Ollama', ollama.enabled ? Boolean(ollama.reachable) : null, [['Enabled', ollama.enabled ? 'yes' : 'no'], ['Reachable', ollama.reachable ? 'yes' : 'no'], ['Model', ollama.model || 'not selected']]),
