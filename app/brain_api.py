@@ -24,6 +24,16 @@ class ProviderUpdate(BaseModel):
     enabled: bool = False
 
 
+class ExternalProviderUpdate(BaseModel):
+    provider_key: str = Field(min_length=3, max_length=40)
+    model: str = Field(default="", max_length=200)
+    enabled: bool = False
+
+
+class InferencePreferenceUpdate(BaseModel):
+    preferred_provider: str = Field(default="auto", min_length=3, max_length=40)
+
+
 class ProviderCredentialUpdate(BaseModel):
     anthropic: str | None = Field(default=None, max_length=4000)
     openai: str | None = Field(default=None, max_length=4000)
@@ -57,6 +67,17 @@ def _app_source(identity: dict) -> str:
     return f"app:{identity['app_key']}"
 
 
+def _safe_inference_status() -> dict:
+    status = providers.inference_status()
+    return {
+        "available": bool(status["available"]),
+        "selected_provider": status["selected_provider"],
+        "model": status["model"],
+        "compute_source": status["compute_source"],
+        "cloud_fallback_required": bool(status["cloud_fallback_required"]),
+    }
+
+
 def _chat_or_http(
     source: str,
     payload: ChatRequest,
@@ -78,6 +99,11 @@ def _chat_or_http(
         )
     except brain.BrainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/api/v1/inference/status")
+def client_inference_status(identity: dict = Depends(_require_chat)) -> dict:
+    return {**_safe_inference_status(), "app": identity["app_key"]}
 
 
 @router.post("/api/v1/chat")
@@ -167,6 +193,32 @@ def control_provider_test(payload: ProviderUpdate) -> dict:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+@router.get("/api/v1/control/inference")
+def control_inference() -> dict:
+    try:
+        return providers.inference_status()
+    except (providers.ProviderError, provider_secrets.ProviderSecretError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.put("/api/v1/control/inference/preference")
+def control_inference_preference(payload: InferencePreferenceUpdate) -> dict:
+    try:
+        providers.save_inference_settings(payload.preferred_provider)
+        return providers.inference_status()
+    except providers.ProviderError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.put("/api/v1/control/inference/provider")
+def control_external_provider(payload: ExternalProviderUpdate) -> dict:
+    try:
+        providers.save_external_provider(payload.provider_key, payload.model, payload.enabled)
+        return providers.inference_status()
+    except (providers.ProviderError, provider_secrets.ProviderSecretError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/api/v1/control/provider-credentials")
 def control_provider_credentials() -> dict:
     try:
@@ -178,7 +230,7 @@ def control_provider_credentials() -> dict:
 @router.put("/api/v1/control/provider-credentials")
 def control_provider_credentials_update(payload: ProviderCredentialUpdate) -> dict:
     try:
-        return provider_secrets.save_credentials(
+        result = provider_secrets.save_credentials(
             {
                 "anthropic": payload.anthropic,
                 "openai": payload.openai,
@@ -187,7 +239,8 @@ def control_provider_credentials_update(payload: ProviderCredentialUpdate) -> di
             },
             clear=payload.clear,
         )
-    except provider_secrets.ProviderSecretError as exc:
+        return {**result, "inference": providers.inference_status()}
+    except (provider_secrets.ProviderSecretError, providers.ProviderError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
