@@ -34,7 +34,7 @@ Name: "{autoprograms}\HomeServer"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\HomeServer"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "HomeServer"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startup
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "HomeServer"; ValueData: """{app}\{#MyAppExeName}"" --background"; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch HomeServer"; Flags: nowait postinstall skipifsilent
