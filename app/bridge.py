@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from .approvals_api import router as approvals_router
 from .brain_api import router as brain_router
+from .contacts_api import router as contacts_router
 from .config import settings
 from .main import app
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
@@ -20,6 +21,7 @@ class PairStatusRequest(BaseModel):
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(approvals_router)
+app.include_router(contacts_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,6 +45,7 @@ def capabilities() -> dict:
             "action.approvals",
             "agent.chat",
             "agent.tools.read",
+            "contacts.read",
             "conversations",
             "knowledge.search",
             "memory.read",
