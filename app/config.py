@@ -41,7 +41,7 @@ def _default_data_dir() -> Path:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "HomeServer"
-    version: str = "0.13.0"
+    version: str = "0.14.0"
     host: str = "127.0.0.1"
     port: int = 4377
     data_dir: Path = field(default_factory=_default_data_dir)
@@ -83,6 +83,10 @@ class Settings:
     @property
     def remote_bridge_secret_path(self) -> Path:
         return self.data_dir / "security" / "remote-bridge.dat"
+
+    @property
+    def provider_credentials_path(self) -> Path:
+        return self.data_dir / "security" / "provider-credentials.dat"
 
     @property
     def bootstrap_state_path(self) -> Path:
