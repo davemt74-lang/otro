@@ -35,7 +35,7 @@
     if (!node) return;
     const messages = data?.messages || [];
     if (!messages.length) {
-      node.innerHTML = '<div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local memory and knowledge are added to the model context automatically.</div>';
+      node.innerHTML = '<div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local memory and knowledge are added to context only when permitted.</div>';
       return;
     }
     node.innerHTML = messages.map(message => `<div class="chat-message ${escapeHtml(message.role)}">${escapeHtml(message.content)}${message.model ? `<small>${escapeHtml(message.model)}</small>` : ''}</div>`).join('');
@@ -69,8 +69,20 @@
     if (status) status.textContent = provider.enabled ? `Enabled · ${provider.model || 'model not set'}` : 'Disabled';
   }
 
+  async function loadAgentTools() {
+    const data = await brainApi('/api/v1/control/agent-tools');
+    const policy = data.policy || {};
+    if (byId('agentToolsEnabled')) byId('agentToolsEnabled').checked = Boolean(policy.enabled);
+    if (byId('agentToolsMaxCalls')) byId('agentToolsMaxCalls').value = String(policy.max_calls || 3);
+    const state = byId('agentToolsState');
+    if (state) {
+      const available = (data.available_tools || []).length;
+      state.textContent = policy.enabled ? `Enabled · read-only · ${available} tools` : 'Disabled';
+    }
+  }
+
   async function loadChatView() {
-    await Promise.all([loadConversations(true), loadProvider()]);
+    await Promise.all([loadConversations(true), loadProvider(), loadAgentTools()]);
     if (!activeConversationId) {
       setChatTitle();
       renderMessages({messages: []});
@@ -88,7 +100,7 @@
 
     const agentNav = event.target.closest('[data-view="agent"], [data-go="agent"]');
     if (agentNav) {
-      try { await loadProvider(); } catch (err) { brainFlash(err.message, true); }
+      try { await Promise.all([loadProvider(), loadAgentTools()]); } catch (err) { brainFlash(err.message, true); }
     }
 
     const conversation = event.target.closest('[data-brain-conversation]');
@@ -154,7 +166,10 @@
       activeConversationId = data.conversation_id;
       await Promise.all([loadConversation(activeConversationId), loadConversations(false)]);
       const context = byId('chatContext');
-      if (context) context.textContent = `${data.context.memory_count} memories · ${data.context.knowledge_count} knowledge matches · ${data.model}`;
+      if (context) {
+        const toolText = data.tools?.call_count ? ` · ${data.tools.call_count} tool call${data.tools.call_count === 1 ? '' : 's'}` : '';
+        context.textContent = `${data.context.memory_count} memories · ${data.context.knowledge_count} knowledge matches${toolText} · ${data.model}`;
+      }
     } catch (err) {
       existing?.insertAdjacentHTML('beforeend', `<div class="chat-message assistant">${escapeHtml(err.message)}</div>`);
       brainFlash(err.message, true);
@@ -179,6 +194,22 @@
       const status = byId('providerState');
       if (status) status.textContent = data.provider.enabled ? `Enabled · ${data.provider.model}` : 'Disabled';
       brainFlash('Local model provider saved.');
+    } catch (err) { brainFlash(err.message, true); }
+  });
+
+  byId('agentToolsForm')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    try {
+      const data = await brainApi('/api/v1/control/agent-tools', {
+        method: 'PUT',
+        body: JSON.stringify({
+          enabled: byId('agentToolsEnabled').checked,
+          max_calls: Number(byId('agentToolsMaxCalls').value || 3),
+        }),
+      });
+      const state = byId('agentToolsState');
+      if (state) state.textContent = data.policy.enabled ? `Enabled · read-only · max ${data.policy.max_calls}` : 'Disabled';
+      brainFlash(data.policy.enabled ? 'Read-only Agent Tools enabled.' : 'Agent Tools disabled.');
     } catch (err) { brainFlash(err.message, true); }
   });
 
