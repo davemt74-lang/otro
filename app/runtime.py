@@ -10,7 +10,7 @@ from .security import issue_owner_session, owner_session_matches
 
 OWNER_COOKIE = "homeserver_owner"
 PROTECTED_PREFIX = "/api/v1/control/"
-PROTECTED_EXACT = {"/api/v1/pairing/approve"}
+PROTECTED_EXACT = {"/api/v1/pairing/approve", "/system"}
 
 
 def _cookie_value(scope: dict, name: str) -> str | None:
