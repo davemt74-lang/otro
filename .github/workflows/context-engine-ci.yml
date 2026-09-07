@@ -1,0 +1,27 @@
+name: HomeServer Context Engine CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  context-engine:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Validate Context Engine JavaScript
+        run: node --check ui/context-engine.js
+      - name: Validate Agent Shell JavaScript
+        run: node --check ui/shell.js
+      - name: Context Engine UI integration contract
+        run: python tests/context_engine_contract.py
+      - name: Agent Brain context engine regression
+        run: python tests/context_engine.py
+      - name: Database migration upgrade regression
+        run: python tests/migrations.py
