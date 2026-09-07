@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+import os
+import sys
+
+# PyInstaller's Windows no-console bootloader sets standard streams to None.
+# Restore harmless sinks before importing Uvicorn or other console-aware libraries.
+if sys.stdin is None:
+    sys.stdin = open(os.devnull, "r", encoding="utf-8")
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
 import threading
 import time
 import urllib.parse
@@ -44,6 +56,10 @@ def open_api_docs(_: pystray.Icon | None = None, __=None) -> None:
 
 
 def main() -> None:
+    if "--headless" in sys.argv:
+        _serve()
+        return
+
     server = threading.Thread(target=_serve, name="homeserver-api", daemon=True)
     server.start()
     time.sleep(0.8)

@@ -25,7 +25,62 @@ jobs:
         run: python tests/smoke.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
-      - name: Verify control center packaged
+      - name: Smoke test packaged executable
         shell: pwsh
         run: |
-          if (-not (Test-Path 'dist/HomeServer.exe')) { throw 'HomeServer.exe was not built' }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-smoke'
+          $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          $healthy = $false
+          try {
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              Start-Sleep -Seconds 1
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
+                if ($response.ok -eq $true) {
+                  $healthy = $true
+                  break
+                }
+              } catch {
+                $process.Refresh()
+                if ($process.HasExited) {
+                  throw "HomeServer.exe exited before becoming healthy with code $($process.ExitCode)"
+                }
+              }
+            }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377' }
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+          }
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler was not found' }
+          & $compiler 'installer\HomeServer.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+      - name: Verify distribution files
+        shell: pwsh
+        run: |
+          $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe')
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "$file was not built" }
+          }
+          $lines = foreach ($file in $files) {
+            $hash = Get-FileHash -Algorithm SHA256 $file
+            "$($hash.Hash.ToLower())  $([System.IO.Path]::GetFileName($file))"
+          }
+          $lines | Set-Content -Encoding ascii 'dist/SHA256SUMS.txt'
+      - name: Upload Windows distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeServer-Windows
+          path: |
+            dist/HomeServer.exe
+            dist/HomeServerSetup.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
