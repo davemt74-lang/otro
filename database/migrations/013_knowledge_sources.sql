@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS knowledge_sources (
     last_scan_moved_count INTEGER NOT NULL DEFAULT 0,
     last_scan_removed_count INTEGER NOT NULL DEFAULT 0,
     last_scan_skipped_count INTEGER NOT NULL DEFAULT 0,
+    last_scan_error_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
