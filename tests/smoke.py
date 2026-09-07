@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         scheduler.stop()
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.14.0"
+        assert health.json()["version"] == "0.15.0"
 
         capabilities = client.get("/api/v1/capabilities", headers={"Origin": "https://vp3.me"})
         assert capabilities.status_code == 200
@@ -54,6 +54,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "contacts.read",
             "inference.routing",
             "inference.status",
+            "knowledge.sources.local",
+            "knowledge.sources.sync",
             "notifications.read",
             "provider.credentials",
             "skills",
@@ -98,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 12
+        assert status.json()["schema_version"] == 13
 
         assert client.get("/api/v1/control/overview").status_code == 401
         assert client.get("/api/v1/control/tasks").status_code == 401
