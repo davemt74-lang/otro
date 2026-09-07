@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HomeServer Setup & Diagnostics</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/system.css">
+</head>
+<body class="system-page">
+  <main class="system-shell">
+    <header class="system-header">
+      <div><p class="eyebrow">LOCAL WINDOWS RUNTIME</p><h1>Setup & Diagnostics</h1><p>Configure the installed HomeServer, verify local health, and control Windows startup without giving paired applications system authority.</p></div>
+      <div class="system-header-actions"><span class="version" id="systemVersion">v0.11.0</span><a class="button secondary" href="/">Back to HomeServer</a></div>
+    </header>
+
+    <div id="systemFlash" class="system-flash" role="status" aria-live="polite"></div>
+
+    <section class="system-section" id="setupSection">
+      <div class="section-intro split"><div><p class="eyebrow">FIRST RUN</p><h2>Finish HomeServer setup</h2><p>These steps are recommendations, not cloud-account requirements. You can finish setup even if you do not want Ollama or a paired application yet.</p></div><span class="setup-state" id="setupState">Checking…</span></div>
+      <div class="setup-grid" id="setupGrid"></div>
+      <div class="setup-footer"><span class="muted">Completing setup only dismisses the first-run flow. It does not enable Agent Tools, write proposals, or app permissions.</span><button class="button primary" id="completeSetup" type="button">Mark setup complete</button></div>
+    </section>
+
+    <section class="system-section">
+      <div class="section-intro split"><div><p class="eyebrow">DEVICE HEALTH</p><h2>Local diagnostics</h2><p>Checks run against this HomeServer installation and its private local data.</p></div><button class="button secondary" id="refreshDiagnostics" type="button">Refresh diagnostics</button></div>
+      <div class="diagnostic-grid" id="diagnosticGrid"><div class="diagnostic-card"><span>Loading diagnostics…</span></div></div>
+    </section>
+
+    <section class="system-section">
+      <div class="section-intro"><div><p class="eyebrow">WINDOWS</p><h2>Runtime controls</h2><p>These controls operate the installed local application only. They are not part of the VP3 pairing permission catalog.</p></div></div>
+      <div class="runtime-panel">
+        <label class="startup-toggle"><input type="checkbox" id="startupEnabled"><span><strong>Start HomeServer when I sign in to Windows</strong><small id="startupHelp">Checking installed runtime…</small></span></label>
+        <div class="runtime-actions"><button class="button secondary" id="openDataFolder" type="button">Open data folder</button><button class="button secondary" id="restartHomeServer" type="button">Restart HomeServer</button><button class="text-button danger" id="shutdownHomeServer" type="button">Quit HomeServer</button></div>
+      </div>
+    </section>
+
+    <section class="system-section security-note">
+      <strong>Owner security</strong>
+      <p>The owner bootstrap secret is stored with Windows user protection when running the installed application. Browser owner sessions remain ephemeral and are invalidated when HomeServer restarts.</p>
+    </section>
+  </main>
+  <script src="/assets/system.js" defer></script>
+</body>
+</html>
