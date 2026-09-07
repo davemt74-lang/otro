@@ -58,8 +58,18 @@ def _icon() -> Image.Image:
     return image
 
 
-def _open(path: str = "/") -> None:
-    webbrowser.open(f"http://{settings.host}:{settings.port}{path}")
+def _open(path: str = "/") -> bool:
+    url = f"http://{settings.host}:{settings.port}{path}"
+    if os.name == "nt":
+        try:
+            os.startfile(url)  # type: ignore[attr-defined]
+            return True
+        except OSError:
+            pass
+    try:
+        return bool(webbrowser.open(url, new=2, autoraise=True))
+    except Exception:
+        return False
 
 
 def _authorized_path(next_path: str) -> str:
@@ -69,6 +79,10 @@ def _authorized_path(next_path: str) -> str:
 
 def _recovery_path() -> str:
     return f"/#owner={OWNER_CONTROL_TOKEN}"
+
+
+def _path_for_health(health: dict) -> str:
+    return _recovery_path() if health.get("recovery") is True else _authorized_path("/")
 
 
 def _wait_until_listening() -> dict | None:
@@ -237,6 +251,30 @@ class RuntimeController:
     def quit(self, _icon=None, _item=None) -> None:
         self.handle_command("shutdown")
 
+    def _schedule_initial_open(self) -> None:
+        # A recovery condition should always be visible to the owner. Normal
+        # Windows sign-in startup is intentionally background-only; an explicit
+        # user launch should always open the appropriate HomeServer workspace.
+        if self.recovery_mode:
+            threading.Timer(0.6, self.open_control_center).start()
+            return
+        if "--background" in sys.argv:
+            return
+
+        try:
+            from app.services.system_state import first_run_status, mark_first_run_prompted
+
+            setup = first_run_status()
+            if not setup["complete"]:
+                if not setup["prompted"]:
+                    mark_first_run_prompted()
+                threading.Timer(0.6, self.open_system).start()
+                return
+        except Exception:
+            pass
+
+        threading.Timer(0.6, self.open_control_center).start()
+
     def run_tray(self) -> None:
         self.start_threaded()
         health = _wait_until_listening()
@@ -264,18 +302,7 @@ class RuntimeController:
                     pystray.MenuItem("Quit", self.quit),
                 ),
             )
-
-            if not self.recovery_mode:
-                try:
-                    from app.services.system_state import first_run_status, mark_first_run_prompted
-
-                    setup = first_run_status()
-                    if not setup["complete"] and not setup["prompted"]:
-                        mark_first_run_prompted()
-                        threading.Timer(0.6, self.open_system).start()
-                except Exception:
-                    pass
-
+            self._schedule_initial_open()
             self.tray.run()
         finally:
             register_runtime_handler(None)
@@ -286,6 +313,15 @@ class RuntimeController:
 def main() -> None:
     instance = SingleInstance(settings.data_dir)
     if not instance.acquire():
+        # Background/headless starts preserve the historical process-contract
+        # exit code. An explicit user launch acts as "Open HomeServer" when the
+        # server is already alive instead of failing silently behind the mutex.
+        if "--headless" in sys.argv or "--background" in sys.argv:
+            raise SystemExit(EXIT_ALREADY_RUNNING)
+        health = _wait_until_listening()
+        if health is not None:
+            _open(_path_for_health(health))
+            return
         raise SystemExit(EXIT_ALREADY_RUNNING)
 
     restart_requested = False
