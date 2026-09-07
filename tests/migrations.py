@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
     from app.config import settings  # noqa: E402
-    from app.database import SCHEMA_PATH, db, initialize_database  # noqa: E402
+    from app.database import SCHEMA_PATH, _apply_migration, connect, db, initialize_database, migration_files  # noqa: E402
     from app.services.knowledge import ensure_knowledge_index, list_knowledge  # noqa: E402
 
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -30,6 +30,32 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     )
     connection.commit()
     connection.close()
+
+    # Build an authentic v0.12/schema-10 database first so migration 11 is
+    # tested as an upgrade, not just as part of a fresh all-at-once install.
+    for version, path in migration_files():
+        if version >= 11:
+            break
+        migration_connection = connect()
+        try:
+            _apply_migration(migration_connection, version, path)
+        finally:
+            migration_connection.close()
+
+    with db() as prior:
+        prior_versions = [row["version"] for row in prior.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
+        assert prior_versions == list(range(1, 11))
+        prior.execute(
+            """
+            INSERT INTO action_requests(
+                id, action_key, source_app_key, actor_type, status,
+                arguments_json, arguments_meta_json, expires_at
+            ) VALUES (
+                'legacy-memory-request', 'memory.write', 'app:legacy', 'app', 'pending',
+                '{"content":"preserve-me"}', '{"content_length":11}', '2099-01-01T00:00:00+00:00'
+            )
+            """
+        )
 
     initialize_database()
     ensure_knowledge_index()
@@ -90,7 +116,37 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert agent_policy["enabled"] == 0
         assert agent_policy["max_calls"] == 3
         assert agent_policy["allow_write_proposals"] == 0
-        assert migrated.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 0
+
+        legacy_request = migrated.execute(
+            "SELECT action_key, source_app_key, status, arguments_json FROM action_requests WHERE id='legacy-memory-request'"
+        ).fetchone()
+        assert legacy_request is not None
+        assert legacy_request["action_key"] == "memory.write"
+        assert legacy_request["source_app_key"] == "app:legacy"
+        assert legacy_request["status"] == "pending"
+        assert "preserve-me" in legacy_request["arguments_json"]
+
+        action_schema = migrated.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='action_requests'"
+        ).fetchone()[0]
+        assert "'memory.write','tasks.create'" in action_schema.replace(" ", "")
+        migrated.execute(
+            """
+            INSERT INTO action_requests(
+                id, action_key, source_app_key, actor_type, status,
+                arguments_json, arguments_meta_json, expires_at
+            ) VALUES (
+                'task-proposal-check', 'tasks.create', 'app:migration-test', 'app', 'pending',
+                '{"title":"test"}', '{"title_length":4}', '2099-01-01T00:00:00+00:00'
+            )
+            """
+        )
+        assert migrated.execute(
+            "SELECT COUNT(*) FROM action_requests WHERE action_key='tasks.create'"
+        ).fetchone()[0] == 1
+        migrated.execute("DELETE FROM action_requests WHERE id='task-proposal-check'")
+
+        assert migrated.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1
         assert migrated.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
 
@@ -105,7 +161,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 7
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
-        assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1
+        assert migrated_again.execute(
+            "SELECT COUNT(*) FROM action_requests WHERE id='legacy-memory-request' AND action_key='memory.write'"
+        ).fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0] == 2
