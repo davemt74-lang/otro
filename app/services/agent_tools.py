@@ -8,6 +8,7 @@ from ..database import db
 from . import approvals, tools
 
 MODEL_TOOL_NAMES = {
+    "homeserver_contacts_search": "contacts.search",
     "homeserver_knowledge_search": "knowledge.search",
     "homeserver_memory_list": "memory.list",
 }
