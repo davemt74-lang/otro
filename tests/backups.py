@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-backup-test-") as data_dir:
         created = client.post("/api/v1/control/backups/create")
         assert created.status_code == 200
         backup = created.json()["backup"]
-        assert backup["schema_version"] == 13
+        assert backup["schema_version"] == 14
         assert backup["file_count"] >= 2
         assert backup["reason"] == "manual"
         backup_file = settings.backups_dir / backup["name"]
@@ -88,7 +88,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-backup-test-") as data_dir:
             assert any(name.startswith("knowledge/files/") for name in names)
             manifest = json.loads(archive.read("manifest.json"))
             assert manifest["format"] == backups.BACKUP_FORMAT
-            assert manifest["schema_version"] == 13
+            assert manifest["schema_version"] == 14
             assert len(manifest["files"]) == backup["file_count"]
 
         activity_text = json.dumps(client.get("/api/v1/control/activity?limit=100").json(), ensure_ascii=False)

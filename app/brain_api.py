@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import agent_tools, brain, provider_secrets, providers
+from .services import agent_tools, brain, context_chat, context_engine, provider_secrets, providers
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -12,10 +12,23 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=32000)
     conversation_id: str | None = Field(default=None, max_length=64)
+    include_memory: bool | None = None
+    include_knowledge: bool | None = None
+    include_contacts: bool | None = None
+    cloud_allowed: bool | None = None
+    max_context_chars: int | None = Field(default=None, ge=2000, le=24000)
 
 
 class ConversationRename(BaseModel):
     title: str = Field(min_length=1, max_length=120)
+
+
+class ContextSettingsUpdate(BaseModel):
+    include_memory: bool = True
+    include_knowledge: bool = True
+    include_contacts: bool = True
+    cloud_allowed: bool = True
+    max_context_chars: int = Field(default=12000, ge=2000, le=24000)
 
 
 class ProviderUpdate(BaseModel):
@@ -78,27 +91,77 @@ def _safe_inference_status() -> dict:
     }
 
 
+def _chat_context_options(payload: ChatRequest) -> dict:
+    return {
+        "include_memory": payload.include_memory,
+        "include_knowledge": payload.include_knowledge,
+        "include_contacts": payload.include_contacts,
+        "cloud_allowed": payload.cloud_allowed,
+        "max_context_chars": payload.max_context_chars,
+    }
+
+
+def _allowed_context_kinds(permissions: set[str]) -> set[str]:
+    allowed: set[str] = set()
+    if "memory.read" in permissions:
+        allowed.add("memory")
+    if "knowledge.search" in permissions:
+        allowed.add("knowledge")
+    if "contacts.read" in permissions:
+        allowed.add("contact")
+    return allowed
+
+
+def _conversation_payload(
+    source: str,
+    conversation_id: str,
+    *,
+    allowed_kinds: set[str] | None = None,
+) -> dict:
+    try:
+        result = brain.get_conversation(source, conversation_id)
+    except brain.BrainError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    settings = context_engine.ensure_settings(conversation_id)
+    if allowed_kinds is not None:
+        settings = dict(settings)
+        settings["include_memory"] = bool(settings["include_memory"] and "memory" in allowed_kinds)
+        settings["include_knowledge"] = bool(settings["include_knowledge"] and "knowledge" in allowed_kinds)
+        settings["include_contacts"] = bool(settings["include_contacts"] and "contact" in allowed_kinds)
+    result["context_settings"] = settings
+    result["context_history"] = context_engine.recent_sources(
+        conversation_id,
+        limit=5,
+        allowed_kinds=allowed_kinds,
+    )
+    return result
+
+
 def _chat_or_http(
     source: str,
     payload: ChatRequest,
     *,
     include_memory: bool = True,
     include_knowledge: bool = True,
+    include_contacts: bool = False,
     tool_permissions: set[str] | None = None,
     owner_tools: bool = False,
 ) -> dict:
     try:
-        return brain.chat(
+        return context_chat.chat(
             source,
             payload.message,
             payload.conversation_id,
             include_memory=include_memory,
             include_knowledge=include_knowledge,
+            include_contacts=include_contacts,
+            context_options=_chat_context_options(payload),
             tool_permissions=tool_permissions,
             owner_tools=owner_tools,
         )
-    except brain.BrainError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except (brain.BrainError, context_engine.ContextError) as exc:
+        status_code = getattr(exc, "status_code", 422)
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.get("/api/v1/inference/status")
@@ -114,6 +177,7 @@ def client_chat(payload: ChatRequest, identity: dict = Depends(_require_chat)) -
         payload,
         include_memory="memory.read" in permissions,
         include_knowledge="knowledge.search" in permissions,
+        include_contacts="contacts.read" in permissions,
         tool_permissions=permissions,
         owner_tools=False,
     )
@@ -129,15 +193,25 @@ def client_conversations(
 
 @router.get("/api/v1/conversations/{conversation_id}")
 def client_conversation(conversation_id: str, identity: dict = Depends(_require_chat)) -> dict:
-    try:
-        return brain.get_conversation(_app_source(identity), conversation_id)
-    except brain.BrainError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    permissions = set(identity["permissions"])
+    return _conversation_payload(
+        _app_source(identity),
+        conversation_id,
+        allowed_kinds=_allowed_context_kinds(permissions),
+    )
 
 
 @router.post("/api/v1/control/chat")
 def control_chat(payload: ChatRequest) -> dict:
-    return _chat_or_http("owner", payload, tool_permissions=set(), owner_tools=True)
+    return _chat_or_http(
+        "owner",
+        payload,
+        include_memory=True,
+        include_knowledge=True,
+        include_contacts=True,
+        tool_permissions=set(),
+        owner_tools=True,
+    )
 
 
 @router.get("/api/v1/control/conversations")
@@ -147,10 +221,7 @@ def control_conversations(limit: int = Query(default=50, ge=1, le=100)) -> dict:
 
 @router.get("/api/v1/control/conversations/{conversation_id}")
 def control_conversation(conversation_id: str) -> dict:
-    try:
-        return brain.get_conversation("owner", conversation_id)
-    except brain.BrainError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return _conversation_payload("owner", conversation_id)
 
 
 @router.patch("/api/v1/control/conversations/{conversation_id}")
@@ -159,6 +230,24 @@ def control_conversation_rename(conversation_id: str, payload: ConversationRenam
         return {"conversation": brain.rename_conversation("owner", conversation_id, payload.title)}
     except brain.BrainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.put("/api/v1/control/conversations/{conversation_id}/context")
+def control_conversation_context(conversation_id: str, payload: ContextSettingsUpdate) -> dict:
+    try:
+        brain.get_conversation("owner", conversation_id)
+        settings = context_engine.update_settings(
+            conversation_id,
+            include_memory=payload.include_memory,
+            include_knowledge=payload.include_knowledge,
+            include_contacts=payload.include_contacts,
+            cloud_allowed=payload.cloud_allowed,
+            max_context_chars=payload.max_context_chars,
+        )
+        return {"context_settings": settings}
+    except (brain.BrainError, context_engine.ContextError) as exc:
+        status_code = getattr(exc, "status_code", 422)
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.delete("/api/v1/control/conversations/{conversation_id}")

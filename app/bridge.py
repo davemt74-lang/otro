@@ -65,6 +65,10 @@ def capabilities() -> dict:
         "features": [
             "action.approvals",
             "agent.chat",
+            "agent.context",
+            "agent.context.budget",
+            "agent.context.sources",
+            "agent.privacy.local_only",
             "agent.tools.read",
             "contacts.read",
             "conversations",

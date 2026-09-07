@@ -224,7 +224,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
             budget_steps.append({"messages": [dict(item) for item in messages], "tools": tools})
             return budget_sequence.pop(0)
 
+        def fake_budget_final(messages, model_override=None):
+            budget_steps.append({"messages": [dict(item) for item in messages], "tools": None})
+            return budget_sequence.pop(0)
+
         providers.generate_ollama_step = fake_budget_step
+        providers.generate_ollama = fake_budget_final
         budget_chat = client.post("/api/v1/control/chat", json={"message": "Use both local sources."})
         assert budget_chat.status_code == 200
         assert budget_chat.json()["tools"]["max_calls"] == 1
@@ -246,6 +251,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
             {"provider": "ollama", "model": "llama-test", "content": "Write access was not available.", "tool_calls": []},
         ]
         providers.generate_ollama_step = lambda messages, *, tools=None, model_override=None: write_sequence.pop(0)
+        providers.generate_ollama = lambda messages, model_override=None: write_sequence.pop(0)
         write_attempt = client.post("/api/v1/control/chat", json={"message": "Try to create a task directly."})
         assert write_attempt.status_code == 200
         assert write_attempt.json()["tools"]["call_count"] == 1
@@ -259,6 +265,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
             assert last_unknown["status"] == "denied"
 
         assert client.put("/api/v1/control/agent-tools", json={"enabled": False, "max_calls": 3}).status_code == 200
+        providers.generate_ollama = fake_normal
         normal_before = len(normal_calls)
         disabled_again = client.post("/api/v1/control/chat", json={"message": "Agent tools are off again."})
         assert disabled_again.status_code == 200
