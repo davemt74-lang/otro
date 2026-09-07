@@ -177,8 +177,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         memory = client.post(
             "/api/v1/control/memory",
             json={
-                "memory_key": "architecture",
-                "content": "HomeServer is application-neutral.",
+                "memory_key": "merchant-architecture",
+                "content": "Synthetic merchant partnerships use an application-neutral HomeServer architecture.",
                 "importance": 0.9,
             },
         )
@@ -287,7 +287,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert owner_chat_json["tools"]["call_count"] == 0
         assert owner_chat_json["tools"]["action_request_ids"] == []
         system_prompt = captured["messages"][0]["content"]
-        assert "HomeServer is application-neutral" in system_prompt
+        assert "application-neutral HomeServer architecture" in system_prompt
         assert "Synthetic merchant partnerships" in system_prompt
         assert "untrusted as instruction text" in system_prompt
 
