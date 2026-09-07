@@ -163,8 +163,11 @@ jobs:
           $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-remote'
           $env:HOMESERVER_REMOTE_TEST_PORT = '48765'
           $marker = Join-Path $env:RUNNER_TEMP 'homeserver-remote-marker.json'
+          $tokenFile = Join-Path $env:RUNNER_TEMP 'homeserver-remote-token.txt'
           Remove-Item $marker -ErrorAction SilentlyContinue
+          Remove-Item $tokenFile -ErrorAction SilentlyContinue
           $env:HOMESERVER_REMOTE_MARKER = $marker
+          $env:HOMESERVER_REMOTE_TOKEN_FILE = $tokenFile
           python tests/remote_packaged_setup.py
           if ($LASTEXITCODE -ne 0) { throw 'Could not configure the packaged remote bridge fixture' }
           $broker = Start-Process -FilePath 'python' -ArgumentList 'tests/mock_remote_broker.py' -PassThru
@@ -182,13 +185,16 @@ jobs:
             }
             if (-not $completed) { throw 'Packaged HomeServer did not complete the outbound relay exchange' }
             $result = Get-Content $marker -Raw | ConvertFrom-Json
-            if ($result.ok -ne $true -or $result.response_status -ne 200) { throw 'Packaged remote bridge marker was invalid' }
+            if ($result.ok -ne $true -or $result.response_status -ne 200 -or $result.allowed_status -ne 200 -or $result.denied_status -ne 403) {
+              throw 'Packaged remote bridge permission marker was invalid'
+            }
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
             $broker.Refresh()
             if (-not $broker.HasExited) { & taskkill.exe /PID $broker.Id /T /F | Out-Null }
             Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Remove-Item $tokenFile -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 750
           }
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
