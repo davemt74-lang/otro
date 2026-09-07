@@ -39,16 +39,34 @@ def _app_source(identity: dict) -> str:
     return f"app:{identity['app_key']}"
 
 
-def _chat_or_http(source: str, payload: ChatRequest) -> dict:
+def _chat_or_http(
+    source: str,
+    payload: ChatRequest,
+    *,
+    include_memory: bool = True,
+    include_knowledge: bool = True,
+) -> dict:
     try:
-        return brain.chat(source, payload.message, payload.conversation_id)
+        return brain.chat(
+            source,
+            payload.message,
+            payload.conversation_id,
+            include_memory=include_memory,
+            include_knowledge=include_knowledge,
+        )
     except brain.BrainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.post("/api/v1/chat")
 def client_chat(payload: ChatRequest, identity: dict = Depends(_require_chat)) -> dict:
-    return _chat_or_http(_app_source(identity), payload)
+    permissions = set(identity["permissions"])
+    return _chat_or_http(
+        _app_source(identity),
+        payload,
+        include_memory="memory.read" in permissions,
+        include_knowledge="knowledge.search" in permissions,
+    )
 
 
 @router.get("/api/v1/conversations")

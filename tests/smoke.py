@@ -141,6 +141,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             f"/api/v1/conversations/{owner_conversation_id}",
             headers={"Authorization": f"Bearer {collision_token}"},
         ).status_code == 404
+        collision_chat = client.post(
+            "/api/v1/chat",
+            json={"message": "Tell me private context."},
+            headers={"Authorization": f"Bearer {collision_token}"},
+        )
+        assert collision_chat.status_code == 200
+        assert collision_chat.json()["context"] == {"memory_count": 0, "knowledge_count": 0}
 
         pair = client.post(
             "/api/v1/pairing/request",
