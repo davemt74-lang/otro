@@ -22,6 +22,10 @@ def _quoted_executable() -> str:
     return f'"{Path(sys.executable).resolve()}"'
 
 
+def _startup_command() -> str:
+    return f"{_quoted_executable()} --background"
+
+
 def _legacy_startup_shortcut() -> Path | None:
     if os.name != "nt":
         return None
@@ -67,7 +71,7 @@ def set_startup_enabled(enabled: bool) -> dict:
     try:
         with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, _RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
             if enabled:
-                winreg.SetValueEx(key, _RUN_VALUE, 0, winreg.REG_SZ, _quoted_executable())
+                winreg.SetValueEx(key, _RUN_VALUE, 0, winreg.REG_SZ, _startup_command())
             else:
                 try:
                     winreg.DeleteValue(key, _RUN_VALUE)
