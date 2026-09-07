@@ -6,74 +6,106 @@ HomeServer is application-neutral. VP3 is an authorized browser client that conn
 
 Default: `http://127.0.0.1:4377`
 
-VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.7 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, knowledge, memory, skills, direct tools, and optional read-only Agent Tool Use.
+VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.8 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, knowledge, memory, skills, direct tools, optional Agent Tool Use and local action approvals.
 
 ## Browser pairing
 
 1. VP3 calls `POST /api/v1/pairing/request`.
 2. HomeServer returns a short approval `code`, opaque `request_id`, high-entropy `claim_token`, accepted permissions and expiry.
 3. The claim token cannot authenticate yet.
-4. The user approves the short code in the local HomeServer control center.
+4. The user approves the short code in the local HomeServer Control Center.
 5. VP3 polls `POST /api/v1/pairing/status` with the request ID and claim token.
 6. When `ready` becomes `true`, the same claim token becomes VP3's bearer credential.
 
 HomeServer stores only the SHA-256 hash of that credential. Re-pairing rotates the token and revokes permissions omitted from the new request.
 
-Browser CORS defaults to `https://vp3.me` and `https://www.vp3.me`; no wildcard origin is enabled. Additional deployment origins must be explicitly configured on HomeServer with `HOMESERVER_ALLOWED_ORIGINS`.
+Browser CORS defaults to `https://vp3.me` and `https://www.vp3.me`; no wildcard origin is enabled.
 
 ## Agent Brain
 
-With `agent.chat`, VP3 can use the same private HomeServer agent as the local Control Center. Each calling application receives an isolated conversation namespace: a VP3 token cannot list or fetch the owner's local chats or another application's chats.
+With `agent.chat`, VP3 can use the same private HomeServer agent as the local Control Center. Each app receives an isolated conversation namespace.
 
-`POST /api/v1/chat`
-
-```json
-{
-  "message": "What do we know about merchant partnerships?",
-  "conversation_id": null
-}
-```
-
-HomeServer assembles the primary agent instructions and bounded recent conversation history. Memory and knowledge are only added when VP3 separately has `memory.read` and `knowledge.search`. v0.7 permits only a loopback Ollama provider.
+Memory and knowledge are only added to chat context when the app separately has `memory.read` and `knowledge.search`.
 
 Conversation APIs:
 
+- `POST /api/v1/chat`
 - `GET /api/v1/conversations`
 - `GET /api/v1/conversations/{conversation_id}`
 
 ## Agent Tool Use
 
-v0.7 adds optional read-only tool use during Agent Chat. This is controlled only by the local HomeServer owner and is **disabled by default**.
+Agent Tool Use is controlled only by the local HomeServer owner and is disabled by default. Read tools require the usual paired-app capabilities:
 
-When enabled, HomeServer may expose the following Ollama function tools to a VP3 chat:
+- knowledge: `agent.chat` + `tools.execute` + `knowledge.search`
+- memory read: `agent.chat` + `tools.execute` + `memory.read`
 
-- `homeserver_knowledge_search` → `knowledge.search`
-- `homeserver_memory_list` → `memory.list`
+HomeServer enforces a hard owner-selected 1–3 executed-tool-call limit per chat turn. Tool result messages stay inside the local Ollama exchange and are not stored as conversation messages.
 
-VP3 does not receive these automatically. Its paired token must still satisfy all normal capability checks:
+## Approval-gated memory-write proposals
 
-- knowledge agent tool: `agent.chat` + `tools.execute` + `knowledge.search`
-- memory agent tool: `agent.chat` + `tools.execute` + `memory.read`
+v0.8 adds an optional model function named `homeserver_memory_write_request`. It **does not write memory**.
 
-The owner also sets a hard 1–3 executed-tool-call limit per chat turn. After the limit is reached, HomeServer requests the final Ollama response without exposing tools again.
+For VP3 to receive this proposal function, all of the following must be true:
 
-`memory.write` is **never** offered to the model. Agent Tool Use also exposes no shell, PowerShell, arbitrary HTTP, or unrestricted filesystem capability.
+- the HomeServer owner enabled Agent Tool Use
+- the owner separately enabled memory-write proposals
+- the global `memory.write` tool is enabled
+- VP3 has `agent.chat`
+- VP3 has `tools.execute`
+- VP3 has `memory.write`
 
-Every model-requested tool call is routed through the same audited HomeServer registry used for direct tool execution. Tool result messages stay inside the local Ollama exchange and are not persisted as conversation messages. Agent run records keep the tool-call count and tool-run IDs; the existing tool audit remains content-safe.
+A successful proposal returns a request ID inside the normal chat response:
 
-VP3 cannot enable, disable, or raise the Agent Tool budget through its bearer token. Those controls remain owner-only under `/api/v1/control/agent-tools`.
+```json
+{
+  "tools": {
+    "call_count": 1,
+    "action_request_ids": ["..."]
+  }
+}
+```
+
+The request remains `pending` and no memory row is created. The owner reviews the exact payload in the local **Approvals** workspace.
+
+VP3 may check only the status of a request it originated:
+
+`GET /api/v1/action-requests/{request_id}`
+
+Example response:
+
+```json
+{
+  "request": {
+    "id": "...",
+    "action_key": "memory.write",
+    "status": "pending",
+    "created_at": "...",
+    "expires_at": "...",
+    "execution_tool_run_id": null
+  }
+}
+```
+
+The status response intentionally omits the proposed memory content and safe argument metadata. A different paired app receives `404` for that request ID.
+
+VP3 has **no approval/deny API**. Only owner-session routes can decide an action:
+
+- `GET /api/v1/control/action-requests`
+- `POST /api/v1/control/action-requests/{request_id}/approve`
+- `POST /api/v1/control/action-requests/{request_id}/deny`
+
+Approval reserves the request and executes the existing audited `memory.write` tool once. Denial makes no mutation. Pending requests expire after 24 hours.
 
 ## Direct Skills & Tools
 
-VP3 can discover the safe local capability registry after pairing:
+VP3 can discover and invoke the direct capability registry:
 
 - `GET /api/v1/tools`
 - `GET /api/v1/skills`
 - `POST /api/v1/tools/{tool_key}/execute`
 
-Direct tool execution requires `tools.execute` **and** the tool's underlying permission. `tools.execute` never substitutes for data access.
-
-Current tools:
+Direct tool execution requires `tools.execute` and the tool's underlying permission.
 
 | Tool | Mode | Required permissions |
 | --- | --- | --- |
@@ -81,19 +113,7 @@ Current tools:
 | `memory.list` | read | `tools.execute`, `memory.read` |
 | `memory.write` | write | `tools.execute`, `memory.write` |
 
-Example:
-
-```json
-POST /api/v1/tools/knowledge.search/execute
-{
-  "arguments": {
-    "query": "merchant partnerships",
-    "limit": 5
-  }
-}
-```
-
-The owner can globally disable any built-in tool. Denied and completed tool attempts are audited locally, but raw search queries, returned knowledge excerpts and memory bodies are not copied into the tool-run audit table.
+The owner can globally disable any built-in tool. HomeServer exposes no shell, PowerShell, arbitrary HTTP or unrestricted filesystem tool.
 
 ## Other protected APIs
 
@@ -105,8 +125,6 @@ The owner can globally disable any built-in tool. Denied and completed tool atte
 
 ## Browser helper
 
-`connectors/vp3/client.js` provides `VP3HomeServerConnector` with `pair()`, `chat()`, `conversations()`, `conversation()`, `searchKnowledge()`, `memory()`, `writeMemory()`, `tools()`, `skills()` and `executeTool()`.
+`connectors/vp3/client.js` provides `VP3HomeServerConnector` with `pair()`, `chat()`, conversation helpers, knowledge/memory helpers, `tools()`, `skills()`, `executeTool()` and `actionRequest()`.
 
-The helper intentionally leaves persistent credential storage to VP3. HomeServer never requires VP3 to copy a long bearer token manually.
-
-Owner-only `/api/v1/control/*` routes and `/api/v1/pairing/approve` remain behind the local owner-session gateway and are not granted by browser reachability.
+Persistent claim-token storage remains VP3's responsibility. Owner-only `/api/v1/control/*` routes and pairing approval remain behind HomeServer's local owner-session gateway.
