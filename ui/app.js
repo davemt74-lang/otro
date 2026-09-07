@@ -33,7 +33,7 @@ function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach(v => v.classList.toggle('active', v.dataset.view === name));
-  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',knowledge:'Knowledge',memory:'Memory',apps:'Connected Apps',activity:'Activity'};
+  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',apps:'Connected Apps',activity:'Activity'};
   $('pageTitle').textContent = labels[name] || 'HomeServer';
   loadView(name).catch(err => flash(err.message, true));
 }
@@ -65,9 +65,7 @@ function ensureKnowledgeControls() {
   intro.append(actions);
 
   const description = intro.querySelector('p');
-  if (description) {
-    description.textContent = 'Import local documents or add notes. HomeServer extracts text, chunks it, and builds a private SQLite full-text index.';
-  }
+  if (description) description.textContent = 'Import local documents or add notes. HomeServer extracts text, chunks it, and builds a private SQLite full-text index.';
 
   const toolbar = document.querySelector('#view-knowledge .toolbar');
   if (toolbar && !$('reindexKnowledge')) {
@@ -81,10 +79,7 @@ function ensureKnowledgeControls() {
 }
 
 async function loadOverview() {
-  const [data, status] = await Promise.all([
-    api('/api/v1/control/overview'),
-    api('/api/v1/status'),
-  ]);
+  const [data, status] = await Promise.all([api('/api/v1/control/overview'), api('/api/v1/status')]);
   $('heroAgentName').textContent = data.agent?.name || 'HomeServer Agent';
   $('statKnowledge').textContent = data.counts.knowledge_items;
   $('statMemory').textContent = data.counts.memory_items;
@@ -131,9 +126,7 @@ async function importKnowledgeFiles() {
       const result = await api('/api/v1/control/knowledge/import', {method:'POST', body:form});
       if (result.duplicate) duplicates += 1;
       else imported += 1;
-    } catch (err) {
-      failures.push(`${file.name}: ${err.message}`);
-    }
+    } catch (err) { failures.push(`${file.name}: ${err.message}`); }
   }
   input.value = '';
   await loadKnowledge();
@@ -181,11 +174,8 @@ document.addEventListener('click', async (event) => {
   if (event.target.id === 'cancelMemory') $('memoryForm').classList.add('hidden');
   if (event.target.id === 'importKnowledgeFiles') $('knowledgeFiles')?.click();
   if (event.target.id === 'reindexKnowledge') {
-    try {
-      const result = await api('/api/v1/control/knowledge/reindex', {method:'POST'});
-      await loadKnowledge();
-      flash(`Reindexed ${result.items} items into ${result.chunks} chunks.`);
-    } catch (err) { flash(err.message, true); }
+    try { const result = await api('/api/v1/control/knowledge/reindex', {method:'POST'}); await loadKnowledge(); flash(`Reindexed ${result.items} items into ${result.chunks} chunks.`); }
+    catch (err) { flash(err.message, true); }
   }
   const deleteKnowledge = event.target.closest('[data-delete-knowledge]');
   if (deleteKnowledge && confirm('Delete this knowledge item?')) { try { await api(`/api/v1/control/knowledge/${deleteKnowledge.dataset.deleteKnowledge}`, {method:'DELETE'}); await loadKnowledge(); flash('Knowledge item deleted.'); } catch (err) { flash(err.message, true); } }
@@ -207,7 +197,7 @@ $('memoryForm').addEventListener('submit', async (event) => { event.preventDefau
 $('pairingForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const data = await api('/api/v1/pairing/approve', {method:'POST', body:JSON.stringify({code:$('pairingCode').value})}); $('pairingToken').classList.remove('hidden'); if (data.delivery === 'claim_token') { $('pairingToken').innerHTML = `<strong>Pairing approved.</strong><span class="muted">Return to ${esc(data.app_key)}. It can complete the connection automatically; there is no token to copy.</span>`; } else { $('pairingToken').innerHTML = `<strong>Legacy pairing approved — copy this token into the requesting app now.</strong>${esc(data.token || '')}<br><span class="muted">For security, HomeServer will not display this token again.</span>`; } $('pairingCode').value = ''; await loadApps(); flash(`${data.app_key} paired successfully.`); } catch (err) { flash(err.message, true); } });
 $('knowledgeSearch').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => loadKnowledge().catch(err => flash(err.message, true)), 180); });
 $('refreshButton').addEventListener('click', () => loadView(state.view).then(() => flash('HomeServer refreshed.')).catch(err => flash(err.message, true)));
-const viewNames = ['dashboard','agent','chat','tools','knowledge','memory','apps','activity'];
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','apps','activity'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();

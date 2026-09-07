@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .approvals_api import router as approvals_router
 from .brain_api import router as brain_router
 from .config import settings
 from .main import app
@@ -18,6 +19,7 @@ class PairStatusRequest(BaseModel):
 
 app.include_router(brain_router)
 app.include_router(tools_router)
+app.include_router(approvals_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +40,7 @@ def capabilities() -> dict:
         "local_bridge": True,
         "permissions": sorted(DEFAULT_PERMISSIONS),
         "features": [
+            "action.approvals",
             "agent.chat",
             "agent.tools.read",
             "conversations",

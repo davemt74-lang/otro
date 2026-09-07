@@ -33,11 +33,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
     with TestClient(app) as client:
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.7.0"
+        assert health.json()["version"] == "0.8.0"
 
         capabilities = client.get("/api/v1/capabilities", headers={"Origin": "https://vp3.me"})
         assert capabilities.status_code == 200
         assert capabilities.json()["pairing_protocol"] == "claim-v1"
+        assert "action.approvals" in capabilities.json()["features"]
         assert "agent.chat" in capabilities.json()["features"]
         assert "agent.tools.read" in capabilities.json()["features"]
         assert "tools.execute" in capabilities.json()["features"]
@@ -58,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 6
+        assert status.json()["schema_version"] == 7
 
         assert client.get("/api/v1/control/overview").status_code == 401
         bootstrap = client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN})
@@ -68,7 +69,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert agent_tools.status_code == 200
         assert agent_tools.json()["policy"]["enabled"] is False
         assert agent_tools.json()["policy"]["max_calls"] == 3
+        assert agent_tools.json()["policy"]["allow_write_proposals"] is False
         assert set(agent_tools.json()["available_tools"]) == {"homeserver_knowledge_search", "homeserver_memory_list"}
+        assert client.get("/api/v1/control/action-requests?status=pending").json()["items"] == []
 
         owner_tools = client.get("/api/v1/control/tools")
         assert owner_tools.status_code == 200
@@ -167,6 +170,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert owner_chat_json["context"]["knowledge_count"] >= 1
         assert owner_chat_json["tools"]["policy_enabled"] is False
         assert owner_chat_json["tools"]["call_count"] == 0
+        assert owner_chat_json["tools"]["action_request_ids"] == []
         system_prompt = captured["messages"][0]["content"]
         assert "HomeServer is application-neutral" in system_prompt
         assert "North Mountain merchant partnerships" in system_prompt

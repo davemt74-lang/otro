@@ -35,7 +35,7 @@
     if (!node) return;
     const messages = data?.messages || [];
     if (!messages.length) {
-      node.innerHTML = '<div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local memory and knowledge are added to context only when permitted.</div>';
+      node.innerHTML = '<div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local context is added only when permitted.</div>';
       return;
     }
     node.innerHTML = messages.map(message => `<div class="chat-message ${escapeHtml(message.role)}">${escapeHtml(message.content)}${message.model ? `<small>${escapeHtml(message.model)}</small>` : ''}</div>`).join('');
@@ -74,10 +74,12 @@
     const policy = data.policy || {};
     if (byId('agentToolsEnabled')) byId('agentToolsEnabled').checked = Boolean(policy.enabled);
     if (byId('agentToolsMaxCalls')) byId('agentToolsMaxCalls').value = String(policy.max_calls || 3);
+    if (byId('agentWriteProposals')) byId('agentWriteProposals').checked = Boolean(policy.allow_write_proposals);
     const state = byId('agentToolsState');
     if (state) {
       const available = (data.available_tools || []).length;
-      state.textContent = policy.enabled ? `Enabled · read-only · ${available} tools` : 'Disabled';
+      const proposalText = policy.allow_write_proposals ? ' · proposals on' : '';
+      state.textContent = policy.enabled ? `Enabled · ${available} tools${proposalText}` : 'Disabled';
     }
   }
 
@@ -159,17 +161,17 @@
     existing?.insertAdjacentHTML('beforeend', `<div class="chat-message user">${escapeHtml(message)}</div>`);
     input.value = '';
     try {
-      const data = await brainApi('/api/v1/control/chat', {
-        method: 'POST',
-        body: JSON.stringify({message, conversation_id: activeConversationId}),
-      });
+      const data = await brainApi('/api/v1/control/chat', {method:'POST', body:JSON.stringify({message, conversation_id:activeConversationId})});
       activeConversationId = data.conversation_id;
       await Promise.all([loadConversation(activeConversationId), loadConversations(false)]);
       const context = byId('chatContext');
       if (context) {
         const toolText = data.tools?.call_count ? ` · ${data.tools.call_count} tool call${data.tools.call_count === 1 ? '' : 's'}` : '';
-        context.textContent = `${data.context.memory_count} memories · ${data.context.knowledge_count} knowledge matches${toolText} · ${data.model}`;
+        const pending = data.tools?.action_request_ids?.length || 0;
+        const approvalText = pending ? ` · ${pending} approval${pending === 1 ? '' : 's'} pending` : '';
+        context.textContent = `${data.context.memory_count} memories · ${data.context.knowledge_count} knowledge matches${toolText}${approvalText} · ${data.model}`;
       }
+      if (data.tools?.action_request_ids?.length) brainFlash('Agent created a pending action. Review it in Approvals.');
     } catch (err) {
       existing?.insertAdjacentHTML('beforeend', `<div class="chat-message assistant">${escapeHtml(err.message)}</div>`);
       brainFlash(err.message, true);
@@ -185,11 +187,7 @@
     try {
       const data = await brainApi('/api/v1/control/provider', {
         method: 'PUT',
-        body: JSON.stringify({
-          base_url: byId('providerUrl').value,
-          model: byId('providerModel').value,
-          enabled: byId('providerEnabled').checked,
-        }),
+        body: JSON.stringify({base_url:byId('providerUrl').value, model:byId('providerModel').value, enabled:byId('providerEnabled').checked}),
       });
       const status = byId('providerState');
       if (status) status.textContent = data.provider.enabled ? `Enabled · ${data.provider.model}` : 'Disabled';
@@ -205,11 +203,13 @@
         body: JSON.stringify({
           enabled: byId('agentToolsEnabled').checked,
           max_calls: Number(byId('agentToolsMaxCalls').value || 3),
+          allow_write_proposals: byId('agentWriteProposals').checked,
         }),
       });
       const state = byId('agentToolsState');
-      if (state) state.textContent = data.policy.enabled ? `Enabled · read-only · max ${data.policy.max_calls}` : 'Disabled';
-      brainFlash(data.policy.enabled ? 'Read-only Agent Tools enabled.' : 'Agent Tools disabled.');
+      const proposalText = data.policy.allow_write_proposals ? ' · proposals on' : '';
+      if (state) state.textContent = data.policy.enabled ? `Enabled · max ${data.policy.max_calls}${proposalText}` : 'Disabled';
+      brainFlash(data.policy.enabled ? 'Agent Tool policy saved.' : 'Agent Tools disabled.');
     } catch (err) { brainFlash(err.message, true); }
   });
 

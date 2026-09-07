@@ -23,6 +23,7 @@ class ProviderUpdate(BaseModel):
 class AgentToolPolicyUpdate(BaseModel):
     enabled: bool = False
     max_calls: int = Field(default=3, ge=1, le=3)
+    allow_write_proposals: bool = False
 
 
 def _current_app(authorization: str | None = Header(default=None)) -> dict:
@@ -148,17 +149,28 @@ def control_provider_test(payload: ProviderUpdate) -> dict:
 
 @router.get("/api/v1/control/agent-tools")
 def control_agent_tools() -> dict:
+    policy = agent_tools.get_policy()
     return {
-        "policy": agent_tools.get_policy(),
-        "mode": "read_only",
-        "available_tools": [schema["function"]["name"] for schema in agent_tools.model_tool_schemas(owner=True)],
+        "policy": policy,
+        "mode": "approval_gated",
+        "available_tools": [
+            schema["function"]["name"]
+            for schema in agent_tools.model_tool_schemas(
+                owner=True,
+                allow_write_proposals=policy["allow_write_proposals"],
+            )
+        ],
     }
 
 
 @router.put("/api/v1/control/agent-tools")
 def control_agent_tools_update(payload: AgentToolPolicyUpdate) -> dict:
     try:
-        policy = agent_tools.save_policy(payload.enabled, payload.max_calls)
+        policy = agent_tools.save_policy(
+            payload.enabled,
+            payload.max_calls,
+            payload.allow_write_proposals,
+        )
     except agent_tools.AgentToolError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"policy": policy, "mode": "read_only"}
+    return {"policy": policy, "mode": "approval_gated"}
