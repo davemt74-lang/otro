@@ -36,7 +36,7 @@
     <main class="main">
       <header class="topbar">
         <div><p class="eyebrow">PRIVATE AI CAPABILITY SERVER</p><h1 id="pageTitle">Overview</h1></div>
-        <div class="top-actions"><span class="version" id="version">v0.9.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
+        <div class="top-actions"><span class="version" id="version">v0.14.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
       </header>
       <div id="flash" class="flash" role="status" aria-live="polite"></div>
 
@@ -61,14 +61,14 @@
         <div class="section-intro"><div><h2>Primary agent</h2><p>This identity and instruction set is shared only with applications you explicitly permit.</p></div></div>
         <form id="agentForm" class="panel form-panel">
           <label>Agent name<input id="agentName" maxlength="120" required></label>
-          <label>Model override <span class="muted">optional — leave blank to use the Ollama default below</span><input id="agentModel" maxlength="120" placeholder="Example: llama3.2:3b"></label>
+          <label>Model override <span class="muted">optional — leave blank to use the selected Agent Brain provider</span><input id="agentModel" maxlength="120" placeholder="Optional model override"></label>
           <label>Instructions<textarea id="agentInstructions" rows="12" maxlength="12000" placeholder="Describe how your HomeServer agent should behave, what it should prioritize, and what it should never do."></textarea></label>
           <div class="form-actions"><span id="agentUpdated" class="muted"></span><button class="button primary" type="submit">Save agent</button></div>
         </form>
 
         <form id="providerForm" class="panel provider-panel">
           <div class="panel-head"><div><p class="eyebrow">LOCAL MODEL</p><h3>Ollama provider</h3></div><span id="providerState" class="provider-state">Loading…</span></div>
-          <p class="muted">HomeServer v0.9 only permits a loopback Ollama server. Prompts, memory, knowledge, contact search results and tool results stay on this device.</p>
+          <p class="muted">Run a model directly on this HomeServer with Ollama. When available, local inference can power paired applications such as VP3 without consuming VP3 cloud tokens.</p>
           <div class="provider-grid">
             <label>Ollama URL<input id="providerUrl" value="http://127.0.0.1:11434" maxlength="300"></label>
             <label>Default model<input id="providerModel" list="ollamaModels" maxlength="160" placeholder="Example: llama3.2:3b"><datalist id="ollamaModels"></datalist></label>
@@ -155,5 +155,6 @@
   <script src="/assets/tools.js" defer></script>
   <script src="/assets/approvals.js" defer></script>
   <script src="/assets/contacts.js" defer></script>
+  <script src="/assets/shell.js" defer></script>
 </body>
 </html>
