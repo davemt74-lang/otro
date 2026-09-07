@@ -47,3 +47,13 @@ ON knowledge_source_files(source_id, relative_path);
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_source_files_hash
 ON knowledge_source_files(source_id, content_hash);
+
+CREATE TRIGGER IF NOT EXISTS knowledge_source_item_before_delete
+BEFORE DELETE ON knowledge_items
+BEGIN
+    UPDATE knowledge_source_files
+    SET status='error',
+        last_error='Indexed knowledge item was removed; source will be re-indexed on the next scan.',
+        updated_at=CURRENT_TIMESTAMP
+    WHERE knowledge_item_id=OLD.id;
+END;
