@@ -26,6 +26,20 @@ def _apply_context_options(conversation_id: str, options: dict[str, Any] | None)
     return context_engine.update_settings(conversation_id, **values)
 
 
+def _effective_settings(
+    settings: dict[str, Any],
+    *,
+    allow_memory: bool,
+    allow_knowledge: bool,
+    allow_contacts: bool,
+) -> dict[str, Any]:
+    result = dict(settings)
+    result["include_memory"] = bool(result.get("include_memory") and allow_memory)
+    result["include_knowledge"] = bool(result.get("include_knowledge") and allow_knowledge)
+    result["include_contacts"] = bool(result.get("include_contacts") and allow_contacts)
+    return result
+
+
 def chat(
     source_app_key: str,
     message: str,
@@ -73,6 +87,12 @@ def chat(
         int(agent["id"]),
         text,
         conversation_id,
+        allow_memory=include_memory,
+        allow_knowledge=include_knowledge,
+        allow_contacts=include_contacts,
+    )
+    effective_settings = _effective_settings(
+        bundle.settings,
         allow_memory=include_memory,
         allow_knowledge=include_knowledge,
         allow_contacts=include_contacts,
@@ -257,7 +277,7 @@ def chat(
             **bundle.counts,
             "context_chars": bundle.context_chars,
             "sources": bundle.sources,
-            "settings": bundle.settings,
+            "settings": effective_settings,
         },
         "tools": tool_state,
     }
