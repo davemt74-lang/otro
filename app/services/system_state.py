@@ -12,6 +12,7 @@ from ..database import db, migration_files
 from . import backups
 from .owner_secret import owner_secret_metadata
 from .providers import ProviderError, get_ollama
+from .restore_runtime import latest_unreadable_snapshot
 from .runtime_control import runtime_control_available
 from .windows_integration import startup_state
 
@@ -184,6 +185,7 @@ def diagnostics() -> dict:
             "count": len(backup_items),
             "latest": backup_items[0] if backup_items else None,
             "pending_restore": pending_restore,
+            "unreadable_live_snapshot": latest_unreadable_snapshot(),
             "error": backup_error,
         },
         "startup": startup_state(),
