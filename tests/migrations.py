@@ -31,8 +31,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     connection.commit()
     connection.close()
 
-    # Build an authentic v0.12/schema-10 database first so migration 11 is
-    # tested as an upgrade, not just as part of a fresh all-at-once install.
+    # Build an authentic v0.12/schema-10 database first so migrations 11 and
+    # 12 are tested as upgrades rather than only as a fresh install.
     for version, path in migration_files():
         if version >= 11:
             break
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 12))
+        assert versions == list(range(1, 13))
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
@@ -81,6 +81,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         }.issubset(task_columns)
         notification_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(notifications)").fetchall()}
         assert {"task_id", "dismissed_at"}.issubset(notification_columns)
+        usage_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(inference_usage_events)").fetchall()}
+        assert {
+            "event_id", "source_app_key", "compute_source", "provider_key", "model",
+            "prompt_tokens", "completion_tokens", "total_tokens", "billable_tokens",
+            "balance_after_tokens", "created_at"
+        }.issubset(usage_columns)
         system_settings = {
             row["setting_key"]: row["value_json"]
             for row in migrated.execute("SELECT setting_key, value_json FROM system_settings").fetchall()
@@ -96,6 +102,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_chunks_fts WHERE knowledge_chunks_fts MATCH 'merchant'").fetchone()[0] >= 1
         provider = migrated.execute("SELECT provider_key, enabled FROM model_providers WHERE provider_key='ollama'").fetchone()
         assert provider is not None and provider["enabled"] == 0
+        provider_keys = [row["provider_key"] for row in migrated.execute("SELECT provider_key FROM model_providers ORDER BY provider_key").fetchall()]
+        assert provider_keys == ["anthropic", "ollama", "openai", "openrouter"]
+        inference_settings = migrated.execute("SELECT preferred_provider FROM inference_settings WHERE id=1").fetchone()
+        assert inference_settings is not None and inference_settings["preferred_provider"] == "auto"
+        assert migrated.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0] == 0
         policies = migrated.execute("SELECT tool_key, enabled FROM tool_policies ORDER BY tool_key").fetchall()
@@ -157,8 +168,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 12))
+        assert versions_again == list(range(1, 13))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
+        assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
+        assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
+        assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 7
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1

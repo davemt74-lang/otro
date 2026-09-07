@@ -11,10 +11,12 @@ from .contacts_api import router as contacts_router
 from .config import settings
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
+from .services import providers
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tasks_api import router as tasks_router
 from .tools_api import router as tools_router
+from .usage_api import router as usage_router
 
 
 class PairStatusRequest(BaseModel):
@@ -30,12 +32,13 @@ app.include_router(tasks_router)
 app.include_router(backups_router)
 app.include_router(system_router)
 app.include_router(remote_bridge_router)
+app.include_router(usage_router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.allowed_origins),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
     max_age=600,
 )
@@ -43,11 +46,19 @@ app.add_middleware(
 
 @app.get("/api/v1/capabilities")
 def capabilities() -> dict:
+    inference = providers.inference_status()
     return {
         "service": settings.app_name,
         "version": settings.version,
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
+        "inference": {
+            "available": bool(inference["available"]),
+            "selected_provider": inference["selected_provider"],
+            "model": inference["model"],
+            "compute_source": inference["compute_source"],
+            "cloud_fallback_required": bool(inference["cloud_fallback_required"]),
+        },
         "permissions": sorted(DEFAULT_PERMISSIONS),
         "features": [
             "action.approvals",
@@ -55,17 +66,22 @@ def capabilities() -> dict:
             "agent.tools.read",
             "contacts.read",
             "conversations",
+            "inference.routing",
+            "inference.status",
             "knowledge.search",
             "memory.read",
             "memory.write",
             "notifications.read",
             "ollama.local",
+            "provider.credentials",
             "remote.bridge.v1",
             "skills",
             "tasks.read",
             "tasks.write",
             "tasks.reminders",
             "tools.execute",
+            "usage.history",
+            "usage.sync",
             "owner.control",
         ],
     }

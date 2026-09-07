@@ -17,6 +17,8 @@ DEFAULT_PERMISSIONS = {
     "tasks.read",
     "tasks.write",
     "tools.execute",
+    "usage.read",
+    "usage.write",
 }
 
 
