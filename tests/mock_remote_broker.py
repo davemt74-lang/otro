@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import threading
+import time
 from pathlib import Path
 
 from websockets.sync.server import serve
@@ -12,15 +14,21 @@ port = int(os.environ.get("HOMESERVER_REMOTE_TEST_PORT", "48765"))
 marker_raw = os.environ.get("HOMESERVER_REMOTE_MARKER")
 token_file_raw = os.environ.get("HOMESERVER_REMOTE_TOKEN_FILE")
 progress_raw = os.environ.get("HOMESERVER_REMOTE_PROGRESS")
+data_dir_raw = os.environ.get("HOMESERVER_DATA_DIR")
 if not marker_raw:
     raise SystemExit("HOMESERVER_REMOTE_MARKER is required")
 if not token_file_raw:
     raise SystemExit("HOMESERVER_REMOTE_TOKEN_FILE is required")
 if not progress_raw:
     raise SystemExit("HOMESERVER_REMOTE_PROGRESS is required")
+if not data_dir_raw:
+    raise SystemExit("HOMESERVER_DATA_DIR is required")
 marker = Path(marker_raw)
 token_file = Path(token_file_raw)
 progress = Path(progress_raw)
+data_dir = Path(data_dir_raw)
+database_path = data_dir / "homeserver.db"
+accepted_event = threading.Event()
 
 
 def publish_progress(stage: str) -> None:
@@ -33,7 +41,53 @@ def publish_result(payload: dict) -> None:
     marker.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
 
+def latest_worker_progress() -> str:
+    if not database_path.is_file():
+        return "worker=db-missing"
+    try:
+        connection = sqlite3.connect(database_path, timeout=0.25)
+        connection.row_factory = sqlite3.Row
+        try:
+            setting = connection.execute(
+                "SELECT enabled, broker_url FROM remote_bridge_settings WHERE id=1 LIMIT 1"
+            ).fetchone()
+            event = connection.execute(
+                """
+                SELECT event, status, metadata_json
+                FROM remote_bridge_events
+                WHERE event IN ('bridge.worker', 'bridge.connection', 'bridge.connected', 'bridge.disconnected')
+                ORDER BY id DESC LIMIT 1
+                """
+            ).fetchone()
+        finally:
+            connection.close()
+
+        setting_state = "on" if setting is not None and bool(setting["enabled"]) and bool(setting["broker_url"]) else "off"
+        identity_state = "yes" if (data_dir / "security" / "remote-bridge.dat").is_file() else "no"
+        if event is None:
+            return f"worker=none;settings={setting_state};identity={identity_state}"
+        try:
+            metadata = json.loads(event["metadata_json"] or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            metadata = {}
+        stage = str(metadata.get("stage") or "unknown")[:80]
+        error_type = str(metadata.get("error_type") or "")[:80]
+        suffix = f";error={error_type}" if error_type else ""
+        return (
+            f"worker={event['event']}:{event['status']}:{stage}{suffix};"
+            f"settings={setting_state};identity={identity_state}"
+        )
+    except (sqlite3.Error, OSError) as exc:
+        return f"worker=diagnostic-{type(exc).__name__}"
+
+
+def monitor_worker() -> None:
+    while not accepted_event.wait(0.4):
+        publish_progress(f"listening|{latest_worker_progress()}")
+
+
 def handler(websocket) -> None:
+    accepted_event.set()
     result: dict = {"ok": False, "stage": "accepted"}
     try:
         publish_progress("accepted")
@@ -137,6 +191,8 @@ def handler(websocket) -> None:
         publish_result(result)
 
 
+monitor = threading.Thread(target=monitor_worker, name="packaged-bridge-diagnostics", daemon=True)
+monitor.start()
 with serve(
     handler,
     "127.0.0.1",
@@ -144,5 +200,5 @@ with serve(
     subprotocols=["homeserver.bridge.v1"],
     ping_interval=None,
 ):
-    publish_progress("listening")
+    publish_progress(f"listening|{latest_worker_progress()}")
     threading.Event().wait()
