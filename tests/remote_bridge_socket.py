@@ -81,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-socket-") as data_dir
         assert completed.wait(8), "Remote bridge did not complete loopback relay exchange"
         assert captured["hello"]["type"] == "hello"
         assert captured["hello"]["protocol"] == "homeserver-relay-v1"
-        assert captured["hello"]["version"] == "0.16.0"
+        assert captured["hello"]["version"] == "0.17.0"
         response = captured["response"]
         assert response["type"] == "response"
         assert response["request_id"] == "request-1"

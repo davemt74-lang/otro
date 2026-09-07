@@ -25,6 +25,7 @@ _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _TOOL_KEY = re.compile(r"^[a-z0-9._-]{1,80}$")
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9_-]{8,160}$")
+_EVENT_TYPE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
 _RELOAD_EVENT = threading.Event()
 _STATE_LOCK = threading.Lock()
 _STATE: dict[str, Any] = {
@@ -62,10 +63,7 @@ def normalize_broker_url(value: str) -> str:
 def _broker_metadata(broker_url: str) -> dict[str, Any]:
     parsed = urlparse(broker_url)
     host = (parsed.hostname or "").lower()
-    return {
-        "scheme": parsed.scheme,
-        "loopback": host in _LOOPBACK_HOSTS,
-    }
+    return {"scheme": parsed.scheme, "loopback": host in _LOOPBACK_HOSTS}
 
 
 def _broker_proxy(broker_url: str):
@@ -200,6 +198,20 @@ def _require_token(operation: str, token: str | None) -> str:
     return candidate
 
 
+def _bounded_int(value: Any, *, default: int, minimum: int, maximum: int, name: str) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        raise RemoteBridgeError(f"{name} must be an integer.")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise RemoteBridgeError(f"{name} must be an integer.") from exc
+    if parsed < minimum or parsed > maximum:
+        raise RemoteBridgeError(f"{name} must be between {minimum} and {maximum}.")
+    return parsed
+
+
 def _local_response(response: httpx.Response) -> dict:
     try:
         payload = response.json()
@@ -221,8 +233,8 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     base_url = f"http://{settings.host}:{settings.port}"
 
-    # This is HomeServer talking to its own loopback API. Never let ambient
-    # machine or user proxy configuration intercept the permission boundary.
+    # The worker talks only to HomeServer's loopback API. Every protected route
+    # still authenticates the paired-app bearer token and enforces permissions.
     with httpx.Client(base_url=base_url, timeout=125.0, trust_env=False) as client:
         if op == "capabilities":
             return _local_response(client.get("/api/v1/capabilities"))
@@ -235,9 +247,9 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
         if op == "conversations.list":
             return _local_response(client.get("/api/v1/conversations", headers=headers))
         if op == "conversation.get":
-            conversation_id = body.get("conversation_id")
-            if not isinstance(conversation_id, int) or conversation_id <= 0:
-                raise RemoteBridgeError("conversation_id must be a positive integer.")
+            conversation_id = str(body.get("conversation_id") or "").strip()
+            if not _OPAQUE_ID.fullmatch(conversation_id):
+                raise RemoteBridgeError("conversation_id must be a valid opaque conversation identifier.")
             return _local_response(client.get(f"/api/v1/conversations/{conversation_id}", headers=headers))
         if op == "contacts.search":
             query = str(body.get("query") or "")[:240]
@@ -249,6 +261,30 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             return _local_response(client.get("/api/v1/memory", headers=headers))
         if op == "memory.write":
             return _local_response(client.post("/api/v1/memory", json=body, headers=headers))
+        if op == "inference.status":
+            return _local_response(client.get("/api/v1/inference/status", headers=headers))
+        if op == "events.emit":
+            return _local_response(client.post("/api/v1/events", json=body, headers=headers))
+        if op == "events.list":
+            params: dict[str, Any] = {
+                "limit": _bounded_int(body.get("limit"), default=100, minimum=1, maximum=500, name="limit")
+            }
+            event_type = str(body.get("event_type") or "").strip()
+            if event_type:
+                if not _EVENT_TYPE.fullmatch(event_type):
+                    raise RemoteBridgeError("event_type is invalid.")
+                params["event_type"] = event_type
+            return _local_response(client.get("/api/v1/events", params=params, headers=headers))
+        if op == "awareness.list":
+            limit = _bounded_int(body.get("limit"), default=50, minimum=1, maximum=200, name="limit")
+            return _local_response(client.get("/api/v1/awareness", params={"limit": limit}, headers=headers))
+        if op == "plugins.list":
+            return _local_response(client.get("/api/v1/plugins", headers=headers))
+        if op == "usage.cloud":
+            return _local_response(client.post("/api/v1/usage/cloud", json=body, headers=headers))
+        if op == "usage.read":
+            limit = _bounded_int(body.get("limit"), default=200, minimum=1, maximum=500, name="limit")
+            return _local_response(client.get("/api/v1/usage", params={"limit": limit}, headers=headers))
         if op == "tools.list":
             return _local_response(client.get("/api/v1/tools", headers=headers))
         if op == "skills.list":
@@ -487,11 +523,7 @@ class RemoteBridgeWorker:
                             )
                             _safe_send(
                                 websocket,
-                                {
-                                    "type": "response",
-                                    "request_id": request_id,
-                                    **result,
-                                },
+                                {"type": "response", "request_id": request_id, **result},
                             )
                         except RemoteBridgeError as exc:
                             duration_ms = int((time.monotonic() - started) * 1000)

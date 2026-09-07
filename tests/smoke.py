@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         scheduler.stop()
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.16.0"
+        assert health.json()["version"] == "0.17.0"
 
         capabilities = client.get("/api/v1/capabilities", headers={"Origin": "https://vp3.me"})
         assert capabilities.status_code == 200
@@ -51,16 +51,26 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "action.approvals",
             "agent.chat",
             "agent.context",
+            "agent.context.awareness",
             "agent.context.budget",
             "agent.context.sources",
             "agent.privacy.local_only",
             "agent.tools.read",
+            "awareness.read",
+            "cognition.event_bus",
+            "cognition.memory_candidates",
+            "cognition.multi_app_awareness",
             "contacts.read",
+            "events.read",
+            "events.write",
             "inference.routing",
             "inference.status",
             "knowledge.sources.local",
             "knowledge.sources.sync",
             "notifications.read",
+            "plugins.manifest.v1",
+            "plugins.read",
+            "plugins.registry",
             "provider.credentials",
             "skills",
             "tasks.read",
@@ -72,8 +82,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         ):
             assert feature in capability_json["features"]
         for permission in (
+            "awareness.read",
             "contacts.read",
+            "events.read",
+            "events.write",
             "notifications.read",
+            "plugins.read",
             "tasks.read",
             "tasks.write",
             "tools.execute",
@@ -104,7 +118,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 14
+        assert status.json()["schema_version"] == 15
 
         assert client.get("/api/v1/control/overview").status_code == 401
         assert client.get("/api/v1/control/tasks").status_code == 401

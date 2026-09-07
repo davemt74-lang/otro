@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from .approvals_api import router as approvals_router
 from .backups_api import router as backups_router
 from .brain_api import router as brain_router
+from .cognition_api import router as cognition_router
 from .contacts_api import router as contacts_router
 from .config import settings
 from .knowledge_sources_api import router as knowledge_sources_router
@@ -31,6 +32,7 @@ app.include_router(approvals_router)
 app.include_router(contacts_router)
 app.include_router(tasks_router)
 app.include_router(knowledge_sources_router)
+app.include_router(cognition_router)
 app.include_router(backups_router)
 app.include_router(system_router)
 app.include_router(remote_bridge_router)
@@ -66,21 +68,36 @@ def capabilities() -> dict:
             "action.approvals",
             "agent.chat",
             "agent.context",
+            "agent.context.awareness",
             "agent.context.budget",
             "agent.context.sources",
             "agent.privacy.local_only",
             "agent.tools.read",
+            "awareness.read",
+            "cognition.activity_mirror",
+            "cognition.event_bus",
+            "cognition.jobs",
+            "cognition.memory_candidates",
+            "cognition.multi_app_awareness",
             "contacts.read",
             "conversations",
+            "events.read",
+            "events.write",
             "inference.routing",
             "inference.status",
             "knowledge.search",
             "knowledge.sources.local",
             "knowledge.sources.sync",
+            "memory.provenance",
             "memory.read",
             "memory.write",
             "notifications.read",
             "ollama.local",
+            "plugins.manifest.v1",
+            "plugins.read",
+            "plugins.registry",
+            "plugins.subscriptions",
+            "plugins.tools.read_only",
             "provider.credentials",
             "remote.bridge.v1",
             "skills",

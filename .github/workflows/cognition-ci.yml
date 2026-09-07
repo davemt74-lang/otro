@@ -1,0 +1,27 @@
+name: HomeServer Cognition CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  cognition:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile cognitive runtime
+        run: python -m py_compile app/services/cognitive_runtime.py app/services/plugins.py app/services/awareness_context.py app/cognition_api.py
+      - name: Validate Cognition workspace JavaScript
+        run: node --check ui/cognition.js
+      - name: Cognition workspace UI integration contract
+        run: python tests/cognition_ui_contract.py
+      - name: Cognitive runtime and plugin bus regression
+        run: python tests/cognitive_runtime.py
+      - name: Database migration upgrade regression
+        run: python tests/migrations.py
