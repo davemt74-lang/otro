@@ -208,6 +208,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-tasks-") as data_dir:
         assert len(tasks_after_approval) == task_count_before + 1
         approved_task = next(item for item in tasks_after_approval if item["title"] == private_title)
         assert approved_task["priority"] == "urgent"
+        assert approved_task["source_app_key"] == "task-agent"
+        assert approved_task["created_by_type"] == "agent"
 
         tool_runs = client.get("/api/v1/control/tool-runs?limit=200").json()["items"]
         activity = client.get("/api/v1/control/activity?limit=200").json()["items"]
