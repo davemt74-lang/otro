@@ -420,9 +420,10 @@ def _notifications_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict
     return {"items": rows, "count": len(rows)}, {"count": len(rows)}
 
 
-def _tasks_create(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _tasks_create(arguments: dict[str, Any], source: str, created_by_type: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    source_key = source.removeprefix("app:") if source.startswith("app:") else (None if source == "owner" else source)
     try:
-        task = create_task(arguments, source_app_key="tool", created_by_type="agent")
+        task = create_task(arguments, source_app_key=source_key, created_by_type=created_by_type)
     except TaskError as exc:
         raise ToolError(str(exc), exc.status_code) from exc
     return {"created": True, "task": task}, {"created": True, "id": task["id"]}
@@ -469,7 +470,8 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
         elif tool["key"] == "notifications.list":
             result, result_meta = _notifications_list(payload)
         elif tool["key"] == "tasks.create":
-            result, result_meta = _tasks_create(payload)
+            task_creator = "agent" if owner and source.startswith("app:") else actor_type
+            result, result_meta = _tasks_create(payload, source, task_creator)
         else:
             raise ToolError("Tool implementation is unavailable.", 503)
     except ToolError as exc:
