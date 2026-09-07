@@ -8,6 +8,7 @@
     'memory.read',
     'memory.write',
     'notifications.read',
+    'tools.execute',
   ];
 
   class VP3HomeServerConnector {
@@ -128,6 +129,15 @@
     conversation(conversationId) {
       if (!conversationId) throw new Error('conversationId is required.');
       return this._authorized(`/api/v1/conversations/${encodeURIComponent(conversationId)}`);
+    }
+    tools() { return this._authorized('/api/v1/tools'); }
+    skills() { return this._authorized('/api/v1/skills'); }
+    executeTool(toolKey, args = {}) {
+      if (!toolKey) throw new Error('toolKey is required.');
+      return this._authorized(`/api/v1/tools/${encodeURIComponent(toolKey)}/execute`, {
+        method: 'POST',
+        body: JSON.stringify({arguments: args}),
+      });
     }
   }
 
