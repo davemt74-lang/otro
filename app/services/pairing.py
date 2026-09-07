@@ -9,6 +9,7 @@ from ..database import db
 
 DEFAULT_PERMISSIONS = {
     "agent.chat",
+    "contacts.read",
     "knowledge.search",
     "memory.read",
     "memory.write",

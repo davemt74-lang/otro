@@ -4,6 +4,7 @@
   const DEFAULT_BASE_URL = 'http://127.0.0.1:4377';
   const DEFAULT_PERMISSIONS = [
     'agent.chat',
+    'contacts.read',
     'knowledge.search',
     'memory.read',
     'memory.write',
@@ -80,6 +81,7 @@
 
     me() { return this._authorized('/api/v1/me'); }
     agent() { return this._authorized('/api/v1/agent'); }
+    contacts(query = '') { return this._authorized(`/api/v1/contacts?q=${encodeURIComponent(query)}`); }
     searchKnowledge(query = '') { return this._authorized(`/api/v1/knowledge?q=${encodeURIComponent(query)}`); }
     memory() { return this._authorized('/api/v1/memory'); }
     writeMemory(content, options = {}) {

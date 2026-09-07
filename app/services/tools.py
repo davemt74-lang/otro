@@ -5,12 +5,29 @@ import time
 from typing import Any
 
 from ..database import db
+from .contacts import list_contacts
 from .knowledge import list_knowledge
 
 
 TOOL_EXECUTE_PERMISSION = "tools.execute"
 
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "contacts.search": {
+        "key": "contacts.search",
+        "name": "Search Contacts",
+        "description": "Search private local contacts and relationship context.",
+        "mode": "read",
+        "required_permissions": ["contacts.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "maxLength": 240},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
     "knowledge.search": {
         "key": "knowledge.search",
         "name": "Search Knowledge",
@@ -66,6 +83,12 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "tools": ["knowledge.search", "memory.list"],
     },
     {
+        "key": "relationship.context",
+        "name": "Relationship Context",
+        "description": "Search private contacts and relationship notes through an explicit read capability.",
+        "tools": ["contacts.search"],
+    },
+    {
         "key": "memory.manager",
         "name": "Memory Manager",
         "description": "Read and create durable agent memory through explicit local capabilities.",
@@ -108,14 +131,7 @@ def list_tools(granted_permissions: set[str] | None = None, *, owner: bool = Fal
         tool = TOOL_DEFINITIONS[key]
         enabled = policies.get(key, True)
         missing = _missing_permissions(tool, granted, owner)
-        result.append(
-            {
-                **tool,
-                "enabled": enabled,
-                "available": enabled and not missing,
-                "missing_permissions": missing,
-            }
-        )
+        result.append({**tool, "enabled": enabled, "available": enabled and not missing, "missing_permissions": missing})
     return result
 
 
@@ -131,13 +147,7 @@ def list_skills(granted_permissions: set[str] | None = None, *, owner: bool = Fa
             if not owner:
                 required.add(TOOL_EXECUTE_PERMISSION)
             available = available and bool(item["available"])
-        skills.append(
-            {
-                **skill,
-                "required_permissions": sorted(required),
-                "available": available,
-            }
-        )
+        skills.append({**skill, "required_permissions": sorted(required), "available": available})
     return skills
 
 
@@ -173,7 +183,7 @@ def _safe_numeric(value: Any, default: int | float | None = None) -> int | float
 
 
 def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    if tool_key == "knowledge.search":
+    if tool_key in {"contacts.search", "knowledge.search"}:
         query = str(arguments.get("query") or "")
         return {"query_length": len(query), "limit": _safe_numeric(arguments.get("limit"), 8)}
     if tool_key == "memory.list":
@@ -189,18 +199,10 @@ def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[st
     return {"argument_count": len(arguments)}
 
 
-def _record_run(
-    *,
-    tool_key: str,
-    source_app_key: str,
-    actor_type: str,
-    status: str,
-    required_permissions: list[str],
-    arguments_meta: dict[str, Any],
-    result_meta: dict[str, Any] | None = None,
-    duration_ms: int | None = None,
-    error: str | None = None,
-) -> int:
+def _record_run(*, tool_key: str, source_app_key: str, actor_type: str, status: str,
+                required_permissions: list[str], arguments_meta: dict[str, Any],
+                result_meta: dict[str, Any] | None = None, duration_ms: int | None = None,
+                error: str | None = None) -> int:
     with db() as connection:
         cursor = connection.execute(
             """
@@ -210,15 +212,11 @@ def _record_run(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (
-                tool_key,
-                source_app_key,
-                actor_type,
-                status,
+                tool_key, source_app_key, actor_type, status,
                 json.dumps(required_permissions, separators=(",", ":")),
                 json.dumps(arguments_meta, separators=(",", ":")),
                 json.dumps(result_meta or {}, separators=(",", ":")),
-                duration_ms,
-                (error or "")[:1000] or None,
+                duration_ms, (error or "")[:1000] or None,
             ),
         )
         run_id = int(cursor.lastrowid)
@@ -227,13 +225,8 @@ def _record_run(
             INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
             VALUES (?, ?, ?, 'tool', ?, ?)
             """,
-            (
-                actor_type,
-                source_app_key,
-                f"tool.{status}",
-                tool_key,
-                json.dumps({"run_id": run_id, "tool": tool_key}, separators=(",", ":")),
-            ),
+            (actor_type, source_app_key, f"tool.{status}", tool_key,
+             json.dumps({"run_id": run_id, "tool": tool_key}, separators=(",", ":"))),
         )
     return run_id
 
@@ -252,6 +245,32 @@ def _bounded_int(value: Any, default: int, minimum: int, maximum: int, label: st
     return parsed
 
 
+def _contacts_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown = set(arguments) - {"query", "limit"}
+    if unknown:
+        raise ToolError(f"Unsupported contacts.search argument: {sorted(unknown)[0]}")
+    query = str(arguments.get("query") or "").strip()
+    if not query:
+        raise ToolError("contacts.search requires a query.")
+    if len(query) > 240:
+        raise ToolError("contacts.search query exceeds 240 characters.")
+    limit = _bounded_int(arguments.get("limit"), 8, 1, 20, "limit")
+    rows = list_contacts(query, limit=limit)
+    items = [
+        {
+            "id": row["id"],
+            "display_name": row["display_name"],
+            "organization": row.get("organization"),
+            "email": row.get("email"),
+            "phone": row.get("phone"),
+            "relationship": row.get("relationship"),
+            "notes": str(row.get("notes") or "")[:1600],
+        }
+        for row in rows
+    ]
+    return {"items": items, "count": len(items)}, {"count": len(items)}
+
+
 def _knowledge_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     unknown = set(arguments) - {"query", "limit"}
     if unknown:
@@ -266,15 +285,8 @@ def _knowledge_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[s
     items: list[dict[str, Any]] = []
     for row in rows:
         excerpt = str(row.get("snippet") or row.get("content") or "").strip()[:1600]
-        items.append(
-            {
-                "id": row["id"],
-                "title": row.get("title"),
-                "kind": row.get("kind"),
-                "source_path": row.get("source_path"),
-                "excerpt": excerpt,
-            }
-        )
+        items.append({"id": row["id"], "title": row.get("title"), "kind": row.get("kind"),
+                      "source_path": row.get("source_path"), "excerpt": excerpt})
     return {"items": items, "count": len(items)}, {"count": len(items)}
 
 
@@ -318,7 +330,6 @@ def _memory_write(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         raise ToolError("memory.write importance must be a number.") from exc
     if importance < 0 or importance > 1:
         raise ToolError("memory.write importance must be between 0 and 1.")
-
     with db() as connection:
         primary = connection.execute("SELECT id FROM agents WHERE is_primary=1 LIMIT 1").fetchone()
         agent_id = primary["id"] if primary else None
@@ -330,21 +341,14 @@ def _memory_write(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
     return {"created": True, "id": memory_id}, {"created": True, "id": memory_id}
 
 
-def execute_tool(
-    source_app_key: str,
-    tool_key: str,
-    arguments: dict[str, Any] | None,
-    granted_permissions: set[str] | None = None,
-    *,
-    owner: bool = False,
-) -> dict[str, Any]:
+def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
+                 granted_permissions: set[str] | None = None, *, owner: bool = False) -> dict[str, Any]:
     tool = _tool_definition(tool_key)
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
     granted = set(granted_permissions or set())
     required = [] if owner else sorted({TOOL_EXECUTE_PERMISSION, *tool["required_permissions"]})
     payload = dict(arguments or {})
-
     try:
         encoded = json.dumps(payload, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
@@ -355,25 +359,23 @@ def execute_tool(
     arguments_meta = _safe_argument_metadata(tool["key"], payload)
     policies = _policy_map()
     if not policies.get(tool["key"], True):
-        run_id = _record_run(
-            tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-            status="denied", required_permissions=required, arguments_meta=arguments_meta,
-            error="Tool is disabled by the HomeServer owner.",
-        )
+        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
+                             status="denied", required_permissions=required, arguments_meta=arguments_meta,
+                             error="Tool is disabled by the HomeServer owner.")
         raise ToolError(f"Tool is disabled by the HomeServer owner. Run {run_id} was recorded.", 403)
 
     missing = _missing_permissions(tool, granted, owner)
     if missing:
-        run_id = _record_run(
-            tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-            status="denied", required_permissions=required, arguments_meta=arguments_meta,
-            error=f"Missing permissions: {', '.join(missing)}",
-        )
+        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
+                             status="denied", required_permissions=required, arguments_meta=arguments_meta,
+                             error=f"Missing permissions: {', '.join(missing)}")
         raise ToolError(f"Missing tool permissions: {', '.join(missing)}. Run {run_id} was recorded.", 403)
 
     started = time.perf_counter()
     try:
-        if tool["key"] == "knowledge.search":
+        if tool["key"] == "contacts.search":
+            result, result_meta = _contacts_search(payload)
+        elif tool["key"] == "knowledge.search":
             result, result_meta = _knowledge_search(payload)
         elif tool["key"] == "memory.list":
             result, result_meta = _memory_list(payload)
@@ -383,27 +385,21 @@ def execute_tool(
             raise ToolError("Tool implementation is unavailable.", 503)
     except ToolError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
-        run_id = _record_run(
-            tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-            status="failed", required_permissions=required, arguments_meta=arguments_meta,
-            duration_ms=duration_ms, error=str(exc),
-        )
+        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
+                             status="failed", required_permissions=required, arguments_meta=arguments_meta,
+                             duration_ms=duration_ms, error=str(exc))
         raise ToolError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
     except Exception as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
-        run_id = _record_run(
-            tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-            status="failed", required_permissions=required, arguments_meta=arguments_meta,
-            duration_ms=duration_ms, error="Internal tool failure.",
-        )
+        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
+                             status="failed", required_permissions=required, arguments_meta=arguments_meta,
+                             duration_ms=duration_ms, error="Internal tool failure.")
         raise ToolError(f"Tool failed safely. Run {run_id} was recorded.", 500) from exc
 
     duration_ms = int((time.perf_counter() - started) * 1000)
-    run_id = _record_run(
-        tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-        status="completed", required_permissions=required, arguments_meta=arguments_meta,
-        result_meta=result_meta, duration_ms=duration_ms,
-    )
+    run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
+                         status="completed", required_permissions=required, arguments_meta=arguments_meta,
+                         result_meta=result_meta, duration_ms=duration_ms)
     return {"tool": tool["key"], "run_id": run_id, "status": "completed", "result": result}
 
 
