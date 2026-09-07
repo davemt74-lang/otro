@@ -6,7 +6,7 @@ HomeServer is application-neutral. VP3 is an authorized browser client that conn
 
 Default: `http://127.0.0.1:4377`
 
-VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.9 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, contacts, knowledge, memory, skills, direct tools, optional Agent Tool Use and local action approvals.
+VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.10 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, contacts, knowledge, memory, skills, direct tools, optional Agent Tool Use and local action approvals.
 
 ## Browser pairing
 
@@ -35,7 +35,7 @@ Conversation APIs:
 
 ## Contacts & relationship context
 
-v0.9 adds the scoped permission `contacts.read`.
+v0.9 added the scoped permission `contacts.read`.
 
 `GET /api/v1/contacts?q=<query>` requires `contacts.read` and can return the owner's local contact records, including relationship notes. VP3 should request this capability only when it has a user-facing need for private relationship context.
 
@@ -45,7 +45,7 @@ The browser helper exposes:
 connector.contacts('Example Organization')
 ```
 
-There is no paired-app contact mutation API in v0.9. Contact create/update/delete remains owner-controlled in the local HomeServer Control Center.
+There is no paired-app contact mutation API. Contact create/update/delete remains owner-controlled in the local HomeServer Control Center.
 
 ## Agent Tool Use
 
@@ -100,6 +100,12 @@ Direct tool execution requires `tools.execute` and the tool's underlying permiss
 The built-in `relationship.context` skill groups contact search without granting any new permission.
 
 The owner can globally disable any built-in tool. HomeServer exposes no shell, PowerShell, arbitrary HTTP or unrestricted filesystem tool.
+
+## Owner-only backup portability
+
+v0.10 adds local backup/export and staged restore to the **owner Control Center only**. These routes live under `/api/v1/control/*` and are protected by the local owner-session gateway.
+
+Backup/restore is intentionally **not** a pairing permission, is not returned in `DEFAULT_PERMISSIONS`, and is not exposed through the VP3 connector helper. A VP3 bearer token cannot create, download, delete, upload, stage, cancel, or apply HomeServer backups.
 
 ## Other protected APIs
 
