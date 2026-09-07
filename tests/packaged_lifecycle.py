@@ -18,21 +18,22 @@ BASE = "http://127.0.0.1:4377"
 
 def wait_health(expected_up: bool, timeout: float = 20.0) -> bool:
     deadline = time.time() + timeout
-    while time.time() < deadline:
-        up = False
-        try:
-            response = httpx.get(f"{BASE}/api/v1/health", timeout=0.8)
-            up = response.status_code == 200 and response.json().get("version") == "0.12.0"
-        except Exception:
+    with httpx.Client(base_url=BASE, timeout=0.8, trust_env=False) as client:
+        while time.time() < deadline:
             up = False
-        if up is expected_up:
-            return True
-        time.sleep(0.2)
+            try:
+                response = client.get("/api/v1/health")
+                up = response.status_code == 200 and response.json().get("version") == "0.12.0"
+            except Exception:
+                up = False
+            if up is expected_up:
+                return True
+            time.sleep(0.2)
     return False
 
 
 def authorize() -> httpx.Client:
-    client = httpx.Client(base_url=BASE, timeout=3.0)
+    client = httpx.Client(base_url=BASE, timeout=3.0, trust_env=False)
     response = client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN})
     assert response.status_code == 200
     assert client.get("/api/v1/control/system").status_code == 200
@@ -41,7 +42,7 @@ def authorize() -> httpx.Client:
 
 def main() -> None:
     assert os.environ.get("HOMESERVER_DATA_DIR"), "HOMESERVER_DATA_DIR is required"
-    assert wait_health(True, 5), "packaged HomeServer is not healthy before lifecycle test"
+    assert wait_health(True, 20), "packaged HomeServer is not healthy before lifecycle test"
 
     first = authorize()
     old_cookie = first.cookies.get("homeserver_owner")
@@ -55,7 +56,12 @@ def main() -> None:
     wait_health(False, 4)
     assert wait_health(True, 20), "HomeServer did not return after supervised restart"
 
-    old_session = httpx.Client(base_url=BASE, cookies={"homeserver_owner": old_cookie}, timeout=3.0)
+    old_session = httpx.Client(
+        base_url=BASE,
+        cookies={"homeserver_owner": old_cookie},
+        timeout=3.0,
+        trust_env=False,
+    )
     try:
         assert old_session.get("/api/v1/control/system").status_code == 401
     finally:
