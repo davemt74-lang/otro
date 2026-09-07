@@ -26,10 +26,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
 
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.16.0"
+        assert health.json()["version"] == "0.17.0"
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 14
+        assert status.json()["schema_version"] == 15
 
         default_inference = client.get("/api/v1/control/inference")
         assert default_inference.status_code == 200
