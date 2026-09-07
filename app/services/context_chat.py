@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import brain, context_engine, providers, usage as usage_service
+from . import awareness_context, brain, context_engine, providers, usage as usage_service
 
 
 def _apply_context_options(conversation_id: str, options: dict[str, Any] | None) -> dict[str, Any]:
@@ -32,11 +32,13 @@ def _effective_settings(
     allow_memory: bool,
     allow_knowledge: bool,
     allow_contacts: bool,
+    allow_awareness: bool,
 ) -> dict[str, Any]:
     result = dict(settings)
     result["include_memory"] = bool(result.get("include_memory") and allow_memory)
     result["include_knowledge"] = bool(result.get("include_knowledge") and allow_knowledge)
     result["include_contacts"] = bool(result.get("include_contacts") and allow_contacts)
+    result["include_awareness"] = bool(allow_awareness)
     return result
 
 
@@ -80,6 +82,9 @@ def chat(
     if len(text) > 32000:
         raise brain.BrainError("Message exceeds the 32,000 character limit.")
 
+    granted_permissions = set(tool_permissions or set())
+    allow_awareness = bool(owner_tools or "awareness.read" in granted_permissions)
+
     agent = brain._primary_agent()
     conversation_id = brain._conversation_for_source(
         source_app_key, conversation_id, int(agent["id"]), text
@@ -110,14 +115,35 @@ def chat(
         allow_knowledge=include_knowledge,
         allow_contacts=include_contacts,
     )
+
+    awareness_items: list[dict[str, Any]] = []
+    awareness_fragment = ""
+    awareness_sources: list[dict[str, Any]] = []
+    if allow_awareness:
+        remaining = max(0, int(bundle.settings.get("max_context_chars") or 12000) - int(bundle.context_chars))
+        if remaining >= 180:
+            awareness_items = awareness_context.collect(text, limit=6)
+            awareness_fragment = awareness_context.prompt_fragment(awareness_items, max_chars=min(2400, remaining))
+            if awareness_fragment:
+                awareness_sources = awareness_context.source_refs(awareness_items)
+            else:
+                awareness_items = []
+
+    awareness_chars = len(awareness_fragment)
+    all_sources = [*bundle.sources, *awareness_sources]
+    total_context_chars = int(bundle.context_chars) + awareness_chars
     effective_settings = _effective_settings(
         bundle.settings,
         allow_memory=include_memory,
         allow_knowledge=include_knowledge,
         allow_contacts=include_contacts,
+        allow_awareness=allow_awareness,
     )
+    system_prompt = context_engine.system_prompt(agent, bundle)
+    if awareness_fragment:
+        system_prompt += "\n\n" + awareness_fragment
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": context_engine.system_prompt(agent, bundle)},
+        {"role": "system", "content": system_prompt},
         *brain._history(conversation_id),
     ]
 
@@ -134,8 +160,8 @@ def chat(
             """
             INSERT INTO agent_runs(
                 conversation_id, source_app_key, provider_key, model,
-                memory_count, knowledge_count, contact_count, context_chars
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                memory_count, knowledge_count, contact_count, awareness_count, context_chars
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 conversation_id,
@@ -145,7 +171,8 @@ def chat(
                 len(bundle.memory),
                 len(bundle.knowledge),
                 len(bundle.contacts),
-                bundle.context_chars,
+                len(awareness_items),
+                total_context_chars,
             ),
         )
         run_id = int(cursor.lastrowid)
@@ -166,7 +193,7 @@ def chat(
             messages,
             source_app_key=source_app_key,
             selected_model=selected_model,
-            granted_permissions=set(tool_permissions or set()),
+            granted_permissions=granted_permissions,
             owner=owner_tools,
             state=tool_state,
             provider_key=provider_override,
@@ -195,14 +222,16 @@ def chat(
         "action_request_ids": tool_state["action_request_ids"],
         "provider_usage": tool_state["provider_usage"],
         "context_event_id": context_event_id,
-        "context_sources": bundle.sources,
+        "context_sources": all_sources,
+        "awareness_count": len(awareness_items),
     }
     run_metadata = json.loads(brain._run_metadata(tool_state))
     run_metadata.update(
         {
             "context_event_id": context_event_id,
-            "context_source_refs": bundle.sources,
+            "context_source_refs": all_sources,
             "cloud_allowed": bool(bundle.settings["cloud_allowed"]),
+            "awareness_count": len(awareness_items),
         }
     )
 
@@ -255,7 +284,8 @@ def chat(
                         "memory_count": len(bundle.memory),
                         "knowledge_count": len(bundle.knowledge),
                         "contact_count": len(bundle.contacts),
-                        "context_chars": bundle.context_chars,
+                        "awareness_count": len(awareness_items),
+                        "context_chars": total_context_chars,
                         "context_event_id": context_event_id,
                         "tool_call_count": int(tool_state["call_count"]),
                         "action_request_count": len(tool_state["action_request_ids"]),
@@ -284,8 +314,11 @@ def chat(
                 "conversation_id": conversation_id,
                 "run_id": run_id,
                 "context_event_id": context_event_id,
-                "context_chars": bundle.context_chars,
-                "context_source_counts": bundle.counts,
+                "context_chars": total_context_chars,
+                "context_source_counts": {
+                    **bundle.counts,
+                    "awareness_count": len(awareness_items),
+                },
             },
         )
     except usage_service.UsageError:
@@ -302,8 +335,9 @@ def chat(
         "run_id": run_id,
         "context": {
             **bundle.counts,
-            "context_chars": bundle.context_chars,
-            "sources": bundle.sources,
+            "awareness_count": len(awareness_items),
+            "context_chars": total_context_chars,
+            "sources": all_sources,
             "settings": effective_settings,
         },
         "tools": tool_state,
