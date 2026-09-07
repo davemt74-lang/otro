@@ -29,6 +29,7 @@ _RELOAD_EVENT = threading.Event()
 _STATE_LOCK = threading.Lock()
 _STATE: dict[str, Any] = {
     "running": False,
+    "stage": "stopped",
     "connected": False,
     "claimed": False,
     "claim_code": None,
@@ -56,6 +57,20 @@ def normalize_broker_url(value: str) -> str:
     if parsed.scheme == "ws" and (parsed.hostname or "").lower() not in _LOOPBACK_HOSTS:
         raise RemoteBridgeError("Remote bridge requires wss:// except for a loopback development broker.")
     return raw
+
+
+def _broker_metadata(broker_url: str) -> dict[str, Any]:
+    parsed = urlparse(broker_url)
+    host = (parsed.hostname or "").lower()
+    return {
+        "scheme": parsed.scheme,
+        "loopback": host in _LOOPBACK_HOSTS,
+    }
+
+
+def _broker_proxy(broker_url: str):
+    """Force loopback fixtures direct; retain normal proxy discovery for remote WSS."""
+    return None if _broker_metadata(broker_url)["loopback"] else True
 
 
 def get_bridge_settings() -> dict:
@@ -97,6 +112,13 @@ def _set_state(**updates: Any) -> None:
         _STATE.update(updates)
 
 
+def _increment_reconnect_count() -> int:
+    with _STATE_LOCK:
+        value = int(_STATE.get("reconnect_count") or 0) + 1
+        _STATE["reconnect_count"] = value
+        return value
+
+
 def bridge_status() -> dict:
     configured = get_bridge_settings()
     identity = remote_identity_metadata()
@@ -111,7 +133,14 @@ def bridge_status() -> dict:
     }
 
 
-def _event(event: str, status: str, *, operation: str | None = None, request_id: str | None = None, metadata: dict | None = None) -> None:
+def _event(
+    event: str,
+    status: str,
+    *,
+    operation: str | None = None,
+    request_id: str | None = None,
+    metadata: dict | None = None,
+) -> None:
     safe_metadata = metadata or {}
     try:
         with db() as connection:
@@ -192,7 +221,9 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     base_url = f"http://{settings.host}:{settings.port}"
 
-    with httpx.Client(base_url=base_url, timeout=125.0) as client:
+    # This is HomeServer talking to its own loopback API. Never let ambient
+    # machine or user proxy configuration intercept the permission boundary.
+    with httpx.Client(base_url=base_url, timeout=125.0, trust_env=False) as client:
         if op == "capabilities":
             return _local_response(client.get("/api/v1/capabilities"))
         if op == "pair.request":
@@ -275,7 +306,11 @@ class RemoteBridgeWorker:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="homeserver-remote-bridge", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run_guarded,
+            name="homeserver-remote-bridge",
+            daemon=True,
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -283,43 +318,86 @@ class RemoteBridgeWorker:
         _RELOAD_EVENT.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=8)
-        _set_state(running=False, connected=False)
+        _set_state(running=False, stage="stopped", connected=False)
+
+    def _run_guarded(self) -> None:
+        try:
+            self._run()
+        except Exception as exc:
+            _set_state(
+                running=False,
+                stage="crashed",
+                connected=False,
+                claimed=False,
+                claim_code=None,
+                connection_id=None,
+                last_error=f"{type(exc).__name__}: remote bridge worker crashed",
+            )
+            _event("bridge.worker", "failed", metadata={"stage": "crashed", "error_type": type(exc).__name__})
 
     def _wait_local_api(self) -> bool:
         url = f"http://{settings.host}:{settings.port}/api/v1/health"
+        _set_state(stage="waiting-local-api")
+        _event("bridge.worker", "progress", metadata={"stage": "waiting-local-api"})
+        last_error_type: str | None = None
         while not self._stop.is_set():
             try:
-                response = httpx.get(url, timeout=0.6)
+                with httpx.Client(timeout=0.6, trust_env=False) as client:
+                    response = client.get(url)
                 if response.status_code == 200:
+                    _set_state(stage="local-api-ready", last_error=None)
+                    _event("bridge.worker", "progress", metadata={"stage": "local-api-ready"})
                     return True
-            except httpx.HTTPError:
-                pass
+                last_error_type = f"http-{response.status_code}"
+            except Exception as exc:
+                last_error_type = type(exc).__name__
+            _set_state(last_error=f"{last_error_type}: local HomeServer API unavailable")
             self._stop.wait(0.3)
         return False
 
     def _run(self) -> None:
-        _set_state(running=True)
+        _set_state(running=True, stage="starting", last_error=None)
+        _event("bridge.worker", "started", metadata={"stage": "starting"})
         backoff = 1.0
+
         while not self._stop.is_set():
             try:
                 configured = get_bridge_settings()
             except Exception as exc:
-                _set_state(last_error=f"settings:{type(exc).__name__}")
+                _set_state(stage="settings-error", last_error=f"settings:{type(exc).__name__}")
+                _event("bridge.worker", "failed", metadata={"stage": "settings-error", "error_type": type(exc).__name__})
                 self._stop.wait(2.0)
                 continue
 
             if not configured["enabled"] or not configured["broker_url"]:
-                _set_state(connected=False, claimed=False, claim_code=None, connection_id=None, last_error=None)
+                _set_state(
+                    stage="disabled",
+                    connected=False,
+                    claimed=False,
+                    claim_code=None,
+                    connection_id=None,
+                    last_error=None,
+                )
                 _RELOAD_EVENT.clear()
                 self._stop.wait(1.0)
                 continue
 
+            metadata = _broker_metadata(configured["broker_url"])
+            _set_state(stage="configured", last_error=None)
+            _event("bridge.worker", "progress", metadata={"stage": "configured", **metadata})
+
             if not self._wait_local_api():
                 break
 
-            identity = load_or_create_remote_identity()
             _RELOAD_EVENT.clear()
             try:
+                _set_state(stage="identity")
+                identity = load_or_create_remote_identity()
+                _set_state(stage="identity-ready", last_error=None)
+                _event("bridge.worker", "progress", metadata={"stage": "identity-ready"})
+
+                _set_state(stage="connecting")
+                _event("bridge.connection", "attempting", metadata={"stage": "connecting", **metadata})
                 with connect(
                     configured["broker_url"],
                     subprotocols=["homeserver.bridge.v1"],
@@ -328,6 +406,7 @@ class RemoteBridgeWorker:
                         "X-HomeServer-Device": identity["device_id"],
                     },
                     compression=None,
+                    proxy=_broker_proxy(configured["broker_url"]),
                     open_timeout=8,
                     ping_interval=20,
                     ping_timeout=20,
@@ -335,6 +414,7 @@ class RemoteBridgeWorker:
                     max_size=settings.max_remote_bridge_message_bytes,
                 ) as websocket:
                     _set_state(
+                        stage="connected",
                         connected=True,
                         last_connected_at=_iso_now(),
                         last_error=None,
@@ -358,6 +438,7 @@ class RemoteBridgeWorker:
                             continue
                         if raw is None:
                             break
+
                         message = _parse_message(raw)
                         _set_state(last_message_at=_iso_now())
                         message_type = str(message.get("type") or "")
@@ -367,6 +448,7 @@ class RemoteBridgeWorker:
                             if claim_code and len(claim_code) > 40:
                                 claim_code = None
                             _set_state(
+                                stage="ready",
                                 claimed=bool(message.get("claimed")),
                                 claim_code=claim_code,
                                 connection_id=str(message.get("connection_id") or "")[:128] or None,
@@ -380,8 +462,14 @@ class RemoteBridgeWorker:
                         request_id = str(message.get("request_id") or "")
                         operation = str(message.get("operation") or "")
                         if not _REQUEST_ID.fullmatch(request_id):
-                            _event("bridge.request", "rejected", operation=operation, metadata={"reason": "invalid-request-id"})
+                            _event(
+                                "bridge.request",
+                                "rejected",
+                                operation=operation,
+                                metadata={"reason": "invalid-request-id"},
+                            )
                             continue
+
                         started = time.monotonic()
                         try:
                             result = dispatch_remote_request(
@@ -425,22 +513,37 @@ class RemoteBridgeWorker:
                                 },
                             )
             except (ConnectionClosed, OSError, TimeoutError, RemoteBridgeError) as exc:
+                reconnect_count = _increment_reconnect_count()
                 _set_state(
+                    stage="retrying",
                     connected=False,
                     claimed=False,
                     claim_code=None,
                     connection_id=None,
                     last_error=f"{type(exc).__name__}: remote bridge unavailable",
-                    reconnect_count=int(_STATE.get("reconnect_count") or 0) + 1,
+                    reconnect_count=reconnect_count,
                 )
-                _event("bridge.disconnected", "failed", metadata={"error_type": type(exc).__name__})
+                _event(
+                    "bridge.disconnected",
+                    "failed",
+                    metadata={"error_type": type(exc).__name__, "stage": "retrying"},
+                )
             except Exception as exc:
+                reconnect_count = _increment_reconnect_count()
                 _set_state(
+                    stage="retrying",
                     connected=False,
+                    claimed=False,
+                    claim_code=None,
+                    connection_id=None,
                     last_error=f"{type(exc).__name__}: remote bridge failed",
-                    reconnect_count=int(_STATE.get("reconnect_count") or 0) + 1,
+                    reconnect_count=reconnect_count,
                 )
-                _event("bridge.disconnected", "failed", metadata={"error_type": type(exc).__name__})
+                _event(
+                    "bridge.disconnected",
+                    "failed",
+                    metadata={"error_type": type(exc).__name__, "stage": "retrying"},
+                )
 
             if _RELOAD_EVENT.is_set():
                 backoff = 1.0
@@ -448,4 +551,5 @@ class RemoteBridgeWorker:
             self._stop.wait(backoff)
             backoff = min(backoff * 2.0, 30.0)
 
-        _set_state(running=False, connected=False)
+        _set_state(running=False, stage="stopped", connected=False)
+        _event("bridge.worker", "stopped", metadata={"stage": "stopped"})
