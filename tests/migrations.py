@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     connection.commit()
     connection.close()
 
-    # Build an authentic schema-10 database first so migrations 11 through 14
+    # Build an authentic schema-10 database first so migrations 11 through 15
     # are tested as upgrades rather than only as a fresh install.
     for version, path in migration_files():
         if version >= 11:
@@ -62,11 +62,16 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 15))
+        assert versions == list(range(1, 16))
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
-        assert {"tool_call_count", "contact_count", "context_chars"}.issubset(agent_run_columns)
+        assert {"tool_call_count", "contact_count", "context_chars", "awareness_count"}.issubset(agent_run_columns)
+        memory_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_memory)").fetchall()}
+        assert {
+            "memory_type", "source_app_key", "source_event_id", "confidence",
+            "reinforcement_count", "last_accessed_at", "expires_at", "entity_type", "entity_key"
+        }.issubset(memory_columns)
         agent_policy_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_tool_policy)").fetchall()}
         assert "allow_write_proposals" in agent_policy_columns
         contact_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(contacts)").fetchall()}
@@ -100,17 +105,38 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         context_setting_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(conversation_context_settings)").fetchall()}
         assert {
             "conversation_id", "include_memory", "include_knowledge", "include_contacts",
-            "cloud_allowed", "max_context_chars", "updated_at"
+            "include_awareness", "cloud_allowed", "max_context_chars", "updated_at"
         }.issubset(context_setting_columns)
         context_event_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(context_retrieval_events)").fetchall()}
         assert {
             "conversation_id", "source_app_key", "memory_count", "knowledge_count",
             "contact_count", "context_chars", "source_refs_json", "created_at"
         }.issubset(context_event_columns)
+        cognitive_event_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(cognitive_events)").fetchall()}
+        assert {
+            "event_id", "source_app_key", "source_kind", "plugin_key", "event_type", "entity_type",
+            "entity_key", "correlation_id", "conversation_id", "summary", "importance", "privacy_scope",
+            "memory_candidate", "memory_type", "memory_key", "payload_json", "occurred_at", "created_at"
+        }.issubset(cognitive_event_columns)
+        cognition_job_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(cognition_jobs)").fetchall()}
+        assert {"event_row_id", "job_type", "status", "attempts", "result_json", "error"}.issubset(cognition_job_columns)
+        awareness_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(awareness_items)").fetchall()}
+        assert {"fingerprint", "event_type", "summary", "importance", "occurrence_count", "source_apps_json", "last_event_id"}.issubset(awareness_columns)
+        candidate_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(memory_candidates)").fetchall()}
+        assert {"source_event_id", "source_awareness_id", "memory_type", "content", "confidence", "importance", "status"}.issubset(candidate_columns)
+        plugin_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(plugins)").fetchall()}
+        assert {"plugin_key", "name", "version", "status", "trusted", "manifest_json"}.issubset(plugin_columns)
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_sources").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_source_files").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM conversation_context_settings").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM context_retrieval_events").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM cognitive_events").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM cognition_jobs").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM awareness_items").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM memory_candidates").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM plugins").fetchone()[0] == 0
+        cursor = migrated.execute("SELECT cursor_value FROM cognition_cursors WHERE cursor_key='activity_log_id'").fetchone()
+        assert cursor is not None and cursor["cursor_value"] == "0"
         source_delete_trigger = migrated.execute(
             "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='knowledge_source_item_before_delete'"
         ).fetchone()
@@ -198,7 +224,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 15))
+        assert versions_again == list(range(1, 16))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
@@ -215,6 +241,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated_again.execute("SELECT COUNT(*) FROM knowledge_source_files").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM conversation_context_settings").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM context_retrieval_events").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM cognitive_events").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM cognition_jobs").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM awareness_items").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM memory_candidates").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM plugins").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM plugin_event_subscriptions").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM cognition_cursors").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0] == 2
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_events").fetchone()[0] == 0
