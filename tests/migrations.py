@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        assert versions == list(range(1, 12))
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
@@ -47,6 +47,14 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert {"display_name", "organization", "email", "phone", "relationship", "notes"}.issubset(contact_columns)
         system_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(system_settings)").fetchall()}
         assert {"setting_key", "value_json", "updated_at"}.issubset(system_columns)
+        task_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(tasks)").fetchall()}
+        assert {
+            "title", "description", "status", "priority", "due_at", "remind_at",
+            "recurrence", "recurrence_interval", "contact_id", "source_app_key",
+            "created_by_type", "last_reminded_at", "completed_at", "cancelled_at"
+        }.issubset(task_columns)
+        notification_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(notifications)").fetchall()}
+        assert {"task_id", "dismissed_at"}.issubset(notification_columns)
         system_settings = {
             row["setting_key"]: row["value_json"]
             for row in migrated.execute("SELECT setting_key, value_json FROM system_settings").fetchall()
@@ -70,6 +78,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ("knowledge.search", 1),
             ("memory.list", 1),
             ("memory.write", 1),
+            ("notifications.list", 1),
+            ("tasks.create", 1),
+            ("tasks.list", 1),
         ]
         assert migrated.execute("SELECT COUNT(*) FROM tool_runs").fetchone()[0] == 0
         agent_policy = migrated.execute(
@@ -81,6 +92,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert agent_policy["allow_write_proposals"] == 0
         assert migrated.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
 
     results = list_knowledge("legacy merchant")
     assert len(results) == 1
@@ -89,12 +101,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        assert versions_again == list(range(1, 12))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 4
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 7
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0] == 2
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_events").fetchone()[0] == 0
