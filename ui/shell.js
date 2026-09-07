@@ -24,6 +24,15 @@
     document.head.appendChild(link);
   }
 
+  function ensureContextEngine() {
+    if (document.querySelector('script[data-homeserver-context-engine]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/context-engine.js';
+    script.dataset.homeserverContextEngine = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function ensureUsageView() {
     if (byId('view-usage')) return;
     const main = document.querySelector('.main');
@@ -280,6 +289,7 @@
   });
 
   ensureStyles();
+  ensureContextEngine();
   ensureUsageView();
   buildConnectionModal();
   buildSidebar();
