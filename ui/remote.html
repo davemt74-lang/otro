@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Remote Bridge · HomeServer</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/remote.css">
+</head>
+<body class="remote-body">
+  <main class="remote-shell">
+    <header class="remote-header">
+      <div><a class="back-link" href="/">← HomeServer</a><p class="eyebrow">OUTBOUND PAIRING NODE</p><h1>Remote Bridge</h1><p>Connect HomeServer to a trusted WebSocket relay without opening an inbound port on this PC.</p></div>
+      <span id="remoteStatus" class="remote-status">Disabled</span>
+    </header>
+
+    <section class="remote-warning">
+      <strong>v0.12 trust model:</strong> WSS encrypts traffic between HomeServer and the configured relay, but the relay can see relayed application payloads. This release does not claim end-to-end payload encryption.
+    </section>
+
+    <section class="remote-grid">
+      <article class="panel remote-card">
+        <p class="eyebrow">DEVICE</p>
+        <h2>This HomeServer</h2>
+        <dl class="remote-details">
+          <dt>Device ID</dt><dd id="deviceId">—</dd>
+          <dt>Credential protection</dt><dd id="identityProtection">—</dd>
+          <dt>Connected</dt><dd id="connectedState">—</dd>
+          <dt>Last connection</dt><dd id="lastConnected">—</dd>
+        </dl>
+        <div id="claimPanel" class="claim-panel hidden"><span>VP3 claim code</span><strong id="claimCode"></strong><small>Enter this code only in the trusted relay/VP3 account that you intend to bind to this HomeServer.</small></div>
+      </article>
+
+      <article class="panel remote-card">
+        <p class="eyebrow">RELAY</p>
+        <h2>Connection</h2>
+        <form id="remoteForm">
+          <label>Broker WebSocket URL<input id="brokerUrl" type="url" placeholder="wss://…" autocomplete="off" spellcheck="false"></label>
+          <label class="switch-line"><input id="bridgeEnabled" type="checkbox"><span>Enable outbound Remote Bridge</span></label>
+          <p class="muted">Production relays must use <code>wss://</code>. Plain <code>ws://</code> is accepted only for a loopback development broker.</p>
+          <button class="button primary" type="submit">Save bridge settings</button>
+        </form>
+      </article>
+    </section>
+
+    <section class="panel operations-card">
+      <div><p class="eyebrow">ALLOWLIST</p><h2>What the relay may request</h2><p>Remote messages name an operation, never a local URL. Protected operations still require the paired app's bearer token and its existing permissions.</p></div>
+      <div class="operation-list">
+        <span>Pair request/status</span><span>Agent chat</span><span>Conversations</span><span>Contacts search</span><span>Knowledge search</span><span>Memory read/write</span><span>Skills & tools</span><span>Action status</span>
+      </div>
+      <p class="muted"><strong>Never relayed:</strong> owner control, pairing approval, backups, restore, Windows lifecycle, data-folder access, recovery mode, arbitrary HTTP, shell, PowerShell, or unrestricted files.</p>
+    </section>
+
+    <section class="panel events-card">
+      <div class="events-head"><div><p class="eyebrow">LOCAL AUDIT</p><h2>Bridge activity</h2></div><button id="refreshRemote" class="button secondary" type="button">Refresh</button></div>
+      <div id="remoteError" class="remote-error hidden"></div>
+      <div id="remoteEvents" class="remote-events"><p class="muted">No bridge events yet.</p></div>
+    </section>
+  </main>
+  <div id="remoteFlash" class="remote-flash"></div>
+  <script src="/assets/remote.js"></script>
+</body>
+</html>
