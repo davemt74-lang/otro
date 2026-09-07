@@ -32,13 +32,13 @@
     <main class="main">
       <header class="topbar">
         <div><p class="eyebrow">PRIVATE AI CAPABILITY SERVER</p><h1 id="pageTitle">Overview</h1></div>
-        <div class="top-actions"><span class="version" id="version">v0.6.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
+        <div class="top-actions"><span class="version" id="version">v0.7.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
       </header>
       <div id="flash" class="flash" role="status" aria-live="polite"></div>
 
       <section class="view active" id="view-dashboard">
         <div class="hero-card">
-          <div><span class="pill">HomeServer ready</span><h2 id="heroAgentName">HomeServer Agent</h2><p>Your private agent brain, knowledge, memory, tools and application permissions run from this machine.</p></div>
+          <div><span class="pill">HomeServer ready</span><h2 id="heroAgentName">HomeServer Agent</h2><p>Your private agent brain, knowledge, memory, skills, tools and application permissions run from this machine.</p></div>
           <button class="button primary" data-go="chat">Open Agent Chat</button>
         </div>
         <div class="stats-grid">
@@ -49,7 +49,7 @@
         </div>
         <div class="two-col">
           <article class="panel"><div class="panel-head"><div><p class="eyebrow">RECENT</p><h3>Activity</h3></div><button class="text-button" data-go="activity">View all</button></div><div id="recentActivity" class="list empty-state">No activity yet.</div></article>
-          <article class="panel"><div class="panel-head"><div><p class="eyebrow">CAPABILITIES</p><h3>Skills & Tools</h3></div></div><div class="flow"><div><span>1</span><p><strong>Allowlisted tools</strong><small>No shell, arbitrary HTTP or unrestricted filesystem execution.</small></p></div><div><span>2</span><p><strong>Explicit permissions</strong><small>Apps need tools.execute plus each tool's underlying capability.</small></p></div><div><span>3</span><p><strong>Audited locally</strong><small>Runs record metadata without duplicating private content.</small></p></div></div><button class="button secondary full" data-go="tools">Manage skills & tools</button></article>
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">AGENTIC</p><h3>Read-only Agent Tools</h3></div></div><div class="flow"><div><span>1</span><p><strong>Off by default</strong><small>The owner explicitly enables model-driven tool use.</small></p></div><div><span>2</span><p><strong>Read-only first</strong><small>The model can only search knowledge and read memory.</small></p></div><div><span>3</span><p><strong>Bounded and audited</strong><small>At most three calls per chat, all through the tool registry.</small></p></div></div><button class="button secondary full" data-go="agent">Configure agent tools</button></article>
         </div>
       </section>
 
@@ -64,7 +64,7 @@
 
         <form id="providerForm" class="panel provider-panel">
           <div class="panel-head"><div><p class="eyebrow">LOCAL MODEL</p><h3>Ollama provider</h3></div><span id="providerState" class="provider-state">Loading…</span></div>
-          <p class="muted">HomeServer v0.6 only permits a loopback Ollama server. Prompts, memory and knowledge are not sent to a remote model provider.</p>
+          <p class="muted">HomeServer v0.7 only permits a loopback Ollama server. Prompts, memory, knowledge and tool results stay on this device.</p>
           <div class="provider-grid">
             <label>Ollama URL<input id="providerUrl" value="http://127.0.0.1:11434" maxlength="300"></label>
             <label>Default model<input id="providerModel" list="ollamaModels" maxlength="160" placeholder="Example: llama3.2:3b"><datalist id="ollamaModels"></datalist></label>
@@ -72,10 +72,20 @@
           </div>
           <div class="provider-actions"><button class="button secondary" type="button" id="detectOllama">Detect Ollama</button><button class="button primary" type="submit">Save provider</button></div>
         </form>
+
+        <form id="agentToolsForm" class="panel provider-panel">
+          <div class="panel-head"><div><p class="eyebrow">AGENTIC TOOLS</p><h3>Read-only Agent Tools</h3></div><span id="agentToolsState" class="provider-state">Loading…</span></div>
+          <p class="muted">When enabled, the local Ollama model may ask HomeServer to search knowledge or read memory. Every request is permission-checked and audited. Memory writes, shell commands, arbitrary files and arbitrary HTTP are never offered to the model in v0.7.</p>
+          <div class="form-grid">
+            <label class="check-inline"><input id="agentToolsEnabled" type="checkbox"> Allow the model to use read-only HomeServer tools</label>
+            <label>Maximum calls per chat<select id="agentToolsMaxCalls"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+          </div>
+          <div class="provider-actions"><span class="muted">Default: disabled · hard maximum: 3</span><button class="button primary" type="submit">Save Agent Tool Policy</button></div>
+        </form>
       </section>
 
       <section class="view" id="view-chat">
-        <div class="section-intro split"><div><h2>Agent Chat</h2><p>Chat through the private HomeServer brain. Relevant local memory and indexed knowledge are assembled into context automatically.</p></div><span id="chatContext" class="brain-context"></span></div>
+        <div class="section-intro split"><div><h2>Agent Chat</h2><p>Chat through the private HomeServer brain. Relevant local context and explicitly enabled read-only tools remain permission-bounded.</p></div><span id="chatContext" class="brain-context"></span></div>
         <div class="chat-layout">
           <aside class="panel conversation-panel">
             <button class="button secondary" id="newChat" type="button">New conversation</button>
@@ -83,7 +93,7 @@
           </aside>
           <article class="panel chat-panel">
             <div class="chat-head"><h3 id="chatConversationTitle">New conversation</h3><button class="text-button danger" id="deleteChat" type="button">Delete</button></div>
-            <div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local memory and knowledge are added to the model context automatically.</div></div>
+            <div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local memory and knowledge are added to context only when permitted.</div></div>
             <form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="2" maxlength="32000" placeholder="Message your HomeServer agent…" required></textarea><button class="button primary" type="submit">Send</button></form>
           </article>
         </div>
@@ -91,7 +101,7 @@
 
       <section class="view" id="view-tools">
         <div class="section-intro"><div><h2>Skills & Tools</h2><p>HomeServer exposes a small, typed capability registry instead of arbitrary local execution.</p></div></div>
-        <div class="tools-security"><strong>Execution boundary:</strong> paired apps need <code>tools.execute</code> plus every underlying capability required by the selected tool. Global tool switches below apply to owner and app execution. v0.6 includes no shell, PowerShell, arbitrary HTTP, or unrestricted filesystem tool.</div>
+        <div class="tools-security"><strong>Execution boundary:</strong> paired apps need <code>tools.execute</code> plus every underlying capability required by the selected tool. v0.7 can additionally offer only the enabled <strong>read-only</strong> subset to the local model when the owner explicitly turns Agent Tools on.</div>
         <div><p class="eyebrow">BUILT-IN SKILLS</p><div id="skillsList" class="skills-grid"></div></div>
         <div><p class="eyebrow">TOOL REGISTRY</p><div id="toolsList" class="tools-list"></div></div>
         <div class="panel table-wrap tool-runs"><table><thead><tr><th>Time</th><th>Tool</th><th>Invoker</th><th>Status</th><th>Duration</th></tr></thead><tbody id="toolRunsTable"><tr><td colspan="5">No tool runs yet.</td></tr></tbody></table></div>
