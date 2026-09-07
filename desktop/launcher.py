@@ -210,6 +210,9 @@ class RuntimeController:
     def open_remote_bridge(self, _icon=None, _item=None) -> None:
         _open(_recovery_path() if self.recovery_mode else _authorized_path("/remote"))
 
+    def open_tasks(self, _icon=None, _item=None) -> None:
+        _open(_recovery_path() if self.recovery_mode else _authorized_path("/tasks"))
+
     def open_api_docs(self, _icon=None, _item=None) -> None:
         if self.recovery_mode:
             self.open_control_center()
@@ -250,6 +253,7 @@ class RuntimeController:
                 "HomeServer Recovery" if self.recovery_mode else "HomeServer",
                 menu=pystray.Menu(
                     pystray.MenuItem("Open HomeServer", self.open_control_center, default=True),
+                    pystray.MenuItem("Tasks & Notifications", self.open_tasks, enabled=not self.recovery_mode),
                     pystray.MenuItem("Setup & Diagnostics", self.open_system),
                     pystray.MenuItem("Remote Bridge", self.open_remote_bridge, enabled=not self.recovery_mode),
                     pystray.MenuItem("Open Data Folder", self.open_data_folder),

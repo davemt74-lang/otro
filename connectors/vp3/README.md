@@ -1,33 +1,47 @@
 # VP3 Connector Contract
 
-HomeServer is application-neutral. VP3 is an authorized browser client that connects to the user's local HomeServer API rather than reading SQLite or local files directly.
+HomeServer is application-neutral. VP3 is an authorized client that connects through HomeServer APIs rather than reading SQLite or local files directly.
 
 ## Local endpoint
 
 Default: `http://127.0.0.1:4377`
 
-VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.11 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, contacts, knowledge, memory, skills, direct tools, optional Agent Tool Use and local action approvals.
+VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.13 reports claim-v1 pairing, Agent Brain conversations, contacts, knowledge, memory, tasks/reminders, notifications, skills, direct tools, optional Agent Tool Use and local action approvals.
 
-Windows lifecycle, Setup & Diagnostics, owner security, recovery mode and Backup & Restore are deliberately **not** pairing capabilities. They remain local owner operations.
+Windows lifecycle, Setup & Diagnostics, owner security, recovery mode and Backup & Restore are deliberately not pairing capabilities.
 
 ## Browser pairing
 
 1. VP3 calls `POST /api/v1/pairing/request`.
-2. HomeServer returns a short approval `code`, opaque `request_id`, high-entropy `claim_token`, accepted permissions and expiry.
+2. HomeServer returns a short approval code, opaque request ID, high-entropy claim token, accepted permissions and expiry.
 3. The claim token cannot authenticate yet.
-4. The user approves the short code in the local HomeServer Control Center.
-5. VP3 polls `POST /api/v1/pairing/status` with the request ID and claim token.
-6. When `ready` becomes `true`, the same claim token becomes VP3's bearer credential.
+4. The user approves the short code locally.
+5. VP3 polls `POST /api/v1/pairing/status`.
+6. When `ready` is true, that same claim token becomes VP3's bearer credential.
 
-HomeServer stores only the SHA-256 hash of that credential. Re-pairing rotates the token and revokes permissions omitted from the new request.
+HomeServer stores only the credential hash. Re-pairing rotates the token and removes permissions omitted from the new request.
 
-Browser CORS defaults to `https://vp3.me` and `https://www.vp3.me`; no wildcard origin is enabled.
+## Permission model
+
+Useful v0.13 permissions include:
+
+- `agent.chat`
+- `contacts.read`
+- `knowledge.search`
+- `memory.read`
+- `memory.write`
+- `notifications.read`
+- `tasks.read`
+- `tasks.write`
+- `tools.execute`
+
+Permissions are independent. For example, `tasks.read` does not grant `tasks.write`, and neither makes an Agent Tool available unless the app also has `tools.execute`.
 
 ## Agent Brain
 
-With `agent.chat`, VP3 can use the same private HomeServer agent as the local Control Center. Each app receives an isolated conversation namespace.
+With `agent.chat`, VP3 can use the same private HomeServer agent as the local Control Center. Each paired app has an isolated conversation namespace.
 
-Memory and knowledge are only added to normal chat context when the app separately has `memory.read` and `knowledge.search`. Contacts are not injected automatically; they are accessed through the permissioned contact API or `contacts.search` Agent Tool.
+Memory and knowledge are only injected into ordinary chat context when the app separately has `memory.read` and `knowledge.search`. Contacts/tasks/notifications are not injected automatically; they are accessed through their permissioned APIs or read tools.
 
 Conversation APIs:
 
@@ -35,50 +49,28 @@ Conversation APIs:
 - `GET /api/v1/conversations`
 - `GET /api/v1/conversations/{conversation_id}`
 
-## Contacts & relationship context
+## Contacts
 
-`GET /api/v1/contacts?q=<query>` requires `contacts.read` and can return the owner's local contact records, including relationship notes. VP3 should request this capability only when it has a user-facing need for private relationship context.
+`GET /api/v1/contacts?q=<query>` requires `contacts.read`. Contact create/update/delete remains owner-controlled.
 
-The browser helper exposes:
+Browser helper:
 
 ```js
-connector.contacts('Example Organization')
+connector.contacts('Synthetic Organization')
 ```
 
-There is no paired-app contact mutation API. Contact create/update/delete remains owner-controlled in the local HomeServer Control Center.
+## Tasks, reminders and notifications
 
-## Agent Tool Use
+Direct app APIs:
 
-Agent Tool Use is controlled only by the local HomeServer owner and is disabled by default. Read tools require the usual paired-app capabilities:
+- `GET /api/v1/tasks` — `tasks.read`
+- `POST /api/v1/tasks` — `tasks.write`
+- `PATCH /api/v1/tasks/{task_id}` — `tasks.write`
+- `GET /api/v1/notifications` — `notifications.read`
 
-- contacts: `agent.chat` + `tools.execute` + `contacts.read`
-- knowledge: `agent.chat` + `tools.execute` + `knowledge.search`
-- memory read: `agent.chat` + `tools.execute` + `memory.read`
+Tasks may contain due/reminder times, priority, optional contact linkage and daily/weekly/monthly recurrence. The local HomeServer scheduler turns due reminders into canonical notification rows; it does not execute arbitrary actions.
 
-The corresponding model function for relationship search is `homeserver_contacts_search`.
-
-HomeServer enforces a hard owner-selected 1–3 executed-tool-call limit per chat turn. Tool result messages stay inside the local Ollama exchange and are not stored as conversation messages. Contact search audit stores query length and result count, not raw query text or returned contact notes.
-
-## Approval-gated memory-write proposals
-
-The optional model function `homeserver_memory_write_request` **does not write memory**.
-
-For VP3 to receive this proposal function, all of the following must be true:
-
-- the HomeServer owner enabled Agent Tool Use
-- the owner separately enabled memory-write proposals
-- the global `memory.write` tool is enabled
-- VP3 has `agent.chat`
-- VP3 has `tools.execute`
-- VP3 has `memory.write`
-
-A successful proposal returns a request ID inside the normal chat response. The request remains pending until local owner approval. VP3 may check only the status of a request it originated:
-
-`GET /api/v1/action-requests/{request_id}`
-
-The status response intentionally omits the proposed memory content and safe argument metadata. A different paired app receives `404` for that request ID.
-
-VP3 has **no approval/deny API**. Only owner-session routes can decide an action.
+Local connector helpers include task and notification access. The remote connector exposes the same capabilities through HomeServer tools and the relay.
 
 ## Direct Skills & Tools
 
@@ -88,7 +80,7 @@ VP3 can discover and invoke the direct capability registry:
 - `GET /api/v1/skills`
 - `POST /api/v1/tools/{tool_key}/execute`
 
-Direct tool execution requires `tools.execute` and the tool's underlying permission.
+Direct tool execution requires `tools.execute` plus the underlying permission.
 
 | Tool | Mode | Required permissions |
 | --- | --- | --- |
@@ -96,40 +88,69 @@ Direct tool execution requires `tools.execute` and the tool's underlying permiss
 | `knowledge.search` | read | `tools.execute`, `knowledge.search` |
 | `memory.list` | read | `tools.execute`, `memory.read` |
 | `memory.write` | write | `tools.execute`, `memory.write` |
-
-The built-in `relationship.context` skill groups contact search without granting any new permission.
+| `tasks.list` | read | `tools.execute`, `tasks.read` |
+| `notifications.list` | read | `tools.execute`, `notifications.read` |
+| `tasks.create` | write | `tools.execute`, `tasks.write` |
 
 The owner can globally disable any built-in tool. HomeServer exposes no shell, PowerShell, arbitrary HTTP or unrestricted filesystem tool.
 
-## Owner-only Windows and recovery surfaces
+## Agent Tool Use
 
-HomeServer v0.11 adds local Windows lifecycle and recovery controls that are intentionally outside the pairing model:
+Agent Tool Use is controlled locally and disabled by default. The model only receives read functions that are globally enabled and authorized for the current paired app.
 
-- `/system` Setup & Diagnostics workspace
-- Start with Windows
-- Open Data Folder
-- Restart / Quit HomeServer
-- Windows-protected owner bootstrap storage
-- restricted recovery mode when the normal SQLite runtime cannot start
-- local Backup & Restore
+v0.13 read functions include:
 
-These controls are not present in `DEFAULT_PERMISSIONS`, are not returned as client capabilities, and are not methods on `VP3HomeServerConnector`. A valid VP3 bearer token cannot invoke `/api/v1/control/*` routes or the local recovery owner endpoints.
+- `homeserver_contacts_search`
+- `homeserver_knowledge_search`
+- `homeserver_memory_list`
+- `homeserver_tasks_list`
+- `homeserver_notifications_list`
 
-## Owner-only backup portability
+HomeServer enforces a hard owner-selected 1–3 executed-tool-call limit per chat turn. Tool-result messages remain inside the local model exchange and are not stored as ordinary conversation messages.
 
-Backup/export and staged restore remain local-owner-only. Backup/restore is intentionally **not** a pairing permission and is not exposed through the VP3 connector helper. A VP3 bearer token cannot create, download, delete, upload, stage, cancel or apply HomeServer backups.
+## Approval-gated writes
 
-## Other protected APIs
+The model is never offered direct `memory.write` or `tasks.create`.
 
-- `GET /api/v1/me`
-- `GET /api/v1/agent` — requires `agent.chat`
-- `GET /api/v1/contacts?q=` — requires `contacts.read`
-- `GET /api/v1/knowledge?q=` — requires `knowledge.search`
-- `GET /api/v1/memory` — requires `memory.read`
-- `POST /api/v1/memory` — requires `memory.write`
+When the owner enables Agent Tool Use and separately enables write proposals, HomeServer may expose:
 
-## Browser helper
+- `homeserver_memory_write_request`
+- `homeserver_task_create_request`
 
-`connectors/vp3/client.js` provides `VP3HomeServerConnector` with `pair()`, `chat()`, conversation helpers, `contacts()`, knowledge/memory helpers, `tools()`, `skills()`, `executeTool()` and `actionRequest()`.
+A proposal creates a pending local action request only. No memory/task mutation happens until the HomeServer owner explicitly approves it.
 
-Persistent claim-token storage remains VP3's responsibility. Owner-only `/api/v1/control/*` routes, `/system`, recovery operations and pairing approval remain behind HomeServer's local owner security boundary.
+The originating app may check only its own request status:
+
+`GET /api/v1/action-requests/{request_id}`
+
+That app-visible status intentionally omits the proposed content/task payload and safe argument metadata. Other paired apps receive `404` for the request. VP3 has no approve/deny endpoint.
+
+## Remote access
+
+Remote VP3 uses the deployable relay plus the same HomeServer pairing credential. The relay session selects the HomeServer; the HomeServer bearer token determines permissions.
+
+The trusted relay does not elevate permissions. Protected remote operations are forwarded back through canonical HomeServer APIs. Owner control, recovery, backups, Windows lifecycle and arbitrary localhost/HTTP access are excluded.
+
+See `REMOTE.md` and `remote-client.js`.
+
+## Owner-only surfaces
+
+These remain outside the app permission model:
+
+- `/system` Setup & Diagnostics
+- Windows startup controls
+- restart/shutdown
+- owner secret management
+- recovery mode
+- Backup & Restore
+- pairing approval
+
+A valid VP3 bearer token cannot invoke owner `/api/v1/control/*` routes.
+
+## Browser helpers
+
+`connectors/vp3/client.js` provides local pairing/chat, conversation, contacts, knowledge/memory, tasks/notifications, tools, skills and action-status helpers.
+
+`connectors/vp3/remote-client.js` provides the equivalent remote path through the relay.
+
+Persistent relay/HomeServer credential storage remains VP3's responsibility.

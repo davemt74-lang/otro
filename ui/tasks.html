@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Tasks & Notifications · HomeServer</title>
+  <link rel="stylesheet" href="/assets/tasks.css">
+</head>
+<body>
+  <main class="tasks-shell">
+    <header class="tasks-top">
+      <div><p class="eyebrow">HOMESERVER · LOCAL-FIRST</p><h1>Tasks & Notifications</h1><p class="muted">Durable tasks, reminders and the canonical HomeServer notification inbox.</p></div>
+      <div><a class="button" href="/">Control Center</a></div>
+    </header>
+    <div id="flash" class="flash" role="status" aria-live="polite"></div>
+    <div class="tabs">
+      <button class="button tab active" data-filter="open">Open</button>
+      <button class="button tab" data-filter="today">Today</button>
+      <button class="button tab" data-filter="overdue">Overdue</button>
+      <button class="button tab" data-filter="completed">Completed</button>
+      <button class="button tab" data-filter="all">All</button>
+    </div>
+    <div class="grid">
+      <section>
+        <form id="taskForm" class="panel form">
+          <div class="panel-head"><h2 id="taskFormTitle">Create task or reminder</h2><button id="cancelEdit" type="button" class="button hidden">Cancel edit</button></div>
+          <input id="taskId" type="hidden">
+          <label>Title<input id="title" maxlength="240" required></label>
+          <label>Description<textarea id="description" maxlength="20000" rows="4"></textarea></label>
+          <div class="form-grid"><label>Priority<select id="priority"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label>Status<select id="status"><option value="pending">Pending</option><option value="in_progress">In progress</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option></select></label></div>
+          <div class="form-grid"><label>Due date/time<input id="dueAt" type="datetime-local"></label><label>Reminder date/time<input id="remindAt" type="datetime-local"></label></div>
+          <div class="form-grid"><label>Repeat reminder<select id="recurrence"><option value="none">Does not repeat</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></label><label>Repeat every<input id="recurrenceInterval" type="number" min="1" max="365" value="1"></label></div>
+          <label>Linked contact ID <span class="muted">optional</span><input id="contactId" type="number" min="1" placeholder="Contact ID"></label>
+          <div class="form-actions"><button class="button primary" type="submit">Save task</button></div>
+        </form>
+        <div class="toolbar"><input id="search" type="search" placeholder="Search tasks"><button class="button" id="refreshTasks">Refresh</button></div>
+        <div id="tasksList" class="list"><div class="panel empty">No tasks yet.</div></div>
+      </section>
+      <aside class="panel">
+        <div class="panel-head"><div><p class="eyebrow">INBOX</p><h2>Notifications</h2></div><button class="button" id="refreshNotifications">Refresh</button></div>
+        <div id="notificationSummary" class="status"></div>
+        <div id="notificationsList"><div class="empty">No notifications yet.</div></div>
+      </aside>
+    </div>
+  </main>
+  <script src="/assets/tasks.js"></script>
+</body>
+</html>

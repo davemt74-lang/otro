@@ -7,6 +7,7 @@ from typing import Any
 from ..database import db
 from .contacts import list_contacts
 from .knowledge import list_knowledge
+from .tasks import TaskError, create_task, list_notifications, list_tasks
 
 
 TOOL_EXECUTE_PERMISSION = "tools.execute"
@@ -73,6 +74,59 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "notifications.list": {
+        "key": "notifications.list",
+        "name": "Read Notifications",
+        "description": "Read the local HomeServer notification inbox without modifying it.",
+        "mode": "read",
+        "required_permissions": ["notifications.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "unread_only": {"type": "boolean"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "tasks.list": {
+        "key": "tasks.list",
+        "name": "Read Tasks",
+        "description": "Read bounded local tasks, due dates, reminders and contact links.",
+        "mode": "read",
+        "required_permissions": ["tasks.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": ["string", "null"], "enum": ["pending", "in_progress", "completed", "cancelled", None]},
+                "query": {"type": "string", "maxLength": 240},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "tasks.create": {
+        "key": "tasks.create",
+        "name": "Create Task",
+        "description": "Create one durable local task or reminder.",
+        "mode": "write",
+        "required_permissions": ["tasks.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "maxLength": 240},
+                "description": {"type": "string", "maxLength": 20000},
+                "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+                "due_at": {"type": ["string", "null"]},
+                "remind_at": {"type": ["string", "null"]},
+                "recurrence": {"type": "string", "enum": ["none", "daily", "weekly", "monthly"]},
+                "recurrence_interval": {"type": "integer", "minimum": 1, "maximum": 365},
+                "contact_id": {"type": ["integer", "null"], "minimum": 1},
+            },
+            "required": ["title"],
+            "additionalProperties": False,
+        },
+    },
 }
 
 SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
@@ -93,6 +147,12 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "name": "Memory Manager",
         "description": "Read and create durable agent memory through explicit local capabilities.",
         "tools": ["memory.list", "memory.write"],
+    },
+    {
+        "key": "task.manager",
+        "name": "Task & Reminder Manager",
+        "description": "Read tasks and notifications and create durable reminders through explicit capabilities.",
+        "tools": ["tasks.list", "notifications.list", "tasks.create"],
     },
 )
 
@@ -183,9 +243,11 @@ def _safe_numeric(value: Any, default: int | float | None = None) -> int | float
 
 
 def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    if tool_key in {"contacts.search", "knowledge.search"}:
+    if tool_key in {"contacts.search", "knowledge.search", "tasks.list"}:
         query = str(arguments.get("query") or "")
         return {"query_length": len(query), "limit": _safe_numeric(arguments.get("limit"), 8)}
+    if tool_key == "notifications.list":
+        return {"unread_only": bool(arguments.get("unread_only", False)), "limit": _safe_numeric(arguments.get("limit"), 20)}
     if tool_key == "memory.list":
         return {"limit": _safe_numeric(arguments.get("limit"), 20)}
     if tool_key == "memory.write":
@@ -195,6 +257,15 @@ def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[st
             "content_length": len(content),
             "memory_key_length": len(str(key)) if key is not None else 0,
             "importance": _safe_numeric(arguments.get("importance"), 0.5),
+        }
+    if tool_key == "tasks.create":
+        return {
+            "title_length": len(str(arguments.get("title") or "")),
+            "description_length": len(str(arguments.get("description") or "")),
+            "has_due_at": bool(arguments.get("due_at")),
+            "has_remind_at": bool(arguments.get("remind_at")),
+            "recurrence": str(arguments.get("recurrence") or "none")[:20],
+            "contact_id": _safe_numeric(arguments.get("contact_id")),
         }
     return {"argument_count": len(arguments)}
 
@@ -256,18 +327,7 @@ def _contacts_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[st
         raise ToolError("contacts.search query exceeds 240 characters.")
     limit = _bounded_int(arguments.get("limit"), 8, 1, 20, "limit")
     rows = list_contacts(query, limit=limit)
-    items = [
-        {
-            "id": row["id"],
-            "display_name": row["display_name"],
-            "organization": row.get("organization"),
-            "email": row.get("email"),
-            "phone": row.get("phone"),
-            "relationship": row.get("relationship"),
-            "notes": str(row.get("notes") or "")[:1600],
-        }
-        for row in rows
-    ]
+    items = [{"id": row["id"], "display_name": row["display_name"], "organization": row.get("organization"), "email": row.get("email"), "phone": row.get("phone"), "relationship": row.get("relationship"), "notes": str(row.get("notes") or "")[:1600]} for row in rows]
     return {"items": items, "count": len(items)}, {"count": len(items)}
 
 
@@ -285,8 +345,7 @@ def _knowledge_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[s
     items: list[dict[str, Any]] = []
     for row in rows:
         excerpt = str(row.get("snippet") or row.get("content") or "").strip()[:1600]
-        items.append({"id": row["id"], "title": row.get("title"), "kind": row.get("kind"),
-                      "source_path": row.get("source_path"), "excerpt": excerpt})
+        items.append({"id": row["id"], "title": row.get("title"), "kind": row.get("kind"), "source_path": row.get("source_path"), "excerpt": excerpt})
     return {"items": items, "count": len(items)}, {"count": len(items)}
 
 
@@ -297,12 +356,7 @@ def _memory_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     limit = _bounded_int(arguments.get("limit"), 20, 1, 50, "limit")
     with db() as connection:
         rows = connection.execute(
-            """
-            SELECT id, agent_id, memory_key, content, importance, created_at, updated_at
-            FROM agent_memory
-            ORDER BY importance DESC, updated_at DESC, id DESC
-            LIMIT ?
-            """,
+            "SELECT id, agent_id, memory_key, content, importance, created_at, updated_at FROM agent_memory ORDER BY importance DESC, updated_at DESC, id DESC LIMIT ?",
             (limit,),
         ).fetchall()
     items = [dict(row) for row in rows]
@@ -333,12 +387,46 @@ def _memory_write(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
     with db() as connection:
         primary = connection.execute("SELECT id FROM agents WHERE is_primary=1 LIMIT 1").fetchone()
         agent_id = primary["id"] if primary else None
-        cursor = connection.execute(
-            "INSERT INTO agent_memory(agent_id, memory_key, content, importance) VALUES (?, ?, ?, ?)",
-            (agent_id, memory_key, content, importance),
-        )
+        cursor = connection.execute("INSERT INTO agent_memory(agent_id, memory_key, content, importance) VALUES (?, ?, ?, ?)", (agent_id, memory_key, content, importance))
         memory_id = int(cursor.lastrowid)
     return {"created": True, "id": memory_id}, {"created": True, "id": memory_id}
+
+
+def _tasks_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown = set(arguments) - {"status", "query", "limit"}
+    if unknown:
+        raise ToolError(f"Unsupported tasks.list argument: {sorted(unknown)[0]}")
+    status = arguments.get("status")
+    status = str(status).strip() if status not in (None, "") else None
+    query = str(arguments.get("query") or "").strip()
+    limit = _bounded_int(arguments.get("limit"), 20, 1, 50, "limit")
+    try:
+        rows = list_tasks(status=status, q=query, limit=limit)
+    except TaskError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    items = [{key: row.get(key) for key in ("id", "title", "description", "status", "priority", "due_at", "remind_at", "recurrence", "recurrence_interval", "contact_id", "contact_name", "created_at", "updated_at")} for row in rows]
+    return {"items": items, "count": len(items)}, {"count": len(items)}
+
+
+def _notifications_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown = set(arguments) - {"unread_only", "limit"}
+    if unknown:
+        raise ToolError(f"Unsupported notifications.list argument: {sorted(unknown)[0]}")
+    unread_raw = arguments.get("unread_only", False)
+    if not isinstance(unread_raw, bool):
+        raise ToolError("notifications.list unread_only must be boolean.")
+    limit = _bounded_int(arguments.get("limit"), 20, 1, 50, "limit")
+    rows = list_notifications(unread_only=unread_raw, include_dismissed=False, limit=limit)
+    return {"items": rows, "count": len(rows)}, {"count": len(rows)}
+
+
+def _tasks_create(arguments: dict[str, Any], source: str, created_by_type: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    source_key = source.removeprefix("app:") if source.startswith("app:") else (None if source == "owner" else source)
+    try:
+        task = create_task(arguments, source_app_key=source_key, created_by_type=created_by_type)
+    except TaskError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return {"created": True, "task": task}, {"created": True, "id": task["id"]}
 
 
 def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
@@ -359,16 +447,12 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
     arguments_meta = _safe_argument_metadata(tool["key"], payload)
     policies = _policy_map()
     if not policies.get(tool["key"], True):
-        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-                             status="denied", required_permissions=required, arguments_meta=arguments_meta,
-                             error="Tool is disabled by the HomeServer owner.")
+        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type, status="denied", required_permissions=required, arguments_meta=arguments_meta, error="Tool is disabled by the HomeServer owner.")
         raise ToolError(f"Tool is disabled by the HomeServer owner. Run {run_id} was recorded.", 403)
 
     missing = _missing_permissions(tool, granted, owner)
     if missing:
-        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-                             status="denied", required_permissions=required, arguments_meta=arguments_meta,
-                             error=f"Missing permissions: {', '.join(missing)}")
+        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type, status="denied", required_permissions=required, arguments_meta=arguments_meta, error=f"Missing permissions: {', '.join(missing)}")
         raise ToolError(f"Missing tool permissions: {', '.join(missing)}. Run {run_id} was recorded.", 403)
 
     started = time.perf_counter()
@@ -381,25 +465,26 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _memory_list(payload)
         elif tool["key"] == "memory.write":
             result, result_meta = _memory_write(payload)
+        elif tool["key"] == "tasks.list":
+            result, result_meta = _tasks_list(payload)
+        elif tool["key"] == "notifications.list":
+            result, result_meta = _notifications_list(payload)
+        elif tool["key"] == "tasks.create":
+            task_creator = "agent" if owner and source.startswith("app:") else actor_type
+            result, result_meta = _tasks_create(payload, source, task_creator)
         else:
             raise ToolError("Tool implementation is unavailable.", 503)
     except ToolError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
-        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-                             status="failed", required_permissions=required, arguments_meta=arguments_meta,
-                             duration_ms=duration_ms, error=str(exc))
+        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type, status="failed", required_permissions=required, arguments_meta=arguments_meta, duration_ms=duration_ms, error=str(exc))
         raise ToolError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
     except Exception as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
-        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-                             status="failed", required_permissions=required, arguments_meta=arguments_meta,
-                             duration_ms=duration_ms, error="Internal tool failure.")
+        run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type, status="failed", required_permissions=required, arguments_meta=arguments_meta, duration_ms=duration_ms, error="Internal tool failure.")
         raise ToolError(f"Tool failed safely. Run {run_id} was recorded.", 500) from exc
 
     duration_ms = int((time.perf_counter() - started) * 1000)
-    run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type,
-                         status="completed", required_permissions=required, arguments_meta=arguments_meta,
-                         result_meta=result_meta, duration_ms=duration_ms)
+    run_id = _record_run(tool_key=tool["key"], source_app_key=source, actor_type=actor_type, status="completed", required_permissions=required, arguments_meta=arguments_meta, result_meta=result_meta, duration_ms=duration_ms)
     return {"tool": tool["key"], "run_id": run_id, "status": "completed", "result": result}
 
 

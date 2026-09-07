@@ -9,6 +9,8 @@
     'memory.read',
     'memory.write',
     'notifications.read',
+    'tasks.read',
+    'tasks.write',
     'tools.execute',
   ];
 
@@ -89,6 +91,23 @@
         method:'POST',
         body:JSON.stringify({content, memory_key:options.memoryKey || null, importance:options.importance ?? 0.5, agent_id:options.agentId || null}),
       });
+    }
+    tasks(options = {}) {
+      const params = new URLSearchParams();
+      if (options.status) params.set('status', options.status);
+      if (options.query) params.set('q', options.query);
+      const suffix = params.toString() ? `?${params}` : '';
+      return this._authorized(`/api/v1/tasks${suffix}`);
+    }
+    createTask(task) {
+      return this._authorized('/api/v1/tasks', {method:'POST', body:JSON.stringify(task || {})});
+    }
+    updateTask(taskId, changes) {
+      if (!taskId) throw new Error('taskId is required.');
+      return this._authorized(`/api/v1/tasks/${encodeURIComponent(taskId)}`, {method:'PATCH', body:JSON.stringify(changes || {})});
+    }
+    notifications(unreadOnly = false) {
+      return this._authorized(`/api/v1/notifications?unread_only=${unreadOnly ? 'true' : 'false'}`);
     }
     chat(message, conversationId = null) {
       return this._authorized('/api/v1/chat', {method:'POST', body:JSON.stringify({message, conversation_id:conversationId})});

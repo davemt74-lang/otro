@@ -25,6 +25,30 @@
     notify.timer = setTimeout(() => { node.className = 'flash'; }, 3500);
   }
 
+  function proposalContent(item) {
+    const args = item.arguments || {};
+    if (item.action_key === 'tasks.create') {
+      const detail = [];
+      if (args.priority) detail.push(`priority ${escapeHtml(args.priority)}`);
+      if (args.due_at) detail.push(`due ${escapeHtml(fmt(args.due_at))}`);
+      if (args.remind_at) detail.push(`remind ${escapeHtml(fmt(args.remind_at))}`);
+      if (args.recurrence && args.recurrence !== 'none') detail.push(`${Number(args.recurrence_interval || 1)}× ${escapeHtml(args.recurrence)}`);
+      if (args.contact_id) detail.push(`contact #${Number(args.contact_id)}`);
+      return {
+        title: escapeHtml(args.title || 'Proposed task'),
+        body: escapeHtml(args.description || ''),
+        detail: detail.map(value => `<span>${value}</span>`).join(''),
+        confirm: 'Approve this task/reminder and create it now?',
+      };
+    }
+    return {
+      title: escapeHtml(args.memory_key || 'Proposed memory'),
+      body: escapeHtml(args.content || ''),
+      detail: `<span>importance ${Number(args.importance ?? 0.5).toFixed(1)}</span>`,
+      confirm: 'Approve this action and write the proposed memory now?',
+    };
+  }
+
   function render(items) {
     const node = byId('approvalsList');
     if (!node) return;
@@ -33,11 +57,11 @@
       return;
     }
     node.innerHTML = items.map(item => {
-      const args = item.arguments || {};
+      const content = proposalContent(item);
       const actions = item.status === 'pending'
-        ? `<div class="approval-actions"><button class="button secondary danger" data-action-deny="${escapeHtml(item.id)}">Deny</button><button class="button primary" data-action-approve="${escapeHtml(item.id)}">Approve</button></div>`
+        ? `<div class="approval-actions"><button class="button secondary danger" data-action-deny="${escapeHtml(item.id)}">Deny</button><button class="button primary" data-action-approve="${escapeHtml(item.id)}" data-confirm="${escapeHtml(content.confirm)}">Approve</button></div>`
         : `<div class="approval-actions"><span class="approval-status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></div>`;
-      return `<article class="approval-card ${escapeHtml(item.status)}"><div><h3>${escapeHtml(args.memory_key || 'Proposed memory')}</h3><p>${escapeHtml(args.content || '')}</p><div class="approval-meta"><span class="approval-status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span><span>${escapeHtml(item.source_app_key)}</span><span>importance ${Number(args.importance ?? 0.5).toFixed(1)}</span><span>created ${escapeHtml(fmt(item.created_at))}</span><span>expires ${escapeHtml(fmt(item.expires_at))}</span>${item.execution_tool_run_id ? `<span>tool run #${Number(item.execution_tool_run_id)}</span>` : ''}</div>${item.error ? `<div class="muted">${escapeHtml(item.error)}</div>` : ''}</div>${actions}</article>`;
+      return `<article class="approval-card ${escapeHtml(item.status)}"><div><h3>${content.title}</h3><p>${content.body}</p><div class="approval-meta"><span class="approval-status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span><span>${escapeHtml(item.action_key || 'action')}</span><span>${escapeHtml(item.source_app_key)}</span>${content.detail}<span>created ${escapeHtml(fmt(item.created_at))}</span><span>expires ${escapeHtml(fmt(item.expires_at))}</span>${item.execution_tool_run_id ? `<span>tool run #${Number(item.execution_tool_run_id)}</span>` : ''}</div>${item.error ? `<div class="muted">${escapeHtml(item.error)}</div>` : ''}</div>${actions}</article>`;
     }).join('');
   }
 
@@ -76,7 +100,7 @@
 
     const approve = event.target.closest('[data-action-approve]');
     if (approve) {
-      if (!confirm('Approve this action and write the proposed memory now?')) return;
+      if (!confirm(approve.dataset.confirm || 'Approve this action and execute it now?')) return;
       approve.disabled = true;
       try {
         await request(`/api/v1/control/action-requests/${encodeURIComponent(approve.dataset.actionApprove)}/approve`, {method:'POST'});

@@ -8,6 +8,8 @@
     'memory.read',
     'memory.write',
     'notifications.read',
+    'tasks.read',
+    'tasks.write',
     'tools.execute',
   ];
   const PUBLIC_OPERATIONS = new Set(['capabilities', 'pair.request', 'pair.status']);
@@ -168,6 +170,25 @@
     executeTool(toolKey, args = {}) {
       if (!toolKey) throw new Error('toolKey is required.');
       return this.request('tool.execute', {tool_key:toolKey, arguments:args});
+    }
+    async tasks(options = {}) {
+      const result = await this.executeTool('tasks.list', {
+        status:options.status || null,
+        query:options.query || '',
+        limit:options.limit || 50,
+      });
+      return result.result || result;
+    }
+    async notifications(unreadOnly = false, limit = 50) {
+      const result = await this.executeTool('notifications.list', {
+        unread_only:Boolean(unreadOnly),
+        limit,
+      });
+      return result.result || result;
+    }
+    async createTask(task) {
+      const result = await this.executeTool('tasks.create', task || {});
+      return result.result || result;
     }
     actionRequest(requestId) {
       if (!requestId) throw new Error('requestId is required.');

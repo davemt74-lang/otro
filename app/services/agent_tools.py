@@ -11,9 +11,13 @@ MODEL_TOOL_NAMES = {
     "homeserver_contacts_search": "contacts.search",
     "homeserver_knowledge_search": "knowledge.search",
     "homeserver_memory_list": "memory.list",
+    "homeserver_notifications_list": "notifications.list",
+    "homeserver_tasks_list": "tasks.list",
 }
-PROPOSAL_TOOL_NAME = "homeserver_memory_write_request"
-PROPOSAL_TOOL_KEY = "memory.write"
+MEMORY_PROPOSAL_TOOL_NAME = "homeserver_memory_write_request"
+MEMORY_PROPOSAL_TOOL_KEY = "memory.write"
+TASK_PROPOSAL_TOOL_NAME = "homeserver_task_create_request"
+TASK_PROPOSAL_TOOL_KEY = "tasks.create"
 
 
 class AgentToolError(RuntimeError):
@@ -98,21 +102,37 @@ def model_tool_schemas(
             }
         )
 
-    write_tool = by_key.get(PROPOSAL_TOOL_KEY)
-    if allow_write_proposals and write_tool and write_tool.get("available"):
-        schemas.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": PROPOSAL_TOOL_NAME,
-                    "description": (
-                        "Propose a durable memory write for local owner review. This does not modify memory now; "
-                        "HomeServer creates a pending approval request and only the owner can approve execution."
-                    ),
-                    "parameters": write_tool["input_schema"],
-                },
-            }
-        )
+    if allow_write_proposals:
+        memory_tool = by_key.get(MEMORY_PROPOSAL_TOOL_KEY)
+        if memory_tool and memory_tool.get("available"):
+            schemas.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": MEMORY_PROPOSAL_TOOL_NAME,
+                        "description": (
+                            "Propose a durable memory write for local owner review. This does not modify memory now; "
+                            "HomeServer creates a pending approval request and only the owner can approve execution."
+                        ),
+                        "parameters": memory_tool["input_schema"],
+                    },
+                }
+            )
+        task_tool = by_key.get(TASK_PROPOSAL_TOOL_KEY)
+        if task_tool and task_tool.get("available"):
+            schemas.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": TASK_PROPOSAL_TOOL_NAME,
+                        "description": (
+                            "Propose a local task or reminder for owner review. This does not create the task now; "
+                            "HomeServer creates a pending approval request and only the owner can approve execution."
+                        ),
+                        "parameters": task_tool["input_schema"],
+                    },
+                }
+            )
     return schemas
 
 
@@ -159,19 +179,18 @@ def execute_model_tool(
         if item.get("available")
     }
 
-    if model_tool_name == PROPOSAL_TOOL_NAME:
+    if model_tool_name in {MEMORY_PROPOSAL_TOOL_NAME, TASK_PROPOSAL_TOOL_NAME}:
         policy = get_policy()
         if not policy["enabled"] or not policy["allow_write_proposals"]:
             raise _deny_unavailable(source_app_key, owner)
-        write_tool = available.get(PROPOSAL_TOOL_KEY)
+        tool_key = MEMORY_PROPOSAL_TOOL_KEY if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME else TASK_PROPOSAL_TOOL_KEY
+        write_tool = available.get(tool_key)
         if not write_tool or write_tool.get("mode") != "write":
             raise _deny_unavailable(source_app_key, owner)
         try:
-            return approvals.create_memory_write_request(
-                source_app_key,
-                arguments or {},
-                owner=owner,
-            )
+            if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
+                return approvals.create_memory_write_request(source_app_key, arguments or {}, owner=owner)
+            return approvals.create_task_create_request(source_app_key, arguments or {}, owner=owner)
         except approvals.ApprovalError as exc:
             raise AgentToolError(str(exc)) from exc
 

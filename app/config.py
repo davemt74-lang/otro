@@ -41,7 +41,7 @@ def _default_data_dir() -> Path:
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "HomeServer"
-    version: str = "0.12.0"
+    version: str = "0.13.0"
     host: str = "127.0.0.1"
     port: int = 4377
     data_dir: Path = field(default_factory=_default_data_dir)
