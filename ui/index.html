@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/assets/brain.css">
   <link rel="stylesheet" href="/assets/tools.css">
   <link rel="stylesheet" href="/assets/approvals.css">
+  <link rel="stylesheet" href="/assets/contacts.css">
 </head>
 <body>
   <div class="shell">
@@ -22,6 +23,7 @@
         <button class="nav-item" data-view="approvals">Approvals <span id="approvalNavCount" class="nav-count hidden">0</span></button>
         <button class="nav-item" data-view="knowledge">Knowledge</button>
         <button class="nav-item" data-view="memory">Memory</button>
+        <button class="nav-item" data-view="contacts">Contacts</button>
         <button class="nav-item" data-view="apps">Connected Apps</button>
         <button class="nav-item" data-view="activity">Activity</button>
       </nav>
@@ -34,13 +36,13 @@
     <main class="main">
       <header class="topbar">
         <div><p class="eyebrow">PRIVATE AI CAPABILITY SERVER</p><h1 id="pageTitle">Overview</h1></div>
-        <div class="top-actions"><span class="version" id="version">v0.8.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
+        <div class="top-actions"><span class="version" id="version">v0.9.0</span><button class="button secondary" id="refreshButton">Refresh</button></div>
       </header>
       <div id="flash" class="flash" role="status" aria-live="polite"></div>
 
       <section class="view active" id="view-dashboard">
         <div class="hero-card">
-          <div><span class="pill">HomeServer ready</span><h2 id="heroAgentName">HomeServer Agent</h2><p>Your private agent brain, knowledge, memory, skills, approvals and application permissions run from this machine.</p></div>
+          <div><span class="pill">HomeServer ready</span><h2 id="heroAgentName">HomeServer Agent</h2><p>Your private agent brain, knowledge, memory, contacts, skills, approvals and application permissions run from this machine.</p></div>
           <button class="button primary" data-go="chat">Open Agent Chat</button>
         </div>
         <div class="stats-grid">
@@ -51,7 +53,7 @@
         </div>
         <div class="two-col">
           <article class="panel"><div class="panel-head"><div><p class="eyebrow">RECENT</p><h3>Activity</h3></div><button class="text-button" data-go="activity">View all</button></div><div id="recentActivity" class="list empty-state">No activity yet.</div></article>
-          <article class="panel"><div class="panel-head"><div><p class="eyebrow">OWNER CONTROL</p><h3>Action Approvals</h3></div></div><div class="flow"><div><span>1</span><p><strong>Agent proposes</strong><small>A write proposal cannot change memory immediately.</small></p></div><div><span>2</span><p><strong>You review locally</strong><small>Inspect the proposed content and source application.</small></p></div><div><span>3</span><p><strong>Approve or deny</strong><small>Only approval runs the audited write tool.</small></p></div></div><button class="button secondary full" data-go="approvals">Review approvals</button></article>
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">RELATIONSHIP CONTEXT</p><h3>Private Contacts</h3></div></div><div class="flow"><div><span>1</span><p><strong>Stored locally</strong><small>Names, organizations, contact details and relationship notes stay in SQLite.</small></p></div><div><span>2</span><p><strong>Permissioned</strong><small>Apps need contacts.read before they can search people.</small></p></div><div><span>3</span><p><strong>Agent read-only</strong><small>The model can search contacts but cannot silently modify them.</small></p></div></div><button class="button secondary full" data-go="contacts">Open contacts</button></article>
         </div>
       </section>
 
@@ -66,7 +68,7 @@
 
         <form id="providerForm" class="panel provider-panel">
           <div class="panel-head"><div><p class="eyebrow">LOCAL MODEL</p><h3>Ollama provider</h3></div><span id="providerState" class="provider-state">Loading…</span></div>
-          <p class="muted">HomeServer v0.8 only permits a loopback Ollama server. Prompts, memory, knowledge and tool results stay on this device.</p>
+          <p class="muted">HomeServer v0.9 only permits a loopback Ollama server. Prompts, memory, knowledge, contact search results and tool results stay on this device.</p>
           <div class="provider-grid">
             <label>Ollama URL<input id="providerUrl" value="http://127.0.0.1:11434" maxlength="300"></label>
             <label>Default model<input id="providerModel" list="ollamaModels" maxlength="160" placeholder="Example: llama3.2:3b"><datalist id="ollamaModels"></datalist></label>
@@ -77,7 +79,7 @@
 
         <form id="agentToolsForm" class="panel provider-panel">
           <div class="panel-head"><div><p class="eyebrow">AGENTIC TOOLS</p><h3>Bounded Agent Tools</h3></div><span id="agentToolsState" class="provider-state">Loading…</span></div>
-          <p class="muted">Read tools can run directly when enabled. A memory-write proposal never writes immediately: it creates a pending local approval that only you can approve.</p>
+          <p class="muted">Read tools can search knowledge, memory and permitted contacts. A memory-write proposal never writes immediately: it creates a pending local approval that only you can approve.</p>
           <div class="form-grid">
             <label class="check-inline"><input id="agentToolsEnabled" type="checkbox"> Allow the model to use HomeServer agent tools</label>
             <label>Maximum calls per chat<select id="agentToolsMaxCalls"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
@@ -90,21 +92,14 @@
       <section class="view" id="view-chat">
         <div class="section-intro split"><div><h2>Agent Chat</h2><p>Chat through the private HomeServer brain. Read tools remain permission-bounded and write proposals require owner approval.</p></div><span id="chatContext" class="brain-context"></span></div>
         <div class="chat-layout">
-          <aside class="panel conversation-panel">
-            <button class="button secondary" id="newChat" type="button">New conversation</button>
-            <div id="conversationList" class="conversation-list"><div class="empty-state">No conversations yet.</div></div>
-          </aside>
-          <article class="panel chat-panel">
-            <div class="chat-head"><h3 id="chatConversationTitle">New conversation</h3><button class="text-button danger" id="deleteChat" type="button">Delete</button></div>
-            <div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local context is added only when permitted.</div></div>
-            <form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="2" maxlength="32000" placeholder="Message your HomeServer agent…" required></textarea><button class="button primary" type="submit">Send</button></form>
-          </article>
+          <aside class="panel conversation-panel"><button class="button secondary" id="newChat" type="button">New conversation</button><div id="conversationList" class="conversation-list"><div class="empty-state">No conversations yet.</div></div></aside>
+          <article class="panel chat-panel"><div class="chat-head"><h3 id="chatConversationTitle">New conversation</h3><button class="text-button danger" id="deleteChat" type="button">Delete</button></div><div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local context is added only when permitted.</div></div><form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="2" maxlength="32000" placeholder="Message your HomeServer agent…" required></textarea><button class="button primary" type="submit">Send</button></form></article>
         </div>
       </section>
 
       <section class="view" id="view-tools">
         <div class="section-intro"><div><h2>Skills & Tools</h2><p>HomeServer exposes a small, typed capability registry instead of arbitrary local execution.</p></div></div>
-        <div class="tools-security"><strong>Execution boundary:</strong> paired apps need <code>tools.execute</code> plus every underlying capability. Model-driven mutation is never direct: v0.8 can only create a local approval request for a memory write.</div>
+        <div class="tools-security"><strong>Execution boundary:</strong> paired apps need <code>tools.execute</code> plus every underlying capability. Contact search requires <code>contacts.read</code>. Model-driven mutation is never direct.</div>
         <div><p class="eyebrow">BUILT-IN SKILLS</p><div id="skillsList" class="skills-grid"></div></div>
         <div><p class="eyebrow">TOOL REGISTRY</p><div id="toolsList" class="tools-list"></div></div>
         <div class="panel table-wrap tool-runs"><table><thead><tr><th>Time</th><th>Tool</th><th>Invoker</th><th>Status</th><th>Duration</th></tr></thead><tbody id="toolRunsTable"><tr><td colspan="5">No tool runs yet.</td></tr></tbody></table></div>
@@ -112,7 +107,7 @@
 
       <section class="view" id="view-approvals">
         <div class="section-intro split"><div><h2>Action Approvals</h2><p>Review actions proposed by your local agent or authorized applications. Nothing pending here has been executed.</p></div><div class="approval-filters"><button class="button secondary active" data-approval-filter="pending">Pending</button><button class="button secondary" data-approval-filter="all">History</button></div></div>
-        <div class="tools-security"><strong>Approval boundary:</strong> approving a request runs the existing audited tool exactly once. Denying it makes no change. Proposal content is stored only in the local approval record until you decide.</div>
+        <div class="tools-security"><strong>Approval boundary:</strong> approving a request runs the existing audited tool exactly once. Denying it makes no change.</div>
         <div id="approvalsList" class="approval-list"><div class="panel empty-state">No pending approvals.</div></div>
       </section>
 
@@ -126,6 +121,21 @@
         <div class="section-intro split"><div><h2>Memory</h2><p>Durable facts and context the primary agent can retain across sessions.</p></div><button class="button primary" id="showMemoryForm">Add memory</button></div>
         <form id="memoryForm" class="panel compact-form hidden"><div class="form-grid"><label>Memory key<input id="memoryKey" maxlength="160" placeholder="Optional label"></label><label>Importance<input id="memoryImportance" type="number" min="0" max="1" step="0.1" value="0.5"></label></div><label>Memory<textarea id="memoryContent" rows="6" maxlength="50000" required></textarea></label><div class="form-actions"><button class="button secondary" type="button" id="cancelMemory">Cancel</button><button class="button primary" type="submit">Save memory</button></div></form>
         <div id="memoryList" class="cards-list"></div>
+      </section>
+
+      <section class="view" id="view-contacts">
+        <div class="section-intro split"><div><h2>Contacts</h2><p>Private people and relationship context for your HomeServer agent. Paired apps can only read this data when you grant <code>contacts.read</code>.</p></div><button class="button primary" id="showContactForm">Add contact</button></div>
+        <form id="contactForm" class="panel form-panel hidden">
+          <div class="panel-head"><div><p class="eyebrow">LOCAL CONTACT</p><h3 id="contactFormTitle">Add contact</h3></div></div>
+          <div class="form-grid"><label>Display name<input id="contactDisplayName" maxlength="240" placeholder="Optional if first/last name is set"></label><label>Relationship<input id="contactRelationship" maxlength="160" placeholder="Friend, coworker, client, family…"></label></div>
+          <div class="form-grid"><label>First name<input id="contactFirstName" maxlength="120"></label><label>Last name<input id="contactLastName" maxlength="120"></label></div>
+          <div class="form-grid"><label>Organization<input id="contactOrganization" maxlength="240"></label><label>Email<input id="contactEmail" type="email" maxlength="320"></label></div>
+          <label>Phone<input id="contactPhone" maxlength="80"></label>
+          <label>Relationship notes<textarea id="contactNotes" rows="6" maxlength="50000" placeholder="Local context the agent may use when contacts.read is permitted."></textarea></label>
+          <div class="contact-form-actions"><button class="button secondary" id="cancelContactForm" type="button">Cancel</button><button class="button primary" id="contactSubmit" type="submit">Save contact</button></div>
+        </form>
+        <div class="contact-toolbar"><input id="contactsSearch" type="search" placeholder="Search names, organizations, email, phone, relationships or notes"><span id="contactsCount" class="muted"></span></div>
+        <div id="contactsList" class="contact-grid"><div class="panel empty-state">No contacts yet.</div></div>
       </section>
 
       <section class="view" id="view-apps">
@@ -144,5 +154,6 @@
   <script src="/assets/brain.js" defer></script>
   <script src="/assets/tools.js" defer></script>
   <script src="/assets/approvals.js" defer></script>
+  <script src="/assets/contacts.js" defer></script>
 </body>
 </html>
