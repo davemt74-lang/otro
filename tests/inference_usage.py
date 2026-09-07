@@ -116,6 +116,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
         assert local_history["summary"]["homeserver_requests"] == 1
         assert local_history["summary"]["cloud_tokens_debited"] == 0
         assert local_history["items"][0]["compute_source"] == "homeserver_local"
+        assert local_history["items"][0]["source_app_key"] == "owner"
         assert local_history["items"][0]["total_tokens"] == 20
 
         pairing = client.post(
@@ -156,15 +157,25 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
 
         app_usage = client.get("/api/v1/usage", headers=headers)
         assert app_usage.status_code == 200
-        summary = app_usage.json()["summary"]
+        app_usage_json = app_usage.json()
+        summary = app_usage_json["summary"]
         assert summary["cloud_tokens_debited"] == 225
         assert summary["cloud_requests"] == 1
-        assert summary["homeserver_requests"] == 1
+        assert summary["homeserver_requests"] == 0
+        assert summary["homeserver_tokens"] == 0
         assert summary["balance_tokens"] == 9775
+        assert len(app_usage_json["items"]) == 1
+        assert all(item["source_app_key"] == "app:vp3-cloud-test" for item in app_usage_json["items"])
+        assert all(item["compute_source"] == "vp3_cloud" for item in app_usage_json["items"])
 
         owner_usage = client.get("/api/v1/control/usage")
         assert owner_usage.status_code == 200
-        cloud_rows = [item for item in owner_usage.json()["items"] if item["compute_source"] == "vp3_cloud"]
+        owner_usage_json = owner_usage.json()
+        owner_summary = owner_usage_json["summary"]
+        assert owner_summary["homeserver_requests"] == 1
+        assert owner_summary["cloud_requests"] == 1
+        assert owner_summary["cloud_tokens_debited"] == 225
+        cloud_rows = [item for item in owner_usage_json["items"] if item["compute_source"] == "vp3_cloud"]
         assert len(cloud_rows) == 1
         assert cloud_rows[0]["billable_tokens"] == 225
         assert cloud_rows[0]["balance_after_tokens"] == 9775
