@@ -41,7 +41,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert versions == [1, 2]
+        assert versions == [1, 2, 3]
+        pairing_columns = {
+            row["name"]
+            for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()
+        }
+        assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_chunks").fetchone()[0] >= 1
         assert migrated.execute(
             "SELECT COUNT(*) FROM knowledge_chunks_fts WHERE knowledge_chunks_fts MATCH 'merchant'"
@@ -59,6 +64,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert versions_again == [1, 2]
+        assert versions_again == [1, 2, 3]
 
 print("HomeServer migration upgrade test passed")
