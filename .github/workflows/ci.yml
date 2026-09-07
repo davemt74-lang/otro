@@ -45,6 +45,8 @@ jobs:
         run: python tests/action_approvals.py
       - name: Contacts permission and Agent Tool regression
         run: python tests/contacts.py
+      - name: Contact literal wildcard regression
+        run: python tests/contacts_wildcards.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
       - name: Smoke test packaged executable
