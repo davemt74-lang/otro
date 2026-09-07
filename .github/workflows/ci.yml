@@ -78,11 +78,21 @@ jobs:
             if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.10.0' }
           } finally {
             $process.Refresh()
-            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            if (-not $process.HasExited) {
+              & taskkill.exe /PID $process.Id /T /F | Out-Null
+            }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Packaged smoke left a HomeServer listener on port 4377'
           }
       - name: Smoke test packaged staged restore
         shell: pwsh
         run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is already occupied before the staged-restore smoke test'
+          }
           $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-restore'
           python tests/packaged_restore.py setup
           $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
@@ -106,7 +116,14 @@ jobs:
             if (-not $healthy) { throw 'HomeServer.exe did not become healthy after applying the staged restore' }
           } finally {
             $process.Refresh()
-            if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            if (-not $process.HasExited) {
+              & taskkill.exe /PID $process.Id /T /F | Out-Null
+            }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Packaged restore smoke left a HomeServer listener on port 4377'
           }
           python tests/packaged_restore.py verify
       - name: Install Inno Setup
