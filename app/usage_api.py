@@ -34,8 +34,13 @@ def client_usage(
     limit: int = Query(default=100, ge=1, le=500),
     identity: dict = Depends(_require_usage("usage.read")),
 ) -> dict:
-    items = usage.list_usage(limit=limit)
-    return {"items": items, "summary": usage.usage_summary(), "app": identity["app_key"]}
+    source = f"app:{identity['app_key']}"
+    items = usage.list_usage(limit=limit, source_app_key=source)
+    return {
+        "items": items,
+        "summary": usage.usage_summary(source_app_key=source),
+        "app": identity["app_key"],
+    }
 
 
 @router.post("/api/v1/usage/cloud")
