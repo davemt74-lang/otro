@@ -95,6 +95,15 @@ with tempfile.TemporaryDirectory(prefix="homeserver-context-") as data_dir:
     assert history and history[0]["sources"] == bundle.sources
     assert "source_refs_json" not in history[0]
 
+    revoked_history = context_engine.recent_sources(
+        "context-test-chat",
+        allowed_kinds={"memory", "knowledge"},
+    )
+    assert revoked_history
+    assert all(source["kind"] != "contact" for source in revoked_history[0]["sources"])
+    assert revoked_history[0]["contact_count"] == 0
+    assert "Alice Example" not in str(revoked_history)
+
     private_settings = context_engine.update_settings(
         "context-test-chat",
         include_memory=True,
