@@ -2,79 +2,74 @@
 
 HomeServer is a local-first private capability server for personal AI agents and authorized applications such as VP3.
 
-The Windows desktop runtime runs on `127.0.0.1:4377`, stores durable state in SQLite, and provides a local Control Center for the primary agent, private chat, knowledge, memory, skills, tools, pairing, permissions and activity.
+The Windows desktop runtime runs on `127.0.0.1:4377`, stores durable state in SQLite, and provides a local Control Center for the primary agent, private chat, knowledge, memory, skills, tools, approvals, pairing, permissions and activity.
 
-## Current v0.7 foundation
+## Current v0.8 foundation
 
 - Windows tray application and packaged `HomeServer.exe`
 - Per-user `HomeServerSetup.exe` installer with optional Start-with-Windows
 - SQLite WAL database with versioned, transactional migrations
-- Persistent primary agent configuration
-- **Agent Brain** with persistent conversations and run tracking
+- Persistent primary agent configuration and conversations
 - Local-only Ollama provider with loopback URL enforcement
-- Automatic bounded context assembly from agent instructions, recent conversation history, durable memory and FTS knowledge
+- Bounded context assembly from instructions, conversation history, memory and FTS knowledge
 - App-isolated conversations for VP3 and other paired clients
-- Durable agent memory
-- Local TXT, Markdown, JSON, CSV, HTML, PDF and DOCX knowledge ingestion
-- SQLite FTS5 chunked knowledge search and SHA-256 duplicate detection
-- **Allowlisted Skills & Tools capability layer**
+- Durable agent memory and local document ingestion/search
+- Allowlisted Skills & Tools capability layer
 - Built-in `knowledge.search`, `memory.list`, and `memory.write` tools
-- `tools.execute` gate plus each tool's underlying data permission
-- Owner-controlled global tool enable/disable policies
-- Dedicated local tool-run audit records that do not duplicate raw search text or memory bodies
-- **Optional read-only Agent Tool Use** for Ollama chat, disabled by default
-- Owner-controlled per-chat Agent Tool budget of 1–3 calls
-- Model-visible Agent Tools limited to `knowledge.search` and `memory.list`
-- Browser-safe claim-token pairing with local owner approval
-- Hashed application credentials and per-app capability permissions
-- Local activity/audit trail
-- Windows CI that tests database upgrades, security boundaries, Agent Brain behavior, direct tool execution, agent tool use, the packaged executable and installer
+- `tools.execute` plus underlying capability enforcement for paired apps
+- Owner-controlled global tool policies and content-safe tool-run auditing
+- Optional Agent Tool Use, disabled by default, with a hard 1–3 call budget
+- Direct model tool use limited to read operations
+- **Approval-gated memory-write proposals**, separately disabled by default
+- Local **Approvals** workspace with approve/deny controls and request history
+- Browser-safe claim-token pairing and status-only action tracking for the originating app
+- Windows CI covering migrations, privacy/security boundaries, Agent Brain, direct tools, Agent Tool Use, approvals, packaged EXE and installer
 
 ## Skills & Tools security model
 
-HomeServer uses a typed, allowlisted tool registry instead of arbitrary local execution. The built-in tools are:
+HomeServer uses a typed allowlist rather than arbitrary execution:
 
 - `knowledge.search` — read-only, requires `tools.execute` + `knowledge.search`
 - `memory.list` — read-only, requires `tools.execute` + `memory.read`
-- `memory.write` — mutating, requires `tools.execute` + `memory.write`
-
-Built-in skill manifests group those tools into **Local Research** and **Memory Manager**. Skills do not add permissions; they are manifests over the underlying tool capabilities.
-
-The owner can disable any built-in tool globally from **Skills & Tools**. Tool runs record the tool name, source application, permission requirements, status, duration, result counts/IDs, and safe argument metadata such as query/content length. Raw search queries, returned knowledge excerpts, and memory bodies are not copied into `tool_runs`.
+- `memory.write` — mutating, requires `tools.execute` + `memory.write` for direct app execution
 
 HomeServer intentionally includes **no shell, PowerShell, arbitrary HTTP, or unrestricted filesystem tool**.
 
+The owner can disable any built-in tool globally. Tool-run audit records contain tool identity, source, permissions, status, duration, safe lengths/numeric settings and result IDs/counts. Raw search text, knowledge excerpts and memory bodies are not duplicated into `tool_runs` or activity metadata.
+
 ## Agent Tool Use
 
-v0.7 can optionally let the local Ollama model request safe read-only tools while composing an Agent Chat answer. This feature is separate from direct tool permissions and ships **disabled by default**.
+Agent Tool Use is owner-controlled and ships disabled. When enabled, HomeServer can expose permission-filtered Ollama function schemas during Agent Chat.
 
-When the owner enables **Agent read tools** in **My Agent**:
+Read tools (`knowledge.search` and `memory.list`) can execute directly through the audited registry. Paired apps only receive each schema when their token has `tools.execute` plus the corresponding read permission.
 
-- the model may receive only `knowledge.search` and `memory.list` function schemas
-- `memory.write` is never exposed to the model
-- each tool request is routed back through the same audited HomeServer tool registry
-- global tool-disable policies still apply
-- paired apps still need `tools.execute` plus the underlying read permission before their chat can expose that tool
-- the owner chooses a hard maximum of 1–3 executed tool calls per chat turn
-- once the budget is exhausted, HomeServer requests a final Ollama answer without any tools attached
-- tool result messages are used only inside the local model exchange and are not stored as conversation messages
-- `agent_runs` stores only tool-call counts and tool-run IDs, while `tool_runs` keeps the existing content-safe audit metadata
+The owner chooses a hard maximum of 1–3 executed model tool calls per chat turn. Once the budget is exhausted, HomeServer requests the final Ollama answer without tools. Tool-result messages stay inside the local Ollama exchange and are not persisted as conversation messages.
 
-An app with `agent.chat` but without `tools.execute` receives normal chat with no autonomous tools. An app with `tools.execute` but without `memory.read` cannot expose or execute `memory.list` through Agent Chat.
+## Approval-gated actions
+
+v0.8 adds the first safe mutation path for model-driven work: **memory-write proposals**.
+
+This is a second owner control, separate from enabling Agent Tools, and is **off by default**. When enabled:
+
+1. Ollama may receive `homeserver_memory_write_request` only when `memory.write` itself is currently available.
+2. The model can submit proposed memory content, key and importance.
+3. HomeServer validates the proposal and creates a local `action_requests` record with a 24-hour expiry.
+4. No memory is written at proposal time.
+5. The owner reviews the exact proposed payload and source in **Approvals**.
+6. **Approve** reserves the request and runs the existing audited `memory.write` tool exactly once.
+7. **Deny** makes no mutation.
+
+The model is never given a direct `memory.write` function. A pending proposal is explicitly represented to the model as awaiting owner approval, and the Agent Brain is instructed never to claim it completed.
+
+Proposal payloads are stored once in the local `action_requests` table because the owner must be able to review what is being requested. Tool/activity audit tables contain only content-safe metadata and request/run IDs. Invalid proposals are audited without persisting their raw payload as a pending action.
+
+For paired apps, proposal availability requires `agent.chat` + `tools.execute` + `memory.write`, plus the owner-level proposal setting. Apps cannot approve actions. They can only query the status of their own request ID; that status response does not return the proposed content.
 
 ## Local model privacy
 
-v0.7 supports Ollama as the first model provider. The configured URL must resolve to `localhost`, `127.0.0.1`, or `::1`; remote model-provider URLs are rejected. The default is `http://127.0.0.1:11434`, disabled until the owner selects a model and enables it.
+The Ollama URL must resolve to `localhost`, `127.0.0.1`, or `::1`; remote provider URLs are rejected. The default is `http://127.0.0.1:11434` and is disabled until the owner selects a model and enables it.
 
-HomeServer sends a bounded prompt to Ollama containing the primary agent instructions, up to six high-importance memory items, up to four relevant knowledge results, and up to eight recent conversation messages. Knowledge, memory, and tool-result excerpts are treated as untrusted supporting data rather than higher-priority instructions.
-
-## Agent Chat
-
-The local Control Center includes Agent Chat and persistent owner conversations. Paired applications with `agent.chat` use `POST /api/v1/chat`; their conversation history is isolated by application key.
-
-Memory and knowledge are only added to a paired application's normal chat context when that app separately has `memory.read` and `knowledge.search` respectively. Agent Tool exposure has its own additional `tools.execute` requirement.
-
-Each run is recorded locally with provider, model, source application, retrieved-context counts, optional tool-call count/tool-run IDs, duration and completion/failure state.
+HomeServer sends bounded local context to Ollama. Memory, knowledge and tool-result excerpts are treated as untrusted supporting data rather than instructions.
 
 ## Data location
 
@@ -94,15 +89,13 @@ pip install -r requirements.txt
 python desktop/launcher.py
 ```
 
-Then open HomeServer from the tray, configure the primary agent, use **Detect Ollama** to find installed local models, save/enable the provider, and open **Agent Chat** or **Skills & Tools**. Agent read tools remain off until explicitly enabled in **My Agent**.
+Then open HomeServer from the tray, configure the primary agent and local Ollama provider, and use **Agent Chat**, **Skills & Tools**, or **Approvals**. Both Agent Tool Use and memory-write proposals remain off until explicitly enabled in **My Agent**.
 
 ## VP3 browser bridge
 
-VP3 connects to the local loopback API through `claim-v1` pairing. The future credential returned to VP3 remains unusable until the user approves the short code locally. After approval, VP3 automatically detects readiness and uses the claim token as its bearer credential; no manual long-token copying is required.
+VP3 connects through `claim-v1` pairing. After local owner approval, VP3 uses its claim token as a scoped bearer credential; it never reads SQLite or local files directly.
 
-VP3 can discover skills/tools with `GET /api/v1/skills` and `GET /api/v1/tools`, then invoke an allowed tool with `POST /api/v1/tools/{tool_key}/execute`. Direct tool execution never bypasses its underlying permission.
-
-When Agent read tools are enabled by the HomeServer owner, a VP3 chat can also use only the read tools its token is independently authorized to use. VP3 cannot enable Agent Tool Use through its bearer token.
+VP3 can use direct protected capabilities according to its permissions, including chat, knowledge, memory and direct tools. When the owner enables proposal-capable Agent Tools and VP3 has `agent.chat`, `tools.execute`, and `memory.write`, its chat may create a pending memory-write request. VP3 can then call `GET /api/v1/action-requests/{request_id}` to see only that request's status. Approval remains local-owner-only.
 
 See [`connectors/vp3/README.md`](connectors/vp3/README.md) and [`connectors/vp3/client.js`](connectors/vp3/client.js).
 
