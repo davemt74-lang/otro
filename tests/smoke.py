@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
     with TestClient(app) as client:
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.8.0"
+        assert health.json()["version"] == "0.9.0"
 
         capabilities = client.get("/api/v1/capabilities", headers={"Origin": "https://vp3.me"})
         assert capabilities.status_code == 200
@@ -41,8 +41,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert "action.approvals" in capabilities.json()["features"]
         assert "agent.chat" in capabilities.json()["features"]
         assert "agent.tools.read" in capabilities.json()["features"]
+        assert "contacts.read" in capabilities.json()["features"]
         assert "tools.execute" in capabilities.json()["features"]
         assert "skills" in capabilities.json()["features"]
+        assert "contacts.read" in capabilities.json()["permissions"]
         assert "tools.execute" in capabilities.json()["permissions"]
         assert capabilities.headers.get("access-control-allow-origin") == "https://vp3.me"
 
@@ -59,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 7
+        assert status.json()["schema_version"] == 8
 
         assert client.get("/api/v1/control/overview").status_code == 401
         bootstrap = client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN})
@@ -70,16 +72,24 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert agent_tools.json()["policy"]["enabled"] is False
         assert agent_tools.json()["policy"]["max_calls"] == 3
         assert agent_tools.json()["policy"]["allow_write_proposals"] is False
-        assert set(agent_tools.json()["available_tools"]) == {"homeserver_knowledge_search", "homeserver_memory_list"}
+        assert set(agent_tools.json()["available_tools"]) == {
+            "homeserver_contacts_search",
+            "homeserver_knowledge_search",
+            "homeserver_memory_list",
+        }
         assert client.get("/api/v1/control/action-requests?status=pending").json()["items"] == []
 
         owner_tools = client.get("/api/v1/control/tools")
         assert owner_tools.status_code == 200
-        assert [item["key"] for item in owner_tools.json()["items"]] == ["knowledge.search", "memory.list", "memory.write"]
+        assert [item["key"] for item in owner_tools.json()["items"]] == [
+            "contacts.search", "knowledge.search", "memory.list", "memory.write"
+        ]
         assert all(item["enabled"] and item["available"] for item in owner_tools.json()["items"])
         owner_skills = client.get("/api/v1/control/skills")
         assert owner_skills.status_code == 200
-        assert [item["key"] for item in owner_skills.json()["items"]] == ["local.research", "memory.manager"]
+        assert [item["key"] for item in owner_skills.json()["items"]] == [
+            "local.research", "relationship.context", "memory.manager"
+        ]
         assert client.post("/api/v1/control/tools/not.real/execute", json={"arguments": {}}).status_code == 404
 
         remote_provider = client.put(
@@ -231,6 +241,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         vp3_tools = client.get("/api/v1/tools", headers={"Authorization": f"Bearer {claim_token}"})
         assert vp3_tools.status_code == 200
         by_key = {item["key"]: item for item in vp3_tools.json()["items"]}
+        assert by_key["contacts.search"]["available"] is False
+        assert by_key["contacts.search"]["missing_permissions"] == ["contacts.read"]
         assert by_key["knowledge.search"]["available"] is True
         assert by_key["memory.list"]["available"] is True
         assert by_key["memory.write"]["available"] is False
@@ -240,6 +252,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert vp3_skills.status_code == 200
         skills_by_key = {item["key"]: item for item in vp3_skills.json()["items"]}
         assert skills_by_key["local.research"]["available"] is True
+        assert skills_by_key["relationship.context"]["available"] is False
         assert skills_by_key["memory.manager"]["available"] is False
 
         vp3_tool_search = client.post(
