@@ -13,6 +13,7 @@ from .main import app
 from .remote_bridge_api import router as remote_bridge_router
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
+from .tasks_api import router as tasks_router
 from .tools_api import router as tools_router
 
 
@@ -25,6 +26,7 @@ app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(approvals_router)
 app.include_router(contacts_router)
+app.include_router(tasks_router)
 app.include_router(backups_router)
 app.include_router(system_router)
 app.include_router(remote_bridge_router)
@@ -33,7 +35,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.allowed_origins),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
     max_age=600,
 )
@@ -56,9 +58,13 @@ def capabilities() -> dict:
             "knowledge.search",
             "memory.read",
             "memory.write",
+            "notifications.read",
             "ollama.local",
             "remote.bridge.v1",
             "skills",
+            "tasks.read",
+            "tasks.write",
+            "tasks.reminders",
             "tools.execute",
             "owner.control",
         ],
