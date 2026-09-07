@@ -35,7 +35,7 @@
   }
 
   function fillForm(contact) {
-    editingId = contact.id;
+    editingId = Number(contact.id);
     byId('contactDisplayName').value = contact.display_name || '';
     byId('contactFirstName').value = contact.first_name || '';
     byId('contactLastName').value = contact.last_name || '';
@@ -112,6 +112,8 @@
 
   byId('contactForm')?.addEventListener('submit', async event => {
     event.preventDefault();
+    const wasEditing = Boolean(editingId);
+    const targetId = editingId;
     const payload = {
       display_name: byId('contactDisplayName').value || null,
       first_name: byId('contactFirstName').value || null,
@@ -123,12 +125,12 @@
       notes: byId('contactNotes').value || '',
     };
     try {
-      const path = editingId ? `/api/v1/control/contacts/${editingId}` : '/api/v1/control/contacts';
-      const method = editingId ? 'PUT' : 'POST';
+      const path = wasEditing ? `/api/v1/control/contacts/${targetId}` : '/api/v1/control/contacts';
+      const method = wasEditing ? 'PUT' : 'POST';
       await api(path, {method, body: JSON.stringify(payload)});
       clearForm();
       await loadContacts();
-      flash(editingId ? 'Contact updated.' : 'Contact saved.');
+      flash(wasEditing ? 'Contact updated.' : 'Contact saved.');
     } catch (err) { flash(err.message, true); }
   });
 
