@@ -18,13 +18,33 @@ def _allowed_origins() -> tuple[str, ...]:
     return tuple(origins)
 
 
+def _default_data_dir() -> Path:
+    explicit = str(os.environ.get("HOMESERVER_DATA_DIR") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+
+    legacy = Path.home() / ".homeserver"
+    if os.name != "nt":
+        return legacy
+
+    local_app_data = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
+    preferred = local_app_data / "HomeServer" / "Data"
+    if preferred.exists():
+        return preferred
+    if legacy.exists():
+        # Direct module users remain backward compatible. The Windows launcher
+        # performs the one-time legacy -> LocalAppData move before importing us.
+        return legacy
+    return preferred
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "HomeServer"
-    version: str = "0.10.0"
+    version: str = "0.11.0"
     host: str = "127.0.0.1"
     port: int = 4377
-    data_dir: Path = Path(os.environ.get("HOMESERVER_DATA_DIR", Path.home() / ".homeserver"))
+    data_dir: Path = field(default_factory=_default_data_dir)
     max_upload_bytes: int = 10 * 1024 * 1024
     max_backup_upload_bytes: int = 512 * 1024 * 1024
     max_backup_uncompressed_bytes: int = 2 * 1024 * 1024 * 1024
@@ -50,6 +70,18 @@ class Settings:
     @property
     def pending_restore_dir(self) -> Path:
         return self.restore_dir / "pending"
+
+    @property
+    def runtime_dir(self) -> Path:
+        return self.data_dir / "runtime"
+
+    @property
+    def owner_secret_path(self) -> Path:
+        return self.data_dir / "security" / "owner-bootstrap.dat"
+
+    @property
+    def bootstrap_state_path(self) -> Path:
+        return self.runtime_dir / "bootstrap-state.json"
 
 
 settings = Settings()

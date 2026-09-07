@@ -1,5 +1,5 @@
 #define MyAppName "HomeServer"
-#define MyAppVersion "0.10.0"
+#define MyAppVersion "0.11.0"
 #define MyAppPublisher "HomeServer"
 #define MyAppExeName "HomeServer.exe"
 
@@ -19,6 +19,8 @@ WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 RestartApplications=no
+UsePreviousTasks=yes
+SetupLogging=yes
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
@@ -30,7 +32,12 @@ Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{autoprograms}\HomeServer"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\HomeServer"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userstartup}\HomeServer"; Filename: "{app}\{#MyAppExeName}"; Tasks: startup
+
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "HomeServer"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch HomeServer"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "{cmd}"; Parameters: "/C reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v HomeServer /f >nul 2>&1"; Flags: runhidden; RunOnceId: "HomeServerStartupCleanup"

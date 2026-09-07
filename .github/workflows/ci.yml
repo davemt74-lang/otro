@@ -19,6 +19,8 @@ jobs:
         run: python -m compileall app desktop tests
       - name: Validate control center JavaScript
         run: node --check ui/app.js
+      - name: Validate system workspace JavaScript
+        run: node --check ui/system.js
       - name: Validate Agent Brain JavaScript
         run: node --check ui/brain.js
       - name: Validate Skills and Tools JavaScript
@@ -33,6 +35,16 @@ jobs:
         run: node --check connectors/vp3/client.js
       - name: Database migration upgrade test
         run: python tests/migrations.py
+      - name: Windows data bootstrap regression
+        run: python tests/bootstrap.py
+      - name: Single-instance primitive regression
+        run: python tests/single_instance.py
+      - name: Windows reliability and owner-system regression
+        run: python tests/system_reliability.py
+      - name: Restricted recovery-mode regression
+        run: python tests/recovery.py
+      - name: Installer upgrade contract regression
+        run: python tests/installer_contract.py
       - name: Smoke test API, pairing, Agent Brain and tools
         run: python tests/smoke.py
       - name: Tool audit privacy regression
@@ -64,7 +76,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.10.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.11.0') {
                   $healthy = $true
                   break
                 }
@@ -75,17 +87,95 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.10.0' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.11.0' }
           } finally {
             $process.Refresh()
-            if (-not $process.HasExited) {
-              & taskkill.exe /PID $process.Id /T /F | Out-Null
-            }
+            if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
             Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
             Start-Sleep -Milliseconds 750
           }
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
             throw 'Packaged smoke left a HomeServer listener on port 4377'
+          }
+      - name: Verify packaged single-instance enforcement
+        shell: pwsh
+        run: |
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-single-instance'
+          $primary = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          try {
+            $healthy = $false
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              Start-Sleep -Seconds 1
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
+                if ($response.ok -eq $true -and $response.version -eq '0.11.0') { $healthy = $true; break }
+              } catch {}
+            }
+            if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
+            $secondary = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+            Wait-Process -Id $secondary.Id -Timeout 10
+            $secondary.Refresh()
+            if (-not $secondary.HasExited) { throw 'Second HomeServer instance did not exit' }
+            if ($secondary.ExitCode -ne 23) { throw "Second HomeServer instance exited with $($secondary.ExitCode), expected 23" }
+            $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
+            if ($response.ok -ne $true) { throw 'Primary HomeServer was disrupted by the rejected second instance' }
+          } finally {
+            $primary.Refresh()
+            if (-not $primary.HasExited) { & taskkill.exe /PID $primary.Id /T /F | Out-Null }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Single-instance smoke left a listener on port 4377'
+          }
+      - name: Verify packaged graceful restart and shutdown
+        shell: pwsh
+        run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is occupied before the lifecycle smoke test'
+          }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-lifecycle'
+          $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          try {
+            python tests/packaged_lifecycle.py
+            if ($LASTEXITCODE -ne 0) { throw "Packaged lifecycle test failed with exit code $LASTEXITCODE" }
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Lifecycle smoke left a HomeServer listener on port 4377'
+          }
+      - name: Smoke test packaged recovery mode
+        shell: pwsh
+        run: |
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-recovery'
+          New-Item -ItemType Directory -Force -Path $env:HOMESERVER_DATA_DIR | Out-Null
+          [System.IO.File]::WriteAllBytes((Join-Path $env:HOMESERVER_DATA_DIR 'homeserver.db'), [byte[]](1,2,3,4,5,6,7,8))
+          $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          $recovery = $false
+          try {
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              Start-Sleep -Seconds 1
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
+                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '0.11.0') {
+                  $recovery = $true
+                  break
+                }
+              } catch {
+                $process.Refresh()
+                if ($process.HasExited) { throw "Recovery HomeServer.exe exited with code $($process.ExitCode)" }
+              }
+            }
+            if (-not $recovery) { throw 'Packaged HomeServer did not enter recovery mode for an invalid database' }
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
           }
       - name: Smoke test packaged staged restore
         shell: pwsh
@@ -102,7 +192,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.10.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.11.0') {
                   $healthy = $true
                   break
                 }
@@ -116,9 +206,7 @@ jobs:
             if (-not $healthy) { throw 'HomeServer.exe did not become healthy after applying the staged restore' }
           } finally {
             $process.Refresh()
-            if (-not $process.HasExited) {
-              & taskkill.exe /PID $process.Id /T /F | Out-Null
-            }
+            if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
             Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
             Start-Sleep -Milliseconds 750
           }
@@ -136,6 +224,25 @@ jobs:
           if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler was not found' }
           & $compiler 'installer\HomeServer.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+      - name: Verify silent installer upgrade preserves private data
+        shell: pwsh
+        run: |
+          $installer = Resolve-Path 'dist/HomeServerSetup.exe'
+          $installDir = Join-Path $env:RUNNER_TEMP 'HomeServerInstalled'
+          $privateDir = Join-Path $env:LOCALAPPDATA 'HomeServer\Data'
+          Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
+          Remove-Item -Recurse -Force $privateDir -ErrorAction SilentlyContinue
+          $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$installDir",'/TASKS=""')
+          $first = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+          if ($first.ExitCode -ne 0) { throw "First silent install failed with $($first.ExitCode)" }
+          if (-not (Test-Path (Join-Path $installDir 'HomeServer.exe'))) { throw 'Installed HomeServer.exe missing' }
+          New-Item -ItemType Directory -Force -Path $privateDir | Out-Null
+          Set-Content -Encoding utf8 (Join-Path $privateDir 'upgrade-sentinel.txt') 'preserve-me'
+          $second = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+          if ($second.ExitCode -ne 0) { throw "Upgrade install failed with $($second.ExitCode)" }
+          if ((Get-Content (Join-Path $privateDir 'upgrade-sentinel.txt') -Raw).Trim() -ne 'preserve-me') {
+            throw 'Installer upgrade modified private HomeServer data'
+          }
       - name: Verify distribution files
         shell: pwsh
         run: |
