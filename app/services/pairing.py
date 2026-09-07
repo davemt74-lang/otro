@@ -13,6 +13,7 @@ DEFAULT_PERMISSIONS = {
     "memory.read",
     "memory.write",
     "notifications.read",
+    "tools.execute",
 }
 
 
@@ -92,8 +93,6 @@ def approve_pairing(code: str) -> dict | None:
             token_hash = claim_hash
             delivery = "claim_token"
         else:
-            # Backward compatibility for pairing requests created by pre-v0.4
-            # HomeServer builds before claim-token pairing existed.
             legacy_token = secrets.token_urlsafe(48)
             token_hash = _hash(legacy_token)
             delivery = "legacy_token"
