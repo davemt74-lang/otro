@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import brain, providers
+from .services import agent_tools, brain, providers
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -18,6 +18,11 @@ class ProviderUpdate(BaseModel):
     base_url: str = Field(min_length=8, max_length=300)
     model: str = Field(default="", max_length=160)
     enabled: bool = False
+
+
+class AgentToolPolicyUpdate(BaseModel):
+    enabled: bool = False
+    max_calls: int = Field(default=3, ge=1, le=3)
 
 
 def _current_app(authorization: str | None = Header(default=None)) -> dict:
@@ -45,6 +50,8 @@ def _chat_or_http(
     *,
     include_memory: bool = True,
     include_knowledge: bool = True,
+    tool_permissions: set[str] | None = None,
+    owner_tools: bool = False,
 ) -> dict:
     try:
         return brain.chat(
@@ -53,6 +60,8 @@ def _chat_or_http(
             payload.conversation_id,
             include_memory=include_memory,
             include_knowledge=include_knowledge,
+            tool_permissions=tool_permissions,
+            owner_tools=owner_tools,
         )
     except brain.BrainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -66,6 +75,8 @@ def client_chat(payload: ChatRequest, identity: dict = Depends(_require_chat)) -
         payload,
         include_memory="memory.read" in permissions,
         include_knowledge="knowledge.search" in permissions,
+        tool_permissions=permissions,
+        owner_tools=False,
     )
 
 
@@ -87,7 +98,7 @@ def client_conversation(conversation_id: str, identity: dict = Depends(_require_
 
 @router.post("/api/v1/control/chat")
 def control_chat(payload: ChatRequest) -> dict:
-    return _chat_or_http("owner", payload)
+    return _chat_or_http("owner", payload, tool_permissions=set(), owner_tools=True)
 
 
 @router.get("/api/v1/control/conversations")
@@ -133,3 +144,21 @@ def control_provider_test(payload: ProviderUpdate) -> dict:
         return providers.discover_ollama_models(payload.base_url)
     except providers.ProviderError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/api/v1/control/agent-tools")
+def control_agent_tools() -> dict:
+    return {
+        "policy": agent_tools.get_policy(),
+        "mode": "read_only",
+        "available_tools": [schema["function"]["name"] for schema in agent_tools.model_tool_schemas(owner=True)],
+    }
+
+
+@router.put("/api/v1/control/agent-tools")
+def control_agent_tools_update(payload: AgentToolPolicyUpdate) -> dict:
+    try:
+        policy = agent_tools.save_policy(payload.enabled, payload.max_calls)
+    except agent_tools.AgentToolError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"policy": policy, "mode": "read_only"}

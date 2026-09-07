@@ -6,7 +6,7 @@ HomeServer is application-neutral. VP3 is an authorized browser client that conn
 
 Default: `http://127.0.0.1:4377`
 
-VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.6 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, knowledge, memory, skills and tools capabilities.
+VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.7 reports `pairing_protocol: "claim-v1"`, Agent Brain conversations, knowledge, memory, skills, direct tools, and optional read-only Agent Tool Use.
 
 ## Browser pairing
 
@@ -34,14 +34,36 @@ With `agent.chat`, VP3 can use the same private HomeServer agent as the local Co
 }
 ```
 
-HomeServer assembles the primary agent instructions and bounded recent conversation history. Memory and knowledge are only added when VP3 separately has `memory.read` and `knowledge.search`. v0.6 permits only a loopback Ollama provider.
+HomeServer assembles the primary agent instructions and bounded recent conversation history. Memory and knowledge are only added when VP3 separately has `memory.read` and `knowledge.search`. v0.7 permits only a loopback Ollama provider.
 
 Conversation APIs:
 
 - `GET /api/v1/conversations`
 - `GET /api/v1/conversations/{conversation_id}`
 
-## Skills & Tools
+## Agent Tool Use
+
+v0.7 adds optional read-only tool use during Agent Chat. This is controlled only by the local HomeServer owner and is **disabled by default**.
+
+When enabled, HomeServer may expose the following Ollama function tools to a VP3 chat:
+
+- `homeserver_knowledge_search` → `knowledge.search`
+- `homeserver_memory_list` → `memory.list`
+
+VP3 does not receive these automatically. Its paired token must still satisfy all normal capability checks:
+
+- knowledge agent tool: `agent.chat` + `tools.execute` + `knowledge.search`
+- memory agent tool: `agent.chat` + `tools.execute` + `memory.read`
+
+The owner also sets a hard 1–3 executed-tool-call limit per chat turn. After the limit is reached, HomeServer requests the final Ollama response without exposing tools again.
+
+`memory.write` is **never** offered to the model. Agent Tool Use also exposes no shell, PowerShell, arbitrary HTTP, or unrestricted filesystem capability.
+
+Every model-requested tool call is routed through the same audited HomeServer registry used for direct tool execution. Tool result messages stay inside the local Ollama exchange and are not persisted as conversation messages. Agent run records keep the tool-call count and tool-run IDs; the existing tool audit remains content-safe.
+
+VP3 cannot enable, disable, or raise the Agent Tool budget through its bearer token. Those controls remain owner-only under `/api/v1/control/agent-tools`.
+
+## Direct Skills & Tools
 
 VP3 can discover the safe local capability registry after pairing:
 
@@ -49,9 +71,9 @@ VP3 can discover the safe local capability registry after pairing:
 - `GET /api/v1/skills`
 - `POST /api/v1/tools/{tool_key}/execute`
 
-Tool execution requires `tools.execute` **and** the tool's underlying permission. `tools.execute` never substitutes for data access.
+Direct tool execution requires `tools.execute` **and** the tool's underlying permission. `tools.execute` never substitutes for data access.
 
-Current v0.6 tools:
+Current tools:
 
 | Tool | Mode | Required permissions |
 | --- | --- | --- |
@@ -72,8 +94,6 @@ POST /api/v1/tools/knowledge.search/execute
 ```
 
 The owner can globally disable any built-in tool. Denied and completed tool attempts are audited locally, but raw search queries, returned knowledge excerpts and memory bodies are not copied into the tool-run audit table.
-
-HomeServer v0.6 exposes no arbitrary shell, PowerShell, HTTP or unrestricted filesystem tool.
 
 ## Other protected APIs
 

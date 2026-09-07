@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -84,7 +85,7 @@ def discover_ollama_models(base_url: str | None = None) -> dict:
     return {"reachable": True, "base_url": url, "models": models}
 
 
-def generate_ollama(messages: list[dict[str, str]], model_override: str | None = None) -> dict:
+def _provider_and_model(model_override: str | None = None) -> tuple[dict, str, str]:
     provider = get_ollama()
     if not provider["enabled"]:
         raise ProviderError("Ollama is disabled. Enable it in My Agent before starting a chat.")
@@ -92,20 +93,75 @@ def generate_ollama(messages: list[dict[str, str]], model_override: str | None =
     if not model:
         raise ProviderError("No Ollama model is configured.")
     url = normalize_loopback_url(provider["base_url"])
+    return provider, model, url
+
+
+def _normalize_tool_calls(message: dict[str, Any]) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    raw_calls = message.get("tool_calls")
+    if not isinstance(raw_calls, list):
+        return calls
+    for raw in raw_calls:
+        if not isinstance(raw, dict):
+            continue
+        function = raw.get("function")
+        if not isinstance(function, dict):
+            continue
+        name = str(function.get("name") or "").strip()
+        arguments = function.get("arguments")
+        if not name or not isinstance(arguments, dict):
+            continue
+        normalized_function: dict[str, Any] = {"name": name, "arguments": arguments}
+        if isinstance(function.get("index"), int):
+            normalized_function["index"] = function["index"]
+        calls.append({"type": "function", "function": normalized_function})
+    return calls
+
+
+def generate_ollama_step(
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    model_override: str | None = None,
+) -> dict[str, Any]:
+    _, model, url = _provider_and_model(model_override)
+    request_body: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {"num_predict": 1024},
+    }
+    if tools:
+        request_body["tools"] = tools
 
     try:
-        response = httpx.post(
-            f"{url}/api/chat",
-            json={"model": model, "messages": messages, "stream": False, "options": {"num_predict": 1024}},
-            timeout=120.0,
-        )
+        response = httpx.post(f"{url}/api/chat", json=request_body, timeout=120.0)
         response.raise_for_status()
         payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         raise ProviderError(f"Ollama could not complete the request at {url}.") from exc
 
     message = payload.get("message") if isinstance(payload, dict) else None
-    content = str(message.get("content") or "").strip() if isinstance(message, dict) else ""
-    if not content:
+    if not isinstance(message, dict):
+        raise ProviderError("Ollama returned an invalid chat response.")
+    content = str(message.get("content") or "").strip()
+    tool_calls = _normalize_tool_calls(message)
+    if not content and not tool_calls:
         raise ProviderError("Ollama returned an empty response.")
-    return {"provider": "ollama", "model": model, "content": content}
+    return {
+        "provider": "ollama",
+        "model": model,
+        "content": content,
+        "tool_calls": tool_calls,
+    }
+
+
+def generate_ollama(messages: list[dict[str, Any]], model_override: str | None = None) -> dict:
+    generated = generate_ollama_step(messages, model_override=model_override)
+    if not generated["content"]:
+        raise ProviderError("Ollama returned no final response text.")
+    return {
+        "provider": generated["provider"],
+        "model": generated["model"],
+        "content": generated["content"],
+    }

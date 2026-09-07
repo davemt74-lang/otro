@@ -39,6 +39,7 @@ def capabilities() -> dict:
         "permissions": sorted(DEFAULT_PERMISSIONS),
         "features": [
             "agent.chat",
+            "agent.tools.read",
             "conversations",
             "knowledge.search",
             "memory.read",
