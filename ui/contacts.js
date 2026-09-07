@@ -77,21 +77,7 @@
     } catch (_) { return null; }
   }
 
-  function activateContacts() {
-    document.querySelector('[data-view="contacts"]')?.click();
-  }
-
   document.addEventListener('click', async event => {
-    const nav = event.target.closest('[data-view="contacts"], [data-go="contacts"]');
-    if (nav) {
-      if (byId('pageTitle')) byId('pageTitle').textContent = 'Contacts';
-      try { await loadContacts(); } catch (err) { flash(err.message, true); }
-    }
-
-    if (event.target.id === 'refreshButton' && byId('view-contacts')?.classList.contains('active')) {
-      try { await loadContacts(); } catch (err) { flash(err.message, true); }
-    }
-
     if (event.target.id === 'showContactForm') {
       clearForm();
       byId('contactForm').classList.remove('hidden');
@@ -147,8 +133,5 @@
     searchTimer = setTimeout(() => loadContacts().catch(err => flash(err.message, true)), 180);
   });
 
-  window.addEventListener('hashchange', () => {
-    if (location.hash === '#contacts') activateContacts();
-  });
-  if (location.hash === '#contacts') setTimeout(activateContacts, 0);
+  window.loadHomeServerContacts = loadContacts;
 })();
