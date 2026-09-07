@@ -33,6 +33,8 @@ jobs:
         run: python tests/smoke.py
       - name: Tool audit privacy regression
         run: python tests/tools_security.py
+      - name: Agent read-tool regression
+        run: python tests/agent_tools.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
       - name: Smoke test packaged executable
@@ -46,7 +48,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.6.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.7.0') {
                   $healthy = $true
                   break
                 }
@@ -57,7 +59,7 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.6.0' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.7.0' }
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
