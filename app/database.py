@@ -54,6 +54,26 @@ def migration_files() -> list[tuple[int, Path]]:
     return migrations
 
 
+def _apply_migration(connection: sqlite3.Connection, version: int, path: Path) -> None:
+    sql = path.read_text(encoding="utf-8").strip()
+    # sqlite3.executescript() commits any open transaction before running.
+    # Put BEGIN/COMMIT inside the script so the schema change and migration
+    # record succeed or fail together.
+    script = (
+        "BEGIN IMMEDIATE;\n"
+        + sql
+        + "\n"
+        + f"INSERT INTO schema_migrations(version) VALUES ({int(version)});\n"
+        + "COMMIT;\n"
+    )
+    try:
+        connection.executescript(script)
+    except Exception:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+
+
 def initialize_database() -> None:
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
     with db() as connection:
@@ -68,11 +88,7 @@ def initialize_database() -> None:
             ).fetchone()
             if applied is not None:
                 continue
-            connection.executescript(path.read_text(encoding="utf-8"))
-            connection.execute(
-                "INSERT INTO schema_migrations(version) VALUES (?)",
-                (version,),
-            )
+            _apply_migration(connection, version, path)
 
     with db() as connection:
         existing = connection.execute(

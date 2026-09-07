@@ -5,7 +5,7 @@ from http.cookies import SimpleCookie
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .main import app as core_app
+from .bridge import app as core_app
 from .security import issue_owner_session, owner_session_matches
 
 OWNER_COOKIE = "homeserver_owner"

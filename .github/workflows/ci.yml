@@ -21,6 +21,8 @@ jobs:
         run: node --check ui/app.js
       - name: Validate authorization JavaScript
         run: node --check ui/authorize.js
+      - name: Validate VP3 bridge JavaScript
+        run: node --check connectors/vp3/client.js
       - name: Database migration upgrade test
         run: python tests/migrations.py
       - name: Smoke test API and SQLite

@@ -121,11 +121,9 @@ async function importKnowledgeFiles() {
   const input = $('knowledgeFiles');
   const files = [...(input?.files || [])];
   if (!files.length) return;
-
   let imported = 0;
   let duplicates = 0;
   const failures = [];
-
   for (const file of files) {
     const form = new FormData();
     form.append('file', file, file.name);
@@ -137,7 +135,6 @@ async function importKnowledgeFiles() {
       failures.push(`${file.name}: ${err.message}`);
     }
   }
-
   input.value = '';
   await loadKnowledge();
   const parts = [];
@@ -196,10 +193,7 @@ document.addEventListener('click', async (event) => {
 });
 
 document.addEventListener('change', async (event) => {
-  if (event.target.id === 'knowledgeFiles') {
-    await importKnowledgeFiles();
-    return;
-  }
+  if (event.target.id === 'knowledgeFiles') { await importKnowledgeFiles(); return; }
   const status = event.target.closest('[data-app-status]');
   if (status) { try { await api(`/api/v1/control/apps/${status.dataset.appStatus}`, {method:'PATCH', body:JSON.stringify({status:status.value})}); flash('Application status updated.'); await loadApps(); } catch (err) { flash(err.message, true); } }
   const permission = event.target.closest('[data-app-permission]');
@@ -209,7 +203,7 @@ document.addEventListener('change', async (event) => {
 $('agentForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/api/v1/control/agent', {method:'PUT', body:JSON.stringify({name:$('agentName').value, model:$('agentModel').value, instructions:$('agentInstructions').value})}); flash('Primary agent saved.'); await loadAgent(); } catch (err) { flash(err.message, true); } });
 $('knowledgeForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/api/v1/control/knowledge', {method:'POST', body:JSON.stringify({title:$('knowledgeTitle').value, kind:$('knowledgeKind').value, content:$('knowledgeContent').value, source_path:$('knowledgeSource').value || null})}); event.target.reset(); $('knowledgeForm').classList.add('hidden'); await loadKnowledge(); flash('Knowledge added and indexed.'); } catch (err) { flash(err.message, true); } });
 $('memoryForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/api/v1/control/memory', {method:'POST', body:JSON.stringify({memory_key:$('memoryKey').value || null, content:$('memoryContent').value, importance:Number($('memoryImportance').value)})}); event.target.reset(); $('memoryImportance').value = '0.5'; $('memoryForm').classList.add('hidden'); await loadMemory(); flash('Memory added.'); } catch (err) { flash(err.message, true); } });
-$('pairingForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const data = await api('/api/v1/pairing/approve', {method:'POST', body:JSON.stringify({code:$('pairingCode').value})}); $('pairingToken').classList.remove('hidden'); $('pairingToken').innerHTML = `<strong>Pairing approved — copy this token into the requesting app now.</strong>${esc(data.token)}<br><span class="muted">For security, HomeServer will not display this token again.</span>`; $('pairingCode').value = ''; await loadApps(); flash(`${data.app_key} paired successfully.`); } catch (err) { flash(err.message, true); } });
+$('pairingForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const data = await api('/api/v1/pairing/approve', {method:'POST', body:JSON.stringify({code:$('pairingCode').value})}); $('pairingToken').classList.remove('hidden'); if (data.delivery === 'claim_token') { $('pairingToken').innerHTML = `<strong>Pairing approved.</strong><span class="muted">Return to ${esc(data.app_key)}. It can complete the connection automatically; there is no token to copy.</span>`; } else { $('pairingToken').innerHTML = `<strong>Legacy pairing approved — copy this token into the requesting app now.</strong>${esc(data.token || '')}<br><span class="muted">For security, HomeServer will not display this token again.</span>`; } $('pairingCode').value = ''; await loadApps(); flash(`${data.app_key} paired successfully.`); } catch (err) { flash(err.message, true); } });
 $('knowledgeSearch').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => loadKnowledge().catch(err => flash(err.message, true)), 180); });
 $('refreshButton').addEventListener('click', () => loadView(state.view).then(() => flash('HomeServer refreshed.')).catch(err => flash(err.message, true)));
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (['dashboard','agent','knowledge','memory','apps','activity'].includes(next)) openView(next); });

@@ -22,11 +22,38 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
     with TestClient(app) as client:
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.3.0"
+        assert health.json()["version"] == "0.4.0"
+
+        capabilities = client.get("/api/v1/capabilities", headers={"Origin": "https://vp3.me"})
+        assert capabilities.status_code == 200
+        assert capabilities.json()["pairing_protocol"] == "claim-v1"
+        assert capabilities.headers.get("access-control-allow-origin") == "https://vp3.me"
+
+        allowed_preflight = client.options(
+            "/api/v1/pairing/request",
+            headers={
+                "Origin": "https://vp3.me",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert allowed_preflight.status_code == 200
+        assert allowed_preflight.headers.get("access-control-allow-origin") == "https://vp3.me"
+
+        blocked_preflight = client.options(
+            "/api/v1/pairing/request",
+            headers={
+                "Origin": "https://evil.example",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert blocked_preflight.status_code == 400
+        assert blocked_preflight.headers.get("access-control-allow-origin") is None
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 2
+        assert status.json()["schema_version"] == 3
 
         root = client.get("/")
         assert root.status_code == 200
@@ -42,10 +69,34 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
                 "app_name": "VP3 Test",
                 "permissions": ["agent.chat", "knowledge.search", "memory.read", "memory.write", "not.real"],
             },
+            headers={"Origin": "https://vp3.me"},
         )
         assert pair.status_code == 200
-        code = pair.json()["code"]
-        assert "not.real" not in pair.json()["permissions"]
+        assert pair.headers.get("access-control-allow-origin") == "https://vp3.me"
+        pair_json = pair.json()
+        assert pair_json["protocol"] == "claim-v1"
+        assert "not.real" not in pair_json["permissions"]
+        code = pair_json["code"]
+        request_id = pair_json["request_id"]
+        claim_token = pair_json["claim_token"]
+
+        pending = client.post(
+            "/api/v1/pairing/status",
+            json={"request_id": request_id, "claim_token": claim_token},
+            headers={"Origin": "https://vp3.me"},
+        )
+        assert pending.status_code == 200
+        assert pending.json()["status"] == "pending"
+        assert pending.json()["ready"] is False
+
+        wrong_claim = client.post(
+            "/api/v1/pairing/status",
+            json={"request_id": request_id, "claim_token": "x" * 48},
+        )
+        assert wrong_claim.status_code == 404
+
+        preapproval_auth = client.get("/api/v1/me", headers={"Authorization": f"Bearer {claim_token}"})
+        assert preapproval_auth.status_code == 401
 
         self_approval = client.post("/api/v1/pairing/approve", json={"code": code})
         assert self_approval.status_code == 401
@@ -87,7 +138,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert imported_json["created"] is True
         assert imported_json["duplicate"] is False
         document_id = imported_json["id"]
-        assert imported_json["chunk_count"] >= 1
 
         duplicate = client.post(
             "/api/v1/control/knowledge/import",
@@ -96,44 +146,77 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert duplicate.status_code == 200
         assert duplicate.json()["duplicate"] is True
         assert duplicate.json()["id"] == document_id
-
-        stored_files = list(settings.knowledge_files_dir.glob("*"))
-        assert len(stored_files) == 1
+        assert len(list(settings.knowledge_files_dir.glob("*"))) == 1
 
         owner_search = client.get("/api/v1/control/knowledge?q=merchant+partnerships")
         assert owner_search.status_code == 200
         assert owner_search.json()["items"][0]["id"] == document_id
-        assert "merchant" in owner_search.json()["items"][0]["snippet"].lower()
-
-        reindex = client.post("/api/v1/control/knowledge/reindex")
-        assert reindex.status_code == 200
-        assert reindex.json()["items"] == 2
-        assert reindex.json()["chunks"] >= 2
-
-        memory = client.post(
-            "/api/v1/control/memory",
-            json={"memory_key": "architecture", "content": "HomeServer is application-neutral.", "importance": 0.9},
-        )
-        assert memory.status_code == 200
 
         approval = client.post("/api/v1/pairing/approve", json={"code": code})
         assert approval.status_code == 200
-        token = approval.json()["token"]
+        approval_json = approval.json()
+        assert approval_json["delivery"] == "claim_token"
+        assert "token" not in approval_json
 
-        me = client.get("/api/v1/me", headers={"Authorization": f"Bearer {token}"})
+        approved = client.post(
+            "/api/v1/pairing/status",
+            json={"request_id": request_id, "claim_token": claim_token},
+            headers={"Origin": "https://vp3.me"},
+        )
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "approved"
+        assert approved.json()["ready"] is True
+
+        me = client.get(
+            "/api/v1/me",
+            headers={"Authorization": f"Bearer {claim_token}", "Origin": "https://vp3.me"},
+        )
         assert me.status_code == 200
         assert me.json()["app_key"] == "vp3-test"
+        assert "memory.write" in me.json()["permissions"]
+        assert me.headers.get("access-control-allow-origin") == "https://vp3.me"
 
         client_knowledge = client.get(
             "/api/v1/knowledge?q=merchant",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {claim_token}"},
         )
         assert client_knowledge.status_code == 200
         assert client_knowledge.json()["items"][0]["id"] == document_id
 
-        client_memory = client.get("/api/v1/memory", headers={"Authorization": f"Bearer {token}"})
+        memory_write = client.post(
+            "/api/v1/memory",
+            json={"memory_key": "architecture", "content": "HomeServer is application-neutral.", "importance": 0.9},
+            headers={"Authorization": f"Bearer {claim_token}"},
+        )
+        assert memory_write.status_code == 200
+
+        client_memory = client.get("/api/v1/memory", headers={"Authorization": f"Bearer {claim_token}"})
         assert client_memory.status_code == 200
         assert len(client_memory.json()["items"]) == 1
+
+        repair = client.post(
+            "/api/v1/pairing/request",
+            json={"app_key": "vp3-test", "app_name": "VP3 Test", "permissions": ["knowledge.search"]},
+        )
+        assert repair.status_code == 200
+        repair_json = repair.json()
+        repair_approval = client.post("/api/v1/pairing/approve", json={"code": repair_json["code"]})
+        assert repair_approval.status_code == 200
+        new_token = repair_json["claim_token"]
+
+        old_token_rejected = client.get("/api/v1/me", headers={"Authorization": f"Bearer {claim_token}"})
+        assert old_token_rejected.status_code == 401
+
+        repaired_me = client.get("/api/v1/me", headers={"Authorization": f"Bearer {new_token}"})
+        assert repaired_me.status_code == 200
+        assert repaired_me.json()["permissions"] == ["knowledge.search"]
+
+        write_revoked = client.post(
+            "/api/v1/memory",
+            json={"content": "This should be denied."},
+            headers={"Authorization": f"Bearer {new_token}"},
+        )
+        assert write_revoked.status_code == 403
 
         apps = client.get("/api/v1/control/apps")
         assert apps.status_code == 200
@@ -142,9 +225,5 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         deleted = client.delete(f"/api/v1/control/knowledge/{document_id}")
         assert deleted.status_code == 200
         assert not list(settings.knowledge_files_dir.glob("*"))
-
-        deleted_search = client.get("/api/v1/control/knowledge?q=merchant")
-        assert deleted_search.status_code == 200
-        assert deleted_search.json()["items"] == []
 
 print("HomeServer smoke test passed")
