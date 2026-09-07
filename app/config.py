@@ -32,6 +32,8 @@ def _default_data_dir() -> Path:
     if preferred.exists():
         return preferred
     if legacy.exists():
+        # Direct module users remain backward compatible. The Windows launcher
+        # performs the one-time legacy -> LocalAppData move before importing us.
         return legacy
     return preferred
 
