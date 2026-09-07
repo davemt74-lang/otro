@@ -426,6 +426,24 @@ def get_conversation(source_app_key: str, conversation_id: str) -> dict:
     return {"conversation": dict(conversation), "messages": [dict(row) for row in messages]}
 
 
+def rename_conversation(source_app_key: str, conversation_id: str, title: str) -> dict:
+    normalized = " ".join(title.strip().split())[:120]
+    if not normalized:
+        raise BrainError("Conversation title is required.")
+    with db() as connection:
+        cursor = connection.execute(
+            "UPDATE conversations SET title=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND source_app_key=?",
+            (normalized, conversation_id, source_app_key),
+        )
+        if cursor.rowcount <= 0:
+            raise BrainError("Conversation not found for this application.", 404)
+        row = connection.execute(
+            "SELECT id, title, source_app_key, status, created_at, updated_at FROM conversations WHERE id=?",
+            (conversation_id,),
+        ).fetchone()
+    return dict(row)
+
+
 def delete_conversation(source_app_key: str, conversation_id: str) -> bool:
     with db() as connection:
         cursor = connection.execute(
