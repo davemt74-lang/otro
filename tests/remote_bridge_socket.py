@@ -51,9 +51,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-socket-") as data_dir
         }))
         captured["response"] = json.loads(websocket.recv(timeout=5))
         completed.set()
-        # Keep the broker connection alive until the test inspects live runtime
-        # state. Production intentionally clears transient claim data after a
-        # disconnect, so closing here would make this assertion racy.
         release_broker.wait(5)
 
     server = serve(
@@ -77,14 +74,14 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-socket-") as data_dir
     }
 
     worker = remote_bridge.RemoteBridgeWorker()
-    worker._wait_local_api = lambda: True  # protocol test isolates the websocket transport
+    worker._wait_local_api = lambda: True
     try:
         remote_bridge.save_bridge_settings(True, f"ws://127.0.0.1:{port}/bridge")
         worker.start()
         assert completed.wait(8), "Remote bridge did not complete loopback relay exchange"
         assert captured["hello"]["type"] == "hello"
         assert captured["hello"]["protocol"] == "homeserver-relay-v1"
-        assert captured["hello"]["version"] == "0.14.0"
+        assert captured["hello"]["version"] == "0.15.0"
         response = captured["response"]
         assert response["type"] == "response"
         assert response["request_id"] == "request-1"

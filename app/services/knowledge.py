@@ -321,7 +321,7 @@ def _item_rows(connection, item_ids: list[int] | None = None, limit: int = 250):
             ki.id,
             ki.title,
             ki.kind,
-            ki.source_path,
+            CASE WHEN ki.kind='watched_document' THEN NULL ELSE ki.source_path END AS source_path,
             ki.content,
             ki.created_at,
             ki.updated_at,

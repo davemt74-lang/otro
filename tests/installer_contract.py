@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[1]
 text = (ROOT_DIR / "installer" / "HomeServer.iss").read_text(encoding="utf-8")
 
-assert '#define MyAppVersion "0.14.0"' in text
+assert '#define MyAppVersion "0.15.0"' in text
 assert 'AppId={{F94F980E-7B18-4FA3-A9B8-75A2EDE04777}' in text
 assert 'DefaultDirName={localappdata}\\Programs\\HomeServer' in text
 assert 'UsePreviousTasks=yes' in text

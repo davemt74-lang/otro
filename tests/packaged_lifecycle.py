@@ -23,7 +23,7 @@ def wait_health(expected_up: bool, timeout: float = 20.0) -> bool:
             up = False
             try:
                 response = client.get("/api/v1/health")
-                up = response.status_code == 200 and response.json().get("version") == "0.14.0"
+                up = response.status_code == 200 and response.json().get("version") == "0.15.0"
             except Exception:
                 up = False
             if up is expected_up:
@@ -51,8 +51,6 @@ def main() -> None:
     assert restart.status_code == 200 and restart.json()["accepted"] is True
     first.close()
 
-    # Observe either a brief down transition or enough time for the old process
-    # to exit; the definitive proof is a new process-local owner session below.
     wait_health(False, 4)
     assert wait_health(True, 20), "HomeServer did not return after supervised restart"
 

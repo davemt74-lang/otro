@@ -1,0 +1,27 @@
+name: HomeServer Knowledge Sync CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  knowledge-sync:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Validate Knowledge Sources JavaScript
+        run: node --check ui/knowledge-sources.js
+      - name: Knowledge Sources UI integration contract
+        run: python tests/knowledge_sources_contract.py
+      - name: Knowledge Sync scheduler lifespan regression
+        run: python tests/knowledge_scheduler_lifespan.py
+      - name: Watched knowledge source regression
+        run: python tests/knowledge_sources.py
+      - name: Retained Knowledge source path privacy regression
+        run: python tests/knowledge_source_retention_privacy.py

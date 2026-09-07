@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
     from app.services import remote_bridge  # noqa: E402
     from app.services.remote_identity import load_or_create_remote_identity, remote_identity_metadata  # noqa: E402
 
-    assert settings.version == "0.14.0"
+    assert settings.version == "0.15.0"
     assert remote_bridge.normalize_broker_url("wss://bridge.example.test/homeserver") == "wss://bridge.example.test/homeserver"
     assert remote_bridge.normalize_broker_url("ws://127.0.0.1:8765/bridge") == "ws://127.0.0.1:8765/bridge"
     for invalid in (

@@ -26,10 +26,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
 
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.14.0"
+        assert health.json()["version"] == "0.15.0"
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 12
+        assert status.json()["schema_version"] == 13
 
         default_inference = client.get("/api/v1/control/inference")
         assert default_inference.status_code == 200
@@ -180,8 +180,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
         assert cloud_rows[0]["billable_tokens"] == 225
         assert cloud_rows[0]["balance_after_tokens"] == 9775
 
-        # Direct service idempotency remains authoritative even if a cloud
-        # connector retries the same charge notification after reconnecting.
         usage.record_usage(
             event_id="vp3-cloud-charge-0001",
             source_app_key="app:vp3-cloud-test",
@@ -196,9 +194,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
         assert final["cloud_tokens_debited"] == 225
         assert final["balance_tokens"] == 9775
 
-        # Idempotency is scoped to an app. Another authorized integration may
-        # legitimately use the same cloud event id without colliding with or
-        # learning the first app's billing row.
         other_pair = client.post(
             "/api/v1/pairing/request",
             json={

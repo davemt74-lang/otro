@@ -9,6 +9,7 @@ from .backups_api import router as backups_router
 from .brain_api import router as brain_router
 from .contacts_api import router as contacts_router
 from .config import settings
+from .knowledge_sources_api import router as knowledge_sources_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
 from .services import providers
@@ -29,6 +30,7 @@ app.include_router(tools_router)
 app.include_router(approvals_router)
 app.include_router(contacts_router)
 app.include_router(tasks_router)
+app.include_router(knowledge_sources_router)
 app.include_router(backups_router)
 app.include_router(system_router)
 app.include_router(remote_bridge_router)
@@ -69,6 +71,8 @@ def capabilities() -> dict:
             "inference.routing",
             "inference.status",
             "knowledge.search",
+            "knowledge.sources.local",
+            "knowledge.sources.sync",
             "memory.read",
             "memory.write",
             "notifications.read",
