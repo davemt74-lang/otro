@@ -4,77 +4,91 @@ HomeServer is a local-first private capability server for personal AI agents and
 
 The Windows desktop runtime runs a private FastAPI service on `127.0.0.1:4377`, stores durable data in SQLite, and opens a local control center for managing the primary agent, knowledge, memory, application pairing, permissions and activity.
 
-## Current v0.2 foundation
+## Current v0.3 foundation
 
-- Windows tray application and PyInstaller `HomeServer.exe` build
-- Per-user `HomeServerSetup.exe` installer
-- Optional Start-with-Windows and Desktop shortcuts
+- Windows tray application and packaged `HomeServer.exe`
+- Per-user `HomeServerSetup.exe` installer with optional Start-with-Windows
 - Local control center at `http://127.0.0.1:4377/`
-- SQLite database with WAL mode and foreign keys
+- SQLite database with WAL mode, foreign keys and versioned migrations
 - Primary agent configuration
-- Local knowledge records and search
 - Durable agent memory
+- Local knowledge notes and document ingestion
+- Private SQLite FTS5 knowledge index with chunked search
+- TXT, Markdown, JSON, CSV, HTML, PDF and DOCX text extraction
+- SHA-256 document duplicate detection
 - One-time application pairing
 - Hashed bearer tokens; raw tokens are not stored
 - Per-application capability permissions
 - Pause/revoke controls for connected applications
 - Local activity/audit log
 - VP3 connector contract
-- Windows CI that tests the source runtime and the packaged executable before publishing distribution artifacts
-
-## Windows distribution
-
-The Windows workflow produces:
-
-- `HomeServer.exe` — portable desktop application
-- `HomeServerSetup.exe` — per-user installer that does not require administrator rights
-- `SHA256SUMS.txt` — SHA-256 checksums for both binaries
-
-The installer places HomeServer under the current user's Local App Data programs directory. A Start Menu shortcut is created automatically; Desktop and Start-with-Windows shortcuts are optional installer tasks.
+- Windows CI that tests database upgrades, secured APIs, the packaged executable and installer
 
 ## Data location
 
-By default HomeServer stores its database under:
+By default HomeServer stores its runtime data under:
+
+`~/.homeserver/`
+
+The SQLite database is:
 
 `~/.homeserver/homeserver.db`
 
+Imported knowledge files are copied locally to:
+
+`~/.homeserver/knowledge/files/`
+
 Set `HOMESERVER_DATA_DIR` to use another local directory.
 
-Documents and other large source files should remain on disk. SQLite stores structured records, extracted/indexable content, metadata, permissions and relationships rather than becoming a general file container.
+## Knowledge ingestion
+
+The control center can import local files up to 10 MB each. HomeServer keeps the imported source file on the user's machine, extracts readable text locally, chunks that text, and indexes the chunks in SQLite FTS5.
+
+Supported v0.3 file types:
+
+- `.txt`
+- `.md` / `.markdown`
+- `.json`
+- `.csv`
+- `.html` / `.htm`
+- `.pdf`
+- `.docx`
+
+Identical imported files are detected by SHA-256 and are not stored twice. Existing pre-v0.3 knowledge records are indexed automatically after the migration is applied.
 
 ## Run locally
 
 ```bash
 python -m venv .venv
-.venv\\Scripts\\activate
+.venv\Scripts\activate
 pip install -r requirements.txt
 python desktop/launcher.py
 ```
 
-The tray menu opens the HomeServer control center or API documentation.
-
-For automated packaged-runtime verification, `HomeServer.exe --headless` runs the secured local service without creating a tray icon.
+The tray menu opens the secured HomeServer control center or API documentation.
 
 ## VP3 integration
 
-VP3 does not read `homeserver.db`. It pairs with HomeServer and uses permission-checked local API endpoints. See [`connectors/vp3/README.md`](connectors/vp3/README.md).
+VP3 does not read `homeserver.db` or HomeServer's local files. It pairs with HomeServer and uses permission-checked local API endpoints. The `knowledge.search` capability returns indexed knowledge through the API without exposing direct filesystem access.
 
-## Build Windows executable
+See [`connectors/vp3/README.md`](connectors/vp3/README.md).
+
+## Build Windows distribution
 
 ```bash
 pyinstaller HomeServer.spec --clean --noconfirm
 ```
 
-Output:
+The GitHub Actions workflow additionally builds the Inno Setup installer and publishes a `HomeServer-Windows` artifact containing:
 
-`dist/HomeServer.exe`
-
-The CI workflow then builds the Inno Setup installer from `installer/HomeServer.iss`.
+- `HomeServer.exe`
+- `HomeServerSetup.exe`
+- `SHA256SUMS.txt`
 
 ## Security model
 
-HomeServer binds to loopback in the desktop runtime. Pairing codes are one-time and expire. Pairing codes and application bearer tokens are stored only as SHA-256 hashes. Each connected application receives explicit capabilities that can be changed or revoked by the owner.
+HomeServer binds to loopback in the desktop runtime. Pairing codes are one-time and expire. Pairing codes and bearer tokens are stored only as SHA-256 hashes. Each connected application receives explicit capabilities that can be changed or revoked by the owner.
 
-Owner control actions use a separate process-local authorization boundary. Opening HomeServer from the tray exchanges an ephemeral bootstrap token for an HttpOnly, SameSite=Strict browser session cookie. Pairing approval and `/api/v1/control/*` routes are blocked without that owner session, so a local client cannot request and approve its own pairing.
+Owner-only control routes require an ephemeral HomeServer owner session issued by the desktop tray runtime. A local client may request pairing, but it cannot approve its own request.
 
-Future hardening includes encrypted secret storage, signed Windows binaries, encrypted backup/export, and a stronger automated pairing handshake for remote or cross-device clients.
+Imported documents remain local. Connected apps can query extracted/indexed knowledge only when the owner grants `knowledge.search`.

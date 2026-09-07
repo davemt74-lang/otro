@@ -15,13 +15,18 @@ if str(ROOT_DIR) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
+    from app.config import settings  # noqa: E402
     from app.runtime import app  # noqa: E402
     from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
 
     with TestClient(app) as client:
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.2.0"
+        assert health.json()["version"] == "0.3.0"
+
+        status = client.get("/api/v1/status")
+        assert status.status_code == 200
+        assert status.json()["schema_version"] == 2
 
         root = client.get("/")
         assert root.status_code == 200
@@ -67,6 +72,43 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             json={"title": "VP3", "kind": "note", "content": "VP3 is an authorized HomeServer client."},
         )
         assert knowledge.status_code == 200
+        assert knowledge.json()["chunk_count"] == 1
+
+        document_bytes = (
+            b"# Merchant plan\n\nNorth Mountain merchant partnerships use private HomeServer knowledge. "
+            b"The document should be searchable through SQLite full-text search."
+        )
+        imported = client.post(
+            "/api/v1/control/knowledge/import",
+            files={"file": ("merchant-plan.md", document_bytes, "text/markdown")},
+        )
+        assert imported.status_code == 200
+        imported_json = imported.json()
+        assert imported_json["created"] is True
+        assert imported_json["duplicate"] is False
+        document_id = imported_json["id"]
+        assert imported_json["chunk_count"] >= 1
+
+        duplicate = client.post(
+            "/api/v1/control/knowledge/import",
+            files={"file": ("merchant-plan-copy.md", document_bytes, "text/markdown")},
+        )
+        assert duplicate.status_code == 200
+        assert duplicate.json()["duplicate"] is True
+        assert duplicate.json()["id"] == document_id
+
+        stored_files = list(settings.knowledge_files_dir.glob("*"))
+        assert len(stored_files) == 1
+
+        owner_search = client.get("/api/v1/control/knowledge?q=merchant+partnerships")
+        assert owner_search.status_code == 200
+        assert owner_search.json()["items"][0]["id"] == document_id
+        assert "merchant" in owner_search.json()["items"][0]["snippet"].lower()
+
+        reindex = client.post("/api/v1/control/knowledge/reindex")
+        assert reindex.status_code == 200
+        assert reindex.json()["items"] == 2
+        assert reindex.json()["chunks"] >= 2
 
         memory = client.post(
             "/api/v1/control/memory",
@@ -82,9 +124,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert me.status_code == 200
         assert me.json()["app_key"] == "vp3-test"
 
-        client_knowledge = client.get("/api/v1/knowledge?q=VP3", headers={"Authorization": f"Bearer {token}"})
+        client_knowledge = client.get(
+            "/api/v1/knowledge?q=merchant",
+            headers={"Authorization": f"Bearer {token}"},
+        )
         assert client_knowledge.status_code == 200
-        assert len(client_knowledge.json()["items"]) == 1
+        assert client_knowledge.json()["items"][0]["id"] == document_id
 
         client_memory = client.get("/api/v1/memory", headers={"Authorization": f"Bearer {token}"})
         assert client_memory.status_code == 200
@@ -93,5 +138,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         apps = client.get("/api/v1/control/apps")
         assert apps.status_code == 200
         assert apps.json()["apps"][0]["app_key"] == "vp3-test"
+
+        deleted = client.delete(f"/api/v1/control/knowledge/{document_id}")
+        assert deleted.status_code == 200
+        assert not list(settings.knowledge_files_dir.glob("*"))
+
+        deleted_search = client.get("/api/v1/control/knowledge?q=merchant")
+        assert deleted_search.status_code == 200
+        assert deleted_search.json()["items"] == []
 
 print("HomeServer smoke test passed")

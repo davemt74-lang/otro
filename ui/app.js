@@ -2,9 +2,19 @@ const state = { view: 'dashboard', apps: [] };
 const $ = (id) => document.getElementById(id);
 const esc = (value = '') => String(value).replace(/[&<>'\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));
 const fmt = (value) => value ? new Date(value).toLocaleString() : 'Never';
+const formatBytes = (value) => {
+  const bytes = Number(value || 0);
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {headers: {'Content-Type':'application/json', ...(options.headers || {})}, ...options});
+  const headers = {...(options.headers || {})};
+  const isForm = options.body instanceof FormData;
+  if (options.body && !isForm && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  const response = await fetch(path, {...options, headers});
   let data = {};
   try { data = await response.json(); } catch (_) {}
   if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
@@ -28,13 +38,59 @@ function openView(name) {
   loadView(name).catch(err => flash(err.message, true));
 }
 
+function ensureKnowledgeControls() {
+  if ($('knowledgeFiles')) return;
+  const intro = document.querySelector('#view-knowledge .section-intro.split');
+  const addButton = $('showKnowledgeForm');
+  if (!intro || !addButton) return;
+
+  const actions = document.createElement('div');
+  actions.className = 'top-actions';
+
+  const input = document.createElement('input');
+  input.id = 'knowledgeFiles';
+  input.type = 'file';
+  input.multiple = true;
+  input.className = 'hidden';
+  input.accept = '.txt,.md,.markdown,.json,.csv,.html,.htm,.pdf,.docx';
+
+  const importButton = document.createElement('button');
+  importButton.id = 'importKnowledgeFiles';
+  importButton.type = 'button';
+  importButton.className = 'button secondary';
+  importButton.textContent = 'Import files';
+
+  addButton.remove();
+  actions.append(importButton, addButton, input);
+  intro.append(actions);
+
+  const description = intro.querySelector('p');
+  if (description) {
+    description.textContent = 'Import local documents or add notes. HomeServer extracts text, chunks it, and builds a private SQLite full-text index.';
+  }
+
+  const toolbar = document.querySelector('#view-knowledge .toolbar');
+  if (toolbar && !$('reindexKnowledge')) {
+    const reindex = document.createElement('button');
+    reindex.id = 'reindexKnowledge';
+    reindex.type = 'button';
+    reindex.className = 'text-button';
+    reindex.textContent = 'Reindex';
+    toolbar.append(reindex);
+  }
+}
+
 async function loadOverview() {
-  const data = await api('/api/v1/control/overview');
+  const [data, status] = await Promise.all([
+    api('/api/v1/control/overview'),
+    api('/api/v1/status'),
+  ]);
   $('heroAgentName').textContent = data.agent?.name || 'HomeServer Agent';
   $('statKnowledge').textContent = data.counts.knowledge_items;
   $('statMemory').textContent = data.counts.memory_items;
   $('statApps').textContent = data.counts.paired_apps;
   $('statPairing').textContent = data.counts.pending_pairing;
+  $('version').textContent = `v${status.version}`;
   $('recentActivity').innerHTML = data.activity.length ? data.activity.map(item => `<div class="activity-row"><strong>${esc(item.action)}</strong><span>${esc(fmt(item.created_at))}</span></div>`).join('') : '<div class="empty-state">No activity yet.</div>';
 }
 
@@ -48,10 +104,48 @@ async function loadAgent() {
 }
 
 async function loadKnowledge() {
+  ensureKnowledgeControls();
   const q = encodeURIComponent($('knowledgeSearch')?.value || '');
   const data = await api(`/api/v1/control/knowledge?q=${q}`);
   $('knowledgeCount').textContent = `${data.items.length} item${data.items.length === 1 ? '' : 's'}`;
-  $('knowledgeList').innerHTML = data.items.length ? data.items.map(item => `<article class="item-card"><div><h3>${esc(item.title)}</h3><p>${esc((item.content || '').slice(0, 900))}</p><div class="item-meta"><span class="tag">${esc(item.kind)}</span>${item.source_path ? `<span>${esc(item.source_path)}</span>` : ''}<span>${esc(fmt(item.updated_at))}</span></div></div><div><button class="icon-button danger" data-delete-knowledge="${item.id}">Delete</button></div></article>`).join('') : '<div class="panel empty-state">No knowledge items found.</div>';
+  $('knowledgeList').innerHTML = data.items.length ? data.items.map(item => {
+    const preview = item.snippet || (item.content || '').slice(0, 900);
+    const source = item.original_name || item.source_path || '';
+    const size = item.size_bytes ? formatBytes(item.size_bytes) : '';
+    const chunks = Number(item.chunk_count || 0);
+    return `<article class="item-card"><div><h3>${esc(item.title)}</h3><p>${esc(preview)}</p><div class="item-meta"><span class="tag">${esc(item.kind)}</span>${source ? `<span>${esc(source)}</span>` : ''}${size ? `<span>${esc(size)}</span>` : ''}<span>${chunks} chunk${chunks === 1 ? '' : 's'}</span><span>${esc(fmt(item.updated_at))}</span></div></div><div><button class="icon-button danger" data-delete-knowledge="${item.id}">Delete</button></div></article>`;
+  }).join('') : '<div class="panel empty-state">No knowledge items found.</div>';
+}
+
+async function importKnowledgeFiles() {
+  const input = $('knowledgeFiles');
+  const files = [...(input?.files || [])];
+  if (!files.length) return;
+
+  let imported = 0;
+  let duplicates = 0;
+  const failures = [];
+
+  for (const file of files) {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    try {
+      const result = await api('/api/v1/control/knowledge/import', {method:'POST', body:form});
+      if (result.duplicate) duplicates += 1;
+      else imported += 1;
+    } catch (err) {
+      failures.push(`${file.name}: ${err.message}`);
+    }
+  }
+
+  input.value = '';
+  await loadKnowledge();
+  const parts = [];
+  if (imported) parts.push(`${imported} imported`);
+  if (duplicates) parts.push(`${duplicates} duplicate${duplicates === 1 ? '' : 's'} skipped`);
+  if (failures.length) parts.push(`${failures.length} failed`);
+  flash(parts.join(' · ') || 'No files imported.', failures.length > 0);
+  if (failures.length) console.warn('Knowledge import failures', failures);
 }
 
 async function loadMemory() {
@@ -87,6 +181,14 @@ document.addEventListener('click', async (event) => {
   if (event.target.id === 'cancelKnowledge') $('knowledgeForm').classList.add('hidden');
   if (event.target.id === 'showMemoryForm') $('memoryForm').classList.remove('hidden');
   if (event.target.id === 'cancelMemory') $('memoryForm').classList.add('hidden');
+  if (event.target.id === 'importKnowledgeFiles') $('knowledgeFiles')?.click();
+  if (event.target.id === 'reindexKnowledge') {
+    try {
+      const result = await api('/api/v1/control/knowledge/reindex', {method:'POST'});
+      await loadKnowledge();
+      flash(`Reindexed ${result.items} items into ${result.chunks} chunks.`);
+    } catch (err) { flash(err.message, true); }
+  }
   const deleteKnowledge = event.target.closest('[data-delete-knowledge]');
   if (deleteKnowledge && confirm('Delete this knowledge item?')) { try { await api(`/api/v1/control/knowledge/${deleteKnowledge.dataset.deleteKnowledge}`, {method:'DELETE'}); await loadKnowledge(); flash('Knowledge item deleted.'); } catch (err) { flash(err.message, true); } }
   const deleteMemory = event.target.closest('[data-delete-memory]');
@@ -94,6 +196,10 @@ document.addEventListener('click', async (event) => {
 });
 
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'knowledgeFiles') {
+    await importKnowledgeFiles();
+    return;
+  }
   const status = event.target.closest('[data-app-status]');
   if (status) { try { await api(`/api/v1/control/apps/${status.dataset.appStatus}`, {method:'PATCH', body:JSON.stringify({status:status.value})}); flash('Application status updated.'); await loadApps(); } catch (err) { flash(err.message, true); } }
   const permission = event.target.closest('[data-app-permission]');
@@ -101,11 +207,13 @@ document.addEventListener('change', async (event) => {
 });
 
 $('agentForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/api/v1/control/agent', {method:'PUT', body:JSON.stringify({name:$('agentName').value, model:$('agentModel').value, instructions:$('agentInstructions').value})}); flash('Primary agent saved.'); await loadAgent(); } catch (err) { flash(err.message, true); } });
-$('knowledgeForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/api/v1/control/knowledge', {method:'POST', body:JSON.stringify({title:$('knowledgeTitle').value, kind:$('knowledgeKind').value, content:$('knowledgeContent').value, source_path:$('knowledgeSource').value || null})}); event.target.reset(); $('knowledgeForm').classList.add('hidden'); await loadKnowledge(); flash('Knowledge added.'); } catch (err) { flash(err.message, true); } });
+$('knowledgeForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/api/v1/control/knowledge', {method:'POST', body:JSON.stringify({title:$('knowledgeTitle').value, kind:$('knowledgeKind').value, content:$('knowledgeContent').value, source_path:$('knowledgeSource').value || null})}); event.target.reset(); $('knowledgeForm').classList.add('hidden'); await loadKnowledge(); flash('Knowledge added and indexed.'); } catch (err) { flash(err.message, true); } });
 $('memoryForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/api/v1/control/memory', {method:'POST', body:JSON.stringify({memory_key:$('memoryKey').value || null, content:$('memoryContent').value, importance:Number($('memoryImportance').value)})}); event.target.reset(); $('memoryImportance').value = '0.5'; $('memoryForm').classList.add('hidden'); await loadMemory(); flash('Memory added.'); } catch (err) { flash(err.message, true); } });
 $('pairingForm').addEventListener('submit', async (event) => { event.preventDefault(); try { const data = await api('/api/v1/pairing/approve', {method:'POST', body:JSON.stringify({code:$('pairingCode').value})}); $('pairingToken').classList.remove('hidden'); $('pairingToken').innerHTML = `<strong>Pairing approved — copy this token into the requesting app now.</strong>${esc(data.token)}<br><span class="muted">For security, HomeServer will not display this token again.</span>`; $('pairingCode').value = ''; await loadApps(); flash(`${data.app_key} paired successfully.`); } catch (err) { flash(err.message, true); } });
 $('knowledgeSearch').addEventListener('input', () => { clearTimeout(state.searchTimer); state.searchTimer = setTimeout(() => loadKnowledge().catch(err => flash(err.message, true)), 180); });
 $('refreshButton').addEventListener('click', () => loadView(state.view).then(() => flash('HomeServer refreshed.')).catch(err => flash(err.message, true)));
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (['dashboard','agent','knowledge','memory','apps','activity'].includes(next)) openView(next); });
+
+ensureKnowledgeControls();
 const initial = location.hash.replace('#','') || 'dashboard';
 openView(['dashboard','agent','knowledge','memory','apps','activity'].includes(initial) ? initial : 'dashboard');
