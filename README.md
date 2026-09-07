@@ -2,43 +2,35 @@
 
 HomeServer is a local-first private capability server for personal AI agents and explicitly authorized applications such as VP3.
 
-The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in SQLite, and provides local owner surfaces for the primary agent, chat, knowledge, memory, contacts, skills, tools, approvals, pairing, permissions, backup/restore, setup, diagnostics and the optional outbound Remote Bridge.
+The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in SQLite, and provides local owner surfaces for the primary agent, chat, knowledge, memory, contacts, tasks/reminders, notifications, skills, tools, approvals, pairing, permissions, backup/restore, setup, diagnostics and the optional outbound Remote Bridge.
 
-## Current v0.12 foundation
+## Current v0.13 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
-- Supervised tray runtime with graceful shutdown/restart instead of a daemon API thread
+- Supervised tray runtime with graceful shutdown/restart
 - Per-data-directory Windows single-instance mutex
 - `%LOCALAPPDATA%\HomeServer\Data` as the installed Windows data location
-- Upgrade-safe migration from legacy `~/.homeserver` when the move is unambiguous
-- Conflict preservation when both legacy and LocalAppData folders already contain data
-- Windows DPAPI protection for the persistent owner bootstrap secret
-- Windows DPAPI protection for the persistent Remote Bridge device credential
-- Process-local/ephemeral browser owner sessions that are invalidated on restart
-- First-run **Setup & Diagnostics** workspace
-- SQLite integrity/schema/foreign-key diagnostics
-- Ollama reachability/model diagnostics
-- Storage/free-space, backup, restore, startup and runtime diagnostics
-- Start-with-Windows control using the current user's Windows startup registry
-- Detection and cleanup of the v0.10 legacy Startup-folder shortcut
-- Restricted recovery mode when the normal SQLite runtime cannot initialize
-- Recovery-mode backup staging without mutating the broken live database
-- SQLite WAL database with versioned transactional migrations
-- Persistent primary agent configuration and app-isolated conversations
-- Local-only Ollama provider with loopback URL enforcement
+- Upgrade-safe migration from legacy `~/.homeserver` when unambiguous
+- Windows DPAPI protection for owner and Remote Bridge credentials
+- Process-local owner browser sessions invalidated on restart
+- First-run Setup & Diagnostics and restricted recovery mode
+- SQLite WAL database with transactional migrations (schema 11)
+- Persistent private Agent Brain and app-isolated conversations
+- Local-only Ollama provider
 - Durable memory and local document ingestion/FTS search
 - Private Contacts & Relationship Context
+- First-class Tasks, due dates, priorities and recurring reminders
+- Canonical notification inbox with read/dismiss state
+- Local durable reminder scheduler
 - Allowlisted Skills & Tools with content-safe auditing
 - Optional bounded Agent Tool Use, disabled by default
-- Approval-gated memory-write proposals, separately disabled by default
+- Approval-gated memory-write and task-create proposals, separately disabled by default
 - Browser-safe claim-token pairing for VP3 and future clients
-- Optional outbound-only Remote Bridge for paired apps, disabled by default
-- Explicit remote operation map with no arbitrary HTTP/localhost proxy capability
+- Optional outbound-only Remote Bridge, disabled by default
+- Deployable trusted Remote Relay service and VP3 remote connector
 - Local Backup & Restore with SHA-256 manifests and startup-time rollback protection
 
 ## Windows lifecycle and data safety
-
-### Data location
 
 Installed Windows builds use:
 
@@ -46,29 +38,26 @@ Installed Windows builds use:
 %LOCALAPPDATA%\HomeServer\Data
 ```
 
-The primary paths are:
+Primary paths include:
 
 - `homeserver.db` — SQLite state
-- `knowledge\files\` — imported local source files retained by HomeServer
+- `knowledge\files\` — imported local source files
 - `backups\` — validated local backup archives
 - `restore\` — staged/last restore metadata
 - `security\owner-bootstrap.dat` — Windows-protected owner bootstrap material
 - `security\remote-bridge.dat` — Windows-protected Remote Bridge device credential
 - `runtime\bootstrap-state.json` — non-secret startup/migration diagnostics
 
-If a v0.10-era `~/.homeserver` directory contains data and the LocalAppData destination does not, the Windows launcher moves the complete legacy directory before importing the application runtime. If both locations contain data, HomeServer does **not** merge or delete either location; LocalAppData remains active and Setup & Diagnostics reports the conflict.
+If a legacy `~/.homeserver` directory contains data and LocalAppData does not, the Windows launcher moves the complete legacy directory before importing the application runtime. If both locations contain data, HomeServer does not merge or delete either location; LocalAppData remains active and Setup & Diagnostics reports the conflict.
 
-`HOMESERVER_DATA_DIR` still overrides the default for development, testing or an explicitly managed local location.
+`HOMESERVER_DATA_DIR` overrides the default for development/testing or an explicitly managed local location.
 
-### Single instance and graceful lifecycle
+HomeServer acquires a named Windows mutex before applying restores, opening SQLite or binding port `4377`. Quit and Restart request graceful shutdown, close the Remote Bridge and local server, release the instance mutex and only then relaunch when needed.
 
-HomeServer acquires a named Windows mutex derived from the active data directory before applying a restore, opening SQLite or binding port `4377`. A second process for the same HomeServer data directory exits immediately.
-
-The tray runtime owns a real Uvicorn `Server` instance. **Quit** and **Restart HomeServer** request graceful shutdown, allow active requests to finish, close the Remote Bridge and local server, release the instance mutex and only then relaunch when needed.
-
-The tray now provides:
+The tray provides:
 
 - Open HomeServer
+- Tasks & Notifications
 - Setup & Diagnostics
 - Remote Bridge
 - Open Data Folder
@@ -77,130 +66,118 @@ The tray now provides:
 - Restart HomeServer
 - Quit
 
-### Owner security
+## Owner security and recovery
 
-The owner bootstrap secret is encrypted using Windows DPAPI for the current Windows user before being written to the HomeServer data directory.
+The persistent owner bootstrap secret and Remote Bridge device credential are protected with Windows DPAPI for the current Windows user. The owner browser session itself remains process-local and is stored only in an HttpOnly, SameSite=Strict cookie; restart invalidates it.
 
-The bootstrap secret is used only to establish the local owner session. The session token itself remains randomly generated per process and is stored only in the HttpOnly, SameSite=Strict local browser cookie. Restarting HomeServer invalidates existing owner browser sessions.
+If normal SQLite initialization fails, HomeServer starts a restricted local recovery application. Recovery can validate/stage a known-good backup, preserve unreadable live state for forensic recovery and request a supervised restart. Paired apps, Agent APIs and the Remote Bridge are not started in recovery mode.
 
-The Remote Bridge uses a separate randomly generated device credential. On Windows that credential is also protected with DPAPI for the current user and is never returned through owner status APIs or paired-app APIs.
+## Tasks, reminders and notifications
 
-If a protected-secret file becomes unreadable, HomeServer preserves the invalid file with a timestamped name and creates a new protected secret. It never falls back to storing Windows secrets as plaintext.
+v0.13 adds first-class private tasks to the same SQLite brain as memory, knowledge and contacts.
 
-### First-run setup and diagnostics
+Each task can include:
 
-The first interactive launch opens the owner-only `/system` workspace once. It recommends, but does not require:
+- title and description
+- pending / in-progress / completed / cancelled status
+- low / normal / high / urgent priority
+- due date/time
+- reminder date/time
+- optional linked contact
+- source application/provenance
+- one-time, daily, weekly or monthly reminder recurrence
 
-1. configuring the primary agent
-2. enabling a local Ollama model
-3. pairing an application such as VP3
-4. creating a recovery backup
+The local scheduler checks due reminders without contacting any cloud service. When a reminder becomes due it atomically advances or clears the task's `remind_at` value and creates one row in the canonical `notifications` table. The reservation update prevents the same reminder occurrence from being emitted twice by overlapping scheduler passes.
 
-Marking setup complete only dismisses onboarding. It does **not** enable Agent Tools, write proposals, Remote Bridge connectivity or app permissions.
+The scheduler does not execute arbitrary tasks, tools, HTTP calls, shell commands or workflows. It only creates local notifications.
 
-Diagnostics report local SQLite integrity, schema version, foreign-key health, Ollama reachability, active data path, disk space, migration status, backup/restore state, Windows startup state, owner-secret protection mode and supervised-runtime availability.
+Owner workspace:
 
-### Recovery mode
+```text
+/tasks
+```
 
-Before the normal API starts, the Windows launcher performs a database/index preflight. If that fails, HomeServer serves a restricted local recovery application instead of starting a partially working normal API.
+Paired-app capabilities:
 
-Recovery mode can:
+- `tasks.read`
+- `tasks.write`
+- `notifications.read`
 
-- report that the normal database runtime is unavailable
-- open the local data folder
-- accept a known-good HomeServer backup using the owner bootstrap credential
-- validate and stage that backup without modifying the broken live database
-- request a supervised restart so the normal pre-server restore mechanism can apply it
+A paired app granted `tasks.write` may directly create/update tasks through the explicit app API. Agent/model-driven task creation is different: the model is never offered direct `tasks.create`; it can only propose a task when write proposals are enabled, and the owner must approve it locally before execution.
 
-Paired applications, normal Agent APIs and the Remote Bridge worker are not started in recovery mode.
+## Skills, tools and approval-gated actions
 
-## Remote Pairing Node / Remote Bridge
+Built-in tools remain allowlisted. v0.13 includes:
 
-The v0.12 Remote Bridge is an optional outbound connection for reaching this HomeServer from a broker-mediated client such as VP3 without exposing the local server to the public internet.
-
-It is **disabled and unconfigured by default**. Enabling it does not open a listening WAN port, require router forwarding or turn `127.0.0.1:4377` into a public endpoint. HomeServer initiates the WebSocket connection outward.
-
-Production broker URLs must use `wss://`. Plain `ws://` is accepted only for loopback development/testing hosts such as `127.0.0.1`, `::1` and `localhost`.
-
-### Remote security boundary
-
-The Remote Bridge is not an arbitrary TCP or HTTP tunnel. Incoming broker messages can select only HomeServer's explicit operation map. Protected operations are dispatched back through the existing local API with the paired application's bearer credential, so the canonical HomeServer permission checks remain authoritative.
-
-Current remote operations are limited to:
-
-- `capabilities`
-- `pair.request`
-- `pair.status`
-- `chat`
-- `conversations.list`
-- `conversation.get`
 - `contacts.search`
 - `knowledge.search`
-- `memory.read`
+- `memory.list`
 - `memory.write`
-- `tools.list`
-- `skills.list`
-- `tool.execute`
-- `action.status`
+- `tasks.list`
+- `notifications.list`
+- `tasks.create`
 
-Owner Control, pairing approval, Windows startup controls, restart/shutdown, backup/restore, recovery, arbitrary HTTP, shell, PowerShell and unrestricted filesystem access are not remote operations.
+The Task & Reminder Manager skill groups task/notification capabilities but grants no permissions by itself.
 
-Bridge request payloads are bounded to 256 KiB. Bridge audit records contain operation/status/timing metadata rather than bearer tokens or request content.
+Model-readable functions are permission-filtered. For tasks these are:
 
-### Trust model
+- `homeserver_tasks_list`
+- `homeserver_notifications_list`
 
-v0.12 is a **trusted WSS relay**. TLS protects the WebSocket connection between HomeServer and the configured broker, but the broker can see relayed application payloads and paired-app bearer credentials. This is intentionally **not described as end-to-end payload encryption**.
+The model is never offered direct `memory.write` or `tasks.create`. When owner-controlled write proposals are enabled it may receive:
 
-A future protocol layer can add end-to-end application-payload encryption without changing the rule that HomeServer itself remains outbound-only and all protected operations must satisfy existing app permissions.
+- `homeserver_memory_write_request`
+- `homeserver_task_create_request`
+
+Those functions create pending local approval requests only. The durable write occurs through the canonical audited tool after explicit owner approval. Task titles/descriptions and memory bodies are not duplicated into tool/activity audit metadata.
+
+HomeServer intentionally exposes no shell, PowerShell, arbitrary HTTP or unrestricted filesystem tool.
+
+## Remote Bridge and deployable relay
+
+HomeServer's optional Remote Bridge makes an outbound connection so a broker-mediated client such as VP3 can reach the user's HomeServer without router forwarding or a public localhost listener.
+
+Production broker URLs require `wss://`; `ws://` is accepted only for loopback development/test hosts. The bridge has an explicit operation map and is not an arbitrary TCP/HTTP tunnel. Protected operations are dispatched back through HomeServer's existing bearer-authenticated local APIs, so canonical paired-app permissions remain authoritative.
+
+The repository also contains the deployable Remote Relay service under `relay/`. The relay session selects which HomeServer a remote client can reach; the separate HomeServer app credential controls what that client may do.
+
+Current trust model: **trusted WSS relay**. TLS protects transport to the relay, but the relay can see relayed application payloads and HomeServer bearer credentials. This is not end-to-end payload encryption.
+
+Owner Control, pairing approval, Windows lifecycle, backup/restore, recovery, shell, arbitrary HTTP and unrestricted filesystem access are not relay capabilities.
+
+See:
+
+- `connectors/vp3/README.md`
+- `connectors/vp3/REMOTE.md`
+- `relay/README.md`
 
 ## Local Backup & Restore
 
-A manual backup uses SQLite's backup API to produce a consistent database snapshot while HomeServer is running. Archives contain:
+A manual backup uses SQLite's backup API to produce a consistent database snapshot and includes imported knowledge files plus a SHA-256 manifest. Restore validates archive paths, hashes, SQLite integrity/foreign keys/schema compatibility and referenced files before staging.
 
-- `database/homeserver.db`
-- imported files under `knowledge/files/`
-- `manifest.json` with format version, HomeServer version, database schema version, size and SHA-256 for every payload file
+Restore never replaces a live SQLite file through an API request. A staged restore is revalidated on startup, preceded by an automatic safety backup and applied before the normal API opens SQLite. Failure rolls state back or enters restricted recovery safely.
 
-HomeServer rejects restore archives with traversal paths, symbolic links, encrypted entries, unexpected files, duplicate/case-colliding paths, Windows-reserved names, invalid hashes, incompatible schemas, broken SQLite integrity/foreign keys or missing referenced knowledge files.
+Portable ZIP backups are not encrypted by the ZIP format. Treat exported archives as private data.
 
-Restore never replaces a live SQLite file through an API request. A validated archive is staged, revalidated on the next launch, preceded by an automatic safety backup, and swapped while no API database connection is active. Failure rolls the old state back and clears the bad stage instead of entering a restart loop.
+Backup/restore remains owner-only and is not a VP3/paired-app permission.
 
-Portable ZIP backups are **not encrypted by the ZIP format**. Treat exported archives as private data.
+## VP3 pairing model
 
-Backup/restore remains owner-only and is not a VP3 or paired-app permission.
+VP3 connects locally through `claim-v1` pairing or remotely through the deployable relay plus the same HomeServer pairing model. The relay does not create a second authorization system.
 
-## Agent, knowledge and relationship capabilities
+Each capability is independently permissioned. Current permission families include:
 
-HomeServer includes:
+- `agent.chat`
+- `contacts.read`
+- `knowledge.search`
+- `memory.read`
+- `memory.write`
+- `notifications.read`
+- `tasks.read`
+- `tasks.write`
+- `tools.execute`
 
-- persistent private Agent Chat
-- memory and knowledge context with independent app permissions
-- local TXT/Markdown/JSON/CSV/HTML/PDF/DOCX ingestion
-- SQLite FTS knowledge search and duplicate detection
-- owner-managed private contacts and relationship notes
-- app-isolated conversations
-- `contacts.search`, `knowledge.search`, `memory.list` and `memory.write` tools
-- Relationship Context and local research skills
-
-The model receives only read tools that are both globally enabled and authorized for the current caller. HomeServer intentionally includes **no shell, PowerShell, arbitrary HTTP or unrestricted filesystem tool**.
-
-## Approval-gated actions
-
-Agent Tool Use ships disabled and has a hard owner-selected 1–3 tool-call budget per chat turn.
-
-The model is never given direct `memory.write`. When write proposals are separately enabled, it may submit `homeserver_memory_write_request`, which creates a pending local approval. The memory is written only after the owner explicitly approves it through the canonical audited `memory.write` tool.
-
-Contact mutation, backup/restore, Windows startup, restart/shutdown and other system operations are not model tools.
-
-## VP3 browser bridge
-
-VP3 connects locally through `claim-v1` pairing. After local owner approval, VP3 uses its claim token as a scoped bearer credential; it never reads SQLite or local files directly.
-
-Available app capabilities remain independently permissioned, including `agent.chat`, `contacts.read`, `knowledge.search`, `memory.read`, `memory.write` and `tools.execute`. Windows lifecycle, owner diagnostics, backup/restore and recovery are intentionally absent from the pairing permission catalog.
-
-When the owner later enables the v0.12 Remote Bridge, the same scoped paired-app credential model applies to remote requests; the relay does not create a second authorization system.
-
-See [`connectors/vp3/README.md`](connectors/vp3/README.md) and [`connectors/vp3/client.js`](connectors/vp3/client.js).
+Windows lifecycle, diagnostics, backup/restore and recovery are intentionally absent from the app permission catalog.
 
 ## Run locally
 
@@ -217,4 +194,6 @@ python desktop/launcher.py
 pyinstaller HomeServer.spec --clean --noconfirm
 ```
 
-Windows CI validates migrations, legacy-data bootstrap, single-instance behavior, DPAPI owner protection, owner-system boundaries, recovery mode, the complete Agent/Tools/Approvals/Contacts/Backup regression suite, Remote Bridge URL/credential/operation-map security, the outbound WebSocket relay protocol, packaged EXE startup, packaged second-instance rejection, packaged graceful restart/shutdown, a packaged outbound Remote Bridge exchange with both an allowed and a denied paired-app permission, packaged recovery mode, packaged staged restore, silent installer upgrade preservation, installer output and SHA-256 distribution hashes.
+Windows CI validates migrations, legacy-data bootstrap, single-instance behavior, DPAPI owner protection, recovery mode, Agent/Tools/Approvals/Contacts/Tasks/Backup regressions, Remote Bridge security/protocol, packaged EXE startup, packaged restart/session rotation/shutdown, the packaged outbound relay permission boundary, staged restore, installer upgrade preservation and distribution hashes.
+
+Relay CI independently validates the deployable relay process, VP3 remote connector, Docker image and live container health.
