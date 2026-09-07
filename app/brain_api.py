@@ -27,7 +27,7 @@ class ContextSettingsUpdate(BaseModel):
     include_memory: bool = True
     include_knowledge: bool = True
     include_contacts: bool = True
-    cloud_allowed: bool = False
+    cloud_allowed: bool = True
     max_context_chars: int = Field(default=12000, ge=2000, le=24000)
 
 
@@ -91,7 +91,7 @@ def _safe_inference_status() -> dict:
     }
 
 
-def _context_options(payload: ChatRequest) -> dict:
+def _chat_context_options(payload: ChatRequest) -> dict:
     return {
         "include_memory": payload.include_memory,
         "include_knowledge": payload.include_knowledge,
@@ -101,13 +101,39 @@ def _context_options(payload: ChatRequest) -> dict:
     }
 
 
-def _conversation_payload(source: str, conversation_id: str) -> dict:
+def _allowed_context_kinds(permissions: set[str]) -> set[str]:
+    allowed: set[str] = set()
+    if "memory.read" in permissions:
+        allowed.add("memory")
+    if "knowledge.search" in permissions:
+        allowed.add("knowledge")
+    if "contacts.read" in permissions:
+        allowed.add("contact")
+    return allowed
+
+
+def _conversation_payload(
+    source: str,
+    conversation_id: str,
+    *,
+    allowed_kinds: set[str] | None = None,
+) -> dict:
     try:
         result = brain.get_conversation(source, conversation_id)
     except brain.BrainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    result["context_settings"] = context_engine.ensure_settings(conversation_id)
-    result["context_history"] = context_engine.recent_sources(conversation_id, limit=5)
+    settings = context_engine.ensure_settings(conversation_id)
+    if allowed_kinds is not None:
+        settings = dict(settings)
+        settings["include_memory"] = bool(settings["include_memory"] and "memory" in allowed_kinds)
+        settings["include_knowledge"] = bool(settings["include_knowledge"] and "knowledge" in allowed_kinds)
+        settings["include_contacts"] = bool(settings["include_contacts"] and "contact" in allowed_kinds)
+    result["context_settings"] = settings
+    result["context_history"] = context_engine.recent_sources(
+        conversation_id,
+        limit=5,
+        allowed_kinds=allowed_kinds,
+    )
     return result
 
 
@@ -129,7 +155,7 @@ def _chat_or_http(
             include_memory=include_memory,
             include_knowledge=include_knowledge,
             include_contacts=include_contacts,
-            context_options=_context_options(payload),
+            context_options=_chat_context_options(payload),
             tool_permissions=tool_permissions,
             owner_tools=owner_tools,
         )
@@ -167,7 +193,12 @@ def client_conversations(
 
 @router.get("/api/v1/conversations/{conversation_id}")
 def client_conversation(conversation_id: str, identity: dict = Depends(_require_chat)) -> dict:
-    return _conversation_payload(_app_source(identity), conversation_id)
+    permissions = set(identity["permissions"])
+    return _conversation_payload(
+        _app_source(identity),
+        conversation_id,
+        allowed_kinds=_allowed_context_kinds(permissions),
+    )
 
 
 @router.post("/api/v1/control/chat")
