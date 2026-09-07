@@ -39,6 +39,8 @@ jobs:
         run: node --check ui/authorize.js
       - name: Validate VP3 bridge JavaScript
         run: node --check connectors/vp3/client.js
+      - name: Agent-first shell integration regression
+        run: python tests/agent_shell_contract.py
       - name: Database migration upgrade test
         run: python tests/migrations.py
       - name: Inference routing and token usage regression
