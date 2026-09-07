@@ -128,6 +128,26 @@ jobs:
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
             throw 'Single-instance smoke left a listener on port 4377'
           }
+      - name: Verify packaged graceful restart and shutdown
+        shell: pwsh
+        run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is occupied before the lifecycle smoke test'
+          }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-lifecycle'
+          $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          try {
+            python tests/packaged_lifecycle.py
+            if ($LASTEXITCODE -ne 0) { throw "Packaged lifecycle test failed with exit code $LASTEXITCODE" }
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Lifecycle smoke left a HomeServer listener on port 4377'
+          }
       - name: Smoke test packaged recovery mode
         shell: pwsh
         run: |
