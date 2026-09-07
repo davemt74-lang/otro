@@ -15,6 +15,7 @@ from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tasks_api import router as tasks_router
 from .tools_api import router as tools_router
+from .usage_api import router as usage_router
 
 
 class PairStatusRequest(BaseModel):
@@ -30,12 +31,13 @@ app.include_router(tasks_router)
 app.include_router(backups_router)
 app.include_router(system_router)
 app.include_router(remote_bridge_router)
+app.include_router(usage_router)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.allowed_origins),
     allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
     max_age=600,
 )
@@ -55,17 +57,22 @@ def capabilities() -> dict:
             "agent.tools.read",
             "contacts.read",
             "conversations",
+            "inference.routing",
+            "inference.status",
             "knowledge.search",
             "memory.read",
             "memory.write",
             "notifications.read",
             "ollama.local",
+            "provider.credentials",
             "remote.bridge.v1",
             "skills",
             "tasks.read",
             "tasks.write",
             "tasks.reminders",
             "tools.execute",
+            "usage.history",
+            "usage.sync",
             "owner.control",
         ],
     }
