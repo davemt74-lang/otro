@@ -132,6 +132,11 @@ def register_or_auth_device(device_id: str, device_secret: str) -> dict:
     claim_code: str | None = None
     with db() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        stale_cutoff = now - timedelta(hours=settings.unclaimed_device_ttl_hours)
+        connection.execute(
+            "DELETE FROM relay_devices WHERE claimed=0 AND last_seen_at < ?",
+            (_iso(stale_cutoff),),
+        )
         row = connection.execute(
             "SELECT device_id, secret_hash, claimed FROM relay_devices WHERE device_id=? LIMIT 1",
             (candidate_id,),
@@ -306,6 +311,8 @@ def record_event(
     metadata: dict | None = None,
 ) -> None:
     safe = metadata if isinstance(metadata, dict) else {}
+    now = _now()
+    retention_cutoff = now - timedelta(days=settings.event_retention_days)
     with db() as connection:
         connection.execute(
             """
@@ -319,8 +326,12 @@ def record_event(
                 str(operation)[:80] if operation else None,
                 str(request_id)[:128] if request_id else None,
                 json.dumps(safe, separators=(",", ":")),
-                _iso(),
+                _iso(now),
             ),
+        )
+        connection.execute(
+            "DELETE FROM relay_events WHERE created_at < ?",
+            (_iso(retention_cutoff),),
         )
 
 
