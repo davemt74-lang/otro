@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-") as data_dir:
     from app.services.owner_secret import load_or_create_owner_secret, owner_secret_metadata  # noqa: E402
     from app.services.runtime_control import register_runtime_handler  # noqa: E402
 
-    assert settings.version == "0.15.0"
+    assert settings.version == "0.16.0"
     assert settings.owner_secret_path.is_file()
     assert load_or_create_owner_secret() == OWNER_CONTROL_TOKEN
     metadata = owner_secret_metadata()
@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-") as data_dir:
     commands: list[str] = []
 
     with TestClient(app) as owner:
-        assert owner.get("/api/v1/health").json()["version"] == "0.15.0"
+        assert owner.get("/api/v1/health").json()["version"] == "0.16.0"
         assert owner.get("/system").status_code == 401
         assert owner.get("/api/v1/control/system").status_code == 401
 
@@ -45,9 +45,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-") as data_dir:
         assert summary.status_code == 200
         payload = summary.json()
         assert payload["setup"]["complete"] is False
-        assert payload["diagnostics"]["version"] == "0.15.0"
+        assert payload["diagnostics"]["version"] == "0.16.0"
         assert payload["diagnostics"]["database"]["ok"] is True
-        assert payload["diagnostics"]["database"]["schema_version"] == 13
+        assert payload["diagnostics"]["database"]["schema_version"] == 14
         assert payload["diagnostics"]["owner_security"]["exists"] is True
         assert payload["diagnostics"]["runtime_control"]["available"] is False
 
