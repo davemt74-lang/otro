@@ -21,17 +21,8 @@
 
     async _request(path, options = {}) {
       const headers = {...(options.headers || {})};
-      if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) {
-        headers['Content-Type'] = 'application/json';
-      }
-      const fetchOptions = {
-        mode: 'cors',
-        credentials: 'omit',
-        cache: 'no-store',
-        targetAddressSpace: 'local',
-        ...options,
-        headers,
-      };
+      if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+      const fetchOptions = {mode:'cors', credentials:'omit', cache:'no-store', targetAddressSpace:'local', ...options, headers};
       const response = await fetch(`${this.baseUrl}${path}`, fetchOptions);
       let data = {};
       try { data = await response.json(); } catch (_) {}
@@ -46,10 +37,7 @@
 
     async _authorized(path, options = {}) {
       if (!this.token) throw new Error('HomeServer is not paired. Complete pairing before using protected capabilities.');
-      return this._request(path, {
-        ...options,
-        headers: {...(options.headers || {}), Authorization: `Bearer ${this.token}`},
-      });
+      return this._request(path, {...options, headers:{...(options.headers || {}), Authorization:`Bearer ${this.token}`}});
     }
 
     setToken(token) { this.token = token || null; return this; }
@@ -58,22 +46,14 @@
     capabilities() { return this._request('/api/v1/capabilities'); }
 
     async requestPairing(permissions = DEFAULT_PERMISSIONS) {
-      const pairing = await this._request('/api/v1/pairing/request', {
-        method: 'POST',
-        body: JSON.stringify({app_key: this.appKey, app_name: this.appName, permissions}),
-      });
-      if (!pairing.request_id || !pairing.claim_token || !pairing.code) {
-        throw new Error('HomeServer returned an unsupported pairing response.');
-      }
+      const pairing = await this._request('/api/v1/pairing/request', {method:'POST', body:JSON.stringify({app_key:this.appKey, app_name:this.appName, permissions})});
+      if (!pairing.request_id || !pairing.claim_token || !pairing.code) throw new Error('HomeServer returned an unsupported pairing response.');
       return pairing;
     }
 
     pairingStatus(pairing) {
       if (!pairing?.request_id || !pairing?.claim_token) throw new Error('Pairing request_id and claim_token are required.');
-      return this._request('/api/v1/pairing/status', {
-        method: 'POST',
-        body: JSON.stringify({request_id: pairing.request_id, claim_token: pairing.claim_token}),
-      });
+      return this._request('/api/v1/pairing/status', {method:'POST', body:JSON.stringify({request_id:pairing.request_id, claim_token:pairing.claim_token})});
     }
 
     async waitForApproval(pairing, options = {}) {
@@ -83,10 +63,7 @@
       while (Date.now() - started < timeoutMs) {
         const status = await this.pairingStatus(pairing);
         if (typeof options.onStatus === 'function') options.onStatus(status);
-        if (status.ready) {
-          this.token = pairing.claim_token;
-          return status;
-        }
+        if (status.ready) { this.token = pairing.claim_token; return status; }
         if (status.status === 'expired') throw new Error('HomeServer pairing request expired. Start pairing again.');
         if (status.status === 'denied') throw new Error('HomeServer pairing request was denied.');
         await new Promise(resolve => setTimeout(resolve, intervalMs));
@@ -98,7 +75,7 @@
       const pairing = await this.requestPairing(permissions);
       if (typeof options.onCode === 'function') options.onCode(pairing.code, pairing);
       const status = await this.waitForApproval(pairing, options);
-      return {pairing, status, token: this.token};
+      return {pairing, status, token:this.token};
     }
 
     me() { return this._authorized('/api/v1/me'); }
@@ -107,20 +84,12 @@
     memory() { return this._authorized('/api/v1/memory'); }
     writeMemory(content, options = {}) {
       return this._authorized('/api/v1/memory', {
-        method: 'POST',
-        body: JSON.stringify({
-          content,
-          memory_key: options.memoryKey || null,
-          importance: options.importance ?? 0.5,
-          agent_id: options.agentId || null,
-        }),
+        method:'POST',
+        body:JSON.stringify({content, memory_key:options.memoryKey || null, importance:options.importance ?? 0.5, agent_id:options.agentId || null}),
       });
     }
     chat(message, conversationId = null) {
-      return this._authorized('/api/v1/chat', {
-        method: 'POST',
-        body: JSON.stringify({message, conversation_id: conversationId}),
-      });
+      return this._authorized('/api/v1/chat', {method:'POST', body:JSON.stringify({message, conversation_id:conversationId})});
     }
     conversations(limit = 50) {
       const safeLimit = Math.max(1, Math.min(100, Number(limit || 50)));
@@ -134,10 +103,11 @@
     skills() { return this._authorized('/api/v1/skills'); }
     executeTool(toolKey, args = {}) {
       if (!toolKey) throw new Error('toolKey is required.');
-      return this._authorized(`/api/v1/tools/${encodeURIComponent(toolKey)}/execute`, {
-        method: 'POST',
-        body: JSON.stringify({arguments: args}),
-      });
+      return this._authorized(`/api/v1/tools/${encodeURIComponent(toolKey)}/execute`, {method:'POST', body:JSON.stringify({arguments:args})});
+    }
+    actionRequest(requestId) {
+      if (!requestId) throw new Error('requestId is required.');
+      return this._authorized(`/api/v1/action-requests/${encodeURIComponent(requestId)}`);
     }
   }
 
