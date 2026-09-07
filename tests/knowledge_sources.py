@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -77,20 +78,44 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-sources-") as temp
         assert source_json["enabled"] is True
         assert source_json["recursive"] is True
         assert source_json["status"] == "ready"
+        assert Path(source_json["path"]) == source_dir.resolve()
         assert "node_modules" in source_json["excludes"]
         assert ".md" in sources.json()["supported_extensions"]
+
+        tracked = client.get(f"/api/v1/control/knowledge/sources/{source_id}/files").json()["items"]
+        assert {item["relative_path"] for item in tracked} == {"alpha.md", "notes/beta.txt"}
 
         alpha_search = client.get("/api/v1/control/knowledge?q=ALPHA_SOURCE_SENTINEL_1001")
         assert alpha_search.status_code == 200
         assert len(alpha_search.json()["items"]) == 1
         alpha_item = alpha_search.json()["items"][0]
         assert alpha_item["kind"] == "watched_document"
-        assert Path(alpha_item["source_path"]) == alpha.resolve()
+        assert alpha_item["source_path"] is None
 
         beta_search = client.get("/api/v1/control/knowledge?q=BETA_SOURCE_SENTINEL_2002")
         assert len(beta_search.json()["items"]) == 1
         beta_item_id = beta_search.json()["items"][0]["id"]
+        assert beta_search.json()["items"][0]["source_path"] is None
         assert not client.get("/api/v1/control/knowledge?q=EXCLUDED_SOURCE_SENTINEL_9999").json()["items"]
+
+        pair = client.post(
+            "/api/v1/pairing/request",
+            json={
+                "app_key": "knowledge-source-reader",
+                "app_name": "Knowledge Source Reader",
+                "permissions": ["knowledge.search"],
+            },
+        ).json()
+        assert client.post("/api/v1/pairing/approve", json={"code": pair["code"]}).status_code == 200
+        paired = client.get(
+            "/api/v1/knowledge?q=BETA_SOURCE_SENTINEL_2002",
+            headers={"Authorization": f"Bearer {pair['claim_token']}"},
+        )
+        assert paired.status_code == 200
+        paired_text = json.dumps(paired.json(), ensure_ascii=False)
+        assert str(source_dir.resolve()) not in paired_text
+        assert str(root.resolve()) not in paired_text
+        assert paired.json()["items"][0]["source_path"] is None
 
         unchanged = client.post(f"/api/v1/control/knowledge/sources/{source_id}/scan")
         assert unchanged.status_code == 200
@@ -116,7 +141,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-sources-") as temp
         beta_after = client.get("/api/v1/control/knowledge?q=BETA_SOURCE_SENTINEL_2002").json()["items"]
         assert len(beta_after) == 1
         assert beta_after[0]["id"] == beta_item_id
-        assert Path(beta_after[0]["source_path"]) == gamma.resolve()
+        moved_files = client.get(f"/api/v1/control/knowledge/sources/{source_id}/files").json()["items"]
+        assert "gamma.txt" in {item["relative_path"] for item in moved_files}
+        assert "notes/beta.txt" not in {item["relative_path"] for item in moved_files}
 
         manual_delete = client.delete(f"/api/v1/control/knowledge/{beta_item_id}")
         assert manual_delete.status_code == 200
