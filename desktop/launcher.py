@@ -17,8 +17,11 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from desktop.bootstrap import prepare_data_directory  # noqa: E402
+from desktop.bootstrap import ensure_loopback_proxy_bypass, prepare_data_directory  # noqa: E402
 
+# HomeServer's API is loopback-only. Ambient machine/user proxy settings must
+# never intercept its own health checks or permission-enforced local dispatch.
+ensure_loopback_proxy_bypass()
 BOOTSTRAP_STATE = prepare_data_directory()
 
 import json  # noqa: E402
