@@ -21,6 +21,8 @@ jobs:
         run: node --check ui/app.js
       - name: Validate authorization JavaScript
         run: node --check ui/authorize.js
+      - name: Database migration upgrade test
+        run: python tests/migrations.py
       - name: Smoke test API and SQLite
         run: python tests/smoke.py
       - name: Build executable

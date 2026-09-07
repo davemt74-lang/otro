@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -7,7 +8,10 @@ from typing import Iterator
 
 from .config import settings
 
-SCHEMA_PATH = Path(__file__).resolve().parents[1] / "database" / "schema.sql"
+ROOT_DIR = Path(__file__).resolve().parents[1]
+SCHEMA_PATH = ROOT_DIR / "database" / "schema.sql"
+MIGRATIONS_DIR = ROOT_DIR / "database" / "migrations"
+MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_.+\.sql$")
 
 
 def connect() -> sqlite3.Connection:
@@ -33,14 +37,47 @@ def db() -> Iterator[sqlite3.Connection]:
         connection.close()
 
 
+def migration_files() -> list[tuple[int, Path]]:
+    if not MIGRATIONS_DIR.exists():
+        return []
+    migrations: list[tuple[int, Path]] = []
+    seen: set[int] = set()
+    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        match = MIGRATION_PATTERN.match(path.name)
+        if match is None:
+            continue
+        version = int(match.group("version"))
+        if version in seen:
+            raise RuntimeError(f"Duplicate database migration version: {version}")
+        seen.add(version)
+        migrations.append((version, path))
+    return migrations
+
+
 def initialize_database() -> None:
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
     with db() as connection:
         connection.executescript(schema)
-        connection.execute(
-            "INSERT OR IGNORE INTO schema_migrations(version) VALUES (1)"
-        )
-        existing = connection.execute("SELECT id FROM agents WHERE is_primary = 1 LIMIT 1").fetchone()
+        connection.execute("INSERT OR IGNORE INTO schema_migrations(version) VALUES (1)")
+
+    for version, path in migration_files():
+        with db() as connection:
+            applied = connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version=?",
+                (version,),
+            ).fetchone()
+            if applied is not None:
+                continue
+            connection.executescript(path.read_text(encoding="utf-8"))
+            connection.execute(
+                "INSERT INTO schema_migrations(version) VALUES (?)",
+                (version,),
+            )
+
+    with db() as connection:
+        existing = connection.execute(
+            "SELECT id FROM agents WHERE is_primary=1 LIMIT 1"
+        ).fetchone()
         if existing is None:
             connection.execute(
                 "INSERT INTO agents(name, instructions, is_primary) VALUES (?, ?, 1)",
