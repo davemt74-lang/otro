@@ -67,8 +67,8 @@ function ensureBackupWorkspace() {
   }
 
   const providerCopy = document.querySelector('#providerForm > p.muted');
-  if (providerCopy && providerCopy.textContent.includes('HomeServer v0.9')) {
-    providerCopy.textContent = providerCopy.textContent.replace('HomeServer v0.9', 'HomeServer v0.10');
+  if (providerCopy && /HomeServer v\d+\.\d+/.test(providerCopy.textContent)) {
+    providerCopy.textContent = providerCopy.textContent.replace(/HomeServer v\d+\.\d+/, 'HomeServer v0.11');
   }
 }
 
