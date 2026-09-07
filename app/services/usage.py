@@ -75,15 +75,37 @@ def record_usage(
     return dict(row)
 
 
-def list_usage(limit: int = 200, compute_source: str | None = None) -> list[dict]:
-    bounded = max(1, min(int(limit), 1000))
+def _usage_where(
+    *,
+    compute_source: str | None = None,
+    source_app_key: str | None = None,
+) -> tuple[str, list[Any]]:
+    clauses: list[str] = []
     params: list[Any] = []
-    where = ""
     if compute_source:
         if compute_source not in {"homeserver_local", "user_provider", "vp3_cloud"}:
             raise UsageError("Invalid compute source filter.")
-        where = "WHERE compute_source=?"
+        clauses.append("compute_source=?")
         params.append(compute_source)
+    if source_app_key is not None:
+        source = str(source_app_key).strip()
+        if not source:
+            raise UsageError("Invalid usage source filter.")
+        clauses.append("source_app_key=?")
+        params.append(source[:160])
+    return ("WHERE " + " AND ".join(clauses) if clauses else "", params)
+
+
+def list_usage(
+    limit: int = 200,
+    compute_source: str | None = None,
+    source_app_key: str | None = None,
+) -> list[dict]:
+    bounded = max(1, min(int(limit), 1000))
+    where, params = _usage_where(
+        compute_source=compute_source,
+        source_app_key=source_app_key,
+    )
     params.append(bounded)
     with db() as connection:
         rows = connection.execute(
@@ -100,10 +122,11 @@ def list_usage(limit: int = 200, compute_source: str | None = None) -> list[dict
     return [dict(row) for row in rows]
 
 
-def usage_summary() -> dict:
+def usage_summary(source_app_key: str | None = None) -> dict:
+    where, params = _usage_where(source_app_key=source_app_key)
     with db() as connection:
         row = connection.execute(
-            """
+            f"""
             SELECT
               COALESCE(SUM(CASE WHEN compute_source='vp3_cloud' THEN billable_tokens ELSE 0 END), 0) AS cloud_tokens_debited,
               COALESCE(SUM(CASE WHEN compute_source='vp3_cloud' THEN total_tokens ELSE 0 END), 0) AS cloud_model_tokens,
@@ -111,14 +134,27 @@ def usage_summary() -> dict:
               COUNT(CASE WHEN compute_source='vp3_cloud' THEN 1 END) AS cloud_requests,
               COUNT(CASE WHEN compute_source!='vp3_cloud' THEN 1 END) AS homeserver_requests
             FROM inference_usage_events
-            """
+            {where}
+            """,
+            params,
         ).fetchone()
+
+        balance_clauses = ["compute_source='vp3_cloud'", "balance_after_tokens IS NOT NULL"]
+        balance_params: list[Any] = []
+        if source_app_key is not None:
+            source = str(source_app_key).strip()
+            if not source:
+                raise UsageError("Invalid usage source filter.")
+            balance_clauses.append("source_app_key=?")
+            balance_params.append(source[:160])
+        balance_where = " AND ".join(balance_clauses)
         balance = connection.execute(
-            """
+            f"""
             SELECT balance_after_tokens FROM inference_usage_events
-            WHERE compute_source='vp3_cloud' AND balance_after_tokens IS NOT NULL
+            WHERE {balance_where}
             ORDER BY id DESC LIMIT 1
-            """
+            """,
+            balance_params,
         ).fetchone()
     result = dict(row) if row else {}
     result["balance_tokens"] = balance["balance_after_tokens"] if balance else None
