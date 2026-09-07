@@ -14,6 +14,8 @@ DEFAULT_PERMISSIONS = {
     "memory.read",
     "memory.write",
     "notifications.read",
+    "tasks.read",
+    "tasks.write",
     "tools.execute",
 }
 
