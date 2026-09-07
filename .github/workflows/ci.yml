@@ -25,6 +25,8 @@ jobs:
         run: node --check ui/remote.js
       - name: Validate Agent Brain JavaScript
         run: node --check ui/brain.js
+      - name: Validate agent-first shell JavaScript
+        run: node --check ui/shell.js
       - name: Validate Skills and Tools JavaScript
         run: node --check ui/tools.js
       - name: Validate Approvals JavaScript
@@ -39,6 +41,8 @@ jobs:
         run: node --check connectors/vp3/client.js
       - name: Database migration upgrade test
         run: python tests/migrations.py
+      - name: Inference routing and token usage regression
+        run: python tests/inference_usage.py
       - name: Windows data bootstrap regression
         run: python tests/bootstrap.py
       - name: Single-instance primitive regression
@@ -86,7 +90,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.13.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.14.0') {
                   $healthy = $true
                   break
                 }
@@ -97,7 +101,7 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.13.0' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.14.0' }
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
@@ -118,7 +122,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.13.0') { $healthy = $true; break }
+                if ($response.ok -eq $true -and $response.version -eq '0.14.0') { $healthy = $true; break }
               } catch {}
             }
             if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
@@ -229,7 +233,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '0.13.0') {
+                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '0.14.0') {
                   $recovery = $true
                   break
                 }
@@ -260,7 +264,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.13.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.14.0') {
                   $healthy = $true
                   break
                 }
