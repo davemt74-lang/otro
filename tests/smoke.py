@@ -124,6 +124,24 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert owner_thread.status_code == 200
         assert [m["role"] for m in owner_thread.json()["messages"]] == ["user", "assistant"]
 
+        collision_pair = client.post(
+            "/api/v1/pairing/request",
+            json={"app_key": "owner", "app_name": "Owner-named Test App", "permissions": ["agent.chat"]},
+        )
+        assert collision_pair.status_code == 200
+        collision_json = collision_pair.json()
+        assert client.post("/api/v1/pairing/approve", json={"code": collision_json["code"]}).status_code == 200
+        collision_token = collision_json["claim_token"]
+        collision_conversations = client.get(
+            "/api/v1/conversations", headers={"Authorization": f"Bearer {collision_token}"}
+        )
+        assert collision_conversations.status_code == 200
+        assert collision_conversations.json()["items"] == []
+        assert client.get(
+            f"/api/v1/conversations/{owner_conversation_id}",
+            headers={"Authorization": f"Bearer {collision_token}"},
+        ).status_code == 404
+
         pair = client.post(
             "/api/v1/pairing/request",
             json={"app_key": "vp3-test", "app_name": "VP3 Test", "permissions": ["agent.chat", "knowledge.search", "memory.read"]},

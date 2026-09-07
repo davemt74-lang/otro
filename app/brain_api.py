@@ -35,6 +35,10 @@ def _require_chat(identity: dict = Depends(_current_app)) -> dict:
     return identity
 
 
+def _app_source(identity: dict) -> str:
+    return f"app:{identity['app_key']}"
+
+
 def _chat_or_http(source: str, payload: ChatRequest) -> dict:
     try:
         return brain.chat(source, payload.message, payload.conversation_id)
@@ -44,7 +48,7 @@ def _chat_or_http(source: str, payload: ChatRequest) -> dict:
 
 @router.post("/api/v1/chat")
 def client_chat(payload: ChatRequest, identity: dict = Depends(_require_chat)) -> dict:
-    return _chat_or_http(identity["app_key"], payload)
+    return _chat_or_http(_app_source(identity), payload)
 
 
 @router.get("/api/v1/conversations")
@@ -52,13 +56,13 @@ def client_conversations(
     limit: int = Query(default=50, ge=1, le=100),
     identity: dict = Depends(_require_chat),
 ) -> dict:
-    return {"items": brain.list_conversations(identity["app_key"], limit=limit)}
+    return {"items": brain.list_conversations(_app_source(identity), limit=limit)}
 
 
 @router.get("/api/v1/conversations/{conversation_id}")
 def client_conversation(conversation_id: str, identity: dict = Depends(_require_chat)) -> dict:
     try:
-        return brain.get_conversation(identity["app_key"], conversation_id)
+        return brain.get_conversation(_app_source(identity), conversation_id)
     except brain.BrainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
