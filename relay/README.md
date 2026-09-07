@@ -46,6 +46,8 @@ The first unclaimed connection receives a fresh 12-character claim code. The use
 
 Device secrets, relay session tokens and claim codes are stored only as SHA-256 hashes in relay SQLite state.
 
+Unclaimed device registrations are automatically removed after the configured stale-enrollment TTL so abandoned or abusive registrations cannot consume relay capacity forever.
+
 ## HTTP / WebSocket surface
 
 ### HomeServer outbound socket
@@ -153,8 +155,10 @@ Environment variables:
 | `HOMESERVER_RELAY_REQUEST_TIMEOUT` | `135` | Maximum forwarded request wait |
 | `HOMESERVER_RELAY_MAX_MESSAGE_BYTES` | `262144` | Relay message/payload limit |
 | `HOMESERVER_RELAY_MAX_DEVICES` | `10000` | Safety cap for registered devices |
+| `HOMESERVER_RELAY_UNCLAIMED_TTL_HOURS` | `24` | Remove abandoned unclaimed devices after this many hours |
+| `HOMESERVER_RELAY_EVENT_RETENTION_DAYS` | `30` | Retain metadata-only relay audit events for this many days |
 
-The in-process claim limiter is defense in depth. Production ingress should also rate-limit `/v1/claim`, especially if the service is internet-accessible.
+The in-process claim limiter is defense in depth. Production ingress should also rate-limit `/v1/claim` and new `/bridge` enrollment attempts, enforce a small HTTP request-body limit, and cap connection/request rates appropriate for the deployment.
 
 ## Trust and privacy
 
@@ -169,6 +173,6 @@ The relay database deliberately does **not** persist:
 - response payloads
 - claim codes
 
-Audit rows contain event/status/operation/request ID and small timing/status metadata only.
+Audit rows contain event/status/operation/request ID and small timing/status metadata only. Old audit rows are automatically pruned according to `HOMESERVER_RELAY_EVENT_RETENTION_DAYS`.
 
 End-to-end application-payload encryption is a future protocol layer and is not claimed by this service.
