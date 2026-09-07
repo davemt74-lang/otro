@@ -2,30 +2,35 @@
 
 HomeServer is a local-first private capability server for personal AI agents and explicitly authorized applications such as VP3.
 
-The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in SQLite, and provides local owner surfaces for Agent Chat, AGENT BRAIN, knowledge, memory, contacts, tasks/reminders, notifications, skills, tools, approvals, pairing, permissions, token usage history, backup/restore, setup, diagnostics and the optional outbound Remote Bridge.
+The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in SQLite, and provides local owner surfaces for the primary agent, chat, knowledge, memory, contacts, tasks/reminders, notifications, skills, tools, approvals, pairing, permissions, backup/restore, setup, diagnostics and the optional outbound Remote Bridge.
 
 ## Current v0.14 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
-- Agent Chat as the default owner UI
-- ChatGPT-style centered conversation workspace and composer
-- Live conversation history in the main sidebar with rename/delete actions
-- Persistent private AGENT BRAIN shared only through explicit permissions
-- Local-first inference routing across:
-  - local Ollama
-  - Claude / Anthropic using the user's API key
-  - OpenAI using the user's API key
-  - OpenRouter using the user's API key
-- ElevenLabs credential storage for voice-capability integration
-- Windows DPAPI protection for owner, Remote Bridge and provider credentials
-- VP3-readable inference availability so the cloud site can prefer HomeServer before paid cloud compute
-- Explicit compute-source reporting: `homeserver_local`, `user_provider`, or `vp3_cloud`
-- VP3 cloud-token usage ledger with idempotent cloud charge events and balance history
+- Agent Chat is the primary owner workspace with a ChatGPT-style composer and live conversation sidebar
+- Sidebar keeps New Chat, Approvals, Knowledge, Memory and Contacts visible while secondary workspaces live in the bottom user menu
+- Canonical conversation history with per-chat rename and delete controls
+- AGENT BRAIN provider settings for local Ollama plus user-owned Anthropic, OpenAI and OpenRouter inference
+- ElevenLabs credential storage for future voice capabilities
+- Provider API keys protected with Windows DPAPI outside SQLite; owner APIs expose only configured state and key suffixes
+- HomeServer-first inference routing for VP3: local/user-provider compute is preferred before VP3 cloud fallback
+- Explicit compute-source responses (`homeserver_local`, `user_provider`, `vp3_cloud`) and zero VP3 cloud debit for HomeServer-served chats
+- Token Usage History with provider/model, input/output/total tokens, VP3 cloud debit and latest reported balance
+- App-scoped usage history and app-scoped idempotency keys so paired applications cannot read or collide with another app's usage events
 - SQLite WAL database with transactional migrations (schema 12)
+- Supervised tray runtime with graceful shutdown/restart
+- Per-data-directory Windows single-instance mutex
+- `%LOCALAPPDATA%\HomeServer\Data` as the installed Windows data location
+- Upgrade-safe migration from legacy `~/.homeserver` when unambiguous
+- Windows DPAPI protection for owner, Remote Bridge and provider credentials
+- Process-local owner browser sessions invalidated on restart
+- First-run Setup & Diagnostics and restricted recovery mode
+- Persistent private Agent Brain and app-isolated conversations
 - Durable memory and local document ingestion/FTS search
 - Private Contacts & Relationship Context
 - First-class Tasks, due dates, priorities and recurring reminders
 - Canonical notification inbox with read/dismiss state
+- Local durable reminder scheduler
 - Allowlisted Skills & Tools with content-safe auditing
 - Optional bounded Agent Tool Use, disabled by default
 - Approval-gated memory-write and task-create proposals, separately disabled by default
@@ -33,49 +38,34 @@ The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in
 - Optional outbound-only Remote Bridge, disabled by default
 - Deployable trusted Remote Relay service and VP3 remote connector
 - Local Backup & Restore with SHA-256 manifests and startup-time rollback protection
-- Supervised tray runtime with graceful shutdown/restart and per-data-directory single-instance enforcement
 
-## Local-first VP3 inference model
+## Agent Brain and VP3 inference routing
 
-The primary v0.14 integration contract is intentionally simple:
+HomeServer v0.14 separates the user's private Agent Brain from VP3's paid cloud compute.
 
-1. VP3 asks HomeServer whether usable agent inference is available.
-2. If HomeServer has a ready local Ollama model, VP3 can route the request to HomeServer. No VP3 cloud tokens are debited.
-3. If HomeServer has a user-configured Anthropic, OpenAI or OpenRouter provider, VP3 can still route the request through HomeServer. The user's provider account is used and no VP3 cloud tokens are debited.
-4. If HomeServer reports that no inference path is ready, VP3 may use its paid cloud subscription / purchased token balance.
-5. VP3 cloud usage can be synchronized back to HomeServer as an idempotent usage event for the owner's Token Usage History.
+In `auto` mode HomeServer selects the first ready inference path in this order:
 
-`GET /api/v1/capabilities` includes a safe inference summary:
+1. local Ollama model (`homeserver_local`)
+2. user-owned Anthropic / Claude API key (`user_provider`)
+3. user-owned OpenAI API key (`user_provider`)
+4. user-owned OpenRouter API key (`user_provider`)
 
-```json
-{
-  "inference": {
-    "available": true,
-    "selected_provider": "ollama",
-    "model": "example-model",
-    "compute_source": "homeserver_local",
-    "cloud_fallback_required": false
-  }
-}
-```
+A user may explicitly choose a ready provider instead. ElevenLabs credentials are stored alongside the inference-provider credentials for voice integration, but ElevenLabs is not an LLM inference route.
 
-A paired app with `agent.chat` can also call:
+The public capabilities response includes a non-secret inference status. VP3 can therefore decide whether HomeServer can satisfy an agent request before using paid cloud compute. A successful HomeServer-served chat returns its `compute_source` and `cloud_tokens_debited: 0`.
+
+If no HomeServer inference route is ready, HomeServer reports `cloud_fallback_required: true`. VP3 may then use the user's paid cloud subscription/token balance. VP3 cloud usage can be reported back through the permissioned usage API, where it is stored separately from local/user-provider usage.
+
+Provider credentials are never returned by an API. On Windows they are protected for the current Windows user with DPAPI and stored at:
 
 ```text
-GET /api/v1/inference/status
+%LOCALAPPDATA%\HomeServer\Data\security\provider-credentials.dat
 ```
 
-A HomeServer-served chat returns `compute_source`, provider/model usage, and `cloud_tokens_debited: 0`. This makes VP3 billing decisions explicit instead of inferring them from model names.
+## Token Usage History
 
-HomeServer does not silently call VP3 paid cloud inference itself. The VP3 cloud application remains responsible for deciding when to use its billable fallback and for reporting the resulting billable usage event.
+Schema 12 adds an inference-usage ledger. Each row records:
 
-## Token usage history
-
-HomeServer stores inference history in `inference_usage_events`.
-
-Each row can include:
-
-- stable event id
 - source application
 - compute source
 - provider and model
@@ -83,52 +73,15 @@ Each row can include:
 - prompt/input tokens
 - completion/output tokens
 - total model tokens
-- VP3 billable token debit
-- reported VP3 token balance after the charge
+- VP3 billable token debit, when applicable
+- VP3-reported balance after a cloud charge, when applicable
 - timestamp
 
-HomeServer/local and user-provider requests are recorded with a VP3 billable debit of zero. VP3 cloud requests use `compute_source=vp3_cloud` and can carry the purchased-token debit and post-charge balance.
+HomeServer-served requests never create a VP3 cloud debit. They are retained as usage history so the owner can see local/user-provider compute alongside paid cloud activity.
 
-Cloud synchronization is retry-safe because the event id is unique. Replaying the same VP3 charge notification does not debit or count it twice in HomeServer history.
+Cloud charge notifications use an app-scoped idempotency key: `(source_app_key, event_id)`. Retrying the same charge from the same paired app does not double-count it, while a different paired app can legitimately use the same event identifier without collision. Paired apps granted `usage.read` can only read their own usage rows and summary; the local owner control surface can view the complete ledger.
 
-Paired-app permissions:
-
-- `usage.read`
-- `usage.write`
-
-Endpoints:
-
-```text
-GET  /api/v1/usage
-POST /api/v1/usage/cloud
-GET  /api/v1/control/usage
-```
-
-The owner UI exposes **Token Usage History** from the bottom user menu.
-
-## AGENT BRAIN and provider credentials
-
-AGENT BRAIN contains the primary agent identity/instructions, inference routing, provider credentials and bounded Agent Tool policy.
-
-Provider credentials supported in v0.14:
-
-- Anthropic / Claude
-- OpenAI
-- OpenRouter
-- ElevenLabs
-
-On Windows, provider keys are written to the HomeServer security directory using Windows DPAPI for the current Windows user. They are not stored in SQLite, returned through control APIs, or copied into activity/tool audit records. Control APIs expose only configured/not-configured state and a last-four suffix for recognition.
-
-Inference selection defaults to **Auto — local first**. The automatic order is:
-
-1. Ollama local
-2. Anthropic
-3. OpenAI
-4. OpenRouter
-
-The owner can explicitly prefer a configured provider. If that preferred provider is unavailable, HomeServer falls back through the ready HomeServer providers; if none are ready it reports `cloud_fallback_required=true` to VP3.
-
-ElevenLabs is credentialed in AGENT BRAIN for voice features but is not used as the text inference provider.
+The balance stored by HomeServer is the latest balance *reported by the authorized cloud integration*. HomeServer does not independently mint or debit VP3 cloud tokens.
 
 ## Windows lifecycle and data safety
 
@@ -146,7 +99,7 @@ Primary paths include:
 - `restore\` — staged/last restore metadata
 - `security\owner-bootstrap.dat` — Windows-protected owner bootstrap material
 - `security\remote-bridge.dat` — Windows-protected Remote Bridge device credential
-- `security\provider-credentials.dat` — Windows-protected provider API keys
+- `security\provider-credentials.dat` — Windows-protected model/voice provider credentials
 - `runtime\bootstrap-state.json` — non-secret startup/migration diagnostics
 
 If a legacy `~/.homeserver` directory contains data and LocalAppData does not, the Windows launcher moves the complete legacy directory before importing the application runtime. If both locations contain data, HomeServer does not merge or delete either location; LocalAppData remains active and Setup & Diagnostics reports the conflict.
@@ -155,17 +108,42 @@ If a legacy `~/.homeserver` directory contains data and LocalAppData does not, t
 
 HomeServer acquires a named Windows mutex before applying restores, opening SQLite or binding port `4377`. Quit and Restart request graceful shutdown, close the Remote Bridge and local server, release the instance mutex and only then relaunch when needed.
 
+The tray provides:
+
+- Open HomeServer
+- Tasks & Notifications
+- Setup & Diagnostics
+- Remote Bridge
+- Open Data Folder
+- Create Backup
+- API Docs
+- Restart HomeServer
+- Quit
+
 ## Owner security and recovery
 
-The persistent owner bootstrap secret, Remote Bridge device credential and provider API credentials are protected with Windows DPAPI for the current Windows user. The owner browser session itself remains process-local and is stored only in an HttpOnly, SameSite=Strict cookie; restart invalidates it.
+The persistent owner bootstrap secret, Remote Bridge device credential and provider credentials are protected with Windows DPAPI for the current Windows user. The owner browser session itself remains process-local and is stored only in an HttpOnly, SameSite=Strict cookie; restart invalidates it.
 
 If normal SQLite initialization fails, HomeServer starts a restricted local recovery application. Recovery can validate/stage a known-good backup, preserve unreadable live state for forensic recovery and request a supervised restart. Paired apps, Agent APIs and the Remote Bridge are not started in recovery mode.
 
 ## Tasks, reminders and notifications
 
-Private tasks live in the same SQLite brain as memory, knowledge and contacts. A task can include title/description, status, priority, due/reminder dates, optional linked contact, provenance and one-time/daily/weekly/monthly recurrence.
+HomeServer includes first-class private tasks in the same SQLite brain as memory, knowledge and contacts.
 
-The local scheduler creates canonical notifications without contacting cloud services. It does not execute arbitrary tasks, tools, HTTP calls, shell commands or workflows.
+Each task can include:
+
+- title and description
+- pending / in-progress / completed / cancelled status
+- low / normal / high / urgent priority
+- due date/time
+- reminder date/time
+- optional linked contact
+- source application/provenance
+- one-time, daily, weekly or monthly reminder recurrence
+
+The local scheduler checks due reminders without contacting any cloud service. When a reminder becomes due it atomically advances or clears the task's `remind_at` value and creates one row in the canonical `notifications` table. The reservation update prevents the same reminder occurrence from being emitted twice by overlapping scheduler passes.
+
+The scheduler does not execute arbitrary tasks, tools, HTTP calls, shell commands or workflows. It only creates local notifications.
 
 Owner workspace:
 
@@ -179,11 +157,11 @@ Paired-app capabilities:
 - `tasks.write`
 - `notifications.read`
 
-Agent/model-driven task creation remains approval-gated. A model can propose a task only when write proposals are enabled; the owner must approve it locally before execution.
+A paired app granted `tasks.write` may directly create/update tasks through the explicit app API. Agent/model-driven task creation is different: the model is never offered direct `tasks.create`; it can only propose a task when write proposals are enabled, and the owner must approve it locally before execution.
 
 ## Skills, tools and approval-gated actions
 
-Built-in tools remain allowlisted:
+Built-in tools remain allowlisted. Current tools include:
 
 - `contacts.search`
 - `knowledge.search`
@@ -193,7 +171,19 @@ Built-in tools remain allowlisted:
 - `notifications.list`
 - `tasks.create`
 
-Model-readable tools are permission-filtered. Direct model writes are not exposed. When owner-controlled write proposals are enabled, the model can request a pending memory write or task creation for explicit local approval.
+The Task & Reminder Manager skill groups task/notification capabilities but grants no permissions by itself.
+
+Model-readable functions are permission-filtered. For tasks these are:
+
+- `homeserver_tasks_list`
+- `homeserver_notifications_list`
+
+The model is never offered direct `memory.write` or `tasks.create`. When owner-controlled write proposals are enabled it may receive:
+
+- `homeserver_memory_write_request`
+- `homeserver_task_create_request`
+
+Those functions create pending local approval requests only. The durable write occurs through the canonical audited tool after explicit owner approval. Task titles/descriptions and memory bodies are not duplicated into tool/activity audit metadata.
 
 HomeServer intentionally exposes no shell, PowerShell, arbitrary HTTP or unrestricted filesystem tool.
 
@@ -203,9 +193,11 @@ HomeServer's optional Remote Bridge makes an outbound connection so a broker-med
 
 Production broker URLs require `wss://`; `ws://` is accepted only for loopback development/test hosts. The bridge has an explicit operation map and is not an arbitrary TCP/HTTP tunnel. Protected operations are dispatched back through HomeServer's existing bearer-authenticated local APIs, so canonical paired-app permissions remain authoritative.
 
-The existing remote `capabilities` operation now carries the HomeServer inference summary, allowing VP3 to make its local/user-provider versus paid-cloud routing decision over the same Remote Bridge contract.
+The repository also contains the deployable Remote Relay service under `relay/`. The relay session selects which HomeServer a remote client can reach; the separate HomeServer app credential controls what that client may do.
 
-The repository also contains the deployable Remote Relay service under `relay/`. Current trust model: **trusted WSS relay**. TLS protects transport to the relay, but the relay can see relayed application payloads and HomeServer bearer credentials. This is not end-to-end payload encryption.
+Current trust model: **trusted WSS relay**. TLS protects transport to the relay, but the relay can see relayed application payloads and HomeServer bearer credentials. This is not end-to-end payload encryption.
+
+Owner Control, pairing approval, Windows lifecycle, backup/restore, recovery, shell, arbitrary HTTP and unrestricted filesystem access are not relay capabilities.
 
 See:
 
@@ -227,7 +219,7 @@ Backup/restore remains owner-only and is not a VP3/paired-app permission.
 
 VP3 connects locally through `claim-v1` pairing or remotely through the deployable relay plus the same HomeServer pairing model. The relay does not create a second authorization system.
 
-Current permission families include:
+Each capability is independently permissioned. Current permission families include:
 
 - `agent.chat`
 - `contacts.read`
@@ -241,7 +233,7 @@ Current permission families include:
 - `usage.read`
 - `usage.write`
 
-Windows lifecycle, diagnostics, backup/restore, recovery and provider-secret control are intentionally absent from the paired-app permission catalog.
+Windows lifecycle, diagnostics, backup/restore and recovery are intentionally absent from the app permission catalog.
 
 ## Run locally
 
@@ -258,6 +250,6 @@ python desktop/launcher.py
 pyinstaller HomeServer.spec --clean --noconfirm
 ```
 
-Windows CI validates schema upgrades, Agent Brain/inference routing, provider secret non-disclosure, usage idempotency, token history, conversation rename/delete contracts, JavaScript syntax, data bootstrap, single-instance behavior, owner security, recovery mode, Agent Tools/Approvals/Contacts/Tasks/Backup regressions, Remote Bridge security/protocol, packaged EXE startup, packaged restart/session rotation/shutdown, staged restore, installer upgrade preservation and distribution hashes.
+Windows CI validates migrations, inference routing/usage isolation, legacy-data bootstrap, single-instance behavior, DPAPI owner protection, recovery mode, Agent/Tools/Approvals/Contacts/Tasks/Backup regressions, Remote Bridge security/protocol, packaged EXE startup, packaged restart/session rotation/shutdown, the packaged outbound relay permission boundary, staged restore, installer upgrade preservation and distribution hashes.
 
 Relay CI independently validates the deployable relay process, VP3 remote connector, Docker image and live container health.
