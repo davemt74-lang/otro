@@ -60,7 +60,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-connected-apps-v029-") as da
 
         paused = client.patch(f"/api/v1/control/apps/{app_id}", json={"status": "paused"})
         assert paused.status_code == 200
-        assert client.get("/api/v1/control/connected-apps").json()["apps"][0]["scope"] == scope
+        scoped_dashboard = client.get("/api/v1/control/connected-apps").json()
+        scoped_app = next(item for item in scoped_dashboard["apps"] if item["id"] == app_id)
+        assert scoped_app["scope"] == scope
         active = client.patch(f"/api/v1/control/apps/{app_id}", json={"status": "active"})
         assert active.status_code == 200
 
@@ -70,6 +72,20 @@ with tempfile.TemporaryDirectory(prefix="homeserver-connected-apps-v029-") as da
             json={"memory_key": "vp3-private:test", "content": "PRIVATE-CONTENT-MUST-NOT-APPEAR", "importance": 0.8},
         )
         assert created.status_code == 200, created.text
+
+        denied_request = client.post(
+            "/api/v1/pairing/request",
+            json={"app_key": "unwanted-wrapper", "app_name": "Unwanted Wrapper", "permissions": ["agent.chat"]},
+        ).json()
+        denied_review = client.get("/api/v1/control/connected-apps").json()
+        denied_pending = next(item for item in denied_review["pending"] if item["app_key"] == "unwanted-wrapper")
+        denied = client.post(f"/api/v1/control/connected-apps/pending/{denied_pending['id']}/deny")
+        assert denied.status_code == 200, denied.text
+        assert denied.json()["status"] == "denied"
+        denied_status = client.post("/api/v1/pairing/status", json={"request_id": denied_request["request_id"], "claim_token": denied_request["claim_token"]})
+        assert denied_status.status_code == 200
+        assert denied_status.json()["status"] == "denied"
+        assert client.post(f"/api/v1/control/connected-apps/pending/{denied_pending['id']}/deny").status_code == 409
 
         replacement_permissions = initial_permissions + ["knowledge.search"]
         replacement = client.post(
@@ -120,6 +136,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-connected-apps-v029-") as da
         assert final_app["scope_summary"]["plugin_count"] == 1
 
 ui_script = (ROOT_DIR / "ui" / "connected-apps-v029.js").read_text(encoding="utf-8")
+deny_script = (ROOT_DIR / "ui" / "connected-apps-deny-v029.js").read_text(encoding="utf-8")
 ui_css = (ROOT_DIR / "ui" / "connected-apps-v029.css").read_text(encoding="utf-8")
 doc = (ROOT_DIR / "docs" / "wrapper-onboarding-v029.md").read_text(encoding="utf-8")
 assert "/api/v1/control/connected-apps" in ui_script
@@ -129,6 +146,9 @@ assert "data-v029-permission" in ui_script
 assert "data-app-permission" not in ui_script
 assert "token_hash" not in ui_script
 assert "PRIVATE-CONTENT" not in ui_script
+assert "Deny request" in deny_script
+assert "/deny" in deny_script and "confirm(" in deny_script
+assert "token_hash" not in deny_script
 assert "@media" in ui_css
 assert "claim-v1" in doc
 assert "app_key" in doc and "app_name" in doc
