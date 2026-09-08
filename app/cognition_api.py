@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import cognitive_runtime, plugins
+from .services import app_scopes, cognitive_runtime, plugins
 from .services.pairing import authenticate
 
 
@@ -88,6 +88,11 @@ def app_emit_event(
     identity: dict = Depends(_require("events.write")),
 ) -> dict:
     permissions = set(identity["permissions"])
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
+    if payload.plugin_key and not app_scopes.plugin_allowed(scope, payload.plugin_key):
+        raise HTTPException(status_code=403, detail="Plugin is outside this application's allowed scope")
+    if payload.memory_candidate and not app_scopes.memory_key_allowed(scope, payload.memory_key):
+        raise HTTPException(status_code=403, detail="Memory candidate key is outside this application's allowed scope")
     try:
         return cognitive_runtime.emit_event(
             source_app_key=_app_source(identity),
@@ -135,14 +140,14 @@ def app_awareness(
     limit: int = Query(default=50, ge=1, le=200),
     identity: dict = Depends(_require("awareness.read")),
 ) -> dict:
-    # awareness.read is deliberately distinct from events.read. It exposes
-    # user-wide summaries, never raw event payloads from other applications.
     return {"items": cognitive_runtime.list_awareness(limit=limit, status="open"), "app": identity["app_key"]}
 
 
 @router.get("/api/v1/plugins")
 def app_plugins(identity: dict = Depends(_require("plugins.read"))) -> dict:
-    return {"items": plugins.list_plugins(active_only=True), "app": identity["app_key"]}
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
+    items = [item for item in plugins.list_plugins(active_only=True) if app_scopes.plugin_allowed(scope, item.get("plugin_key") or item.get("key"))]
+    return {"items": items, "app": identity["app_key"]}
 
 
 @router.get("/api/v1/control/cognition")
