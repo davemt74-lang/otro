@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from ..database import db
-from . import app_scopes
+from . import app_collaboration, app_scopes
 from .pairing import DEFAULT_PERMISSIONS
 
 
@@ -120,6 +120,13 @@ def list_connected_apps() -> dict[str, Any]:
         "counts": counts,
         "available_permissions": sorted(DEFAULT_PERMISSIONS),
         "pairing_protocol": "claim-v1",
+        "collaboration": {
+            "version": app_collaboration.COLLABORATION_VERSION,
+            "read_only_agent_context": True,
+            "shares": ["memory", "knowledge"],
+            "excluded": ["credentials", "contacts", "tools", "plugins", "cloud", "writes"],
+            "grants": app_collaboration.list_grants(),
+        },
     }
 
 
@@ -135,6 +142,32 @@ def connected_app_activity(app_id: int, limit: int = 50) -> dict[str, Any]:
     return {
         "app": {"id": int(row["id"]), "app_key": str(row["app_key"]), "name": str(row["name"])},
         "items": items,
+    }
+
+
+def update_collaboration_grant(
+    consumer_app_id: int,
+    source_app_id: int,
+    *,
+    memory_allowed: bool,
+    knowledge_allowed: bool,
+    enabled: bool,
+) -> dict[str, Any]:
+    try:
+        grant = app_collaboration.save_grant(
+            consumer_app_id,
+            source_app_id,
+            memory_allowed=memory_allowed,
+            knowledge_allowed=knowledge_allowed,
+            enabled=enabled,
+        )
+    except app_collaboration.CollaborationError as exc:
+        raise ConnectedAppError(str(exc)) from exc
+    return {
+        "updated": True,
+        "version": app_collaboration.COLLABORATION_VERSION,
+        "grant": grant,
+        "read_only_agent_context": True,
     }
 
 
