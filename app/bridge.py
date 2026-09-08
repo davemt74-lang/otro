@@ -10,6 +10,7 @@ from .brain_api import router as brain_router
 from .cognition_api import router as cognition_router
 from .contacts_api import router as contacts_router
 from .config import settings
+from .delegation_api import router as delegation_router
 from .knowledge_sources_api import router as knowledge_sources_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
@@ -27,6 +28,7 @@ class PairStatusRequest(BaseModel):
 
 
 app.include_router(brain_router)
+app.include_router(delegation_router)
 app.include_router(tools_router)
 app.include_router(approvals_router)
 app.include_router(contacts_router)
@@ -67,6 +69,7 @@ def capabilities() -> dict:
         "features": [
             "action.approvals",
             "agent.chat",
+            "agent.delegation.v1",
             "agent.context",
             "agent.context.awareness",
             "agent.context.budget",
