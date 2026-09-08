@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -226,5 +227,23 @@ with tempfile.TemporaryDirectory(prefix="homeserver-tasks-") as data_dir:
             allow_write_proposals=True,
         )
         assert "homeserver_task_create_request" not in {item["function"]["name"] for item in blocked_schemas}
+
+    # TestClient shutdown stops router lifespans, but on Windows an SQLite handle
+    # can remain momentarily visible to the filesystem. Stop the scheduler again
+    # after the ASGI portal closes and wait until the database can be renamed.
+    scheduler.stop()
+    assert scheduler._thread is None or not scheduler._thread.is_alive()
+    db_path = Path(data_dir) / "homeserver.db"
+    probe_path = Path(data_dir) / "homeserver.cleanup-probe.db"
+    deadline = time.monotonic() + 5.0
+    while db_path.exists():
+        try:
+            db_path.replace(probe_path)
+            probe_path.replace(db_path)
+            break
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.1)
 
 print("HomeServer tasks, reminders and notifications test passed")
