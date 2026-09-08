@@ -6,12 +6,25 @@
     .filter((item, index, list) => item && list.indexOf(item) === index)
     .slice(0, 32);
 
+  const ensureConnectedAppsDenyV029 = () => {
+    if (document.querySelector('script[data-homeserver-connected-apps-deny-v029]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/connected-apps-deny-v029.js';
+    script.dataset.homeserverConnectedAppsDenyV029 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  };
+
   const ensureConnectedAppsV029 = () => {
-    if (document.querySelector('script[data-homeserver-connected-apps-v029]')) return;
+    if (document.querySelector('script[data-homeserver-connected-apps-v029]')) {
+      ensureConnectedAppsDenyV029();
+      return;
+    }
     const script = document.createElement('script');
     script.src = '/assets/connected-apps-v029.js';
     script.dataset.homeserverConnectedAppsV029 = '1';
     script.async = false;
+    script.addEventListener('load', ensureConnectedAppsDenyV029, {once:true});
     document.head.appendChild(script);
   };
 
