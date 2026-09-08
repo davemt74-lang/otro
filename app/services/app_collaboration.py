@@ -151,10 +151,10 @@ def eligible_grants(
             FROM app_collaboration_grants g
             JOIN paired_apps source ON source.id=g.source_app_id
             WHERE g.consumer_app_id=? AND g.enabled=1 AND source.status='active'
+              AND (g.memory_allowed=1 OR g.knowledge_allowed=1)
             ORDER BY g.source_app_id
-            LIMIT ?
             """,
-            (int(consumer["id"]), MAX_COLLABORATION_SOURCES),
+            (int(consumer["id"]),),
         ).fetchall()
 
         result: list[dict[str, Any]] = []
@@ -184,6 +184,8 @@ def eligible_grants(
                     "scope": app_scopes.get_scope(int(row["source_app_id"])),
                 }
             )
+            if len(result) >= MAX_COLLABORATION_SOURCES:
+                break
     return result
 
 
