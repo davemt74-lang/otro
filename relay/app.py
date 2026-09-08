@@ -261,101 +261,213 @@ async def homeserver_bridge(websocket: WebSocket) -> None:
         await websocket.close(code=4401)
         return
 
-    try:
-        registration = await asyncio.to_thread(register_or_auth_device, device_id, device_secret)
-    except RelayAuthError:
-        await websocket.close(code=4401)
-        return
-
     await websocket.accept(subprotocol=SUBPROTOCOL)
-    connection = DeviceConnection(
-        device_id=device_id,
-        websocket=websocket,
-        connection_id=secrets.token_urlsafe(18),
-    )
-    await manager.attach(connection)
+    connection: DeviceConnection | None = None
     try:
+        raw_hello = await asyncio.wait_for(websocket.receive_text(), timeout=10)
+        if len(raw_hello.encode("utf-8")) > settings.max_message_bytes:
+            await websocket.close(code=1009)
+            return
+        try:
+            hello = json.loads(raw_hello)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            await websocket.close(code=4400)
+            return
+        if not isinstance(hello, dict):
+            await websocket.close(code=4400)
+            return
+        if (
+            hello.get("type") != "hello"
+            or hello.get("protocol") != PROTOCOL
+            or str(hello.get("device_id") or "") != device_id
+        ):
+            await websocket.close(code=4400)
+            return
+
+        try:
+            device = await asyncio.to_thread(
+                register_or_auth_device,
+                device_id,
+                device_secret,
+            )
+        except RelayAuthError:
+            await websocket.close(code=4401)
+            return
+
+        connection = DeviceConnection(
+            device_id=device_id,
+            websocket=websocket,
+            connection_id=f"conn-{secrets.token_urlsafe(12)}",
+        )
+        await manager.attach(connection)
         await connection.send_json(
             {
                 "type": "hello.ok",
-                "claimed": bool(registration.get("claimed")),
-                "claim_code": registration.get("claim_code"),
+                "claimed": bool(device["claimed"]),
+                "claim_code": device.get("claim_code"),
                 "connection_id": connection.connection_id,
             }
         )
+        await asyncio.to_thread(
+            record_event,
+            "device.connected",
+            "completed",
+            device_id=device_id,
+            metadata={"version_length": len(str(hello.get("version") or ""))},
+        )
+
         while True:
-            message = await websocket.receive_json()
-            if not isinstance(message, dict):
+            raw = await websocket.receive_text()
+            if len(raw.encode("utf-8")) > settings.max_message_bytes:
+                await websocket.close(code=1009)
+                return
+            try:
+                message = json.loads(raw)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                await websocket.close(code=4400)
+                return
+            if not isinstance(message, dict) or message.get("type") != "response":
+                await asyncio.to_thread(
+                    record_event,
+                    "device.protocol",
+                    "rejected",
+                    device_id=device_id,
+                    metadata={"message_type_length": len(str(message.get("type") if isinstance(message, dict) else ""))},
+                )
                 continue
-            if str(message.get("type") or "") == "response":
-                connection.deliver(message)
-    except WebSocketDisconnect:
+            connection.deliver(message)
+    except (WebSocketDisconnect, asyncio.TimeoutError):
         pass
     finally:
-        await manager.detach(connection)
+        if connection is not None:
+            await manager.detach(connection)
+            await asyncio.to_thread(
+                record_event,
+                "device.disconnected",
+                "completed",
+                device_id=device_id,
+            )
 
 
 @app.post("/v1/claim")
-async def claim(request: ClaimRequest, http_request: Request) -> dict:
-    key = http_request.client.host if http_request.client else "unknown"
-    if not claim_limiter.allow(key):
+async def claim(body: ClaimRequest, request: Request) -> dict:
+    source = request.client.host if request.client else "unknown"
+    if not claim_limiter.allow(source):
         raise HTTPException(status_code=429, detail="Too many claim attempts.")
     try:
-        result = await asyncio.to_thread(claim_device, request.claim_code)
+        claimed = await asyncio.to_thread(claim_device, body.claim_code)
     except RelayClaimError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    await manager.notify_claimed(result["device_id"])
-    return result
+        raise HTTPException(status_code=404, detail="Claim code was not found or has expired.") from exc
+    try:
+        await manager.notify_claimed(claimed["device_id"])
+    except Exception:
+        pass
+    await asyncio.to_thread(
+        record_event,
+        "client.claim",
+        "completed",
+        device_id=claimed["device_id"],
+    )
+    return {
+        "device_id": claimed["device_id"],
+        "relay_token": claimed["relay_token"],
+        "trust_model": "trusted-relay",
+        "end_to_end_payload_encryption": False,
+    }
 
 
 @app.get("/v1/session")
 async def session_status(session: dict = Depends(_relay_session)) -> dict:
-    connection = await manager.get(session["device_id"])
+    connected = await manager.get(session["device_id"]) is not None
     return {
-        "connected": connection is not None,
         "device_id": session["device_id"],
+        "connected": connected,
+        "trust_model": "trusted-relay",
     }
 
 
 @app.post("/v1/session/rotate")
-async def session_rotate(session: dict = Depends(_relay_session)) -> dict:
-    return await asyncio.to_thread(rotate_session, session["id"])
+async def rotate(request: Request, session: dict = Depends(_relay_session)) -> dict:
+    current = _bearer(request.headers.get("authorization"))
+    try:
+        rotated = await asyncio.to_thread(rotate_session, current)
+    except RelayAuthError as exc:
+        raise HTTPException(status_code=401, detail="Relay session is invalid.") from exc
+    await asyncio.to_thread(
+        record_event,
+        "client.session",
+        "rotated",
+        device_id=session["device_id"],
+    )
+    return {
+        "device_id": rotated["device_id"],
+        "relay_token": rotated["relay_token"],
+    }
 
 
 @app.post("/v1/request")
-async def remote_request(request: RemoteRequest, session: dict = Depends(_relay_session)):
-    if request.operation not in ALLOWED_OPERATIONS:
-        raise HTTPException(status_code=403, detail="Remote operation is not allowlisted.")
-    if _json_size(request.payload) > settings.max_message_bytes:
-        raise HTTPException(status_code=413, detail="Remote payload is too large.")
-    if request.operation not in PUBLIC_OPERATIONS and not request.bearer_token:
-        raise HTTPException(status_code=401, detail="Paired-app bearer token is required for this operation.")
+async def relay_request(
+    body: RemoteRequest,
+    session: dict = Depends(_relay_session),
+):
+    operation = str(body.operation or "").strip()
+    if operation not in ALLOWED_OPERATIONS:
+        raise HTTPException(status_code=400, detail="Remote operation is not allowlisted by the relay.")
+    if _json_size(body.payload) > settings.max_message_bytes:
+        raise HTTPException(status_code=413, detail="Remote request payload is too large.")
+
+    home_token = str(body.bearer_token or "").strip() or None
+    if operation not in PUBLIC_OPERATIONS and (home_token is None or len(home_token) < 20):
+        raise HTTPException(status_code=400, detail="A paired HomeServer bearer token is required.")
 
     connection = await manager.get(session["device_id"])
     if connection is None:
         raise HTTPException(status_code=503, detail="HomeServer is offline.")
 
     started = time.monotonic()
+    request_id = f"http-{secrets.token_urlsafe(12)}"
     try:
-        result = await connection.request(request.operation, request.payload, request.bearer_token)
-    except (asyncio.TimeoutError, RuntimeError) as exc:
+        result = await connection.request(operation, body.payload, home_token)
+    except asyncio.TimeoutError as exc:
         await asyncio.to_thread(
             record_event,
-            session["device_id"],
-            request.operation,
+            "client.request",
             "failed",
-            {"duration_ms": int((time.monotonic() - started) * 1000), "error": type(exc).__name__},
+            device_id=session["device_id"],
+            operation=operation,
+            request_id=request_id,
+            metadata={"reason": "timeout"},
         )
-        raise HTTPException(status_code=503, detail="HomeServer did not complete the remote request.") from exc
+        raise HTTPException(status_code=504, detail="HomeServer relay request timed out.") from exc
+    except RuntimeError as exc:
+        await asyncio.to_thread(
+            record_event,
+            "client.request",
+            "failed",
+            device_id=session["device_id"],
+            operation=operation,
+            request_id=request_id,
+            metadata={"reason": "disconnected"},
+        )
+        raise HTTPException(status_code=503, detail="HomeServer disconnected from relay.") from exc
 
+    status = result.get("status")
+    ok = result.get("ok")
+    payload = result.get("payload") if isinstance(result.get("payload"), dict) else {}
+    if not isinstance(status, int) or status < 100 or status > 599 or not isinstance(ok, bool):
+        raise HTTPException(status_code=502, detail="HomeServer returned an invalid relay response.")
+
+    duration_ms = int((time.monotonic() - started) * 1000)
     await asyncio.to_thread(
         record_event,
-        session["device_id"],
-        request.operation,
-        "completed" if result.get("ok") else "denied",
-        {"duration_ms": int((time.monotonic() - started) * 1000), "http_status": result.get("status")},
+        "client.request",
+        "completed" if ok else "denied",
+        device_id=session["device_id"],
+        operation=operation,
+        request_id=request_id,
+        metadata={"http_status": status, "duration_ms": duration_ms},
     )
-
-    status = int(result.get("status") or (200 if result.get("ok") else 400))
-    payload = result.get("payload") if isinstance(result.get("payload"), dict) else {"detail": "Invalid HomeServer response."}
-    return JSONResponse(status_code=status, content=payload)
+    return JSONResponse(
+        status_code=status,
+        content={"ok": ok, "status": status, "payload": payload},
+    )
