@@ -15,16 +15,30 @@
     document.head.appendChild(script);
   };
 
+  const ensureConnectedAppsCollaborationV030 = () => {
+    if (document.querySelector('script[data-homeserver-connected-apps-collaboration-v030]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/connected-apps-collaboration-v030.js';
+    script.dataset.homeserverConnectedAppsCollaborationV030 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  };
+
+  const ensureConnectedAppsExtensions = () => {
+    ensureConnectedAppsDenyV029();
+    ensureConnectedAppsCollaborationV030();
+  };
+
   const ensureConnectedAppsV029 = () => {
     if (document.querySelector('script[data-homeserver-connected-apps-v029]')) {
-      ensureConnectedAppsDenyV029();
+      ensureConnectedAppsExtensions();
       return;
     }
     const script = document.createElement('script');
     script.src = '/assets/connected-apps-v029.js';
     script.dataset.homeserverConnectedAppsV029 = '1';
     script.async = false;
-    script.addEventListener('load', ensureConnectedAppsDenyV029, {once:true});
+    script.addEventListener('load', ensureConnectedAppsExtensions, {once:true});
     document.head.appendChild(script);
   };
 
