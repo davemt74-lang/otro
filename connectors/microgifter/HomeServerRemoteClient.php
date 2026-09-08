@@ -60,7 +60,7 @@ final class MicrogifterHomeServerRemoteClient
         if ($scheme !== 'https' && !($scheme === 'http' && $loopback)) {
             throw new InvalidArgumentException('HomeServer relay must use HTTPS except on loopback.');
         }
-        if (isset($parts['user'], $parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) {
+        if (isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])) {
             throw new InvalidArgumentException('HomeServer relay URL cannot contain credentials, query, or fragment data.');
         }
         return $value;
