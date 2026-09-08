@@ -95,8 +95,3 @@ def compatible_chat(payload: DelegationRequest, identity: dict = Depends(_requir
         max_context_chars=payload.max_context_chars,
     )
     return client_chat(legacy, identity)
-
-
-@router.post("/api/v1/delegation/chat")
-def delegated_chat(payload: DelegationRequest, identity: dict = Depends(_require_chat)) -> dict:
-    return _delegate(payload, identity)
