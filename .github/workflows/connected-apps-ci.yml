@@ -18,6 +18,6 @@ jobs:
       - name: Compile Connected Apps control plane
         run: python -m compileall app/connected_apps_api.py app/services/connected_apps.py tests/connected_apps_v029.py
       - name: Validate Connected Apps JavaScript
-        run: node --check ui/connected-apps-v029.js
+        run: node --check ui/connected-apps-v029.js && node --check ui/connected-apps-deny-v029.js
       - name: Connected Apps and wrapper-control regression
         run: python tests/connected_apps_v029.py
