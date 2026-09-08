@@ -6,6 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from ..database import db
+from . import app_scopes
 
 DEFAULT_PERMISSIONS = {
     "agent.chat",
@@ -126,6 +127,12 @@ def approve_pairing(code: str) -> dict | None:
         if app is None:
             raise RuntimeError("Paired application record was not created")
 
+        # Preserve owner-defined resource scopes when an existing wrapper is
+        # re-paired; a new app starts unrestricted within its granted permissions.
+        connection.execute(
+            "INSERT OR IGNORE INTO app_capability_scopes(paired_app_id) VALUES (?)",
+            (app["id"],),
+        )
         connection.execute(
             "UPDATE app_permissions SET allowed=0, updated_at=CURRENT_TIMESTAMP WHERE paired_app_id=?",
             (app["id"],),
@@ -240,4 +247,5 @@ def authenticate(raw_token: str) -> dict | None:
         "app_key": row["app_key"],
         "name": row["name"],
         "permissions": [p["permission"] for p in permissions],
+        "scope": app_scopes.get_scope(int(row["id"])),
     }
