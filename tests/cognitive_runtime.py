@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-cognition-") as data_dir:
     initialize_database()
 
     with db() as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 15
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 16
         memory_columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_memory)").fetchall()}
         assert {
             "memory_type", "source_app_key", "source_event_id", "confidence",
@@ -34,8 +34,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-cognition-") as data_dir:
         }.issubset(memory_columns)
         run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_runs)").fetchall()}
         assert "awareness_count" in run_columns
-        for table in ("cognitive_events", "cognition_jobs", "awareness_items", "memory_candidates", "plugins", "plugin_event_subscriptions"):
+        for table in ("cognitive_events", "cognition_jobs", "awareness_items", "memory_candidates", "plugins", "plugin_event_subscriptions", "app_capability_scopes"):
             assert connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
+        # v0.26 deliberately fails closed for unresolved app:* identities. These
+        # two synthetic apps are paired so this regression exercises the normal
+        # backward-compatible unrestricted scope for known legacy wrappers.
+        connection.execute("INSERT INTO paired_apps(app_key, name, token_hash) VALUES ('aware', 'Aware Test App', 'aware-test-token')")
+        connection.execute("INSERT INTO paired_apps(app_key, name, token_hash) VALUES ('isolated', 'Isolated Test App', 'isolated-test-token')")
 
     event_calls: list[str] = []
     tool_calls: list[str] = []
