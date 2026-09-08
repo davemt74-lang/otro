@@ -87,6 +87,11 @@ def chat(
     granted_permissions = set(tool_permissions or set())
     allow_awareness = bool(owner_tools or "awareness.read" in granted_permissions)
     scope = app_scopes.get_scope_for_source(source_app_key) if not owner_tools else dict(app_scopes.DEFAULT_SCOPE)
+    model_tool_permissions = (
+        granted_permissions
+        if owner_tools
+        else app_scopes.scoped_tool_permissions(scope, granted_permissions)
+    )
 
     agent = brain._primary_agent()
     conversation_id = brain._conversation_for_source(
@@ -197,7 +202,7 @@ def chat(
             messages,
             source_app_key=source_app_key,
             selected_model=selected_model,
-            granted_permissions=granted_permissions,
+            granted_permissions=model_tool_permissions,
             owner=owner_tools,
             state=tool_state,
             provider_key=provider_override,

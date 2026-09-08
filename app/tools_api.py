@@ -35,6 +35,31 @@ def _tool_or_http(source: str, tool_key: str, payload: ToolExecuteRequest, permi
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+def _scope_tool_result(tool_key: str, result: dict, scope: dict) -> dict:
+    if not isinstance(result, dict):
+        return result
+    payload = result.get("result")
+    if not isinstance(payload, dict):
+        return result
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return result
+
+    if tool_key == "memory.list":
+        filtered = [item for item in items if isinstance(item, dict) and app_scopes.memory_key_allowed(scope, item.get("memory_key"))]
+    elif tool_key == "knowledge.search":
+        filtered = [item for item in items if isinstance(item, dict) and app_scopes.knowledge_kind_allowed(scope, item.get("kind"))]
+    else:
+        return result
+
+    scoped = dict(result)
+    scoped_payload = dict(payload)
+    scoped_payload["items"] = filtered
+    scoped_payload["count"] = len(filtered)
+    scoped["result"] = scoped_payload
+    return scoped
+
+
 @router.get("/api/v1/tools")
 def client_tools(identity: dict = Depends(_current_app)) -> dict:
     permissions = set(identity["permissions"])
@@ -63,13 +88,17 @@ def client_tool_execute(
     scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
     if not app_scopes.tool_allowed(scope, tool_key):
         raise HTTPException(status_code=403, detail="Tool is outside this application's allowed scope")
-    return _tool_or_http(
+    if tool_key == "memory.write" and not app_scopes.memory_key_allowed(scope, payload.arguments.get("memory_key")):
+        raise HTTPException(status_code=403, detail="Memory key is outside this application's allowed scope")
+
+    result = _tool_or_http(
         f"app:{identity['app_key']}",
         tool_key,
         payload,
         set(identity["permissions"]),
         owner=False,
     )
+    return _scope_tool_result(tool_key, result, scope)
 
 
 @router.get("/api/v1/control/tools")

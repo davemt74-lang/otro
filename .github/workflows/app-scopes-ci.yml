@@ -16,6 +16,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile scoped capability runtime
-        run: python -m compileall app/main.py app/cognition_api.py app/tools_api.py app/services/app_scopes.py app/services/context_chat.py app/services/context_engine.py app/services/delegation.py app/services/pairing.py tests/app_scopes_v026.py
+        run: python -m compileall app/main.py app/cognition_api.py app/tools_api.py app/services/app_scopes.py app/services/context_chat.py app/services/context_engine.py app/services/delegation.py app/services/pairing.py app/services/plugins.py tests/app_scopes_v026.py
       - name: Cross-wrapper capability scope regression
         run: python tests/app_scopes_v026.py

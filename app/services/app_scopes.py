@@ -22,6 +22,19 @@ LOCKED_SCOPE = {
     "plugin_keys": ["__locked__"],
 }
 
+PLUGIN_SCOPE_SENTINEL = "__app_scope_plugins_restricted__"
+PLUGIN_SCOPE_PREFIX = "__app_scope_plugin__:"
+
+_TOOL_PERMISSION_BY_KEY = {
+    "contacts.search": "contacts.read",
+    "knowledge.search": "knowledge.search",
+    "memory.list": "memory.read",
+    "memory.write": "memory.write",
+    "notifications.list": "notifications.read",
+    "tasks.list": "tasks.read",
+    "tasks.create": "tasks.write",
+}
+
 _MAX_ITEMS = 32
 _MAX_VALUE_LENGTH = 160
 _SAFE_KIND = re.compile(r"^[A-Za-z0-9_.:-]+$")
@@ -158,3 +171,34 @@ def tool_allowed(scope: dict[str, Any], tool_name: str | None) -> bool:
 def plugin_allowed(scope: dict[str, Any], plugin_key: str | None) -> bool:
     keys = normalize(scope)["plugin_keys"]
     return not keys or str(plugin_key or "") in keys
+
+
+def scoped_tool_permissions(scope: dict[str, Any], permissions: set[str] | None) -> set[str]:
+    """Return the model-facing permission view after app scope narrowing.
+
+    Direct APIs continue to use the app's coarse permissions plus explicit
+    resource filtering. Model tools are stricter: when a resource has a
+    sub-scope that the legacy tool itself cannot enforce, that tool permission
+    is withheld rather than risking broader private-data access.
+    """
+    normalized = normalize(scope)
+    result = set(permissions or set())
+
+    allowed_tools = set(normalized["tool_names"])
+    if allowed_tools:
+        for tool_key, permission in _TOOL_PERMISSION_BY_KEY.items():
+            if tool_key not in allowed_tools:
+                result.discard(permission)
+
+    if normalized["memory_key_prefixes"]:
+        result.discard("memory.read")
+        result.discard("memory.write")
+    if normalized["knowledge_kinds"]:
+        result.discard("knowledge.search")
+
+    plugin_keys = normalized["plugin_keys"]
+    if plugin_keys:
+        result.add(PLUGIN_SCOPE_SENTINEL)
+        result.update(f"{PLUGIN_SCOPE_PREFIX}{key}" for key in plugin_keys)
+
+    return result

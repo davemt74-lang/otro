@@ -12,6 +12,8 @@ _PLUGIN_KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{1,79}$")
 _EVENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._*:-]{0,159}$")
 _TOOL_KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{1,79}$")
 _HANDLER_KEY = re.compile(r"^[a-z0-9][a-z0-9._-]{1,79}$")
+_PLUGIN_SCOPE_SENTINEL = "__app_scope_plugins_restricted__"
+_PLUGIN_SCOPE_PREFIX = "__app_scope_plugin__:"
 
 EventHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
 ToolHandler = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
@@ -275,10 +277,23 @@ def _model_tool_name(plugin_key: str, tool_key: str) -> str:
     return f"plugin__{clean_plugin}__{clean_tool}"[:240]
 
 
+def _plugin_scope(granted: set[str]) -> tuple[bool, set[str]]:
+    restricted = _PLUGIN_SCOPE_SENTINEL in granted
+    allowed = {
+        value[len(_PLUGIN_SCOPE_PREFIX):]
+        for value in granted
+        if value.startswith(_PLUGIN_SCOPE_PREFIX) and len(value) > len(_PLUGIN_SCOPE_PREFIX)
+    }
+    return restricted, allowed
+
+
 def available_model_tools(granted_permissions: set[str] | None = None, *, owner: bool = False) -> list[dict[str, Any]]:
     granted = set(granted_permissions or set())
+    plugin_scope_restricted, allowed_plugins = _plugin_scope(granted)
     result: list[dict[str, Any]] = []
     for plugin in list_plugins(active_only=True):
+        if not owner and plugin_scope_restricted and plugin["plugin_key"] not in allowed_plugins:
+            continue
         manifest = plugin.get("manifest") or {}
         for tool in manifest.get("tools") or []:
             handler_key = str(tool.get("handler_key") or tool.get("key") or "")

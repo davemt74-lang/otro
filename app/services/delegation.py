@@ -198,6 +198,7 @@ def chat(
     permissions = set(tool_permissions or set())
     allow_awareness = "awareness.read" in permissions
     scope = app_scopes.get_scope_for_source(source)
+    model_tool_permissions = app_scopes.scoped_tool_permissions(scope, permissions)
     effective_cloud_allowed = bool(cloud_allowed and scope["cloud_allowed"])
 
     bundle = _collect_context(
@@ -276,7 +277,7 @@ def chat(
             messages,
             source_app_key=source,
             selected_model=selected_model,
-            granted_permissions=permissions,
+            granted_permissions=model_tool_permissions,
             owner=False,
             state=tool_state,
             provider_key=provider_override,

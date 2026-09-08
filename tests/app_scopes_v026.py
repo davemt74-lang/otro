@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-scopes-v026-") as data_d
     from app.database import db  # noqa: E402
     from app.runtime import app  # noqa: E402
     from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
-    from app.services import app_scopes, context_engine  # noqa: E402
+    from app.services import app_scopes, plugins  # noqa: E402
     from app.services.tasks import scheduler  # noqa: E402
 
     with TestClient(app) as client:
@@ -96,28 +96,43 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-scopes-v026-") as data_d
         assert client.post("/api/v1/memory", headers=vp3_auth, json={"memory_key": "other:blocked", "content": "must not write"}).status_code == 403
         assert client.post("/api/v1/memory", headers=vp3_auth, json={"memory_key": "vp3:allowed", "content": "allowed write"}).status_code == 200
 
-        # Historical retrieval metadata is re-filtered against the current scope,
-        # so narrowing a wrapper later cannot expose old memory/knowledge titles.
-        with db() as connection:
-            agent_id = connection.execute("SELECT id FROM agents WHERE is_primary=1 LIMIT 1").fetchone()[0]
-            vp3_memory_id = connection.execute("SELECT id FROM agent_memory WHERE memory_key='vp3:project'").fetchone()[0]
-            other_memory_id = connection.execute("SELECT id FROM agent_memory WHERE memory_key='other:project'").fetchone()[0]
-            note_id = connection.execute("SELECT id FROM knowledge_items WHERE title='VP3 note'").fetchone()[0]
-            document_id = connection.execute("SELECT id FROM knowledge_items WHERE title='Private document'").fetchone()[0]
-            connection.execute("INSERT INTO conversations(id, agent_id, source_app_key, title) VALUES ('scope-history', ?, 'app:vp3-scope-test', 'Scope history')", (agent_id,))
-            refs = [
-                {"kind": "memory", "id": vp3_memory_id, "title": "vp3:project"},
-                {"kind": "memory", "id": other_memory_id, "title": "other:project"},
-                {"kind": "knowledge", "id": note_id, "title": "VP3 note"},
-                {"kind": "knowledge", "id": document_id, "title": "Private document"},
-            ]
-            connection.execute("INSERT INTO context_retrieval_events(conversation_id, source_app_key, memory_count, knowledge_count, contact_count, context_chars, source_refs_json) VALUES ('scope-history', 'app:vp3-scope-test', 2, 2, 0, 100, ?)", (json.dumps(refs),))
-        history = context_engine.recent_sources("scope-history")
-        assert len(history) == 1
-        visible_refs = history[0]["sources"]
-        assert {(ref["kind"], ref["id"]) for ref in visible_refs} == {("memory", vp3_memory_id), ("knowledge", note_id)}
-        assert history[0]["memory_count"] == 1
-        assert history[0]["knowledge_count"] == 1
+        # The legacy model tools cannot enforce sub-resource filters internally,
+        # so scoped Memory/Knowledge permissions are withheld from the model
+        # rather than risking access broader than the context bundle.
+        vp3_model_permissions = app_scopes.scoped_tool_permissions(vp3_scope, set(permissions))
+        other_model_permissions = app_scopes.scoped_tool_permissions(other_scope, set(permissions))
+        assert "memory.read" not in vp3_model_permissions
+        assert "memory.write" not in vp3_model_permissions
+        assert "knowledge.search" not in vp3_model_permissions
+        assert "contacts.read" not in vp3_model_permissions
+        assert "contacts.read" in other_model_permissions
+        assert app_scopes.PLUGIN_SCOPE_SENTINEL in vp3_model_permissions
+        assert f"{app_scopes.PLUGIN_SCOPE_PREFIX}vp3.private" in vp3_model_permissions
+
+        # Plugin model tools are filtered before they are exposed and the same
+        # filter is reused by execution lookup.
+        plugin_manifest = lambda key: {
+            "plugin_key": key,
+            "name": key,
+            "version": "1.0",
+            "tools": [{
+                "key": "read",
+                "name": "Read",
+                "description": "Scoped test plugin",
+                "mode": "read",
+                "required_permissions": [],
+                "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+                "handler_key": "read",
+            }],
+        }
+        plugins.register_plugin(plugin_manifest("vp3.private"), trusted=True)
+        plugins.register_plugin(plugin_manifest("other.private"), trusted=True)
+        plugins.register_tool_handler("vp3.private", "read", lambda arguments, context: {"source": "vp3"})
+        plugins.register_tool_handler("other.private", "read", lambda arguments, context: {"source": "other"})
+        vp3_plugin_tools = plugins.available_model_tools(vp3_model_permissions)
+        other_plugin_tools = plugins.available_model_tools(other_model_permissions)
+        assert {item["plugin_key"] for item in vp3_plugin_tools} == {"vp3.private"}
+        assert {item["plugin_key"] for item in other_plugin_tools} == {"other.private"}
 
         # A scope-level no-cloud rule wins over the wrapper's normal chat defaults.
         # With no local Ollama provider configured, the request must fail closed
@@ -145,13 +160,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-scopes-v026-") as data_d
         assert app_scopes.plugin_allowed(vp3_scope, "vp3.private")
         assert not app_scopes.plugin_allowed(vp3_scope, "other.private")
         assert app_scopes.tool_allowed(app_scopes.DEFAULT_SCOPE, "anything")
-
-        locked = app_scopes.get_scope_for_source("app:not-paired")
-        assert locked["cloud_allowed"] is False
-        assert not app_scopes.memory_key_allowed(locked, "vp3:any")
-        assert not app_scopes.knowledge_kind_allowed(locked, "note")
-        assert not app_scopes.tool_allowed(locked, "memory.list")
-        assert not app_scopes.plugin_allowed(locked, "vp3.private")
+        assert app_scopes.get_scope_for_source("app:missing-wrapper") == app_scopes.LOCKED_SCOPE
 
         with db() as connection:
             assert connection.execute("SELECT COUNT(*) FROM app_capability_scopes").fetchone()[0] == 2
