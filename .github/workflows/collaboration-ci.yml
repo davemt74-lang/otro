@@ -1,0 +1,23 @@
+name: Cross-Wrapper Collaboration CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  collaboration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile collaboration runtime
+        run: python -m compileall app/services/app_collaboration.py app/services/delegation.py app/connected_apps_api.py tests/cross_wrapper_collaboration_v030.py
+      - name: Validate collaboration JavaScript
+        run: node --check ui/connected-apps-collaboration-v030.js && node --check ui/app-scopes-v026.js
+      - name: Cross-wrapper collaboration regression
+        run: python tests/cross_wrapper_collaboration_v030.py
