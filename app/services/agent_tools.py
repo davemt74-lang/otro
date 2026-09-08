@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import approvals, plugins, tools
+from . import app_scopes, approvals, plugins, tools
 
 MODEL_TOOL_NAMES = {
     "homeserver_contacts_search": "contacts.search",
@@ -27,56 +27,18 @@ class AgentToolError(RuntimeError):
 
 def get_policy() -> dict[str, Any]:
     with db() as connection:
-        row = connection.execute(
-            "SELECT enabled, max_calls, allow_write_proposals, created_at, updated_at FROM agent_tool_policy WHERE id=1"
-        ).fetchone()
+        row = connection.execute("SELECT enabled, max_calls, allow_write_proposals, created_at, updated_at FROM agent_tool_policy WHERE id=1").fetchone()
     if row is None:
-        return {
-            "enabled": False,
-            "max_calls": 3,
-            "allow_write_proposals": False,
-            "created_at": None,
-            "updated_at": None,
-        }
-    item = dict(row)
-    item["enabled"] = bool(item["enabled"])
-    item["allow_write_proposals"] = bool(item["allow_write_proposals"])
-    return item
+        return {"enabled": False, "max_calls": 3, "allow_write_proposals": False, "created_at": None, "updated_at": None}
+    item = dict(row); item["enabled"] = bool(item["enabled"]); item["allow_write_proposals"] = bool(item["allow_write_proposals"]); return item
 
 
 def save_policy(enabled: bool, max_calls: int, allow_write_proposals: bool = False) -> dict[str, Any]:
     calls = int(max_calls)
-    if calls < 1 or calls > 3:
-        raise AgentToolError("Agent tool-call limit must be between 1 and 3.")
+    if calls < 1 or calls > 3: raise AgentToolError("Agent tool-call limit must be between 1 and 3.")
     with db() as connection:
-        connection.execute(
-            """
-            INSERT INTO agent_tool_policy(id, enabled, max_calls, allow_write_proposals)
-            VALUES (1, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                enabled=excluded.enabled,
-                max_calls=excluded.max_calls,
-                allow_write_proposals=excluded.allow_write_proposals,
-                updated_at=CURRENT_TIMESTAMP
-            """,
-            (1 if enabled else 0, calls, 1 if allow_write_proposals else 0),
-        )
-        connection.execute(
-            """
-            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES ('owner', 'control-center', 'agent.tools.policy', 'agent_tools', 'bounded', ?)
-            """,
-            (
-                json.dumps(
-                    {
-                        "enabled": bool(enabled),
-                        "max_calls": calls,
-                        "allow_write_proposals": bool(allow_write_proposals),
-                    },
-                    separators=(",", ":"),
-                ),
-            ),
-        )
+        connection.execute("INSERT INTO agent_tool_policy(id, enabled, max_calls, allow_write_proposals) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET enabled=excluded.enabled, max_calls=excluded.max_calls, allow_write_proposals=excluded.allow_write_proposals, updated_at=CURRENT_TIMESTAMP", (1 if enabled else 0, calls, 1 if allow_write_proposals else 0))
+        connection.execute("INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json) VALUES ('owner', 'control-center', 'agent.tools.policy', 'agent_tools', 'bounded', ?)", (json.dumps({"enabled": bool(enabled), "max_calls": calls, "allow_write_proposals": bool(allow_write_proposals)}, separators=(",", ":")),))
     return get_policy()
 
 
@@ -85,144 +47,49 @@ def model_tool_schemas(
     *,
     owner: bool = False,
     allow_write_proposals: bool = False,
+    source_app_key: str | None = None,
 ) -> list[dict[str, Any]]:
-    by_key = {item["key"]: item for item in tools.list_tools(granted_permissions, owner=owner)}
+    scope = dict(app_scopes.DEFAULT_SCOPE) if owner else app_scopes.get_scope_for_source(source_app_key or "")
+    by_key = {
+        item["key"]: item
+        for item in tools.list_tools(granted_permissions, owner=owner)
+        if owner or app_scopes.tool_allowed(scope, item["key"])
+    }
     schemas: list[dict[str, Any]] = []
     for model_name, tool_key in MODEL_TOOL_NAMES.items():
         item = by_key.get(tool_key)
-        if not item or item.get("mode") != "read" or not item.get("available"):
-            continue
-        schemas.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": model_name,
-                    "description": item["description"],
-                    "parameters": item["input_schema"],
-                },
-            }
-        )
+        if not item or item.get("mode") != "read" or not item.get("available"): continue
+        schemas.append({"type": "function", "function": {"name": model_name, "description": item["description"], "parameters": item["input_schema"]}})
 
-    # v0.17 plugin tools are intentionally read-only and only appear when a
-    # packaged/in-process handler has explicitly bound to the manifest tool.
     for item in plugins.available_model_tools(granted_permissions, owner=owner):
-        if not item.get("available") or item.get("mode") != "read":
-            continue
-        schemas.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": item["model_name"],
-                    "description": f"{item.get('name')}: {item.get('description') or ''}"[:1200],
-                    "parameters": item["input_schema"],
-                },
-            }
-        )
+        if not item.get("available") or item.get("mode") != "read": continue
+        if not owner and not app_scopes.plugin_allowed(scope, item.get("plugin_key")): continue
+        schemas.append({"type": "function", "function": {"name": item["model_name"], "description": f"{item.get('name')}: {item.get('description') or ''}"[:1200], "parameters": item["input_schema"]}})
 
     if allow_write_proposals:
         memory_tool = by_key.get(MEMORY_PROPOSAL_TOOL_KEY)
         if memory_tool and memory_tool.get("available"):
-            schemas.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": MEMORY_PROPOSAL_TOOL_NAME,
-                        "description": (
-                            "Propose a durable memory write for local owner review. This does not modify memory now; "
-                            "HomeServer creates a pending approval request and only the owner can approve execution."
-                        ),
-                        "parameters": memory_tool["input_schema"],
-                    },
-                }
-            )
+            schemas.append({"type": "function", "function": {"name": MEMORY_PROPOSAL_TOOL_NAME, "description": "Propose a durable memory write for local owner review. This does not modify memory now; HomeServer creates a pending approval request and only the owner can approve execution.", "parameters": memory_tool["input_schema"]}})
         task_tool = by_key.get(TASK_PROPOSAL_TOOL_KEY)
         if task_tool and task_tool.get("available"):
-            schemas.append(
-                {
-                    "type": "function",
-                    "function": {
-                        "name": TASK_PROPOSAL_TOOL_NAME,
-                        "description": (
-                            "Propose a local task or reminder for owner review. This does not create the task now; "
-                            "HomeServer creates a pending approval request and only the owner can approve execution."
-                        ),
-                        "parameters": task_tool["input_schema"],
-                    },
-                }
-            )
+            schemas.append({"type": "function", "function": {"name": TASK_PROPOSAL_TOOL_NAME, "description": "Propose a local task or reminder for owner review. This does not create the task now; HomeServer creates a pending approval request and only the owner can approve execution.", "parameters": task_tool["input_schema"]}})
     return schemas
 
 
 def _record_unknown_model_call(source_app_key: str, actor_type: str) -> int:
     with db() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO tool_runs(
-                tool_key, source_app_key, actor_type, status, required_permissions_json,
-                arguments_meta_json, result_meta_json, error, completed_at
-            ) VALUES ('agent.unknown_tool', ?, ?, 'denied', '[]', '{}', '{}',
-                      'Model requested a tool that was not offered.', CURRENT_TIMESTAMP)
-            """,
-            (source_app_key, actor_type),
-        )
+        cursor = connection.execute("INSERT INTO tool_runs(tool_key, source_app_key, actor_type, status, required_permissions_json, arguments_meta_json, result_meta_json, error, completed_at) VALUES ('agent.unknown_tool', ?, ?, 'denied', '[]', '{}', '{}', 'Model requested a tool that was not offered.', CURRENT_TIMESTAMP)", (source_app_key, actor_type))
         run_id = int(cursor.lastrowid)
-        connection.execute(
-            """
-            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES (?, ?, 'tool.denied', 'tool', 'agent.unknown_tool', ?)
-            """,
-            (actor_type, source_app_key, json.dumps({"run_id": run_id}, separators=(",", ":"))),
-        )
+        connection.execute("INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json) VALUES (?, ?, 'tool.denied', 'tool', 'agent.unknown_tool', ?)", (actor_type, source_app_key, json.dumps({"run_id": run_id}, separators=(",", ":"))))
     return run_id
 
 
-def _record_plugin_run(
-    *,
-    source_app_key: str,
-    owner: bool,
-    plugin_key: str,
-    tool_key: str,
-    status: str,
-    arguments: dict[str, Any],
-    result: dict[str, Any] | None,
-    duration_ms: int,
-    error: str | None = None,
-) -> int:
-    actor_type = "owner" if owner else "app"
-    audit_key = f"plugin:{plugin_key}:{tool_key}"[:240]
+def _record_plugin_run(*, source_app_key: str, owner: bool, plugin_key: str, tool_key: str, status: str, arguments: dict[str, Any], result: dict[str, Any] | None, duration_ms: int, error: str | None = None) -> int:
+    actor_type = "owner" if owner else "app"; audit_key = f"plugin:{plugin_key}:{tool_key}"[:240]
     with db() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO tool_runs(
-                tool_key, source_app_key, actor_type, status, required_permissions_json,
-                arguments_meta_json, result_meta_json, duration_ms, error, completed_at
-            ) VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-            (
-                audit_key,
-                source_app_key,
-                actor_type,
-                status,
-                json.dumps({"argument_count": len(arguments)}, separators=(",", ":")),
-                json.dumps({"result_key_count": len(result or {})}, separators=(",", ":")),
-                duration_ms,
-                (error or "")[:1000] or None,
-            ),
-        )
+        cursor = connection.execute("INSERT INTO tool_runs(tool_key, source_app_key, actor_type, status, required_permissions_json, arguments_meta_json, result_meta_json, duration_ms, error, completed_at) VALUES (?, ?, ?, ?, '[]', ?, ?, ?, ?, CURRENT_TIMESTAMP)", (audit_key, source_app_key, actor_type, status, json.dumps({"argument_count": len(arguments)}, separators=(",", ":")), json.dumps({"result_key_count": len(result or {})}, separators=(",", ":")), duration_ms, (error or "")[:1000] or None))
         run_id = int(cursor.lastrowid)
-        connection.execute(
-            """
-            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES (?, ?, ?, 'tool', ?, ?)
-            """,
-            (
-                actor_type,
-                source_app_key,
-                f"tool.{status}",
-                audit_key,
-                json.dumps({"run_id": run_id, "plugin_key": plugin_key, "tool_key": tool_key}, separators=(",", ":")),
-            ),
-        )
+        connection.execute("INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json) VALUES (?, ?, ?, 'tool', ?, ?)", (actor_type, source_app_key, f"tool.{status}", audit_key, json.dumps({"run_id": run_id, "plugin_key": plugin_key, "tool_key": tool_key}, separators=(",", ":"))))
     return run_id
 
 
@@ -240,98 +107,50 @@ def execute_model_tool(
     owner: bool = False,
 ) -> dict[str, Any]:
     granted = set(granted_permissions or set())
-    available = {
-        item["key"]: item
-        for item in tools.list_tools(granted, owner=owner)
-        if item.get("available")
-    }
+    scope = dict(app_scopes.DEFAULT_SCOPE) if owner else app_scopes.get_scope_for_source(source_app_key)
+    available = {item["key"]: item for item in tools.list_tools(granted, owner=owner) if item.get("available") and (owner or app_scopes.tool_allowed(scope, item["key"]))}
 
     if model_tool_name in {MEMORY_PROPOSAL_TOOL_NAME, TASK_PROPOSAL_TOOL_NAME}:
         policy = get_policy()
-        if not policy["enabled"] or not policy["allow_write_proposals"]:
-            raise _deny_unavailable(source_app_key, owner)
+        if not policy["enabled"] or not policy["allow_write_proposals"]: raise _deny_unavailable(source_app_key, owner)
         tool_key = MEMORY_PROPOSAL_TOOL_KEY if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME else TASK_PROPOSAL_TOOL_KEY
         write_tool = available.get(tool_key)
-        if not write_tool or write_tool.get("mode") != "write":
-            raise _deny_unavailable(source_app_key, owner)
+        if not write_tool or write_tool.get("mode") != "write": raise _deny_unavailable(source_app_key, owner)
+        if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
+            memory_key = (arguments or {}).get("memory_key")
+            if not owner and not app_scopes.memory_key_allowed(scope, memory_key): raise _deny_unavailable(source_app_key, owner)
         try:
-            if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
-                return approvals.create_memory_write_request(source_app_key, arguments or {}, owner=owner)
+            if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME: return approvals.create_memory_write_request(source_app_key, arguments or {}, owner=owner)
             return approvals.create_task_create_request(source_app_key, arguments or {}, owner=owner)
-        except approvals.ApprovalError as exc:
-            raise AgentToolError(str(exc)) from exc
+        except approvals.ApprovalError as exc: raise AgentToolError(str(exc)) from exc
 
     tool_key = MODEL_TOOL_NAMES.get(model_tool_name)
     if tool_key is not None:
         read_tool = available.get(tool_key)
-        if not read_tool or read_tool.get("mode") != "read":
-            raise _deny_unavailable(source_app_key, owner)
-        try:
-            return tools.execute_tool(
-                source_app_key,
-                tool_key,
-                arguments or {},
-                granted,
-                owner=owner,
-            )
-        except tools.ToolError as exc:
-            raise AgentToolError(str(exc)) from exc
+        if not read_tool or read_tool.get("mode") != "read": raise _deny_unavailable(source_app_key, owner)
+        try: return tools.execute_tool(source_app_key, tool_key, arguments or {}, granted, owner=owner)
+        except tools.ToolError as exc: raise AgentToolError(str(exc)) from exc
 
-    plugin_tool = next(
-        (
-            item
-            for item in plugins.available_model_tools(granted, owner=owner)
-            if item.get("model_name") == model_tool_name
-        ),
-        None,
-    )
+    plugin_tool = next((item for item in plugins.available_model_tools(granted, owner=owner) if item.get("model_name") == model_tool_name and (owner or app_scopes.plugin_allowed(scope, item.get("plugin_key")))), None)
     if plugin_tool is None or not plugin_tool.get("available"):
         run_id = _record_unknown_model_call(source_app_key, "owner" if owner else "app")
         raise AgentToolError(f"Tool is not available to the agent. Run {run_id} was recorded.")
 
-    started = time.perf_counter()
-    args = arguments or {}
+    started = time.perf_counter(); args = arguments or {}
     try:
-        plugin_result = plugins.execute_model_tool(
-            model_tool_name,
-            args,
-            granted,
-            owner=owner,
-            source_app_key=source_app_key,
-        )
+        plugin_result = plugins.execute_model_tool(model_tool_name, args, granted, owner=owner, source_app_key=source_app_key)
         duration_ms = int((time.perf_counter() - started) * 1000)
-        run_id = _record_plugin_run(
-            source_app_key=source_app_key,
-            owner=owner,
-            plugin_key=plugin_result["plugin_key"],
-            tool_key=plugin_result["tool_key"],
-            status="completed",
-            arguments=args,
-            result=plugin_result.get("result"),
-            duration_ms=duration_ms,
-        )
+        run_id = _record_plugin_run(source_app_key=source_app_key, owner=owner, plugin_key=plugin_result["plugin_key"], tool_key=plugin_result["tool_key"], status="completed", arguments=args, result=plugin_result.get("result"), duration_ms=duration_ms)
         return {"run_id": run_id, "result": plugin_result.get("result", {})}
     except plugins.PluginError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
-        run_id = _record_plugin_run(
-            source_app_key=source_app_key,
-            owner=owner,
-            plugin_key=plugin_tool["plugin_key"],
-            tool_key=plugin_tool["key"],
-            status="failed",
-            arguments=args,
-            result=None,
-            duration_ms=duration_ms,
-            error=str(exc),
-        )
+        run_id = _record_plugin_run(source_app_key=source_app_key, owner=owner, plugin_key=plugin_tool["plugin_key"], tool_key=plugin_tool["key"], status="failed", arguments=args, result=None, duration_ms=duration_ms, error=str(exc))
         raise AgentToolError(f"Plugin tool failed. Run {run_id} was recorded.") from exc
 
 
 def tool_result_message(result: dict[str, Any], max_chars: int = 6000) -> str:
     text = json.dumps(result.get("result", {}), ensure_ascii=False, separators=(",", ":"))
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + "… [truncated by HomeServer]"
+    return text if len(text) <= max_chars else text[:max_chars] + "… [truncated by HomeServer]"
 
 
 def extract_run_id(message: str) -> int | None:
