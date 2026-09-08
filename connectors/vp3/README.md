@@ -6,7 +6,7 @@ HomeServer is application-neutral. VP3 is an authorized client that connects thr
 
 Default: `http://127.0.0.1:4377`
 
-VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.13 reports claim-v1 pairing, Agent Brain conversations, contacts, knowledge, memory, tasks/reminders, notifications, skills, direct tools, optional Agent Tool Use and local action approvals.
+VP3 should call `GET /api/v1/capabilities` first. HomeServer v0.17 reports claim-v1 pairing, Agent Brain conversations, private context, awareness/events, contacts, knowledge, memory, tasks/reminders, notifications, plugins, skills, direct tools, inference routing and usage history/sync.
 
 Windows lifecycle, Setup & Diagnostics, owner security, recovery mode and Backup & Restore are deliberately not pairing capabilities.
 
@@ -23,25 +23,31 @@ HomeServer stores only the credential hash. Re-pairing rotates the token and rem
 
 ## Permission model
 
-Useful v0.13 permissions include:
+The v0.17 VP3 connector defaults are:
 
 - `agent.chat`
+- `awareness.read`
 - `contacts.read`
+- `events.read`
+- `events.write`
 - `knowledge.search`
 - `memory.read`
 - `memory.write`
 - `notifications.read`
+- `plugins.read`
 - `tasks.read`
 - `tasks.write`
 - `tools.execute`
+- `usage.read`
+- `usage.write`
 
-Permissions are independent. For example, `tasks.read` does not grant `tasks.write`, and neither makes an Agent Tool available unless the app also has `tools.execute`.
+Permissions are independent. Read permissions do not grant writes, and direct Agent Tools still require `tools.execute` plus the underlying capability permission.
 
 ## Agent Brain
 
 With `agent.chat`, VP3 can use the same private HomeServer agent as the local Control Center. Each paired app has an isolated conversation namespace.
 
-Memory and knowledge are only injected into ordinary chat context when the app separately has `memory.read` and `knowledge.search`. Contacts/tasks/notifications are not injected automatically; they are accessed through their permissioned APIs or read tools.
+Memory and knowledge are injected into ordinary chat context only when the app separately has `memory.read` and `knowledge.search`. Other private capabilities remain permissioned APIs/tools. HomeServer conversation IDs are opaque identifiers and must be preserved as strings.
 
 Conversation APIs:
 
@@ -49,15 +55,23 @@ Conversation APIs:
 - `GET /api/v1/conversations`
 - `GET /api/v1/conversations/{conversation_id}`
 
+## v0.17 cognition and cloud integration
+
+VP3 can use the v0.17 cognition surface through either the local connector or the Remote Relay:
+
+- `GET /api/v1/inference/status`
+- `POST /api/v1/events`
+- `GET /api/v1/events`
+- `GET /api/v1/awareness`
+- `GET /api/v1/plugins`
+- `POST /api/v1/usage/cloud`
+- `GET /api/v1/usage`
+
+This supports the core routing contract: HomeServer-local or user-provider inference is not billed as VP3 cloud usage; VP3 can record paid cloud fallback usage back to HomeServer when a cloud fallback is actually used.
+
 ## Contacts
 
 `GET /api/v1/contacts?q=<query>` requires `contacts.read`. Contact create/update/delete remains owner-controlled.
-
-Browser helper:
-
-```js
-connector.contacts('Synthetic Organization')
-```
 
 ## Tasks, reminders and notifications
 
@@ -69,8 +83,6 @@ Direct app APIs:
 - `GET /api/v1/notifications` — `notifications.read`
 
 Tasks may contain due/reminder times, priority, optional contact linkage and daily/weekly/monthly recurrence. The local HomeServer scheduler turns due reminders into canonical notification rows; it does not execute arbitrary actions.
-
-Local connector helpers include task and notification access. The remote connector exposes the same capabilities through HomeServer tools and the relay.
 
 ## Direct Skills & Tools
 
@@ -96,34 +108,7 @@ The owner can globally disable any built-in tool. HomeServer exposes no shell, P
 
 ## Agent Tool Use
 
-Agent Tool Use is controlled locally and disabled by default. The model only receives read functions that are globally enabled and authorized for the current paired app.
-
-v0.13 read functions include:
-
-- `homeserver_contacts_search`
-- `homeserver_knowledge_search`
-- `homeserver_memory_list`
-- `homeserver_tasks_list`
-- `homeserver_notifications_list`
-
-HomeServer enforces a hard owner-selected 1–3 executed-tool-call limit per chat turn. Tool-result messages remain inside the local model exchange and are not stored as ordinary conversation messages.
-
-## Approval-gated writes
-
-The model is never offered direct `memory.write` or `tasks.create`.
-
-When the owner enables Agent Tool Use and separately enables write proposals, HomeServer may expose:
-
-- `homeserver_memory_write_request`
-- `homeserver_task_create_request`
-
-A proposal creates a pending local action request only. No memory/task mutation happens until the HomeServer owner explicitly approves it.
-
-The originating app may check only its own request status:
-
-`GET /api/v1/action-requests/{request_id}`
-
-That app-visible status intentionally omits the proposed content/task payload and safe argument metadata. Other paired apps receive `404` for the request. VP3 has no approve/deny endpoint.
+Agent Tool Use is controlled locally and disabled by default. The model only receives functions that are globally enabled and authorized for the current paired app. Approval-gated write proposals remain owner-controlled; VP3 cannot approve its own action requests.
 
 ## Remote access
 
@@ -149,8 +134,8 @@ A valid VP3 bearer token cannot invoke owner `/api/v1/control/*` routes.
 
 ## Browser helpers
 
-`connectors/vp3/client.js` provides local pairing/chat, conversation, contacts, knowledge/memory, tasks/notifications, tools, skills and action-status helpers.
+`connectors/vp3/client.js` provides local pairing plus v0.17 chat, conversation, contacts, knowledge/memory, awareness/events, plugins, inference status, usage, tasks/notifications, tools, skills and action-status helpers.
 
-`connectors/vp3/remote-client.js` provides the equivalent remote path through the relay.
+`connectors/vp3/remote-client.js` provides the equivalent remote path through the relay with the same default permission set.
 
 Persistent relay/HomeServer credential storage remains VP3's responsibility.
