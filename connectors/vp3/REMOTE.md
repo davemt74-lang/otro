@@ -47,7 +47,25 @@ const result = await remote.pair(undefined, {
 // remote.homeServerToken is now the scoped HomeServer bearer credential.
 ```
 
-The relay can see this token because the current protocol is a trusted relay. HomeServer stores only its hash and remains the final permission authority.
+The v0.17 VP3 default permission set is:
+
+- `agent.chat`
+- `awareness.read`
+- `contacts.read`
+- `events.read`
+- `events.write`
+- `knowledge.search`
+- `memory.read`
+- `memory.write`
+- `notifications.read`
+- `plugins.read`
+- `tasks.read`
+- `tasks.write`
+- `tools.execute`
+- `usage.read`
+- `usage.write`
+
+The relay can see the scoped HomeServer bearer token because the current protocol is a trusted relay. HomeServer stores only its hash and remains the final permission authority.
 
 ## Use capabilities
 
@@ -56,7 +74,40 @@ await remote.chat('What do I know about this customer?');
 await remote.contacts('Example Organization');
 await remote.searchKnowledge('renewal notes');
 await remote.memory();
+await remote.inferenceStatus();
+await remote.awareness(50);
+await remote.events({limit: 100});
+await remote.plugins();
+await remote.usage(200);
 ```
+
+The remote connector also exposes event emission and VP3 cloud-usage reporting when the paired app has `events.write` or `usage.write` respectively.
+
+Remote relay operations in v0.17 are:
+
+- `capabilities`
+- `pair.request`
+- `pair.status`
+- `chat`
+- `conversations.list`
+- `conversation.get`
+- `contacts.search`
+- `knowledge.search`
+- `memory.read`
+- `memory.write`
+- `inference.status`
+- `events.emit`
+- `events.list`
+- `awareness.list`
+- `plugins.list`
+- `usage.cloud`
+- `usage.read`
+- `tools.list`
+- `skills.list`
+- `tool.execute`
+- `action.status`
+
+Opaque conversation identifiers are preserved end-to-end; VP3 must not coerce HomeServer conversation IDs to numbers.
 
 If VP3 lacks the corresponding HomeServer permission, the relay returns the HomeServer denial status. The relay does not elevate or translate permissions.
 

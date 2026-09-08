@@ -1,6 +1,6 @@
 # HomeServer Remote Relay
 
-The Remote Relay is the deployable internet-facing counterpart to HomeServer v0.12's outbound Remote Bridge.
+The Remote Relay is the deployable internet-facing counterpart to HomeServer's outbound Remote Bridge.
 
 It is intentionally a **trusted relay**, not a public proxy and not an end-to-end encrypted payload layer.
 
@@ -25,7 +25,7 @@ The relay has two separate credentials:
 1. **Relay session token** — identifies which claimed HomeServer the remote client may reach.
 2. **HomeServer paired-app token** — determines which HomeServer capabilities that app may use.
 
-The relay token never grants `agent.chat`, contacts, knowledge, memory, tools or any other HomeServer permission by itself. Protected requests are forwarded back to HomeServer with the paired-app token and HomeServer remains the final authorization authority.
+The relay token never grants private HomeServer capabilities by itself. Protected requests are forwarded back to HomeServer with the paired-app token and HomeServer remains the final authorization authority.
 
 ## Device enrollment
 
@@ -35,18 +35,9 @@ HomeServer's Remote Bridge device ID is derived from its random device secret:
 hs- + first 24 hex characters of SHA-256(device_secret)
 ```
 
-The relay verifies that relationship before registering or authenticating a device. This prevents another client from pre-registering or impersonating the same HomeServer device ID without the corresponding secret.
+The relay verifies that relationship before registering or authenticating a device. The first unclaimed connection receives a fresh 12-character claim code. A successful claim marks the device claimed, invalidates the one-time code, returns a high-entropy relay session token, and notifies the currently connected HomeServer.
 
-The first unclaimed connection receives a fresh 12-character claim code. The user enters that code into the remote client. A successful claim:
-
-- marks that HomeServer device claimed
-- invalidates the one-time claim code
-- returns a high-entropy relay session token
-- notifies the currently connected HomeServer that its relay claim is complete
-
-Device secrets, relay session tokens and claim codes are stored only as SHA-256 hashes in relay SQLite state.
-
-Unclaimed device registrations are automatically removed after the configured stale-enrollment TTL so abandoned or abusive registrations cannot consume relay capacity forever.
+Device secrets, relay session tokens and claim codes are stored only as SHA-256 hashes in relay SQLite state. Unclaimed registrations are pruned after the configured stale-enrollment TTL.
 
 ## HTTP / WebSocket surface
 
@@ -75,9 +66,9 @@ POST /v1/session/rotate
 POST /v1/request
 ```
 
-`/v1/request` accepts only the same named operation set that HomeServer's Remote Bridge allowlists. It cannot target arbitrary URLs, ports, filesystem paths, shell commands or owner-control routes.
+`/v1/request` accepts only the named operation allowlist. It cannot target arbitrary URLs, ports, filesystem paths, shell commands or owner-control routes.
 
-Current operations:
+Current v0.17 operations:
 
 - `capabilities`
 - `pair.request`
@@ -89,10 +80,19 @@ Current operations:
 - `knowledge.search`
 - `memory.read`
 - `memory.write`
+- `inference.status`
+- `events.emit`
+- `events.list`
+- `awareness.list`
+- `plugins.list`
+- `usage.cloud`
+- `usage.read`
 - `tools.list`
 - `skills.list`
 - `tool.execute`
 - `action.status`
+
+Only `capabilities`, `pair.request`, and `pair.status` are public HomeServer operations inside an authenticated relay session. Every other operation requires the scoped HomeServer paired-app bearer token and remains subject to HomeServer permission checks.
 
 ## Run locally
 
@@ -139,7 +139,7 @@ Put the container behind a reverse proxy/load balancer that provides HTTPS/WSS a
 
 ### Single-replica v1 boundary
 
-Relay v1 keeps live HomeServer WebSocket connections in process memory while durable device/session/audit state lives in SQLite. Run **one relay application replica** for this version. Horizontal scaling will require a shared connection-routing/pub-sub layer before multiple replicas can safely serve the same claimed device.
+Relay v1 keeps live HomeServer WebSocket connections in process memory while durable device/session/audit state lives in SQLite. Run **one relay application replica** for this version. Horizontal scaling requires a shared connection-routing/pub-sub layer before multiple replicas can safely serve the same claimed device.
 
 ## Configuration
 
@@ -162,7 +162,7 @@ The in-process claim limiter is defense in depth. Production ingress should also
 
 ## Trust and privacy
 
-The relay terminates HTTPS/WSS and can therefore see relayed request payloads and HomeServer paired-app bearer credentials. This is the same trusted-relay boundary documented by HomeServer v0.12.
+The relay terminates HTTPS/WSS and can therefore see relayed request payloads and HomeServer paired-app bearer credentials. This is the documented trusted-relay boundary.
 
 The relay database deliberately does **not** persist:
 

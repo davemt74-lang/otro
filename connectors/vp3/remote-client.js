@@ -3,14 +3,20 @@
 
   const DEFAULT_PERMISSIONS = [
     'agent.chat',
+    'awareness.read',
     'contacts.read',
+    'events.read',
+    'events.write',
     'knowledge.search',
     'memory.read',
     'memory.write',
     'notifications.read',
+    'plugins.read',
     'tasks.read',
     'tasks.write',
     'tools.execute',
+    'usage.read',
+    'usage.write',
   ];
   const PUBLIC_OPERATIONS = new Set(['capabilities', 'pair.request', 'pair.status']);
 
@@ -96,6 +102,7 @@
     }
 
     capabilities() { return this.request('capabilities'); }
+    inferenceStatus() { return this.request('inference.status'); }
 
     async requestPairing(permissions = DEFAULT_PERMISSIONS) {
       const pairing = await this.request('pair.request', {
@@ -151,8 +158,9 @@
       return this.request('conversations.list', {limit:Math.max(1, Math.min(100, Number(limit || 50)))});
     }
     conversation(conversationId) {
-      if (!conversationId) throw new Error('conversationId is required.');
-      return this.request('conversation.get', {conversation_id:Number(conversationId)});
+      const id = String(conversationId || '').trim();
+      if (!id) throw new Error('conversationId is required.');
+      return this.request('conversation.get', {conversation_id:id});
     }
     contacts(query = '') { return this.request('contacts.search', {query:String(query)}); }
     searchKnowledge(query = '') { return this.request('knowledge.search', {query:String(query)}); }
@@ -164,6 +172,21 @@
         importance:options.importance ?? 0.5,
         agent_id:options.agentId || null,
       });
+    }
+    emitEvent(event) { return this.request('events.emit', event || {}); }
+    events(options = {}) {
+      return this.request('events.list', {
+        limit:Math.max(1, Math.min(500, Number(options.limit || 100))),
+        event_type:options.eventType || null,
+      });
+    }
+    awareness(limit = 50) {
+      return this.request('awareness.list', {limit:Math.max(1, Math.min(200, Number(limit || 50)))});
+    }
+    plugins() { return this.request('plugins.list'); }
+    recordCloudUsage(event) { return this.request('usage.cloud', event || {}); }
+    usage(limit = 200) {
+      return this.request('usage.read', {limit:Math.max(1, Math.min(500, Number(limit || 200)))});
     }
     tools() { return this.request('tools.list'); }
     skills() { return this.request('skills.list'); }
