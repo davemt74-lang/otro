@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
     from app.services import remote_bridge  # noqa: E402
     from app.services.remote_identity import load_or_create_remote_identity, remote_identity_metadata  # noqa: E402
 
-    assert settings.version == "0.17.0"
+    assert settings.version == "0.18.0"
     assert remote_bridge.normalize_broker_url("wss://bridge.example.test/homeserver") == "wss://bridge.example.test/homeserver"
     assert remote_bridge.normalize_broker_url("ws://127.0.0.1:8765/bridge") == "ws://127.0.0.1:8765/bridge"
     for invalid in (
@@ -92,16 +92,20 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
         assert calls[-1]["path"] == "/api/v1/pairing/request"
 
         try:
-            remote_bridge.dispatch_remote_request("chat", {"message": "test"})
+            remote_bridge.dispatch_remote_request("agent.chat", {"message": "test"})
             raise AssertionError("Protected remote operation accepted without bearer token")
         except remote_bridge.RemoteBridgeError:
             pass
 
         token = "synthetic_remote_bearer_token_" + "x" * 32
-        chat = remote_bridge.dispatch_remote_request("chat", {"message": "synthetic message"}, token)
+        chat = remote_bridge.dispatch_remote_request("agent.chat", {"message": "synthetic message"}, token)
         assert chat["ok"] is True
         assert calls[-1]["path"] == "/api/v1/chat"
         assert calls[-1]["headers"]["Authorization"] == f"Bearer {token}"
+
+        legacy_chat = remote_bridge.dispatch_remote_request("chat", {"message": "legacy synthetic message"}, token)
+        assert legacy_chat["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/chat"
 
         conversation_id = "550e8400-e29b-41d4-a716-446655440000"
         conversation = remote_bridge.dispatch_remote_request(
@@ -140,11 +144,19 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
         assert calls[-1]["path"] == "/api/v1/plugins"
 
         usage_write = remote_bridge.dispatch_remote_request(
-            "usage.cloud",
+            "usage.write",
             {"event_id": "charge-1", "billable_tokens": 20, "total_tokens": 10},
             token,
         )
         assert usage_write["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/usage/cloud"
+
+        legacy_usage_write = remote_bridge.dispatch_remote_request(
+            "usage.cloud",
+            {"event_id": "charge-legacy", "billable_tokens": 20, "total_tokens": 10},
+            token,
+        )
+        assert legacy_usage_write["ok"] is True
         assert calls[-1]["path"] == "/api/v1/usage/cloud"
 
         usage_read = remote_bridge.dispatch_remote_request("usage.read", {"limit": 40}, token)
@@ -220,4 +232,4 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
             ).status_code == 401
             assert paired.get("/remote", headers={"Authorization": f"Bearer {token}"}).status_code == 401
 
-print("HomeServer remote bridge security test passed")
+print("HomeServer v0.18 remote bridge security test passed")

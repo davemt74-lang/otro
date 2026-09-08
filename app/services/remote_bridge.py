@@ -26,6 +26,10 @@ _REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _TOOL_KEY = re.compile(r"^[a-z0-9._-]{1,80}$")
 _OPAQUE_ID = re.compile(r"^[A-Za-z0-9_-]{8,160}$")
 _EVENT_TYPE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
+_REMOTE_OPERATION_ALIASES = {
+    "chat": "agent.chat",
+    "usage.cloud": "usage.write",
+}
 _RELOAD_EVENT = threading.Event()
 _STATE_LOCK = threading.Lock()
 _STATE: dict[str, Any] = {
@@ -225,7 +229,8 @@ def _local_response(response: httpx.Response) -> dict:
 
 
 def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: str | None = None) -> dict:
-    op = str(operation or "").strip()
+    requested_op = str(operation or "").strip()
+    op = _REMOTE_OPERATION_ALIASES.get(requested_op, requested_op)
     body = payload if isinstance(payload, dict) else {}
     if _payload_size(body) > settings.max_remote_bridge_message_bytes:
         raise RemoteBridgeError("Remote request payload is too large.")
@@ -242,7 +247,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             return _local_response(client.post("/api/v1/pairing/request", json=body))
         if op == "pair.status":
             return _local_response(client.post("/api/v1/pairing/status", json=body))
-        if op == "chat":
+        if op == "agent.chat":
             return _local_response(client.post("/api/v1/chat", json=body, headers=headers))
         if op == "conversations.list":
             return _local_response(client.get("/api/v1/conversations", headers=headers))
@@ -280,7 +285,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             return _local_response(client.get("/api/v1/awareness", params={"limit": limit}, headers=headers))
         if op == "plugins.list":
             return _local_response(client.get("/api/v1/plugins", headers=headers))
-        if op == "usage.cloud":
+        if op == "usage.write":
             return _local_response(client.post("/api/v1/usage/cloud", json=body, headers=headers))
         if op == "usage.read":
             limit = _bounded_int(body.get("limit"), default=200, minimum=1, maximum=500, name="limit")

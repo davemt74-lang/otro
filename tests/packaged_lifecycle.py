@@ -23,7 +23,7 @@ def wait_health(expected_up: bool, timeout: float = 20.0) -> bool:
             up = False
             try:
                 response = client.get("/api/v1/health")
-                up = response.status_code == 200 and response.json().get("version") == "0.17.0"
+                up = response.status_code == 200 and response.json().get("version") == "0.18.0"
             except Exception:
                 up = False
             if up is expected_up:
