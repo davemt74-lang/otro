@@ -245,15 +245,27 @@ with tempfile.TemporaryDirectory(prefix="homeserver-collaboration-v030-") as dat
         assert saved["enabled"] is False
         assert connected["collaboration"]["excluded"] == ["credentials", "contacts", "tools", "plugins", "cloud", "writes"]
 
-        # Safe provenance records app identity and counts only, never shared contents or private selectors.
+        # Safe collaboration provenance records source identity and counts only.
+        # Existing delegation metadata intentionally retains the consumer's own
+        # context-source titles and external conversation id, so privacy checks
+        # are scoped to the new v0.30 collaboration fields and audit events.
         with db() as connection:
             run_rows = connection.execute("SELECT metadata_json FROM agent_runs ORDER BY id").fetchall()
             activity_rows = connection.execute(
                 "SELECT metadata_json FROM activity_log WHERE action IN ('agent.delegate','app.collaboration.updated') ORDER BY id"
             ).fetchall()
+        run_collaboration = []
+        for row in run_rows:
+            metadata = json.loads(row["metadata_json"] or "{}")
+            run_collaboration.append(
+                {
+                    "collaboration_version": metadata.get("collaboration_version"),
+                    "collaboration_sources": metadata.get("collaboration_sources", []),
+                }
+            )
         audit = json.dumps(
             {
-                "runs": [json.loads(row["metadata_json"] or "{}") for row in run_rows],
+                "runs": run_collaboration,
                 "activity": [json.loads(row["metadata_json"] or "{}") for row in activity_rows],
             },
             ensure_ascii=False,
