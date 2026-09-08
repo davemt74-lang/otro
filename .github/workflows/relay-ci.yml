@@ -16,13 +16,15 @@ jobs:
       - name: Install relay dependencies
         run: pip install -r relay/requirements.txt
       - name: Compile relay and relay tests
-        run: python -m compileall relay tests/relay_process.py tests/relay_v017_operations.py
+        run: python -m compileall relay tests/relay_process.py tests/relay_v017_operations.py tests/relay_v018_operations.py
       - name: Validate VP3 remote connector JavaScript
         run: |
           node --check connectors/vp3/remote-client.js
           node tests/vp3_remote_connector.mjs
-      - name: Validate HomeServer v0.17 relay allowlist
-        run: python tests/relay_v017_operations.py
+      - name: Validate HomeServer relay compatibility allowlist
+        run: |
+          python tests/relay_v017_operations.py
+          python tests/relay_v018_operations.py
       - name: Run deployable relay process regression
         run: python tests/relay_process.py
       - name: Build relay container
