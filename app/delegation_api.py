@@ -5,6 +5,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from .brain_api import ChatRequest, client_chat
 from .services import brain, delegation
 from .services.pairing import authenticate
 
@@ -24,15 +25,16 @@ class DelegatedMessage(BaseModel):
 
 class DelegationRequest(BaseModel):
     message: str = Field(min_length=1, max_length=32000)
-    external_conversation_id: str = Field(min_length=1, max_length=160)
-    agent: DelegatedAgent
+    conversation_id: str | None = Field(default=None, max_length=64)
+    external_conversation_id: str | None = Field(default=None, max_length=160)
+    delegation: DelegatedAgent | None = None
     history: list[DelegatedMessage] = Field(default_factory=list, max_length=12)
     surface_context: dict[str, Any] = Field(default_factory=dict)
-    include_memory: bool = True
-    include_knowledge: bool = True
-    include_contacts: bool = True
-    cloud_allowed: bool = True
-    max_context_chars: int = Field(default=12000, ge=2000, le=24000)
+    include_memory: bool | None = None
+    include_knowledge: bool | None = None
+    include_contacts: bool | None = None
+    cloud_allowed: bool | None = None
+    max_context_chars: int | None = Field(default=None, ge=2000, le=24000)
 
 
 def _current_app(authorization: str | None = Header(default=None)) -> dict:
@@ -50,23 +52,51 @@ def _require_chat(identity: dict = Depends(_current_app)) -> dict:
     return identity
 
 
-@router.post("/api/v1/delegation/chat")
-def delegated_chat(payload: DelegationRequest, identity: dict = Depends(_require_chat)) -> dict:
+def _delegate(payload: DelegationRequest, identity: dict) -> dict:
+    if payload.delegation is None:
+        raise HTTPException(status_code=422, detail="Delegation metadata is required.")
+    external_id = str(payload.external_conversation_id or "").strip()
+    if not external_id:
+        raise HTTPException(status_code=422, detail="external_conversation_id is required for delegated Agent Chat.")
     permissions = set(identity["permissions"])
     try:
         return delegation.chat(
             f"app:{identity['app_key']}",
             payload.message,
-            payload.external_conversation_id,
-            payload.agent.model_dump(),
+            external_id,
+            payload.delegation.model_dump(),
             [item.model_dump() for item in payload.history],
             payload.surface_context,
-            include_memory=payload.include_memory and "memory.read" in permissions,
-            include_knowledge=payload.include_knowledge and "knowledge.search" in permissions,
-            include_contacts=payload.include_contacts and "contacts.read" in permissions,
-            cloud_allowed=payload.cloud_allowed,
-            max_context_chars=payload.max_context_chars,
+            include_memory=(payload.include_memory is not False) and "memory.read" in permissions,
+            include_knowledge=(payload.include_knowledge is not False) and "knowledge.search" in permissions,
+            include_contacts=(payload.include_contacts is not False) and "contacts.read" in permissions,
+            cloud_allowed=payload.cloud_allowed is not False,
+            max_context_chars=payload.max_context_chars or 12000,
             tool_permissions=permissions,
         )
     except brain.BrainError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/api/v1/chat")
+def compatible_chat(payload: DelegationRequest, identity: dict = Depends(_require_chat)) -> dict:
+    if payload.delegation is not None:
+        return _delegate(payload, identity)
+
+    # v0.18-compatible payloads continue through the canonical stateful
+    # HomeServer chat implementation unchanged.
+    legacy = ChatRequest(
+        message=payload.message,
+        conversation_id=payload.conversation_id,
+        include_memory=payload.include_memory,
+        include_knowledge=payload.include_knowledge,
+        include_contacts=payload.include_contacts,
+        cloud_allowed=payload.cloud_allowed,
+        max_context_chars=payload.max_context_chars,
+    )
+    return client_chat(legacy, identity)
+
+
+@router.post("/api/v1/delegation/chat")
+def delegated_chat(payload: DelegationRequest, identity: dict = Depends(_require_chat)) -> dict:
+    return _delegate(payload, identity)
