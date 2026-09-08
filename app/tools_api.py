@@ -65,7 +65,11 @@ def client_tools(identity: dict = Depends(_current_app)) -> dict:
     permissions = set(identity["permissions"])
     scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
     items = [item for item in tools.list_tools(permissions) if app_scopes.tool_allowed(scope, item.get("key"))]
-    return {"items": items, "app": identity["app_key"]}
+    return {
+        "items": items,
+        "app": identity["app_key"],
+        "app_scope": app_scopes.normalize(scope),
+    }
 
 
 @router.get("/api/v1/skills")
