@@ -4,14 +4,20 @@
   const DEFAULT_BASE_URL = 'http://127.0.0.1:4377';
   const DEFAULT_PERMISSIONS = [
     'agent.chat',
+    'awareness.read',
     'contacts.read',
+    'events.read',
+    'events.write',
     'knowledge.search',
     'memory.read',
     'memory.write',
     'notifications.read',
+    'plugins.read',
     'tasks.read',
     'tasks.write',
     'tools.execute',
+    'usage.read',
+    'usage.write',
   ];
 
   class VP3HomeServerConnector {
@@ -47,6 +53,7 @@
     clearToken() { this.token = null; }
     health() { return this._request('/api/v1/health'); }
     capabilities() { return this._request('/api/v1/capabilities'); }
+    inferenceStatus() { return this._authorized('/api/v1/inference/status'); }
 
     async requestPairing(permissions = DEFAULT_PERMISSIONS) {
       const pairing = await this._request('/api/v1/pairing/request', {method:'POST', body:JSON.stringify({app_key:this.appKey, app_name:this.appName, permissions})});
@@ -92,6 +99,27 @@
         body:JSON.stringify({content, memory_key:options.memoryKey || null, importance:options.importance ?? 0.5, agent_id:options.agentId || null}),
       });
     }
+    emitEvent(event) {
+      return this._authorized('/api/v1/events', {method:'POST', body:JSON.stringify(event || {})});
+    }
+    events(options = {}) {
+      const params = new URLSearchParams();
+      params.set('limit', String(Math.max(1, Math.min(500, Number(options.limit || 100)))));
+      if (options.eventType) params.set('event_type', options.eventType);
+      return this._authorized(`/api/v1/events?${params}`);
+    }
+    awareness(limit = 50) {
+      const safeLimit = Math.max(1, Math.min(200, Number(limit || 50)));
+      return this._authorized(`/api/v1/awareness?limit=${safeLimit}`);
+    }
+    plugins() { return this._authorized('/api/v1/plugins'); }
+    recordCloudUsage(event) {
+      return this._authorized('/api/v1/usage/cloud', {method:'POST', body:JSON.stringify(event || {})});
+    }
+    usage(limit = 200) {
+      const safeLimit = Math.max(1, Math.min(500, Number(limit || 200)));
+      return this._authorized(`/api/v1/usage?limit=${safeLimit}`);
+    }
     tasks(options = {}) {
       const params = new URLSearchParams();
       if (options.status) params.set('status', options.status);
@@ -117,8 +145,9 @@
       return this._authorized(`/api/v1/conversations?limit=${safeLimit}`);
     }
     conversation(conversationId) {
-      if (!conversationId) throw new Error('conversationId is required.');
-      return this._authorized(`/api/v1/conversations/${encodeURIComponent(conversationId)}`);
+      const id = String(conversationId || '').trim();
+      if (!id) throw new Error('conversationId is required.');
+      return this._authorized(`/api/v1/conversations/${encodeURIComponent(id)}`);
     }
     tools() { return this._authorized('/api/v1/tools'); }
     skills() { return this._authorized('/api/v1/skills'); }
