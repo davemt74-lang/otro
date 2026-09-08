@@ -27,9 +27,6 @@ class PairStatusRequest(BaseModel):
     claim_token: str = Field(min_length=20, max_length=256)
 
 
-# Delegation wraps the existing /api/v1/chat contract. Register it first so
-# v0.25-aware payloads use stateless VP3-canonical history, while legacy payloads
-# are forwarded to brain_api.client_chat unchanged.
 app.include_router(delegation_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
@@ -79,6 +76,7 @@ def capabilities() -> dict:
             "agent.context.sources",
             "agent.privacy.local_only",
             "agent.tools.read",
+            "app.scopes.v1",
             "awareness.read",
             "cognition.activity_mirror",
             "cognition.event_bus",
