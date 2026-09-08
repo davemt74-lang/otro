@@ -13,7 +13,7 @@
       if (!card || card.querySelector(`[data-app-scope-panel="${app.id}"]`)) continue;
       const scope = app.scope || {};
       const panel = document.createElement('div');
-      panel.className = 'app-scope-panel';
+      panel.className = 'app-scope-panel panel';
       panel.dataset.appScopePanel = String(app.id);
       panel.innerHTML = `
         <div class="panel-head"><div><p class="eyebrow">CAPABILITY SCOPE</p><h4>Resource boundaries</h4></div></div>
