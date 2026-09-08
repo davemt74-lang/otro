@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import tools
+from .services import app_scopes, tools
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -38,13 +38,20 @@ def _tool_or_http(source: str, tool_key: str, payload: ToolExecuteRequest, permi
 @router.get("/api/v1/tools")
 def client_tools(identity: dict = Depends(_current_app)) -> dict:
     permissions = set(identity["permissions"])
-    return {"items": tools.list_tools(permissions), "app": identity["app_key"]}
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
+    items = [item for item in tools.list_tools(permissions) if app_scopes.tool_allowed(scope, item.get("key"))]
+    return {"items": items, "app": identity["app_key"]}
 
 
 @router.get("/api/v1/skills")
 def client_skills(identity: dict = Depends(_current_app)) -> dict:
     permissions = set(identity["permissions"])
-    return {"items": tools.list_skills(permissions), "app": identity["app_key"]}
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
+    items = [
+        item for item in tools.list_skills(permissions)
+        if all(app_scopes.tool_allowed(scope, tool_key) for tool_key in item.get("tools") or [])
+    ]
+    return {"items": items, "app": identity["app_key"]}
 
 
 @router.post("/api/v1/tools/{tool_key}/execute")
@@ -53,6 +60,9 @@ def client_tool_execute(
     payload: ToolExecuteRequest,
     identity: dict = Depends(_current_app),
 ) -> dict:
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
+    if not app_scopes.tool_allowed(scope, tool_key):
+        raise HTTPException(status_code=403, detail="Tool is outside this application's allowed scope")
     return _tool_or_http(
         f"app:{identity['app_key']}",
         tool_key,
