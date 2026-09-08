@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
+from .services import app_scopes
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -75,6 +76,14 @@ class AppStatusUpdate(BaseModel):
 class PermissionUpdate(BaseModel):
     permission: str
     allowed: bool
+
+
+class AppScopeUpdate(BaseModel):
+    cloud_allowed: bool = True
+    memory_key_prefixes: list[str] = Field(default_factory=list, max_length=32)
+    knowledge_kinds: list[str] = Field(default_factory=list, max_length=32)
+    tool_names: list[str] = Field(default_factory=list, max_length=32)
+    plugin_keys: list[str] = Field(default_factory=list, max_length=32)
 
 
 def _log(action: str, resource_type: str | None = None, resource_key: str | None = None, metadata: dict | None = None) -> None:
@@ -164,18 +173,28 @@ def client_agent(identity: dict = Depends(require("agent.chat"))) -> dict:
 
 @app.get("/api/v1/knowledge")
 def client_knowledge(q: str = Query(default="", max_length=240), identity: dict = Depends(require("knowledge.search"))) -> dict:
-    return {"items": list_knowledge(q, limit=100), "app": identity["app_key"]}
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
+    items = [
+        item for item in list_knowledge(q, limit=100)
+        if app_scopes.knowledge_kind_allowed(scope, item.get("kind"))
+    ]
+    return {"items": items, "app": identity["app_key"]}
 
 
 @app.get("/api/v1/memory")
 def client_memory(identity: dict = Depends(require("memory.read"))) -> dict:
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
     with db() as connection:
         rows = connection.execute("SELECT id, agent_id, memory_key, content, importance, created_at, updated_at FROM agent_memory ORDER BY importance DESC, updated_at DESC LIMIT 200").fetchall()
-    return {"items": [dict(row) for row in rows], "app": identity["app_key"]}
+    items = [dict(row) for row in rows if app_scopes.memory_key_allowed(scope, row["memory_key"])]
+    return {"items": items, "app": identity["app_key"]}
 
 
 @app.post("/api/v1/memory")
 def client_memory_write(payload: MemoryCreate, identity: dict = Depends(require("memory.write"))) -> dict:
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
+    if not app_scopes.memory_key_allowed(scope, payload.memory_key):
+        raise HTTPException(status_code=403, detail="Memory key is outside this application's allowed scope")
     with db() as connection:
         cursor = connection.execute("INSERT INTO agent_memory(agent_id, memory_key, content, importance) VALUES (?, ?, ?, ?)", (payload.agent_id, payload.memory_key, payload.content.strip(), payload.importance))
         memory_id = cursor.lastrowid
@@ -296,6 +315,7 @@ def control_apps() -> dict:
             permissions = connection.execute("SELECT permission, allowed FROM app_permissions WHERE paired_app_id=? ORDER BY permission", (app_row["id"],)).fetchall()
             item = dict(app_row)
             item["permissions"] = [dict(row) for row in permissions]
+            item["scope"] = app_scopes.get_scope(int(app_row["id"]))
             result.append(item)
         pending = connection.execute("SELECT id, app_key, app_name, requested_permissions, status, expires_at, created_at FROM pairing_requests WHERE status='pending' ORDER BY id DESC LIMIT 20").fetchall()
     pending_items = []
@@ -334,6 +354,27 @@ def control_app_permission(app_id: int, payload: PermissionUpdate) -> dict:
         """, (app_id, payload.permission, 1 if payload.allowed else 0))
     _log("app.permission", "app", str(app_id), {"permission": payload.permission, "allowed": payload.allowed})
     return {"updated": True}
+
+
+@app.put("/api/v1/control/apps/{app_id}/scope")
+def control_app_scope(app_id: int, payload: AppScopeUpdate) -> dict:
+    try:
+        scope = app_scopes.save_scope(app_id, payload.model_dump())
+    except app_scopes.ScopeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _log(
+        "app.scope",
+        "app",
+        str(app_id),
+        {
+            "cloud_allowed": scope["cloud_allowed"],
+            "memory_prefix_count": len(scope["memory_key_prefixes"]),
+            "knowledge_kind_count": len(scope["knowledge_kinds"]),
+            "tool_count": len(scope["tool_names"]),
+            "plugin_count": len(scope["plugin_keys"]),
+        },
+    )
+    return {"updated": True, "scope": scope}
 
 
 @app.get("/api/v1/control/activity")
