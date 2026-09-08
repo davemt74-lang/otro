@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..database import db
+from . import app_scopes
 from .knowledge import list_knowledge
 
 DEFAULT_CONTEXT_CHARS = 12000
@@ -410,6 +411,25 @@ def record_retrieval(conversation_id: str, source_app_key: str, bundle: ContextB
         return int(cursor.lastrowid)
 
 
+def _source_ref_allowed(scope: dict[str, Any], ref: dict[str, Any]) -> bool:
+    kind = str(ref.get("kind") or "")
+    try:
+        resource_id = int(ref.get("id") or 0)
+    except (TypeError, ValueError):
+        return False
+    if resource_id < 1:
+        return False
+    if kind == "memory":
+        with db() as connection:
+            row = connection.execute("SELECT memory_key FROM agent_memory WHERE id=? LIMIT 1", (resource_id,)).fetchone()
+        return row is not None and app_scopes.memory_key_allowed(scope, row["memory_key"])
+    if kind == "knowledge":
+        with db() as connection:
+            row = connection.execute("SELECT kind FROM knowledge_items WHERE id=? LIMIT 1", (resource_id,)).fetchone()
+        return row is not None and app_scopes.knowledge_kind_allowed(scope, row["kind"])
+    return True
+
+
 def recent_sources(
     conversation_id: str,
     limit: int = 5,
@@ -418,6 +438,10 @@ def recent_sources(
 ) -> list[dict[str, Any]]:
     safe_limit = max(1, min(20, int(limit)))
     with db() as connection:
+        conversation = connection.execute(
+            "SELECT source_app_key FROM conversations WHERE id=? LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
         rows = connection.execute(
             """
             SELECT id, memory_count, knowledge_count, contact_count, context_chars,
@@ -428,6 +452,9 @@ def recent_sources(
             """,
             (conversation_id, safe_limit),
         ).fetchall()
+    source_app_key = str(conversation["source_app_key"] or "") if conversation else ""
+    scoped_app = source_app_key.startswith("app:")
+    scope = app_scopes.get_scope_for_source(source_app_key) if scoped_app else dict(app_scopes.DEFAULT_SCOPE)
     result: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
@@ -437,11 +464,14 @@ def recent_sources(
             refs = []
         if not isinstance(refs, list):
             refs = []
+        refs = [ref for ref in refs if isinstance(ref, dict)]
         if allowed_kinds is not None:
-            refs = [ref for ref in refs if isinstance(ref, dict) and str(ref.get("kind") or "") in allowed_kinds]
-            item["memory_count"] = sum(1 for ref in refs if ref.get("kind") == "memory")
-            item["knowledge_count"] = sum(1 for ref in refs if ref.get("kind") == "knowledge")
-            item["contact_count"] = sum(1 for ref in refs if ref.get("kind") == "contact")
+            refs = [ref for ref in refs if str(ref.get("kind") or "") in allowed_kinds]
+        if scoped_app:
+            refs = [ref for ref in refs if _source_ref_allowed(scope, ref)]
+        item["memory_count"] = sum(1 for ref in refs if ref.get("kind") == "memory")
+        item["knowledge_count"] = sum(1 for ref in refs if ref.get("kind") == "knowledge")
+        item["contact_count"] = sum(1 for ref in refs if ref.get("kind") == "contact")
         item["sources"] = refs
         result.append(item)
     return result
