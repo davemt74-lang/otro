@@ -33,6 +33,15 @@
     document.head.appendChild(script);
   }
 
+  function ensureAppScopes() {
+    if (document.querySelector('script[data-homeserver-app-scopes]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/app-scopes-v026.js';
+    script.dataset.homeserverAppScopes = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function ensureUsageView() {
     if (byId('view-usage')) return;
     const main = document.querySelector('.main');
@@ -290,6 +299,7 @@
 
   ensureStyles();
   ensureContextEngine();
+  ensureAppScopes();
   ensureUsageView();
   buildConnectionModal();
   buildSidebar();
