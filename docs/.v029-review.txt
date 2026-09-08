@@ -1,0 +1,10 @@
+HomeServer v0.29 pre-PR review gate
+
+- no schema migration
+- no raw bearer token or token hash in Connected Apps API
+- app activity omits metadata_json, resource_key, prompt/memory/knowledge content
+- require-repair revokes current credential without generating a browser-visible replacement
+- re-pair uses existing claim-v1 and preserves app scope
+- pending request review flags additional coarse permissions
+- explicit deny does not authorize or mutate an existing paired app
+- responsive owner UI uses v0.29-specific data attributes and does not collide with v0.26 fallback controls
