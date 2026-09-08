@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import awareness_context, brain, context_engine, providers, usage as usage_service
+from . import app_scopes, awareness_context, brain, context_engine, providers, usage as usage_service
 
 
 def _apply_context_options(conversation_id: str, options: dict[str, Any] | None) -> dict[str, Any]:
@@ -33,12 +33,14 @@ def _effective_settings(
     allow_knowledge: bool,
     allow_contacts: bool,
     allow_awareness: bool,
+    scope_cloud_allowed: bool = True,
 ) -> dict[str, Any]:
     result = dict(settings)
     result["include_memory"] = bool(result.get("include_memory") and allow_memory)
     result["include_knowledge"] = bool(result.get("include_knowledge") and allow_knowledge)
     result["include_contacts"] = bool(result.get("include_contacts") and allow_contacts)
     result["include_awareness"] = bool(allow_awareness)
+    result["cloud_allowed"] = bool(result.get("cloud_allowed") and scope_cloud_allowed)
     return result
 
 
@@ -84,18 +86,20 @@ def chat(
 
     granted_permissions = set(tool_permissions or set())
     allow_awareness = bool(owner_tools or "awareness.read" in granted_permissions)
+    scope = app_scopes.get_scope_for_source(source_app_key) if not owner_tools else dict(app_scopes.DEFAULT_SCOPE)
 
     agent = brain._primary_agent()
     conversation_id = brain._conversation_for_source(
         source_app_key, conversation_id, int(agent["id"]), text
     )
     settings = _apply_context_options(conversation_id, context_options)
+    effective_cloud_allowed = bool(settings["cloud_allowed"] and scope["cloud_allowed"])
 
     inference = providers.inference_status()
     provider_key = str(inference.get("selected_provider") or "unavailable")
     provider_model = str(inference.get("model") or "")
     provider_override: str | None = None
-    if not settings["cloud_allowed"]:
+    if not effective_cloud_allowed:
         provider_key, provider_model, provider_override = _private_inference_route(inference)
 
     with db() as connection:
@@ -114,6 +118,8 @@ def chat(
         allow_memory=include_memory,
         allow_knowledge=include_knowledge,
         allow_contacts=include_contacts,
+        memory_key_prefixes=scope["memory_key_prefixes"],
+        knowledge_kinds=scope["knowledge_kinds"],
     )
 
     awareness_items: list[dict[str, Any]] = []
@@ -138,6 +144,7 @@ def chat(
         allow_knowledge=include_knowledge,
         allow_contacts=include_contacts,
         allow_awareness=allow_awareness,
+        scope_cloud_allowed=scope["cloud_allowed"],
     )
     system_prompt = context_engine.system_prompt(agent, bundle)
     if awareness_fragment:
@@ -147,9 +154,6 @@ def chat(
         *brain._history(conversation_id),
     ]
 
-    # Private mode pins this request to the configured local model. It never
-    # mutates the user's global provider preference and never carries a hosted
-    # agent-model override into Ollama.
     selected_model = (
         provider_model.strip()
         if provider_override == "ollama"
@@ -224,14 +228,16 @@ def chat(
         "context_event_id": context_event_id,
         "context_sources": all_sources,
         "awareness_count": len(awareness_items),
+        "scope_enforced": not owner_tools,
     }
     run_metadata = json.loads(brain._run_metadata(tool_state))
     run_metadata.update(
         {
             "context_event_id": context_event_id,
             "context_source_refs": all_sources,
-            "cloud_allowed": bool(bundle.settings["cloud_allowed"]),
+            "cloud_allowed": effective_cloud_allowed,
             "awareness_count": len(awareness_items),
+            "scope_enforced": not owner_tools,
         }
     )
 
@@ -290,6 +296,7 @@ def chat(
                         "tool_call_count": int(tool_state["call_count"]),
                         "action_request_count": len(tool_state["action_request_ids"]),
                         "duration_ms": duration_ms,
+                        "scope_enforced": not owner_tools,
                     },
                     separators=(",", ":"),
                 ),
@@ -315,6 +322,7 @@ def chat(
                 "run_id": run_id,
                 "context_event_id": context_event_id,
                 "context_chars": total_context_chars,
+                "scope_enforced": not owner_tools,
                 "context_source_counts": {
                     **bundle.counts,
                     "awareness_count": len(awareness_items),
