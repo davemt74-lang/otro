@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from .services.connected_apps import (
     ConnectedAppError,
     connected_app_activity,
+    deny_pairing_request,
     list_connected_apps,
     require_repair,
 )
@@ -31,3 +32,11 @@ def require_connected_app_repair(app_id: int) -> dict:
         return require_repair(app_id)
     except ConnectedAppError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/api/v1/control/connected-apps/pending/{request_id}/deny")
+def deny_connected_app_pairing(request_id: int) -> dict:
+    try:
+        return deny_pairing_request(request_id)
+    except ConnectedAppError as exc:
+        raise HTTPException(status_code=409 if "no longer pending" in str(exc) else 404, detail=str(exc)) from exc
