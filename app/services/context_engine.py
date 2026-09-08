@@ -144,8 +144,15 @@ def update_settings(
     return get_settings(conversation_id)
 
 
-def _memory_candidates(agent_id: int, query: str, limit: int = 8) -> list[dict[str, Any]]:
+def _memory_candidates(
+    agent_id: int,
+    query: str,
+    limit: int = 8,
+    *,
+    key_prefixes: list[str] | None = None,
+) -> list[dict[str, Any]]:
     query_tokens = _tokens(query)
+    prefixes = [str(value) for value in (key_prefixes or []) if str(value)]
     with db() as connection:
         rows = connection.execute(
             """
@@ -158,8 +165,16 @@ def _memory_candidates(agent_id: int, query: str, limit: int = 8) -> list[dict[s
             (agent_id,),
         ).fetchall()
 
+    scoped_rows = []
+    for row in rows:
+        if prefixes:
+            key = str(row["memory_key"] or "")
+            if not any(key.startswith(prefix) for prefix in prefixes):
+                continue
+        scoped_rows.append(row)
+
     scored: list[tuple[float, int, dict[str, Any]]] = []
-    for index, row in enumerate(rows):
+    for index, row in enumerate(scoped_rows):
         item = dict(row)
         haystack = f"{item.get('memory_key') or ''} {item.get('content') or ''}".lower()
         matches = sum(1 for token in query_tokens if token in haystack)
@@ -168,25 +183,38 @@ def _memory_candidates(agent_id: int, query: str, limit: int = 8) -> list[dict[s
         if matches or not query_tokens:
             scored.append((score, -index, item))
 
-    if not scored and rows:
-        return [dict(row) for row in rows[: min(limit, 4)]]
+    if not scored and scoped_rows:
+        return [dict(row) for row in scoped_rows[: min(limit, 4)]]
     scored.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
     return [entry[2] for entry in scored[:limit]]
 
 
-def _knowledge_candidates(query: str, limit: int = 8) -> list[dict[str, Any]]:
+def _knowledge_candidates(
+    query: str,
+    limit: int = 8,
+    *,
+    allowed_kinds: list[str] | None = None,
+) -> list[dict[str, Any]]:
     text = str(query or "").strip()
     if not text:
         return []
-    direct = list_knowledge(text, limit=limit)
+    kinds = {str(value) for value in (allowed_kinds or []) if str(value)}
+
+    def allowed(item: dict[str, Any]) -> bool:
+        return not kinds or str(item.get("kind") or "") in kinds
+
+    search_limit = max(40, limit * 8) if kinds else limit
+    direct = [item for item in list_knowledge(text, limit=search_limit) if allowed(item)]
     if direct:
-        return direct
+        return direct[:limit]
 
     combined: list[dict[str, Any]] = []
     seen: set[int] = set()
     tokens = _tokens(text)
     for token in tokens[:8]:
-        for item in list_knowledge(token, limit=limit):
+        for item in list_knowledge(token, limit=search_limit):
+            if not allowed(item):
+                continue
             item_id = int(item["id"])
             if item_id in seen:
                 continue
@@ -251,6 +279,8 @@ def collect_context(
     allow_memory: bool,
     allow_knowledge: bool,
     allow_contacts: bool,
+    memory_key_prefixes: list[str] | None = None,
+    knowledge_kinds: list[str] | None = None,
 ) -> ContextBundle:
     settings = ensure_settings(conversation_id)
     budget = _clamp_budget(settings["max_context_chars"])
@@ -261,7 +291,7 @@ def collect_context(
     sources: list[dict[str, Any]] = []
 
     if allow_memory and settings["include_memory"]:
-        for item in _memory_candidates(agent_id, query):
+        for item in _memory_candidates(agent_id, query, key_prefixes=memory_key_prefixes):
             excerpt = _take_excerpt(item.get("content"), min(1100, remaining))
             if not excerpt or remaining < 180:
                 break
@@ -277,7 +307,7 @@ def collect_context(
             remaining -= len(excerpt)
 
     if allow_knowledge and settings["include_knowledge"] and remaining >= 180:
-        for item in _knowledge_candidates(query):
+        for item in _knowledge_candidates(query, allowed_kinds=knowledge_kinds):
             excerpt = _take_excerpt(item.get("snippet") or item.get("content"), min(1800, remaining))
             if not excerpt or remaining < 180:
                 break
