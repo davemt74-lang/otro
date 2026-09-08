@@ -1,0 +1,27 @@
+name: Multi-Wrapper CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  vp3-microgifter-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+      - name: Install HomeServer dependencies
+        run: pip install -r requirements.txt
+      - name: Compile multi-wrapper regression
+        run: python -m compileall app/services/app_scopes.py app/services/pairing.py tests/multi_wrapper_v028.py
+      - name: Lint Microgifter Remote Bridge connector
+        run: php -l connectors/microgifter/HomeServerRemoteClient.php
+      - name: VP3 + Microgifter isolation proof
+        run: python tests/multi_wrapper_v028.py
