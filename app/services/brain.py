@@ -8,7 +8,7 @@ from typing import Any
 
 from ..database import db
 from .knowledge import list_knowledge
-from . import agent_tools, providers, usage as usage_service
+from . import agent_tools, app_scopes, providers, usage as usage_service
 
 
 class BrainError(RuntimeError):
@@ -152,6 +152,8 @@ def _run_metadata(tool_state: dict[str, Any]) -> str:
             "tool_run_ids": tool_state["run_ids"],
             "action_request_ids": tool_state["action_request_ids"],
             "provider_usage": tool_state.get("provider_usage", {}),
+            "scope_enforced": bool(tool_state.get("scope_enforced")),
+            "tool_scope_count": int(tool_state.get("tool_scope_count") or 0),
         },
         separators=(",", ":"),
     )
@@ -167,6 +169,11 @@ def _add_provider_usage(tool_state: dict[str, Any], generated: dict[str, Any]) -
         totals[key] = int(totals.get(key, 0)) + max(0, int(usage.get(key, 0) or 0))
 
 
+def _tool_schema_name(schema: dict[str, Any]) -> str:
+    function = schema.get("function") if isinstance(schema, dict) else None
+    return str(function.get("name") or "") if isinstance(function, dict) else ""
+
+
 def _generate_with_agent_tools(
     messages: list[dict[str, Any]],
     *,
@@ -178,6 +185,8 @@ def _generate_with_agent_tools(
     provider_key: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     policy = agent_tools.get_policy()
+    scope = dict(app_scopes.DEFAULT_SCOPE) if owner else app_scopes.get_scope_for_source(source_app_key)
+    allowed_tool_names = set(scope["tool_names"])
     schemas = (
         agent_tools.model_tool_schemas(
             granted_permissions,
@@ -187,6 +196,8 @@ def _generate_with_agent_tools(
         if policy["enabled"]
         else []
     )
+    if allowed_tool_names:
+        schemas = [schema for schema in schemas if _tool_schema_name(schema) in allowed_tool_names]
     tool_state = state if state is not None else {}
     tool_state.clear()
     tool_state.update(
@@ -199,6 +210,8 @@ def _generate_with_agent_tools(
             "run_ids": [],
             "action_request_ids": [],
             "provider_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "scope_enforced": not owner,
+            "tool_scope_count": len(allowed_tool_names),
         }
     )
 
@@ -253,6 +266,14 @@ def _generate_with_agent_tools(
                 continue
 
             tool_state["call_count"] += 1
+            if allowed_tool_names and model_name not in allowed_tool_names:
+                messages.append({
+                    "role": "tool",
+                    "tool_name": model_name or "homeserver_tool",
+                    "tool_call_id": tool_call_id,
+                    "content": "HomeServer denied this tool because it is outside this connected application's owner-defined scope.",
+                })
+                continue
             try:
                 result = agent_tools.execute_model_tool(
                     source_app_key, model_name, arguments, granted_permissions, owner=owner
