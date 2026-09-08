@@ -57,7 +57,14 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-delegation-v025-") as 
             json={
                 "app_key": "vp3-delegation-test",
                 "app_name": "VP3 Delegation Test",
-                "permissions": ["agent.chat", "memory.read", "knowledge.search", "contacts.read", "awareness.read"],
+                "permissions": [
+                    "agent.chat",
+                    "memory.read",
+                    "knowledge.search",
+                    "contacts.read",
+                    "awareness.read",
+                    "usage.read",
+                ],
             },
         ).json()
         assert client.post("/api/v1/pairing/approve", json={"code": pairing["code"]}).status_code == 200
