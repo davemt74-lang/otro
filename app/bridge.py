@@ -8,6 +8,7 @@ from .approvals_api import router as approvals_router
 from .backups_api import router as backups_router
 from .brain_api import router as brain_router
 from .cognition_api import router as cognition_router
+from .connected_apps_api import router as connected_apps_router
 from .contacts_api import router as contacts_router
 from .config import settings
 from .delegation_api import router as delegation_router
@@ -39,6 +40,7 @@ app.include_router(backups_router)
 app.include_router(system_router)
 app.include_router(remote_bridge_router)
 app.include_router(usage_router)
+app.include_router(connected_apps_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -97,6 +99,7 @@ def capabilities() -> dict:
             "memory.write",
             "notifications.read",
             "ollama.local",
+            "owner.connected_apps.v1",
             "plugins.manifest.v1",
             "plugins.read",
             "plugins.registry",

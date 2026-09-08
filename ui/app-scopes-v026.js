@@ -1,4 +1,4 @@
-// HomeServer v0.26 capability scope controls are injected into Connected Apps.
+// HomeServer v0.26 capability scope controls remain as the backward-compatible fallback.
 (() => {
   const parseList = (value) => String(value || '')
     .split(',')
@@ -6,7 +6,30 @@
     .filter((item, index, list) => item && list.indexOf(item) === index)
     .slice(0, 32);
 
+  const ensureConnectedAppsDenyV029 = () => {
+    if (document.querySelector('script[data-homeserver-connected-apps-deny-v029]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/connected-apps-deny-v029.js';
+    script.dataset.homeserverConnectedAppsDenyV029 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  };
+
+  const ensureConnectedAppsV029 = () => {
+    if (document.querySelector('script[data-homeserver-connected-apps-v029]')) {
+      ensureConnectedAppsDenyV029();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = '/assets/connected-apps-v029.js';
+    script.dataset.homeserverConnectedAppsV029 = '1';
+    script.async = false;
+    script.addEventListener('load', ensureConnectedAppsDenyV029, {once:true});
+    document.head.appendChild(script);
+  };
+
   const render = () => {
+    if (document.getElementById('view-apps')?.dataset.connectedAppsV029 === '1') return;
     if (typeof state === 'undefined' || !Array.isArray(state.apps)) return;
     for (const app of state.apps) {
       const permissionInput = document.querySelector(`[data-app-permission="${app.id}"]`);
@@ -61,4 +84,5 @@
     }
   });
   render();
+  ensureConnectedAppsV029();
 })();

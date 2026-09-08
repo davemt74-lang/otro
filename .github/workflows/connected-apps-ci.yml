@@ -1,0 +1,23 @@
+name: Connected Apps CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  connected-apps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Connected Apps control plane
+        run: python -m compileall app/connected_apps_api.py app/services/connected_apps.py tests/connected_apps_v029.py
+      - name: Validate Connected Apps JavaScript
+        run: node --check ui/connected-apps-v029.js && node --check ui/connected-apps-deny-v029.js
+      - name: Connected Apps and wrapper-control regression
+        run: python tests/connected_apps_v029.py
