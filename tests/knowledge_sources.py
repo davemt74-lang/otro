@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-sources-") as temp
         assert health.json()["version"] == "0.18.0"
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 15
+        assert status.json()["schema_version"] == 16
 
         internal = client.post(
             "/api/v1/control/knowledge/sources",

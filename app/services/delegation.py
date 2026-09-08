@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import awareness_context, brain, context_engine, context_chat, providers, usage as usage_service
+from . import app_scopes, awareness_context, brain, context_engine, context_chat, providers, usage as usage_service
 
 DELEGATION_VERSION = "v0.25"
 MAX_SURFACE_CONTEXT_CHARS = 8000
@@ -17,7 +17,6 @@ def _bounded_text(value: Any, limit: int) -> str:
 
 
 def _history_messages(history: list[dict[str, Any]]) -> list[dict[str, str]]:
-    # Preserve the newest VP3 turns when the fixed history budget is exceeded.
     selected: list[dict[str, str]] = []
     remaining = MAX_HISTORY_CHARS
     for row in reversed(history[-12:]):
@@ -82,6 +81,8 @@ def _collect_context(
     allow_contacts: bool,
     max_context_chars: int,
     cloud_allowed: bool,
+    memory_key_prefixes: list[str] | None = None,
+    knowledge_kinds: list[str] | None = None,
 ) -> context_engine.ContextBundle:
     budget = max(context_engine.MIN_CONTEXT_CHARS, min(context_engine.MAX_CONTEXT_CHARS, int(max_context_chars or context_engine.DEFAULT_CONTEXT_CHARS)))
     remaining = budget
@@ -99,7 +100,7 @@ def _collect_context(
         return excerpt
 
     if allow_memory:
-        for item in context_engine._memory_candidates(agent_id, query):
+        for item in context_engine._memory_candidates(agent_id, query, key_prefixes=memory_key_prefixes):
             excerpt = take(item.get("content"), 1100)
             if not excerpt:
                 break
@@ -114,7 +115,7 @@ def _collect_context(
             sources.append({"kind": "memory", "id": int(item["id"]), "title": title, "updated_at": item.get("updated_at")})
 
     if allow_knowledge and remaining >= 180:
-        for item in context_engine._knowledge_candidates(query):
+        for item in context_engine._knowledge_candidates(query, allowed_kinds=knowledge_kinds):
             excerpt = take(item.get("snippet") or item.get("content"), 1800)
             if not excerpt:
                 break
@@ -196,6 +197,9 @@ def chat(
     external_id = _bounded_text(external_conversation_id, 160)
     permissions = set(tool_permissions or set())
     allow_awareness = "awareness.read" in permissions
+    scope = app_scopes.get_scope_for_source(source)
+    model_tool_permissions = app_scopes.scoped_tool_permissions(scope, permissions)
+    effective_cloud_allowed = bool(cloud_allowed and scope["cloud_allowed"])
 
     bundle = _collect_context(
         int(primary_agent["id"]),
@@ -204,7 +208,9 @@ def chat(
         allow_knowledge=include_knowledge,
         allow_contacts=include_contacts,
         max_context_chars=max_context_chars,
-        cloud_allowed=cloud_allowed,
+        cloud_allowed=effective_cloud_allowed,
+        memory_key_prefixes=scope["memory_key_prefixes"],
+        knowledge_kinds=scope["knowledge_kinds"],
     )
 
     awareness_items: list[dict[str, Any]] = []
@@ -234,7 +240,7 @@ def chat(
     provider_key = str(inference.get("selected_provider") or "unavailable")
     provider_model = str(inference.get("model") or "")
     provider_override: str | None = None
-    if not cloud_allowed:
+    if not effective_cloud_allowed:
         provider_key, provider_model, provider_override = context_chat._private_inference_route(inference)
     selected_model = (
         provider_model.strip()
@@ -271,7 +277,7 @@ def chat(
             messages,
             source_app_key=source,
             selected_model=selected_model,
-            granted_permissions=permissions,
+            granted_permissions=model_tool_permissions,
             owner=False,
             state=tool_state,
             provider_key=provider_override,
@@ -289,7 +295,7 @@ def chat(
                     duration_ms,
                     str(exc)[:1000],
                     int(tool_state.get("call_count") or 0),
-                    json.dumps({"delegation_version": DELEGATION_VERSION}, separators=(",", ":")),
+                    json.dumps({"delegation_version": DELEGATION_VERSION, "scope_enforced": True}, separators=(",", ":")),
                     run_id,
                 ),
             )
@@ -311,6 +317,8 @@ def chat(
         "action_request_ids": list(tool_state.get("action_request_ids") or []),
         "provider_usage": dict(tool_state.get("provider_usage") or {}),
         "context_source_refs": sources,
+        "scope_enforced": True,
+        "cloud_allowed": effective_cloud_allowed,
     }
     with db() as connection:
         connection.execute(
@@ -348,6 +356,7 @@ def chat(
                         "context_chars": total_context_chars,
                         "tool_call_count": int(tool_state.get("call_count") or 0),
                         "duration_ms": duration_ms,
+                        "scope_enforced": True,
                     },
                     separators=(",", ":"),
                 ),
@@ -372,6 +381,7 @@ def chat(
                 "delegation_version": DELEGATION_VERSION,
                 "external_conversation_id": external_id,
                 "context_chars": total_context_chars,
+                "scope_enforced": True,
             },
         )
     except usage_service.UsageError:
@@ -392,6 +402,7 @@ def chat(
             "external_conversation_id": external_id,
             "history_messages": len(bounded_history),
             "surface_context": bool(surface_context),
+            "scope_enforced": True,
         },
         "context": {
             "memory_count": len(bundle.memory),

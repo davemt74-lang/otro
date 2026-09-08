@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-tasks-") as data_dir:
         assert scheduler._thread is not None and scheduler._thread.is_alive()
         scheduler.stop()
         assert client.get("/api/v1/health").json()["version"] == "0.18.0"
-        assert client.get("/api/v1/status").json()["schema_version"] == 15
+        assert client.get("/api/v1/status").json()["schema_version"] == 16
         assert client.get("/api/v1/control/tasks").status_code == 401
         assert client.get("/api/v1/control/task-notifications").status_code == 401
         assert client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN}).status_code == 200
