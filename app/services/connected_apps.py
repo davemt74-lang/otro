@@ -166,3 +166,30 @@ def require_repair(app_id: int) -> dict[str, Any]:
         "app_key": str(row["app_key"]),
         "message": "Existing credentials were revoked. Pair this application again to issue a replacement credential; existing resource scopes are preserved.",
     }
+
+
+def deny_pairing_request(request_id: int) -> dict[str, Any]:
+    with db() as connection:
+        row = connection.execute(
+            "SELECT id, app_key, app_name, status FROM pairing_requests WHERE id=? LIMIT 1",
+            (request_id,),
+        ).fetchone()
+        if row is None:
+            raise ConnectedAppError("Pairing request not found")
+        if str(row["status"]) != "pending":
+            raise ConnectedAppError("Pairing request is no longer pending")
+        connection.execute(
+            "UPDATE pairing_requests SET status='denied' WHERE id=?",
+            (request_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
+            VALUES ('owner', 'control-center', 'pairing.denied', 'app', ?, ?)
+            """,
+            (
+                str(row["app_key"]),
+                json.dumps({"request_id": int(row["id"]), "app_name": str(row["app_name"])}, separators=(",", ":")),
+            ),
+        )
+    return {"updated": True, "status": "denied", "app_key": str(row["app_key"])}
