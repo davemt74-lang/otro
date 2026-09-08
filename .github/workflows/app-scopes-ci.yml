@@ -1,0 +1,23 @@
+name: App Scope CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  app-scopes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile scope runtime
+        run: python -m compileall app/services/app_scopes.py app/services/context_engine.py app/services/context_chat.py app/services/brain.py app/services/agent_tools.py app/services/tools.py app/services/delegation.py app/main.py app/tools_api.py app/cognition_api.py
+      - name: Cross-wrapper scope regression
+        run: python tests/app_scopes_v026.py
+      - name: Validate scope UI JavaScript
+        run: node --check ui/app-scopes-v026.js && node --check ui/shell.js
