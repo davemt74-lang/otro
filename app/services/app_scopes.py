@@ -79,6 +79,23 @@ def get_scope(paired_app_id: int) -> dict[str, Any]:
     })
 
 
+def get_scope_for_source(source_app_key: str) -> dict[str, Any]:
+    source = str(source_app_key or "").strip()
+    if not source.startswith("app:"):
+        return dict(DEFAULT_SCOPE)
+    app_key = source[4:].strip()
+    if not app_key:
+        return dict(DEFAULT_SCOPE)
+    with db() as connection:
+        row = connection.execute(
+            "SELECT id FROM paired_apps WHERE app_key=? LIMIT 1",
+            (app_key,),
+        ).fetchone()
+    if row is None:
+        return dict(DEFAULT_SCOPE)
+    return get_scope(int(row["id"]))
+
+
 def save_scope(paired_app_id: int, scope: dict[str, Any]) -> dict[str, Any]:
     if paired_app_id < 1:
         raise ScopeError("Connected app not found")
