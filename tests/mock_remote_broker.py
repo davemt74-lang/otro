@@ -103,7 +103,7 @@ def handler(websocket) -> None:
         publish_progress("hello")
         if result["hello_type"] != "hello" or result["hello_protocol"] != "homeserver-relay-v1":
             raise AssertionError("invalid HomeServer relay hello")
-        if result["hello_version"] != "0.17.0" or not result["device_id_valid"]:
+        if result["hello_version"] != "0.18.0" or not result["device_id_valid"]:
             raise AssertionError("invalid packaged HomeServer identity/version")
 
         websocket.send(json.dumps({
