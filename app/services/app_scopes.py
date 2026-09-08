@@ -14,6 +14,16 @@ DEFAULT_SCOPE = {
     "plugin_keys": [],
 }
 
+# Internal calls that claim an app identity but cannot be resolved to a paired
+# application must never inherit the legacy unrestricted default.
+LOCKED_SCOPE = {
+    "cloud_allowed": False,
+    "memory_key_prefixes": ["__homeserver_no_scope__:"],
+    "knowledge_kinds": ["__homeserver_no_scope__"],
+    "tool_names": ["__homeserver_no_scope__"],
+    "plugin_keys": ["__homeserver_no_scope__"],
+}
+
 _MAX_ITEMS = 32
 _MAX_VALUE_LENGTH = 160
 _SAFE_KIND = re.compile(r"^[A-Za-z0-9_.:-]+$")
@@ -69,6 +79,8 @@ def get_scope(paired_app_id: int) -> dict[str, Any]:
             (paired_app_id,),
         ).fetchone()
     if row is None:
+        # Existing paired apps created before v0.26 retain their old behavior
+        # until the owner explicitly narrows their scope.
         return dict(DEFAULT_SCOPE)
     return normalize({
         "cloud_allowed": bool(row["cloud_allowed"]),
@@ -85,14 +97,14 @@ def get_scope_for_source(source_app_key: str) -> dict[str, Any]:
         return dict(DEFAULT_SCOPE)
     app_key = source[4:].strip()
     if not app_key:
-        return dict(DEFAULT_SCOPE)
+        return dict(LOCKED_SCOPE)
     with db() as connection:
         row = connection.execute(
             "SELECT id FROM paired_apps WHERE app_key=? LIMIT 1",
             (app_key,),
         ).fetchone()
     if row is None:
-        return dict(DEFAULT_SCOPE)
+        return dict(LOCKED_SCOPE)
     return get_scope(int(row["id"]))
 
 
