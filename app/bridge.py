@@ -10,6 +10,7 @@ from .brain_api import router as brain_router
 from .cognition_api import router as cognition_router
 from .contacts_api import router as contacts_router
 from .config import settings
+from .delegation_api import router as delegation_router
 from .knowledge_sources_api import router as knowledge_sources_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
@@ -26,6 +27,10 @@ class PairStatusRequest(BaseModel):
     claim_token: str = Field(min_length=20, max_length=256)
 
 
+# Delegation wraps the existing /api/v1/chat contract. Register it first so
+# v0.25-aware payloads use stateless VP3-canonical history, while legacy payloads
+# are forwarded to brain_api.client_chat unchanged.
+app.include_router(delegation_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(approvals_router)
@@ -67,6 +72,7 @@ def capabilities() -> dict:
         "features": [
             "action.approvals",
             "agent.chat",
+            "agent.delegation.v1",
             "agent.context",
             "agent.context.awareness",
             "agent.context.budget",
