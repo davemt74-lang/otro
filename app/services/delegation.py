@@ -17,9 +17,10 @@ def _bounded_text(value: Any, limit: int) -> str:
 
 
 def _history_messages(history: list[dict[str, Any]]) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
+    # Preserve the newest VP3 turns when the fixed history budget is exceeded.
+    selected: list[dict[str, str]] = []
     remaining = MAX_HISTORY_CHARS
-    for row in history[-12:]:
+    for row in reversed(history[-12:]):
         if not isinstance(row, dict) or remaining < 1:
             continue
         role = str(row.get("role") or "").strip().lower()
@@ -30,8 +31,8 @@ def _history_messages(history: list[dict[str, Any]]) -> list[dict[str, str]]:
             continue
         content = content[-min(6000, remaining):]
         remaining -= len(content)
-        messages.append({"role": role, "content": content})
-    return messages
+        selected.append({"role": role, "content": content})
+    return list(reversed(selected))
 
 
 def _surface_fragment(surface_context: dict[str, Any]) -> str:
@@ -222,9 +223,10 @@ def chat(
     system_prompt = _delegation_prompt(primary_agent, delegated_agent, bundle, surface_context)
     if awareness_fragment:
         system_prompt += "\n\n" + awareness_fragment
+    bounded_history = _history_messages(history)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
-        *_history_messages(history),
+        *bounded_history,
         {"role": "user", "content": text},
     ]
 
@@ -388,7 +390,7 @@ def chat(
             "stateless": True,
             "canonical_conversation_owner": "vp3",
             "external_conversation_id": external_id,
-            "history_messages": len(_history_messages(history)),
+            "history_messages": len(bounded_history),
             "surface_context": bool(surface_context),
         },
         "context": {
