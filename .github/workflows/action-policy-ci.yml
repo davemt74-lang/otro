@@ -1,0 +1,44 @@
+name: Action Execution Policy
+
+on:
+  push:
+    branches:
+      - main
+      - section-6-agent-permissions-v035-**
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  action-policy:
+    name: Action policy · Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install test dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile policy modules
+        run: python -m py_compile app/services/action_policy.py app/action_policy_api.py app/tools_api.py app/bridge.py
+
+      - name: Run action policy integration test
+        run: python tests/action_policy_v035.py
+
+      - name: Run existing tool security regression
+        run: python tests/tools_security.py
+
+      - name: Run existing approval regression
+        run: python tests/action_approvals.py
