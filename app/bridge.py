@@ -12,10 +12,12 @@ from .connected_apps_api import router as connected_apps_router
 from .contacts_api import router as contacts_router
 from .config import settings
 from .delegation_api import router as delegation_router
+from .knowledge_backup_api import router as knowledge_backup_router
 from .knowledge_sources_api import router as knowledge_sources_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
 from .services import providers
+from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tasks_api import router as tasks_router
@@ -28,6 +30,10 @@ class PairStatusRequest(BaseModel):
     claim_token: str = Field(min_length=20, max_length=256)
 
 
+# Extend the existing fail-closed Remote Bridge with the bounded, authenticated
+# Knowledge backup operations before the worker begins serving relay requests.
+install_knowledge_backup_remote_operations()
+
 app.include_router(delegation_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
@@ -35,6 +41,7 @@ app.include_router(approvals_router)
 app.include_router(contacts_router)
 app.include_router(tasks_router)
 app.include_router(knowledge_sources_router)
+app.include_router(knowledge_backup_router)
 app.include_router(cognition_router)
 app.include_router(backups_router)
 app.include_router(system_router)
@@ -93,9 +100,11 @@ def capabilities() -> dict:
             "events.write",
             "inference.routing",
             "inference.status",
+            "knowledge.external_backup.v1",
             "knowledge.search",
             "knowledge.sources.local",
             "knowledge.sources.sync",
+            "knowledge.write",
             "memory.provenance",
             "memory.read",
             "memory.write",
