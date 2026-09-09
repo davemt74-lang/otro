@@ -217,6 +217,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-context-") as data_dir:
     with db() as connection:
         run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_runs)").fetchall()}
         assert {"contact_count", "context_chars", "awareness_count"}.issubset(run_columns)
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 17
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 18
 
 print("HomeServer Agent Brain context engine regression passed")
