@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import approvals, plugins, tools
+from . import action_policy, approvals, app_scopes, plugins, tools
 
 MODEL_TOOL_NAMES = {
     "homeserver_contacts_search": "contacts.search",
@@ -80,17 +80,53 @@ def save_policy(enabled: bool, max_calls: int, allow_write_proposals: bool = Fal
     return get_policy()
 
 
+def _execution_policy(source_app_key: str | None, tool_key: str, owner: bool) -> dict[str, Any] | None:
+    if owner or not source_app_key:
+        return None
+    return action_policy.resolve_policy_for_source(source_app_key, tool_key)
+
+
+def _scope_allows(source_app_key: str, tool_key: str, arguments: dict[str, Any], policy: dict[str, Any] | None) -> bool:
+    if policy is None:
+        return True
+    scope = app_scopes.get_scope_for_source(source_app_key)
+    if not app_scopes.tool_allowed(scope, tool_key):
+        return False
+    if tool_key == "memory.write" and not app_scopes.memory_key_allowed(scope, arguments.get("memory_key")):
+        return False
+    return True
+
+
+def _record_policy(policy: dict[str, Any] | None, decision: str, *, request_id: str | None = None, reason: str = "") -> None:
+    if policy is None:
+        return
+    action_policy.record_decision(
+        int(policy["app_id"]),
+        str(policy["app_key"]),
+        str(policy["tool_key"]),
+        str(policy["policy_mode"]),
+        decision,
+        request_id=request_id,
+        reason=reason,
+        metadata={"tool_mode": str(policy.get("tool_mode") or ""), "agent_tool": True},
+    )
+
+
 def model_tool_schemas(
     granted_permissions: set[str] | None = None,
     *,
     owner: bool = False,
     allow_write_proposals: bool = False,
+    source_app_key: str | None = None,
 ) -> list[dict[str, Any]]:
     by_key = {item["key"]: item for item in tools.list_tools(granted_permissions, owner=owner)}
     schemas: list[dict[str, Any]] = []
     for model_name, tool_key in MODEL_TOOL_NAMES.items():
         item = by_key.get(tool_key)
         if not item or item.get("mode") != "read" or not item.get("available"):
+            continue
+        execution = _execution_policy(source_app_key, tool_key, owner)
+        if execution and execution["policy_mode"] == action_policy.SENSITIVE_HIGH_IMPACT:
             continue
         schemas.append(
             {
@@ -121,30 +157,44 @@ def model_tool_schemas(
 
     if allow_write_proposals:
         memory_tool = by_key.get(MEMORY_PROPOSAL_TOOL_KEY)
-        if memory_tool and memory_tool.get("available"):
+        memory_execution = _execution_policy(source_app_key, MEMORY_PROPOSAL_TOOL_KEY, owner)
+        if (
+            memory_tool
+            and memory_tool.get("available")
+            and not (memory_execution and memory_execution["policy_mode"] == action_policy.SENSITIVE_HIGH_IMPACT)
+        ):
+            automatic = bool(memory_execution and memory_execution["policy_mode"] == action_policy.SAFE_AUTOMATIC)
             schemas.append(
                 {
                     "type": "function",
                     "function": {
                         "name": MEMORY_PROPOSAL_TOOL_NAME,
                         "description": (
-                            "Propose a durable memory write for local owner review. This does not modify memory now; "
-                            "HomeServer creates a pending approval request and only the owner can approve execution."
+                            "Write durable memory using the owner-defined execution policy. This action executes immediately only when the owner has marked it safe automatic; otherwise HomeServer creates a pending approval request."
+                            if automatic
+                            else "Propose a durable memory write for review. This does not modify memory now; HomeServer creates a pending approval request and executes only after an authorized approval."
                         ),
                         "parameters": memory_tool["input_schema"],
                     },
                 }
             )
         task_tool = by_key.get(TASK_PROPOSAL_TOOL_KEY)
-        if task_tool and task_tool.get("available"):
+        task_execution = _execution_policy(source_app_key, TASK_PROPOSAL_TOOL_KEY, owner)
+        if (
+            task_tool
+            and task_tool.get("available")
+            and not (task_execution and task_execution["policy_mode"] == action_policy.SENSITIVE_HIGH_IMPACT)
+        ):
+            automatic = bool(task_execution and task_execution["policy_mode"] == action_policy.SAFE_AUTOMATIC)
             schemas.append(
                 {
                     "type": "function",
                     "function": {
                         "name": TASK_PROPOSAL_TOOL_NAME,
                         "description": (
-                            "Propose a local task or reminder for owner review. This does not create the task now; "
-                            "HomeServer creates a pending approval request and only the owner can approve execution."
+                            "Create a local task using the owner-defined execution policy. This action executes immediately only when the owner has marked it safe automatic; otherwise HomeServer creates a pending approval request."
+                            if automatic
+                            else "Propose a local task or reminder for review. This does not create the task now; HomeServer creates a pending approval request and executes only after an authorized approval."
                         ),
                         "parameters": task_tool["input_schema"],
                     },
@@ -245,19 +295,47 @@ def execute_model_tool(
         for item in tools.list_tools(granted, owner=owner)
         if item.get("available")
     }
+    args = arguments or {}
 
     if model_tool_name in {MEMORY_PROPOSAL_TOOL_NAME, TASK_PROPOSAL_TOOL_NAME}:
-        policy = get_policy()
-        if not policy["enabled"] or not policy["allow_write_proposals"]:
+        global_policy = get_policy()
+        if not global_policy["enabled"] or not global_policy["allow_write_proposals"]:
             raise _deny_unavailable(source_app_key, owner)
         tool_key = MEMORY_PROPOSAL_TOOL_KEY if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME else TASK_PROPOSAL_TOOL_KEY
         write_tool = available.get(tool_key)
         if not write_tool or write_tool.get("mode") != "write":
             raise _deny_unavailable(source_app_key, owner)
+        execution = _execution_policy(source_app_key, tool_key, owner)
+        if execution and execution["policy_mode"] == action_policy.SENSITIVE_HIGH_IMPACT:
+            _record_policy(
+                execution,
+                "blocked",
+                reason="Sensitive/high-impact tools require local HomeServer owner control.",
+            )
+            raise _deny_unavailable(source_app_key, owner)
+        if not _scope_allows(source_app_key, tool_key, args, execution):
+            _record_policy(execution, "blocked", reason="The paired application's private resource scope blocks this tool request.")
+            raise _deny_unavailable(source_app_key, owner)
+        if execution and execution["policy_mode"] == action_policy.SAFE_AUTOMATIC:
+            try:
+                result = tools.execute_tool(source_app_key, tool_key, args, granted, owner=owner)
+            except tools.ToolError as exc:
+                raise AgentToolError(str(exc)) from exc
+            _record_policy(execution, "allowed_automatic", reason="Agent Tool execution allowed by owner-defined safe-automatic policy.")
+            return result
         try:
             if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
-                return approvals.create_memory_write_request(source_app_key, arguments or {}, owner=owner)
-            return approvals.create_task_create_request(source_app_key, arguments or {}, owner=owner)
+                result = approvals.create_memory_write_request(source_app_key, args, owner=owner)
+            else:
+                result = approvals.create_task_create_request(source_app_key, args, owner=owner)
+            request_id = str(((result.get("result") or {}).get("request_id") or "")) or None
+            _record_policy(
+                execution,
+                "approval_requested",
+                request_id=request_id,
+                reason="Agent Tool write requires approval before execution.",
+            )
+            return result
         except approvals.ApprovalError as exc:
             raise AgentToolError(str(exc)) from exc
 
@@ -266,11 +344,23 @@ def execute_model_tool(
         read_tool = available.get(tool_key)
         if not read_tool or read_tool.get("mode") != "read":
             raise _deny_unavailable(source_app_key, owner)
+        execution = _execution_policy(source_app_key, tool_key, owner)
+        if execution and execution["policy_mode"] == action_policy.SENSITIVE_HIGH_IMPACT:
+            _record_policy(
+                execution,
+                "blocked",
+                reason="Sensitive/high-impact tools require local HomeServer owner control.",
+            )
+            raise _deny_unavailable(source_app_key, owner)
+        if not _scope_allows(source_app_key, tool_key, args, execution):
+            _record_policy(execution, "blocked", reason="The paired application's private resource scope blocks this tool request.")
+            raise _deny_unavailable(source_app_key, owner)
+        _record_policy(execution, "allowed_read", reason="Agent Tool read allowed by owner-defined action policy.")
         try:
             return tools.execute_tool(
                 source_app_key,
                 tool_key,
-                arguments or {},
+                args,
                 granted,
                 owner=owner,
             )
@@ -290,7 +380,6 @@ def execute_model_tool(
         raise AgentToolError(f"Tool is not available to the agent. Run {run_id} was recorded.")
 
     started = time.perf_counter()
-    args = arguments or {}
     try:
         plugin_result = plugins.execute_model_tool(
             model_tool_name,

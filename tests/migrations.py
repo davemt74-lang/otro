@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     connection.commit()
     connection.close()
 
-    # Build an authentic schema-10 database first so migrations 11 through 17
+    # Build an authentic schema-10 database first so migrations 11 through 18
     # are tested as upgrades rather than only as a fresh install.
     for version, path in migration_files():
         if version >= 11:
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 18))
+        assert versions == list(range(1, 19))
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
@@ -136,6 +136,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "consumer_app_id", "source_app_id", "memory_allowed", "knowledge_allowed",
             "enabled", "created_at", "updated_at"
         }.issubset(collaboration_columns)
+        execution_policy_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(app_tool_execution_policies)").fetchall()}
+        assert {"paired_app_id", "tool_key", "policy_mode", "created_at", "updated_at"}.issubset(execution_policy_columns)
+        policy_decision_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(action_policy_decisions)").fetchall()}
+        assert {
+            "paired_app_id", "source_app_key", "tool_key", "policy_mode", "decision",
+            "request_id", "reason", "metadata_json", "created_at"
+        }.issubset(policy_decision_columns)
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_sources").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM knowledge_source_files").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM conversation_context_settings").fetchone()[0] == 0
@@ -147,6 +154,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM plugins").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM app_capability_scopes").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM app_collaboration_grants").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM app_tool_execution_policies").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM action_policy_decisions").fetchone()[0] == 0
         cursor = migrated.execute("SELECT cursor_value FROM cognition_cursors WHERE cursor_key='activity_log_id'").fetchone()
         assert cursor is not None and cursor["cursor_value"] == "0"
         source_delete_trigger = migrated.execute(
@@ -236,7 +245,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 18))
+        assert versions_again == list(range(1, 19))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
@@ -261,6 +270,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated_again.execute("SELECT COUNT(*) FROM plugin_event_subscriptions").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM app_capability_scopes").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM app_collaboration_grants").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM app_tool_execution_policies").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM action_policy_decisions").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM cognition_cursors").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM system_settings").fetchone()[0] == 2
         assert migrated_again.execute("SELECT COUNT(*) FROM remote_bridge_settings").fetchone()[0] == 1

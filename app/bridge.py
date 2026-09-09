@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .action_policy_api import router as action_policy_router
 from .approvals_api import router as approvals_router
 from .backups_api import router as backups_router
 from .brain_api import router as brain_router
@@ -38,6 +39,7 @@ install_knowledge_backup_remote_operations()
 app.include_router(delegation_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
+app.include_router(action_policy_router)
 app.include_router(approvals_router)
 app.include_router(contacts_router)
 app.include_router(tasks_router)
@@ -70,6 +72,12 @@ def capabilities() -> dict:
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
         "capability_registry": {"version": "v0.33", "operation": "capability.registry", "authenticated": True},
+        "action_policy": {
+            "version": "v0.35",
+            "operation": "tools.list",
+            "embedded": True,
+            "owner_managed": True,
+        },
         "inference": {
             "available": bool(inference["available"]),
             "selected_provider": inference["selected_provider"],
@@ -80,6 +88,7 @@ def capabilities() -> dict:
         "permissions": sorted(DEFAULT_PERMISSIONS),
         "features": [
             "action.approvals",
+            "action.policy.v1",
             "approvals.federation.v1",
             "agent.chat",
             "agent.delegation.v1",

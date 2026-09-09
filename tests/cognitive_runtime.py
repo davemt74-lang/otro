@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-cognition-") as data_dir:
     initialize_database()
 
     with db() as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 17
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] >= 18
         memory_columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_memory)").fetchall()}
         assert {
             "memory_type", "source_app_key", "source_event_id", "confidence",

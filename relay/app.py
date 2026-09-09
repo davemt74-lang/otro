@@ -33,6 +33,7 @@ SUBPROTOCOL = "homeserver.bridge.v1"
 PUBLIC_OPERATIONS = {"capabilities", "pair.request", "pair.status"}
 ALLOWED_OPERATIONS = {
     "capabilities",
+    "capability.registry",
     "pair.request",
     "pair.status",
     "agent.chat",
@@ -55,6 +56,9 @@ ALLOWED_OPERATIONS = {
     "skills.list",
     "tool.execute",
     "action.status",
+    "action.list",
+    "action.approve",
+    "action.deny",
 }
 
 

@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import app_scopes, tools
+from .services import action_policy, app_scopes, approvals, tools
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -35,6 +35,17 @@ def _tool_or_http(source: str, tool_key: str, payload: ToolExecuteRequest, permi
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+def _approval_or_http(tool_key: str, source: str, arguments: dict[str, Any]) -> dict:
+    try:
+        if tool_key == "memory.write":
+            return approvals.create_memory_write_request(source, arguments, owner=False)
+        if tool_key == "tasks.create":
+            return approvals.create_task_create_request(source, arguments, owner=False)
+    except approvals.ApprovalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    raise HTTPException(status_code=409, detail="This write tool does not support deferred approval yet.")
+
+
 def _scope_tool_result(tool_key: str, result: dict, scope: dict) -> dict:
     if not isinstance(result, dict):
         return result
@@ -60,11 +71,29 @@ def _scope_tool_result(tool_key: str, result: dict, scope: dict) -> dict:
     return scoped
 
 
+def _available_tool(tool_key: str, permissions: set[str]) -> dict:
+    item = next((entry for entry in tools.list_tools(permissions) if entry.get("key") == tool_key), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    if not bool(item.get("enabled")):
+        raise HTTPException(status_code=403, detail="Tool is disabled by the HomeServer owner")
+    missing = list(item.get("missing_permissions") or [])
+    if missing:
+        raise HTTPException(status_code=403, detail=f"Missing tool permissions: {', '.join(missing)}")
+    return item
+
+
 @router.get("/api/v1/tools")
 def client_tools(identity: dict = Depends(_current_app)) -> dict:
     permissions = set(identity["permissions"])
     scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
     items = [item for item in tools.list_tools(permissions) if app_scopes.tool_allowed(scope, item.get("key"))]
+    policies = {
+        item["tool_key"]: item
+        for item in action_policy.list_policy_for_app(int(identity["id"]), str(identity["app_key"]))
+    }
+    for item in items:
+        item["execution_policy"] = policies.get(str(item.get("key")))
     return {
         "items": items,
         "app": identity["app_key"],
@@ -95,13 +124,54 @@ def client_tool_execute(
     if tool_key == "memory.write" and not app_scopes.memory_key_allowed(scope, payload.arguments.get("memory_key")):
         raise HTTPException(status_code=403, detail="Memory key is outside this application's allowed scope")
 
-    result = _tool_or_http(
-        f"app:{identity['app_key']}",
-        tool_key,
-        payload,
-        set(identity["permissions"]),
-        owner=False,
+    permissions = set(identity["permissions"])
+    item = _available_tool(tool_key, permissions)
+    app_id = int(identity["id"])
+    app_key = str(identity["app_key"])
+    policy = action_policy.resolve_policy(app_id, app_key, tool_key)
+    policy_mode = str(policy["policy_mode"])
+    tool_mode = str(item.get("mode") or "")
+    source = f"app:{app_key}"
+    audit_meta = {"tool_mode": tool_mode, "inherited": bool(policy.get("inherited"))}
+
+    if policy_mode == action_policy.SENSITIVE_HIGH_IMPACT:
+        action_policy.record_decision(
+            app_id, app_key, tool_key, policy_mode, "blocked",
+            reason="Sensitive/high-impact tools require local HomeServer owner control.",
+            metadata=audit_meta,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="This tool is classified sensitive/high-impact and can only be run from local HomeServer owner control.",
+        )
+
+    if tool_mode == "write" and policy_mode == action_policy.APPROVAL_REQUIRED:
+        request = _approval_or_http(tool_key, source, payload.arguments)
+        request_id = str(((request.get("result") or {}).get("request_id") or "")) or None
+        action_policy.record_decision(
+            app_id, app_key, tool_key, policy_mode, "approval_requested",
+            request_id=request_id,
+            reason="Owner approval is required before this write executes.",
+            metadata=audit_meta,
+        )
+        return {**request, "execution_policy": policy, "approval_required": True}
+
+    if tool_mode == "write" and policy_mode != action_policy.SAFE_AUTOMATIC:
+        action_policy.record_decision(
+            app_id, app_key, tool_key, policy_mode, "blocked",
+            reason="Write execution is not authorized for this policy mode.",
+            metadata=audit_meta,
+        )
+        raise HTTPException(status_code=403, detail="Write execution is not authorized by this app's action policy.")
+
+    decision = "allowed_read" if tool_mode == "read" else "allowed_automatic"
+    action_policy.record_decision(
+        app_id, app_key, tool_key, policy_mode, decision,
+        reason="Execution allowed by owner-defined action policy.",
+        metadata=audit_meta,
     )
+    result = _tool_or_http(source, tool_key, payload, permissions, owner=False)
+    result["execution_policy"] = policy
     return _scope_tool_result(tool_key, result, scope)
 
 
