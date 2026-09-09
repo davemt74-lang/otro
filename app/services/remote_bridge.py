@@ -243,6 +243,8 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
     with httpx.Client(base_url=base_url, timeout=125.0, trust_env=False) as client:
         if op == "capabilities":
             return _local_response(client.get("/api/v1/capabilities"))
+        if op == "capability.registry":
+            return _local_response(client.get("/api/v1/capability-registry", headers=headers))
         if op == "pair.request":
             return _local_response(client.post("/api/v1/pairing/request", json=body))
         if op == "pair.status":
