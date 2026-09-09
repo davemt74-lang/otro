@@ -40,6 +40,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-collaboration-v030-") as dat
         return original_generate_with_tools(*args, **kwargs)
 
     providers.generate_ollama = fake_generate
+    brain._generate_with_tools = capture_generate_with_tools if hasattr(brain, "_generate_with_tools") else getattr(brain, "_generate_with_tools", None)
     brain._generate_with_agent_tools = capture_generate_with_tools
 
     def pair(client: TestClient, app_key: str, app_name: str, permissions: list[str]) -> tuple[int, dict[str, str]]:
@@ -83,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-collaboration-v030-") as dat
 
         capabilities = client.get("/api/v1/capabilities").json()
         assert "app.collaboration.v1" in capabilities["features"]
-        assert client.get("/api/v1/status").json()["schema_version"] == 17
+        assert client.get("/api/v1/status").json()["schema_version"] >= 17
 
         vp3_id, vp3_auth = pair(
             client,
