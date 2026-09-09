@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from .services.connected_apps import (
     ConnectedAppError,
@@ -8,14 +9,43 @@ from .services.connected_apps import (
     deny_pairing_request,
     list_connected_apps,
     require_repair,
+    update_collaboration_grant,
 )
 
 router = APIRouter()
 
 
+class CollaborationGrantUpdate(BaseModel):
+    memory_allowed: bool = False
+    knowledge_allowed: bool = False
+    enabled: bool = True
+
+
 @router.get("/api/v1/control/connected-apps")
 def connected_apps() -> dict:
     return list_connected_apps()
+
+
+@router.put("/api/v1/control/connected-apps/{consumer_app_id}/collaboration/{source_app_id}")
+def update_connected_app_collaboration(
+    consumer_app_id: int,
+    source_app_id: int,
+    payload: CollaborationGrantUpdate,
+) -> dict:
+    try:
+        return update_collaboration_grant(
+            consumer_app_id,
+            source_app_id,
+            memory_allowed=payload.memory_allowed,
+            knowledge_allowed=payload.knowledge_allowed,
+            enabled=payload.enabled,
+        )
+    except ConnectedAppError as exc:
+        message = str(exc)
+        raise HTTPException(
+            status_code=422 if "itself" in message else 404 if "not found" in message.lower() else 409,
+            detail=message,
+        ) from exc
 
 
 @router.get("/api/v1/control/connected-apps/{app_id}/activity")

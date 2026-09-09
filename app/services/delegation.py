@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, awareness_context, brain, context_engine, context_chat, providers, usage as usage_service
+from . import app_collaboration, app_scopes, awareness_context, brain, context_engine, context_chat, providers, usage as usage_service
 
 DELEGATION_VERSION = "v0.25"
 MAX_SURFACE_CONTEXT_CHARS = 8000
@@ -201,13 +201,32 @@ def chat(
     model_tool_permissions = app_scopes.scoped_tool_permissions(scope, permissions)
     effective_cloud_allowed = bool(cloud_allowed and scope["cloud_allowed"])
 
+    requested_budget = max(
+        context_engine.MIN_CONTEXT_CHARS,
+        min(context_engine.MAX_CONTEXT_CHARS, int(max_context_chars or context_engine.DEFAULT_CONTEXT_CHARS)),
+    )
+    collaboration_grants = app_collaboration.eligible_grants(
+        source,
+        permissions,
+        allow_memory=include_memory,
+        allow_knowledge=include_knowledge,
+    )
+    collaboration_reserve = min(
+        app_collaboration.MAX_COLLABORATION_CHARS,
+        requested_budget // 3,
+    ) if collaboration_grants else 0
+    own_budget = max(
+        context_engine.MIN_CONTEXT_CHARS,
+        requested_budget - collaboration_reserve,
+    ) if collaboration_grants else requested_budget
+
     bundle = _collect_context(
         int(primary_agent["id"]),
         text,
         allow_memory=include_memory,
         allow_knowledge=include_knowledge,
         allow_contacts=include_contacts,
-        max_context_chars=max_context_chars,
+        max_context_chars=own_budget,
         cloud_allowed=effective_cloud_allowed,
         memory_key_prefixes=scope["memory_key_prefixes"],
         knowledge_kinds=scope["knowledge_kinds"],
@@ -226,9 +245,25 @@ def chat(
             else:
                 awareness_items = []
 
+    collaboration_budget = max(
+        0,
+        requested_budget - int(bundle.context_chars) - len(awareness_fragment),
+    )
+    collaboration = app_collaboration.collect_context(
+        int(primary_agent["id"]),
+        text,
+        collaboration_grants,
+        max_chars=collaboration_budget,
+    )
+    collaboration_sources = list(collaboration.get("sources") or [])
+    collaboration_memory_count = sum(int(item.get("memory_count") or 0) for item in collaboration_sources)
+    collaboration_knowledge_count = sum(int(item.get("knowledge_count") or 0) for item in collaboration_sources)
+
     system_prompt = _delegation_prompt(primary_agent, delegated_agent, bundle, surface_context)
     if awareness_fragment:
         system_prompt += "\n\n" + awareness_fragment
+    if collaboration.get("fragment"):
+        system_prompt += "\n\n" + str(collaboration["fragment"])
     bounded_history = _history_messages(history)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
@@ -248,7 +283,7 @@ def chat(
         else (str(primary_agent.get("model") or "") or provider_model).strip()
     )
 
-    total_context_chars = int(bundle.context_chars) + len(awareness_fragment)
+    total_context_chars = int(bundle.context_chars) + len(awareness_fragment) + int(collaboration.get("context_chars") or 0)
     with db() as connection:
         cursor = connection.execute(
             """
@@ -295,7 +330,15 @@ def chat(
                     duration_ms,
                     str(exc)[:1000],
                     int(tool_state.get("call_count") or 0),
-                    json.dumps({"delegation_version": DELEGATION_VERSION, "scope_enforced": True}, separators=(",", ":")),
+                    json.dumps(
+                        {
+                            "delegation_version": DELEGATION_VERSION,
+                            "scope_enforced": True,
+                            "collaboration_version": app_collaboration.COLLABORATION_VERSION,
+                            "collaboration_source_count": len(collaboration_sources),
+                        },
+                        separators=(",", ":"),
+                    ),
                     run_id,
                 ),
             )
@@ -319,6 +362,8 @@ def chat(
         "context_source_refs": sources,
         "scope_enforced": True,
         "cloud_allowed": effective_cloud_allowed,
+        "collaboration_version": app_collaboration.COLLABORATION_VERSION,
+        "collaboration_sources": collaboration_sources,
     }
     with db() as connection:
         connection.execute(
@@ -357,6 +402,9 @@ def chat(
                         "tool_call_count": int(tool_state.get("call_count") or 0),
                         "duration_ms": duration_ms,
                         "scope_enforced": True,
+                        "collaboration_source_count": len(collaboration_sources),
+                        "collaboration_memory_count": collaboration_memory_count,
+                        "collaboration_knowledge_count": collaboration_knowledge_count,
                     },
                     separators=(",", ":"),
                 ),
@@ -382,6 +430,8 @@ def chat(
                 "external_conversation_id": external_id,
                 "context_chars": total_context_chars,
                 "scope_enforced": True,
+                "collaboration_version": app_collaboration.COLLABORATION_VERSION,
+                "collaboration_source_count": len(collaboration_sources),
             },
         )
     except usage_service.UsageError:
@@ -404,11 +454,19 @@ def chat(
             "surface_context": bool(surface_context),
             "scope_enforced": True,
         },
+        "collaboration": {
+            "version": app_collaboration.COLLABORATION_VERSION,
+            "active": bool(collaboration_sources),
+            "read_only_agent_context": True,
+            "sources": collaboration_sources,
+        },
         "context": {
             "memory_count": len(bundle.memory),
             "knowledge_count": len(bundle.knowledge),
             "contact_count": len(bundle.contacts),
             "awareness_count": len(awareness_items),
+            "collaboration_memory_count": collaboration_memory_count,
+            "collaboration_knowledge_count": collaboration_knowledge_count,
             "context_chars": total_context_chars,
             "sources": sources,
         },

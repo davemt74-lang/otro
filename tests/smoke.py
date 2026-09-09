@@ -80,6 +80,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "usage.history",
             "usage.sync",
             "app.scopes.v1",
+            "app.collaboration.v1",
         ):
             assert feature in capability_json["features"]
         for permission in (
@@ -119,7 +120,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 16
+        assert status.json()["schema_version"] == 17
 
         assert client.get("/api/v1/control/overview").status_code == 401
         assert client.get("/api/v1/control/tasks").status_code == 401

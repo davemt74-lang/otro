@@ -78,6 +78,7 @@ def capabilities() -> dict:
             "agent.context.sources",
             "agent.privacy.local_only",
             "agent.tools.read",
+            "app.collaboration.v1",
             "app.scopes.v1",
             "awareness.read",
             "cognition.activity_mirror",
