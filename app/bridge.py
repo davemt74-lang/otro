@@ -70,6 +70,7 @@ def capabilities() -> dict:
         "permissions": sorted(DEFAULT_PERMISSIONS),
         "features": [
             "action.approvals",
+            "approvals.federation.v1",
             "agent.chat",
             "agent.delegation.v1",
             "agent.context",
