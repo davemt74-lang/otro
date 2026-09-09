@@ -17,6 +17,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-capability-registry-v033-") 
 
     from app.runtime import app  # noqa: E402
     from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
+    from app.services import remote_bridge  # noqa: E402
     from app.services.tasks import scheduler  # noqa: E402
 
     with TestClient(app) as client:
@@ -83,5 +84,43 @@ with tempfile.TemporaryDirectory(prefix="homeserver-capability-registry-v033-") 
         encoded = response.text.lower()
         for forbidden in ("api_key", "credential_suffix", "base_url", "source_path", '"path"', "instructions"):
             assert forbidden not in encoded, forbidden
+
+    # The relay operation itself must remain protected. Exercise dispatch without
+    # opening a socket by substituting only the loopback HTTP client.
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict:
+            return {"registry_version": "v0.33"}
+
+    class FakeHttpClient:
+        def __init__(self, *args, **kwargs):
+            self.base_url = kwargs.get("base_url")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, path: str, *, headers: dict | None = None, **kwargs):
+            assert path == "/api/v1/capability-registry"
+            assert headers == {"Authorization": "Bearer " + ("t" * 24)}
+            return FakeResponse()
+
+    original_client = remote_bridge.httpx.Client
+    remote_bridge.httpx.Client = FakeHttpClient
+    try:
+        try:
+            remote_bridge.dispatch_remote_request("capability.registry", {}, None)
+            raise AssertionError("capability.registry accepted a missing paired-app token")
+        except remote_bridge.RemoteBridgeError:
+            pass
+        relayed = remote_bridge.dispatch_remote_request("capability.registry", {}, "t" * 24)
+        assert relayed["ok"] is True
+        assert relayed["payload"]["registry_version"] == "v0.33"
+    finally:
+        remote_bridge.httpx.Client = original_client
 
 print("HomeServer v0.33 scoped capability registry regression passed")
