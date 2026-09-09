@@ -59,6 +59,23 @@ def resolve_policy(app_id: int, app_key: str, tool_key: str) -> dict[str, Any]:
     }
 
 
+def resolve_policy_for_source(source_app_key: str, tool_key: str) -> dict[str, Any] | None:
+    source = str(source_app_key or "").strip()
+    if not source.startswith("app:"):
+        return None
+    app_key = source[4:].strip()
+    if not app_key:
+        return None
+    with db() as connection:
+        app = connection.execute(
+            "SELECT id, app_key FROM paired_apps WHERE app_key=? LIMIT 1",
+            (app_key,),
+        ).fetchone()
+    if app is None:
+        return None
+    return resolve_policy(int(app["id"]), str(app["app_key"]), tool_key)
+
+
 def list_policy_for_app(app_id: int, app_key: str) -> list[dict[str, Any]]:
     return [resolve_policy(app_id, app_key, key) for key in sorted(tools.TOOL_DEFINITIONS)]
 
