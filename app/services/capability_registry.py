@@ -5,6 +5,7 @@ from typing import Any
 from ..config import settings
 from ..database import db
 from . import app_scopes, plugins, providers, tools
+from .knowledge import SUPPORTED_EXTENSIONS
 from .knowledge_sources import list_sources
 from .remote_bridge import bridge_status
 
@@ -109,7 +110,7 @@ def _knowledge_inventory(scope: dict[str, Any], permissions: set[str]) -> dict[s
 
 def _file_inventory(permissions: set[str]) -> dict[str, Any]:
     if "knowledge.search" not in permissions:
-        return {"available": False, "source_count": 0, "enabled_sources": 0, "tracked_files": 0, "indexed_files": 0}
+        return {"available": False, "source_count": 0, "enabled_sources": 0, "tracked_files": 0, "indexed_files": 0, "supported_extensions": []}
     try:
         sources = list_sources()
     except Exception:
@@ -120,7 +121,7 @@ def _file_inventory(permissions: set[str]) -> dict[str, Any]:
         "enabled_sources": sum(1 for item in sources if item.get("enabled")),
         "tracked_files": sum(max(0, int(item.get("tracked_files") or 0)) for item in sources),
         "indexed_files": sum(max(0, int(item.get("indexed_files") or 0)) for item in sources),
-        "supported_extensions": [".txt", ".md", ".pdf", ".docx", ".json", ".csv"],
+        "supported_extensions": sorted(str(value)[:16] for value in SUPPORTED_EXTENSIONS)[:100],
     }
 
 
