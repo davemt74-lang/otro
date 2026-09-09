@@ -311,6 +311,22 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             if not _OPAQUE_ID.fullmatch(action_id):
                 raise RemoteBridgeError("action.status requires a valid request_id.")
             return _local_response(client.get(f"/api/v1/action-requests/{action_id}", headers=headers))
+        if op == "action.list":
+            params: dict[str, Any] = {
+                "limit": _bounded_int(body.get("limit"), default=100, minimum=1, maximum=200, name="limit")
+            }
+            status = str(body.get("status") or "pending").strip()
+            if status:
+                if status not in {"pending", "executing", "executed", "denied", "failed", "expired"}:
+                    raise RemoteBridgeError("action.list status is invalid.")
+                params["status"] = status
+            return _local_response(client.get("/api/v1/action-requests", params=params, headers=headers))
+        if op in {"action.approve", "action.deny"}:
+            action_id = str(body.get("request_id") or "")
+            if not _OPAQUE_ID.fullmatch(action_id):
+                raise RemoteBridgeError(f"{op} requires a valid request_id.")
+            decision = "approve" if op == "action.approve" else "deny"
+            return _local_response(client.post(f"/api/v1/action-requests/{action_id}/{decision}", headers=headers))
 
     raise RemoteBridgeError("Remote operation is not allowlisted by HomeServer.")
 

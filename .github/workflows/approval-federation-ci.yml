@@ -1,0 +1,24 @@
+name: Approval Federation CI
+
+on:
+  push:
+    branches: [main, "feature/v0.31-approval-federation"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  approval-federation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile approval federation runtime
+        run: python -m py_compile app/approvals_api.py app/services/approval_federation.py app/services/pairing.py app/services/remote_bridge.py app/bridge.py
+      - name: Run v0.31 approval federation contract
+        run: python tests/approval_federation_v031.py
