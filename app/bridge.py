@@ -18,7 +18,6 @@ from .knowledge_sources_api import router as knowledge_sources_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
 from .services import providers
-from .services.capability_registry_remote import install as install_capability_registry_remote_operation
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
@@ -35,7 +34,6 @@ class PairStatusRequest(BaseModel):
 # Extend the existing fail-closed Remote Bridge with bounded authenticated
 # operations before the worker begins serving relay requests.
 install_knowledge_backup_remote_operations()
-install_capability_registry_remote_operation()
 
 app.include_router(delegation_router)
 app.include_router(brain_router)
