@@ -10,6 +10,7 @@ from . import app_scopes
 
 DEFAULT_PERMISSIONS = {
     "agent.chat",
+    "approvals.review",
     "awareness.read",
     "contacts.read",
     "events.read",
