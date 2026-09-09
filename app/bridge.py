@@ -72,7 +72,12 @@ def capabilities() -> dict:
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
         "capability_registry": {"version": "v0.33", "operation": "capability.registry", "authenticated": True},
-        "action_policy": {"version": "v0.35", "operation": "policy.status", "owner_managed": True},
+        "action_policy": {
+            "version": "v0.35",
+            "operation": "tools.list",
+            "embedded": True,
+            "owner_managed": True,
+        },
         "inference": {
             "available": bool(inference["available"]),
             "selected_provider": inference["selected_provider"],
