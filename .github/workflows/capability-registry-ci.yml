@@ -1,0 +1,33 @@
+name: Capability Registry CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - section-4-capability-registry-**
+
+permissions:
+  contents: read
+
+jobs:
+  capability-registry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile capability registry runtime
+        run: python -m compileall app/bridge.py app/capability_registry_api.py app/services/capability_registry.py app/services/capability_registry_remote.py tests/capability_registry_v033.py
+      - name: Scoped capability registry regression
+        run: python tests/capability_registry_v033.py
+      - name: Existing app-scope handshake regression
+        run: python tests/app_scope_handshake_v027.py
+      - name: Existing remote bridge regression
+        run: python tests/remote_bridge.py
+      - name: Existing inference usage regression
+        run: python tests/inference_usage.py
