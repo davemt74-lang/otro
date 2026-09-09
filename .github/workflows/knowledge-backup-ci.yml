@@ -1,0 +1,27 @@
+name: Knowledge Backup CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feature/v0.32-vp3-knowledge-backup
+
+permissions:
+  contents: read
+
+jobs:
+  knowledge-backup:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Knowledge backup modules
+        run: python -m compileall app/services/knowledge_backups.py app/services/knowledge_backup_remote.py app/knowledge_backup_api.py app/bridge.py app/services/knowledge.py app/services/pairing.py
+      - name: VP3 Knowledge and recording backup regression
+        run: python tests/knowledge_backup_v032.py
