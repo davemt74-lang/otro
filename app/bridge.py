@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from .approvals_api import router as approvals_router
 from .backups_api import router as backups_router
 from .brain_api import router as brain_router
+from .capability_registry_api import router as capability_registry_router
 from .cognition_api import router as cognition_router
 from .connected_apps_api import router as connected_apps_router
 from .contacts_api import router as contacts_router
@@ -48,6 +49,7 @@ app.include_router(system_router)
 app.include_router(remote_bridge_router)
 app.include_router(usage_router)
 app.include_router(connected_apps_router)
+app.include_router(capability_registry_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,6 +69,7 @@ def capabilities() -> dict:
         "version": settings.version,
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
+        "capability_registry": {"version": "v0.33", "operation": "capability.registry", "authenticated": True},
         "inference": {
             "available": bool(inference["available"]),
             "selected_provider": inference["selected_provider"],
@@ -89,6 +92,7 @@ def capabilities() -> dict:
             "app.collaboration.v1",
             "app.scopes.v1",
             "awareness.read",
+            "capability.registry.v1",
             "cognition.activity_mirror",
             "cognition.event_bus",
             "cognition.jobs",
