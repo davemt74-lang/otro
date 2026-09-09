@@ -24,8 +24,24 @@ def _safe_provider(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _table_exists(table_name: str) -> bool:
+    """Detect optional subsystems without assuming every installation has every table."""
+    try:
+        with db() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+                (table_name,),
+            ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
 def _inference_inventory() -> dict[str, Any]:
-    status = providers.inference_status()
+    try:
+        status = providers.inference_status()
+    except Exception:
+        status = {}
     provider_items = [_safe_provider(item) for item in status.get("providers", []) if isinstance(item, dict)]
     installed_local_models: list[str] = []
     ollama = next((item for item in provider_items if item["key"] == "ollama"), None)
@@ -53,10 +69,13 @@ def _inference_inventory() -> dict[str, Any]:
 
 
 def _primary_brain() -> dict[str, Any]:
-    with db() as connection:
-        row = connection.execute(
-            "SELECT id, name, model, updated_at FROM agents WHERE is_primary=1 LIMIT 1"
-        ).fetchone()
+    try:
+        with db() as connection:
+            row = connection.execute(
+                "SELECT id, name, model, updated_at FROM agents WHERE is_primary=1 LIMIT 1"
+            ).fetchone()
+    except Exception:
+        row = None
     return {
         "available": row is not None,
         "primary": {
@@ -72,13 +91,19 @@ def _memory_inventory(scope: dict[str, Any], permissions: set[str]) -> dict[str,
     readable = "memory.read" in permissions
     writable = "memory.write" in permissions
     count = 0
-    if readable:
-        with db() as connection:
-            rows = connection.execute("SELECT memory_key FROM agent_memory").fetchall()
-        count = sum(1 for row in rows if app_scopes.memory_key_allowed(scope, row["memory_key"]))
+    available = _table_exists("agent_memory")
+    if readable and available:
+        try:
+            with db() as connection:
+                rows = connection.execute("SELECT memory_key FROM agent_memory").fetchall()
+            count = sum(1 for row in rows if app_scopes.memory_key_allowed(scope, row["memory_key"]))
+        except Exception:
+            available = False
+            count = 0
     return {
-        "readable": readable,
-        "writable": writable,
+        "available": available,
+        "readable": readable and available,
+        "writable": writable and available,
         "visible_items": count,
         "restricted": bool(app_scopes.normalize(scope)["memory_key_prefixes"]),
     }
@@ -89,19 +114,26 @@ def _knowledge_inventory(scope: dict[str, Any], permissions: set[str]) -> dict[s
     writable = "knowledge.write" in permissions
     count = 0
     kinds: list[str] = []
-    if searchable:
-        with db() as connection:
-            rows = connection.execute("SELECT kind FROM knowledge_items").fetchall()
-        for row in rows:
-            kind = str(row["kind"] or "")
-            if not app_scopes.knowledge_kind_allowed(scope, kind):
-                continue
-            count += 1
-            if kind and kind not in kinds:
-                kinds.append(kind)
+    available = _table_exists("knowledge_items")
+    if searchable and available:
+        try:
+            with db() as connection:
+                rows = connection.execute("SELECT kind FROM knowledge_items").fetchall()
+            for row in rows:
+                kind = str(row["kind"] or "")
+                if not app_scopes.knowledge_kind_allowed(scope, kind):
+                    continue
+                count += 1
+                if kind and kind not in kinds:
+                    kinds.append(kind)
+        except Exception:
+            available = False
+            count = 0
+            kinds = []
     return {
-        "searchable": searchable,
-        "writable": writable,
+        "available": available,
+        "searchable": searchable and available,
+        "writable": writable and available,
         "visible_items": count,
         "visible_kinds": sorted(kinds)[:100],
         "restricted": bool(app_scopes.normalize(scope)["knowledge_kinds"]),
@@ -114,7 +146,7 @@ def _file_inventory(permissions: set[str]) -> dict[str, Any]:
     try:
         sources = list_sources()
     except Exception:
-        sources = []
+        return {"available": False, "source_count": 0, "enabled_sources": 0, "tracked_files": 0, "indexed_files": 0, "supported_extensions": []}
     return {
         "available": True,
         "source_count": len(sources),
@@ -126,16 +158,29 @@ def _file_inventory(permissions: set[str]) -> dict[str, Any]:
 
 
 def _contact_inventory(permissions: set[str]) -> dict[str, Any]:
-    readable = "contacts.read" in permissions
+    """Contacts are optional; older/current installs may not include a contacts table."""
+    permitted = "contacts.read" in permissions
+    available = _table_exists("contacts")
     count = 0
-    if readable:
-        with db() as connection:
-            count = int(connection.execute("SELECT COUNT(*) FROM contacts").fetchone()[0])
-    return {"readable": readable, "visible_contacts": count}
+    if permitted and available:
+        try:
+            with db() as connection:
+                count = int(connection.execute("SELECT COUNT(*) FROM contacts").fetchone()[0])
+        except Exception:
+            available = False
+            count = 0
+    return {
+        "available": available,
+        "readable": permitted and available,
+        "visible_contacts": count,
+    }
 
 
 def _tool_inventory(scope: dict[str, Any], permissions: set[str]) -> list[dict[str, Any]]:
-    items = [item for item in tools.list_tools(permissions) if app_scopes.tool_allowed(scope, item.get("key"))]
+    try:
+        items = [item for item in tools.list_tools(permissions) if app_scopes.tool_allowed(scope, item.get("key"))]
+    except Exception:
+        items = []
     return [{
         "key": str(item.get("key") or "")[:80],
         "name": str(item.get("name") or "")[:160],
@@ -147,10 +192,13 @@ def _tool_inventory(scope: dict[str, Any], permissions: set[str]) -> list[dict[s
 
 
 def _skill_inventory(scope: dict[str, Any], permissions: set[str]) -> list[dict[str, Any]]:
-    items = [
-        item for item in tools.list_skills(permissions)
-        if all(app_scopes.tool_allowed(scope, key) for key in item.get("tools") or [])
-    ]
+    try:
+        items = [
+            item for item in tools.list_skills(permissions)
+            if all(app_scopes.tool_allowed(scope, key) for key in item.get("tools") or [])
+        ]
+    except Exception:
+        items = []
     return [{
         "key": str(item.get("key") or "")[:80],
         "name": str(item.get("name") or "")[:160],
@@ -197,11 +245,10 @@ def _services(inference: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _operations(permissions: set[str]) -> list[str]:
+def _operations(permissions: set[str], contacts_available: bool) -> list[str]:
     operations = ["capability.registry"]
     mapping = {
         "agent.chat": ["agent.chat", "inference.status", "conversations.list", "conversation.get"],
-        "contacts.read": ["contacts.search"],
         "knowledge.search": ["knowledge.search"],
         "memory.read": ["memory.read"],
         "memory.write": ["memory.write"],
@@ -214,6 +261,8 @@ def _operations(permissions: set[str]) -> list[str]:
         "tools.execute": ["tools.list", "skills.list", "tool.execute"],
         "approvals.review": ["action.status", "action.list", "action.approve", "action.deny"],
     }
+    if contacts_available:
+        mapping["contacts.read"] = ["contacts.search"]
     for permission, values in mapping.items():
         if permission in permissions:
             operations.extend(values)
@@ -227,6 +276,7 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
     tools_inventory = _tool_inventory(scope, permissions)
     skills_inventory = _skill_inventory(scope, permissions)
     plugins_inventory = _plugin_inventory(scope, permissions)
+    contacts_inventory = _contact_inventory(permissions)
     return {
         "registry_version": REGISTRY_VERSION,
         "service": settings.app_name,
@@ -242,12 +292,12 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
         "memory": _memory_inventory(scope, permissions),
         "knowledge": _knowledge_inventory(scope, permissions),
         "files": _file_inventory(permissions),
-        "contacts": _contact_inventory(permissions),
+        "contacts": contacts_inventory,
         "tools": tools_inventory,
         "skills": skills_inventory,
         "plugins": plugins_inventory,
         "services": _services(inference),
-        "operations": _operations(permissions),
+        "operations": _operations(permissions, bool(contacts_inventory.get("available"))),
         "counts": {
             "tools": len(tools_inventory),
             "available_tools": sum(1 for item in tools_inventory if item["available"]),
