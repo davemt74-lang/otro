@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-action-policy-v035-") as dat
 
     from app.runtime import app  # noqa: E402
     from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
+    from app.services import agent_tools  # noqa: E402
 
     with TestClient(app) as client:
         owner = client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN})
@@ -94,24 +95,74 @@ with tempfile.TemporaryDirectory(prefix="homeserver-action-policy-v035-") as dat
         memory_auto = client.get("/api/v1/control/memory").json()["items"]
         assert any(item.get("content") == secret_two for item in memory_auto)
 
+        # Agent/model tool execution must use the same per-app authority as the
+        # direct /tools endpoint. A safe-automatic write executes immediately.
+        agent_tools.save_policy(True, 3, True)
+        secret_agent_auto = "POLICY_AGENT_AUTO_18420"
+        agent_auto = agent_tools.execute_model_tool(
+            "app:policy-alpha",
+            agent_tools.MEMORY_PROPOSAL_TOOL_NAME,
+            {"content": secret_agent_auto, "memory_key": "policy.agent-auto"},
+            {"tools.execute", "memory.write"},
+            owner=False,
+        )
+        assert agent_auto.get("run_id")
+        assert not (agent_auto.get("result") or {}).get("request_id")
+        memory_agent_auto = client.get("/api/v1/control/memory").json()["items"]
+        assert any(item.get("content") == secret_agent_auto for item in memory_agent_auto)
+
         sensitive_policy = client.put(
             f"/api/v1/control/action-policies/{app_id}/memory.write",
             json={"policy_mode": "sensitive_high_impact"},
         )
         assert sensitive_policy.status_code == 200
+        blocked_secret = "BLOCKED_SECRET_96314"
         blocked = client.post(
             "/api/v1/tools/memory.write/execute",
-            json={"arguments": {"content": "BLOCKED_SECRET_96314"}},
+            json={"arguments": {"content": blocked_secret}},
             headers=headers,
         )
         assert blocked.status_code == 403
         assert "sensitive/high-impact" in blocked.json()["detail"].lower()
+
+        # The model path cannot bypass a sensitive/high-impact classification.
+        blocked_agent_secret = "BLOCKED_AGENT_SECRET_28741"
+        try:
+            agent_tools.execute_model_tool(
+                "app:policy-alpha",
+                agent_tools.MEMORY_PROPOSAL_TOOL_NAME,
+                {"content": blocked_agent_secret, "memory_key": "policy.agent-blocked"},
+                {"tools.execute", "memory.write"},
+                owner=False,
+            )
+            raise AssertionError("Sensitive model-invoked memory write unexpectedly executed")
+        except agent_tools.AgentToolError:
+            pass
+        memory_after_block = client.get("/api/v1/control/memory").json()["items"]
+        assert all(item.get("content") != blocked_agent_secret for item in memory_after_block)
 
         invalid_read_upgrade = client.put(
             f"/api/v1/control/action-policies/{app_id}/knowledge.search",
             json={"policy_mode": "safe_automatic"},
         )
         assert invalid_read_upgrade.status_code == 422
+
+        sensitive_read = client.put(
+            f"/api/v1/control/action-policies/{app_id}/knowledge.search",
+            json={"policy_mode": "sensitive_high_impact"},
+        )
+        assert sensitive_read.status_code == 200
+        try:
+            agent_tools.execute_model_tool(
+                "app:policy-alpha",
+                "homeserver_knowledge_search",
+                {"query": "private"},
+                {"tools.execute", "knowledge.search"},
+                owner=False,
+            )
+            raise AssertionError("Sensitive model-invoked knowledge read unexpectedly executed")
+        except agent_tools.AgentToolError:
+            pass
 
         other_policy = client.get("/api/v1/action-policy", headers=other_headers)
         assert other_policy.status_code == 200
@@ -127,9 +178,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-action-policy-v035-") as dat
         assert len(policy_payload["apps"]) == 2
         decisions = {item["decision"] for item in policy_payload["audit"]}
         assert {"approval_requested", "allowed_automatic", "blocked"}.issubset(decisions)
+        assert any((item.get("metadata") or {}).get("agent_tool") is True for item in policy_payload["audit"])
 
         audit_text = json.dumps(policy_payload["audit"], ensure_ascii=False)
-        for secret in (secret_one, secret_two, "BLOCKED_SECRET_96314"):
+        for secret in (secret_one, secret_two, secret_agent_auto, blocked_secret, blocked_agent_secret):
             assert secret not in audit_text
 
 print("HomeServer action execution policy v0.35 test passed")
