@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile capability registry runtime
-        run: python -m compileall app/bridge.py app/capability_registry_api.py app/services/capability_registry.py app/services/capability_registry_remote.py tests/capability_registry_v033.py
+        run: python -m compileall app/bridge.py app/capability_registry_api.py app/services/capability_registry.py app/services/remote_bridge.py tests/capability_registry_v033.py
       - name: Scoped capability registry regression
         run: python tests/capability_registry_v033.py
       - name: Existing app-scope handshake regression
