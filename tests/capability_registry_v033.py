@@ -73,15 +73,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-capability-registry-v033-") 
         assert "agent.chat" in registry["operations"]
         assert "memory.write" not in registry["operations"]
 
-        # Contacts are an optional subsystem. A paired app may hold contacts.read
-        # even when the current installation has no contacts table; registry must
-        # degrade safely rather than 500 or advertise an unavailable operation.
-        assert registry["contacts"] == {
-            "available": False,
-            "readable": False,
-            "visible_contacts": 0,
-        }
-        assert "contacts.search" not in registry["operations"]
+        # Contacts are a migrated subsystem. Registry exposes only count/readiness,
+        # never contact content, and only to a paired app holding contacts.read.
+        assert registry["contacts"]["available"] is True
+        assert registry["contacts"]["readable"] is True
+        assert registry["contacts"]["visible_contacts"] == 0
+        assert "contacts.search" in registry["operations"]
 
         encoded = response.text.lower()
         for forbidden in ("api_key", "credential_suffix", "base_url", "source_path", '"path"', "instructions"):
