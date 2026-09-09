@@ -12,15 +12,24 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT_DIR / "database" / "schema.sql"
 MIGRATIONS_DIR = ROOT_DIR / "database" / "migrations"
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_.+\.sql$")
+SQLITE_BUSY_TIMEOUT_SECONDS = 30
+SQLITE_BUSY_TIMEOUT_MS = SQLITE_BUSY_TIMEOUT_SECONDS * 1000
 
 
 def connect() -> sqlite3.Connection:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(settings.db_path, timeout=30, check_same_thread=False)
+    connection = sqlite3.connect(
+        settings.db_path,
+        timeout=SQLITE_BUSY_TIMEOUT_SECONDS,
+        check_same_thread=False,
+    )
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")
     connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA busy_timeout=5000")
+    # sqlite3.connect(timeout=...) installs a busy handler, but setting
+    # PRAGMA busy_timeout replaces it. Keep both values aligned so transient
+    # background writes cannot shorten the audit-write wait to five seconds.
+    connection.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     return connection
 
 
