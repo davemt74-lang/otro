@@ -35,7 +35,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-capability-registry-v033-") 
             json={
                 "app_key": "registry-test",
                 "app_name": "Registry Test",
-                "permissions": ["agent.chat", "tools.execute", "memory.read", "knowledge.search"],
+                "permissions": [
+                    "agent.chat",
+                    "tools.execute",
+                    "memory.read",
+                    "knowledge.search",
+                    "contacts.read",
+                ],
             },
         ).json()
         assert client.post("/api/v1/pairing/approve", json={"code": request["code"]}).status_code == 200
@@ -65,11 +71,20 @@ with tempfile.TemporaryDirectory(prefix="homeserver-capability-registry-v033-") 
         assert registry["knowledge"]["restricted"] is True
         assert "capability.registry" in registry["operations"]
         assert "agent.chat" in registry["operations"]
-        assert "contacts.search" not in registry["operations"]
         assert "memory.write" not in registry["operations"]
 
+        # Contacts are an optional subsystem. A paired app may hold contacts.read
+        # even when the current installation has no contacts table; registry must
+        # degrade safely rather than 500 or advertise an unavailable operation.
+        assert registry["contacts"] == {
+            "available": False,
+            "readable": False,
+            "visible_contacts": 0,
+        }
+        assert "contacts.search" not in registry["operations"]
+
         encoded = response.text.lower()
-        for forbidden in ("api_key", "credential_suffix", "base_url", "source_path", '"path"'):
+        for forbidden in ("api_key", "credential_suffix", "base_url", "source_path", '"path"', "instructions"):
             assert forbidden not in encoded, forbidden
 
 print("HomeServer v0.33 scoped capability registry regression passed")
