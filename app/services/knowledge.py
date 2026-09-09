@@ -405,9 +405,45 @@ def list_knowledge(query: str = "", limit: int = 250) -> list[dict[str, Any]]:
         ]
 
 
+def _attachment_paths(metadata_json: str | None) -> list[Path]:
+    try:
+        metadata = json.loads(str(metadata_json or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("assets"), list):
+        return []
+
+    root = settings.knowledge_files_dir.resolve()
+    attachments_root = (root / "attachments").resolve()
+    paths: list[Path] = []
+    for asset in metadata["assets"][:500]:
+        if not isinstance(asset, dict):
+            continue
+        stored_name = str(asset.get("stored_name") or "").strip().replace("\\", "/")
+        if not stored_name.startswith("attachments/"):
+            continue
+        relative = Path(stored_name)
+        if relative.is_absolute() or ".." in relative.parts:
+            continue
+        target = (root / relative).resolve()
+        if target.parent != attachments_root:
+            continue
+        paths.append(target)
+    return paths
+
+
 def delete_knowledge_item(item_id: int) -> bool:
     stored_name: str | None = None
+    attachment_paths: list[Path] = []
     with db() as connection:
+        item = connection.execute(
+            "SELECT metadata_json FROM knowledge_items WHERE id=? LIMIT 1",
+            (item_id,),
+        ).fetchone()
+        if item is None:
+            return False
+        attachment_paths = _attachment_paths(item["metadata_json"])
+
         document = connection.execute(
             "SELECT stored_name FROM knowledge_documents WHERE knowledge_item_id=?",
             (item_id,),
@@ -420,5 +456,13 @@ def delete_knowledge_item(item_id: int) -> bool:
             return False
 
     if stored_name:
-        (settings.knowledge_files_dir / stored_name).unlink(missing_ok=True)
+        try:
+            (settings.knowledge_files_dir / stored_name).unlink(missing_ok=True)
+        except OSError:
+            pass
+    for target in attachment_paths:
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            pass
     return True
