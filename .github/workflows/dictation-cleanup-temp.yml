@@ -1,0 +1,36 @@
+name: Dictation branch cleanup temporary
+on:
+  push:
+    branches: [agent-chat-dictation-mode]
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent-chat-dictation-mode
+      - name: Revert accidental table drift and remove helper
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('ui/index.html')
+          s = p.read_text(encoding='utf-8')
+          bad = '<div class="panel table-wrap tool-runs"><table><thead><tr><th>Time</th><th>Tool</th><th>Provider / model</th><th>Input</th><th>Output</th></tr></thead><tbody id="toolRunsTable"><tr><td colspan="5">No tool runs yet.</td></tr></tbody></table></div>'
+          good = '<div class="panel table-wrap tool-runs"><table><thead><tr><th>Time</th><th>Tool</th><th>Invoker</th><th>Status</th><th>Duration</th></tr></thead><tbody id="toolRunsTable"><tr><td colspan="5">No tool runs yet.</td></tr></tbody></table></div>'
+          if bad not in s:
+              raise SystemExit('Expected accidental table drift not found; refusing broad edit')
+          p.write_text(s.replace(bad, good, 1), encoding='utf-8')
+          Path('.github/workflows/dictation-cleanup-temp.yml').unlink()
+          PY
+      - name: Commit focused cleanup
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ui/index.html .github/workflows/dictation-cleanup-temp.yml
+          git commit -m "Remove unrelated table drift from dictation branch"
+          git push origin HEAD:agent-chat-dictation-mode
