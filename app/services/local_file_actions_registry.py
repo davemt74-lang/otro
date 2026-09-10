@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from . import capability_registry, pairing
+from . import capability_registry
 
 
 FILE_ACTION_VERSION = "v0.39"
@@ -12,7 +12,6 @@ def install() -> None:
     if getattr(capability_registry, "_local_file_actions_v039_installed", False):
         return
 
-    pairing.DEFAULT_PERMISSIONS.add("files.write")
     original: Callable[[dict[str, Any]], dict[str, Any]] = capability_registry.build_registry
 
     def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
