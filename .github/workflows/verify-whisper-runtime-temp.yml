@@ -30,6 +30,9 @@ jobs:
             $_.FullName.Substring((Resolve-Path whisper-runtime).Path.Length + 1).Replace('\\','/')
           }
           Write-Host 'RUNTIME_FILES_END'
+          Write-Host 'WHISPER_HELP_BEGIN'
+          & .\whisper-runtime\Release\whisper-cli.exe -h 2>&1 | Select-String -Pattern 'output-txt|output-file|no-timestamps|no-prints|model|file'
+          Write-Host 'WHISPER_HELP_END'
 
       - name: Download and verify tiny.en q8 model
         shell: pwsh
