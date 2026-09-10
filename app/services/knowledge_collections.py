@@ -223,6 +223,42 @@ def _allowed_collection_keys(app_id: int) -> set[str] | None:
 
 
 def _item_provenance(connection, item_id: int) -> dict[str, Any]:
+    direct = connection.execute(
+        """
+        SELECT c.collection_key, c.name
+        FROM knowledge_collection_items i
+        JOIN knowledge_collections c ON c.id=i.collection_id
+        WHERE i.knowledge_item_id=? LIMIT 1
+        """,
+        (int(item_id),),
+    ).fetchone()
+    if direct is not None:
+        watched_metadata = connection.execute(
+            """
+            SELECT ksf.relative_path, ks.label
+            FROM knowledge_source_files ksf
+            JOIN knowledge_sources ks ON ks.id=ksf.source_id
+            WHERE ksf.knowledge_item_id=?
+            LIMIT 1
+            """,
+            (int(item_id),),
+        ).fetchone()
+        return {
+            "collection_key": str(direct["collection_key"]),
+            "collection_name": str(direct["name"]),
+            "source_type": "watched_folder" if watched_metadata is not None else "local_item",
+            "source_label": (
+                str(watched_metadata["label"] or "Local folder")[:120]
+                if watched_metadata is not None
+                else "HomeServer Knowledge"
+            ),
+            "relative_path": (
+                str(watched_metadata["relative_path"] or "")[:1000]
+                if watched_metadata is not None
+                else ""
+            ),
+        }
+
     watched = connection.execute(
         """
         SELECT ksf.relative_path, ks.label,
@@ -246,23 +282,6 @@ def _item_provenance(connection, item_id: int) -> dict[str, Any]:
             "relative_path": str(watched["relative_path"] or "")[:1000],
         }
 
-    direct = connection.execute(
-        """
-        SELECT c.collection_key, c.name
-        FROM knowledge_collection_items i
-        JOIN knowledge_collections c ON c.id=i.collection_id
-        WHERE i.knowledge_item_id=? LIMIT 1
-        """,
-        (int(item_id),),
-    ).fetchone()
-    if direct is not None:
-        return {
-            "collection_key": str(direct["collection_key"]),
-            "collection_name": str(direct["name"]),
-            "source_type": "local_item",
-            "source_label": "HomeServer Knowledge",
-            "relative_path": "",
-        }
     return {
         "collection_key": DEFAULT_COLLECTION_KEY,
         "collection_name": "General",
