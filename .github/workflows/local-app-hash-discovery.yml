@@ -40,7 +40,7 @@ jobs:
           if (-not (Test-Path 'artifacts/piper-expanded/piper/piper.exe')) {
             throw 'Piper package does not contain piper/piper.exe at the catalog-required path.'
           }
-          Get-Content artifacts/piper-lessac-config -Raw | ConvertFrom-Json | Out-Null
-          Get-Content artifacts/whisper-config -Raw | ConvertFrom-Json | Out-Null
-          Get-Content artifacts/whisper-tokenizer -Raw | ConvertFrom-Json | Out-Null
+          Get-Content artifacts/piper-lessac-config -Raw | ConvertFrom-Json -AsHashtable | Out-Null
+          Get-Content artifacts/whisper-config -Raw | ConvertFrom-Json -AsHashtable | Out-Null
+          Get-Content artifacts/whisper-tokenizer -Raw | ConvertFrom-Json -AsHashtable | Out-Null
           Write-Host 'PACKAGE_STRUCTURE_OK Piper runtime + Piper voice config + Whisper JSON/model bundle'
