@@ -40,11 +40,32 @@ def authorize() -> httpx.Client:
     return client
 
 
+def verify_agent_voice_profile(client: httpx.Client, *, expected_rate: float | None = None) -> int:
+    agent_response = client.get("/api/v1/control/agent")
+    assert agent_response.status_code == 200, agent_response.text
+    agent_id = int(agent_response.json()["agent"]["id"])
+    profile_response = client.get(f"/api/v1/control/voice/agents/{agent_id}/profile")
+    assert profile_response.status_code == 200, profile_response.text
+    profile = profile_response.json()
+    assert profile["version"] == "v0.45"
+    if expected_rate is not None:
+        assert profile["overrides"]["speaking_rate"] == expected_rate
+    return agent_id
+
+
 def main() -> None:
     assert os.environ.get("HOMESERVER_DATA_DIR"), "HOMESERVER_DATA_DIR is required"
     assert wait_health(True, 20), "packaged HomeServer is not healthy before lifecycle test"
 
     first = authorize()
+    agent_id = verify_agent_voice_profile(first)
+    saved = first.put(
+        f"/api/v1/control/voice/agents/{agent_id}/profile",
+        json={"voice": None, "speaking_rate": 1.1, "sentence_silence": None},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["overrides"]["speaking_rate"] == 1.1
+
     old_cookie = first.cookies.get("homeserver_owner")
     assert old_cookie
     restart = first.post("/api/v1/control/system/restart")
@@ -66,12 +87,13 @@ def main() -> None:
         old_session.close()
 
     second = authorize()
+    assert verify_agent_voice_profile(second, expected_rate=1.1) == agent_id
     shutdown = second.post("/api/v1/control/system/shutdown")
     assert shutdown.status_code == 200 and shutdown.json()["accepted"] is True
     second.close()
     assert wait_health(False, 20), "HomeServer listener remained active after supervised shutdown"
 
-    print("Packaged HomeServer restart/session-rotation/shutdown test passed")
+    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile persistence/shutdown test passed")
 
 
 if __name__ == "__main__":
