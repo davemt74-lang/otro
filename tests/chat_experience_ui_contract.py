@@ -52,6 +52,10 @@ for forbidden in ('/api/v1/control/prompts', '/api/v1/control/reasoning', '/api/
 # Accessibility / responsive interaction contract.
 for token in ('aria-controls', 'aria-expanded', 'aria-pressed', 'aria-live', 'aria-modal'):
     require(JS, token, f'accessibility token {token}')
+require(JS, 'drawer.inert = true', 'closed drawer focus isolation')
+require(JS, 'drawer.inert = false', 'open drawer activation')
+require(JS, "document.querySelector('.shell')?.setAttribute('inert', '')", 'modal background focus isolation')
+require(JS, "document.querySelector('.shell')?.removeAttribute('inert')", 'modal background focus restoration')
 require(CSS, '@media(max-width:560px)', 'mobile layout')
 require(CSS, '@media(prefers-reduced-motion:reduce)', 'reduced motion support')
 require(CSS, '.chat-voice-button.listening', 'listening state')
