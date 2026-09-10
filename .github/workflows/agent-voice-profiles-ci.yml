@@ -3,7 +3,8 @@ name: Agent Voice Profiles CI
 on:
   pull_request:
     paths:
-      - 'database/migrations/021_agent_voice_profiles.sql'
+      - 'database/agent_voice_profiles.sql'
+      - 'app/database.py'
       - 'app/local_voice_api.py'
       - 'app/services/agent_voice_profiles.py'
       - 'app/services/local_voice.py'
@@ -21,7 +22,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'database/migrations/021_agent_voice_profiles.sql'
+      - 'database/agent_voice_profiles.sql'
+      - 'app/database.py'
       - 'app/local_voice_api.py'
       - 'app/services/agent_voice_profiles.py'
       - 'app/services/local_voice.py'
@@ -54,7 +56,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Agent Voice Profiles backend
-        run: python -m compileall app/local_voice_api.py app/services/agent_voice_profiles.py app/services/local_voice.py app/services/voice_settings.py tests/agent_voice_profiles_v045.py tests/agent_voice_profiles_ui_contract_v045.py
+        run: python -m compileall app/database.py app/local_voice_api.py app/services/agent_voice_profiles.py app/services/local_voice.py app/services/voice_settings.py tests/agent_voice_profiles_v045.py tests/agent_voice_profiles_ui_contract_v045.py
       - name: Validate Agent Voice Profile JavaScript
         run: node --check ui/agent-voice-profile.js
       - name: Validate Voice Catalog JavaScript
