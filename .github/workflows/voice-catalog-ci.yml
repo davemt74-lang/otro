@@ -1,0 +1,46 @@
+name: Local Voice Packs CI
+
+on:
+  pull_request:
+    paths:
+      - 'app/local_voice_api.py'
+      - 'app/services/local_voice.py'
+      - 'app/services/voice_settings.py'
+      - 'app/services/local_app_catalog.py'
+      - 'tests/voice_catalog_v043.py'
+      - 'tests/voice_settings_v042.py'
+      - 'tests/local_voice_v041.py'
+      - '.github/workflows/voice-catalog-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/local_voice_api.py'
+      - 'app/services/local_voice.py'
+      - 'app/services/voice_settings.py'
+      - 'app/services/local_app_catalog.py'
+      - 'tests/voice_catalog_v043.py'
+      - 'tests/voice_settings_v042.py'
+      - 'tests/local_voice_v041.py'
+      - '.github/workflows/voice-catalog-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  voice-catalog:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile voice catalog backend
+        run: python -m compileall app/local_voice_api.py app/services/local_voice.py app/services/voice_settings.py app/services/local_app_catalog.py tests/voice_catalog_v043.py
+      - name: Local Voice Packs and catalog regression
+        run: python tests/voice_catalog_v043.py
+      - name: Existing Voice Settings regression
+        run: python tests/voice_settings_v042.py
+      - name: Existing local voice runtime regression
+        run: python tests/local_voice_v041.py
