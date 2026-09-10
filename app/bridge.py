@@ -14,6 +14,7 @@ from .connected_apps_api import router as connected_apps_router
 from .contacts_api import router as contacts_router
 from .config import settings
 from .delegation_api import router as delegation_router
+from .files_api import router as files_router
 from .knowledge_backup_api import router as knowledge_backup_router
 from .knowledge_collections_api import router as knowledge_collections_router
 from .knowledge_sources_api import router as knowledge_sources_router
@@ -22,6 +23,7 @@ from .remote_bridge_api import router as remote_bridge_router
 from .services import providers
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
+from .services.local_files_remote import install as install_local_files_remote_operations
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tasks_api import router as tasks_router
@@ -38,6 +40,7 @@ class PairStatusRequest(BaseModel):
 # operations before the worker begins serving relay requests.
 install_knowledge_backup_remote_operations()
 install_knowledge_collection_remote_operations()
+install_local_files_remote_operations()
 
 app.include_router(delegation_router)
 app.include_router(brain_router)
@@ -48,6 +51,7 @@ app.include_router(contacts_router)
 app.include_router(tasks_router)
 app.include_router(knowledge_sources_router)
 app.include_router(knowledge_collections_router)
+app.include_router(files_router)
 app.include_router(knowledge_backup_router)
 app.include_router(cognition_router)
 app.include_router(backups_router)
@@ -90,6 +94,14 @@ def capabilities() -> dict:
             "citation_safe_search": True,
             "remote_operation": "knowledge.search",
         },
+        "files": {
+            "version": "v0.38",
+            "permission": "files.read",
+            "read_only": True,
+            "indexed_text_only": True,
+            "collection_scoped": True,
+            "operations": ["files.list", "files.read"],
+        },
         "inference": {
             "available": bool(inference["available"]),
             "selected_provider": inference["selected_provider"],
@@ -123,6 +135,9 @@ def capabilities() -> dict:
             "conversations",
             "events.read",
             "events.write",
+            "files.governed.v1",
+            "files.indexed_text.v1",
+            "files.read",
             "inference.routing",
             "inference.status",
             "knowledge.citations.v1",
