@@ -23,6 +23,7 @@ from .remote_bridge_api import router as remote_bridge_router
 from .services import providers
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
+from .services.local_files_agent import install as install_local_file_agent_tools
 from .services.local_files_remote import install as install_local_files_remote_operations
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
@@ -41,6 +42,7 @@ class PairStatusRequest(BaseModel):
 install_knowledge_backup_remote_operations()
 install_knowledge_collection_remote_operations()
 install_local_files_remote_operations()
+install_local_file_agent_tools()
 
 app.include_router(delegation_router)
 app.include_router(brain_router)
