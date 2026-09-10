@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     connection.commit()
     connection.close()
 
-    # Build an authentic schema-10 database first so migrations 11 through 18
+    # Build an authentic schema-10 database first so migrations 11 through 19
     # are tested as upgrades rather than only as a fresh install.
     for version, path in migration_files():
         if version >= 11:
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 19))
+        assert versions == list(range(1, 20))
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
@@ -189,6 +189,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         policies = migrated.execute("SELECT tool_key, enabled FROM tool_policies ORDER BY tool_key").fetchall()
         assert [(row["tool_key"], row["enabled"]) for row in policies] == [
             ("contacts.search", 1),
+            ("files.delete", 1),
+            ("files.update", 1),
             ("knowledge.search", 1),
             ("memory.list", 1),
             ("memory.write", 1),
@@ -216,23 +218,28 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
         action_schema = migrated.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='action_requests'"
-        ).fetchone()[0]
-        assert "'memory.write','tasks.create'" in action_schema.replace(" ", "")
-        migrated.execute(
-            """
-            INSERT INTO action_requests(
-                id, action_key, source_app_key, actor_type, status,
-                arguments_json, arguments_meta_json, expires_at
-            ) VALUES (
-                'task-proposal-check', 'tasks.create', 'app:migration-test', 'app', 'pending',
-                '{"title":"test"}', '{"title_length":4}', '2099-01-01T00:00:00+00:00'
-            )
-            """
+        ).fetchone()[0].replace(" ", "")
+        assert "'memory.write','tasks.create','files.update','files.delete'" in action_schema
+        proposal_checks = (
+            ("task-proposal-check", "tasks.create", '{"title":"test"}', '{"title_length":4}'),
+            ("file-update-proposal-check", "files.update", '{"ref":"hsf-1-0123456789abcdef","content":"test"}', '{"content_length":4}'),
+            ("file-delete-proposal-check", "files.delete", '{"ref":"hsf-1-0123456789abcdef"}', '{"ref_length":22}'),
         )
-        assert migrated.execute(
-            "SELECT COUNT(*) FROM action_requests WHERE action_key='tasks.create'"
-        ).fetchone()[0] == 1
-        migrated.execute("DELETE FROM action_requests WHERE id='task-proposal-check'")
+        for request_id, action_key, arguments_json, arguments_meta_json in proposal_checks:
+            migrated.execute(
+                """
+                INSERT INTO action_requests(
+                    id, action_key, source_app_key, actor_type, status,
+                    arguments_json, arguments_meta_json, expires_at
+                ) VALUES (?, ?, 'app:migration-test', 'app', 'pending', ?, ?, '2099-01-01T00:00:00+00:00')
+                """,
+                (request_id, action_key, arguments_json, arguments_meta_json),
+            )
+            assert migrated.execute(
+                "SELECT COUNT(*) FROM action_requests WHERE id=? AND action_key=?",
+                (request_id, action_key),
+            ).fetchone()[0] == 1
+            migrated.execute("DELETE FROM action_requests WHERE id=?", (request_id,))
 
         assert migrated.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1
         assert migrated.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
@@ -245,12 +252,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 19))
+        assert versions_again == list(range(1, 20))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 7
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 9
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1
         assert migrated_again.execute(
