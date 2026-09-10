@@ -45,14 +45,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-governed-files-v038-") as te
         assert capabilities.status_code == 200, capabilities.text
         advertised = capabilities.json()
         assert "files.read" in advertised["permissions"]
-        assert advertised["files"] == {
-            "version": "v0.38",
-            "permission": "files.read",
-            "read_only": True,
-            "indexed_text_only": True,
-            "collection_scoped": True,
-            "operations": ["files.list", "files.read"],
-        }
+        file_capabilities = advertised["files"]
+        assert file_capabilities["read_version"] == "v0.38"
+        assert file_capabilities["indexed_text_only"] is True
+        assert file_capabilities["collection_scoped"] is True
+        assert "files.list" in file_capabilities["operations"]
+        assert "files.read" in file_capabilities["operations"]
         assert "files.governed.v1" in advertised["features"]
         assert "files.indexed_text.v1" in advertised["features"]
 

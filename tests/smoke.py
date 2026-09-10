@@ -63,9 +63,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "contacts.read",
             "events.read",
             "events.write",
+            "files.actions.v1",
+            "files.approval_gated.v1",
             "files.governed.v1",
             "files.indexed_text.v1",
             "files.read",
+            "files.write",
             "inference.routing",
             "inference.status",
             "knowledge.sources.local",
@@ -92,6 +95,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "events.read",
             "events.write",
             "files.read",
+            "files.write",
             "notifications.read",
             "plugins.read",
             "tasks.read",
@@ -124,7 +128,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 18
+        assert status.json()["schema_version"] == 19
 
         assert client.get("/api/v1/control/overview").status_code == 401
         assert client.get("/api/v1/control/tasks").status_code == 401
@@ -151,8 +155,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert owner_tools.status_code == 200
         assert [item["key"] for item in owner_tools.json()["items"]] == [
             "contacts.search",
+            "files.delete",
             "files.list",
             "files.read",
+            "files.update",
             "knowledge.search",
             "memory.list",
             "memory.write",
@@ -169,6 +175,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "relationship.context",
             "memory.manager",
             "task.manager",
+            "local.file-management",
         ]
         assert client.post("/api/v1/control/tools/not.real/execute", json={"arguments": {}}).status_code == 404
 
@@ -380,8 +387,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert vp3_tools.status_code == 200
         by_key = {item["key"]: item for item in vp3_tools.json()["items"]}
         assert by_key["contacts.search"]["available"] is False
+        assert by_key["files.delete"]["available"] is False
         assert by_key["files.list"]["available"] is False
         assert by_key["files.read"]["available"] is False
+        assert by_key["files.update"]["available"] is False
         assert by_key["knowledge.search"]["available"] is True
         assert by_key["memory.list"]["available"] is True
         assert by_key["memory.write"]["available"] is False
@@ -395,6 +404,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         skills_by_key = {item["key"]: item for item in vp3_skills.json()["items"]}
         assert skills_by_key["local.research"]["available"] is True
         assert skills_by_key["local.files"]["available"] is False
+        assert skills_by_key["local.file-management"]["available"] is False
         assert skills_by_key["relationship.context"]["available"] is False
         assert skills_by_key["memory.manager"]["available"] is False
         assert skills_by_key["task.manager"]["available"] is False

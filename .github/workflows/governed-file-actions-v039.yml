@@ -1,0 +1,123 @@
+name: HomeServer Governed File Actions v0.39
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/tools_api.py'
+      - 'app/services/action_policy.py'
+      - 'app/services/agent_tools.py'
+      - 'app/services/app_scopes.py'
+      - 'app/services/approvals.py'
+      - 'app/services/capability_registry.py'
+      - 'app/services/local_file_actions.py'
+      - 'app/services/local_file_actions_agent.py'
+      - 'app/services/local_file_actions_approvals.py'
+      - 'app/services/local_file_actions_registry.py'
+      - 'app/services/local_file_actions_remote.py'
+      - 'app/services/local_file_actions_tools.py'
+      - 'app/services/local_files.py'
+      - 'app/services/pairing.py'
+      - 'database/migrations/019_governed_file_actions.sql'
+      - 'docs/section-10-governed-file-actions-v039.md'
+      - 'tests/governed_file_actions_v039.py'
+      - 'tests/governed_file_actions_remote_v039.py'
+      - 'tests/governed_file_owner_approval_v039.py'
+      - 'tests/governed_file_policy_v039.py'
+      - 'tests/governed_local_files_v038.py'
+      - 'tests/action_approvals.py'
+      - 'tests/action_policy_v035.py'
+      - 'tests/agent_tools.py'
+      - 'tests/approval_federation_v031.py'
+      - 'tests/capability_registry_v033.py'
+      - 'tests/migrations.py'
+      - 'tests/smoke.py'
+      - '.github/workflows/governed-file-actions-v039.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/bridge.py'
+      - 'app/tools_api.py'
+      - 'app/services/action_policy.py'
+      - 'app/services/agent_tools.py'
+      - 'app/services/app_scopes.py'
+      - 'app/services/approvals.py'
+      - 'app/services/capability_registry.py'
+      - 'app/services/local_file_actions.py'
+      - 'app/services/local_file_actions_agent.py'
+      - 'app/services/local_file_actions_approvals.py'
+      - 'app/services/local_file_actions_registry.py'
+      - 'app/services/local_file_actions_remote.py'
+      - 'app/services/local_file_actions_tools.py'
+      - 'app/services/local_files.py'
+      - 'app/services/pairing.py'
+      - 'database/migrations/019_governed_file_actions.sql'
+      - 'docs/section-10-governed-file-actions-v039.md'
+      - 'tests/governed_file_actions_v039.py'
+      - 'tests/governed_file_actions_remote_v039.py'
+      - 'tests/governed_file_owner_approval_v039.py'
+      - 'tests/governed_file_policy_v039.py'
+      - 'tests/governed_local_files_v038.py'
+      - 'tests/action_approvals.py'
+      - 'tests/action_policy_v035.py'
+      - 'tests/agent_tools.py'
+      - 'tests/approval_federation_v031.py'
+      - 'tests/capability_registry_v033.py'
+      - 'tests/migrations.py'
+      - 'tests/smoke.py'
+      - '.github/workflows/governed-file-actions-v039.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  governed-file-actions:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Section 10 modules
+        run: >-
+          python -m py_compile
+          app/bridge.py
+          app/tools_api.py
+          app/services/action_policy.py
+          app/services/local_file_actions.py
+          app/services/local_file_actions_agent.py
+          app/services/local_file_actions_approvals.py
+          app/services/local_file_actions_registry.py
+          app/services/local_file_actions_remote.py
+          app/services/local_file_actions_tools.py
+          app/services/pairing.py
+      - name: Governed file actions regression
+        run: python tests/governed_file_actions_v039.py
+      - name: Approval-only file policy regression
+        run: python tests/governed_file_policy_v039.py
+      - name: Local-owner file approval regression
+        run: python tests/governed_file_owner_approval_v039.py
+      - name: Governed file action relay regression
+        run: python tests/governed_file_actions_remote_v039.py
+      - name: Section 9 governed files regression
+        run: python tests/governed_local_files_v038.py
+      - name: Action approval regression
+        run: python tests/action_approvals.py
+      - name: Action policy regression
+        run: python tests/action_policy_v035.py
+      - name: Approval federation regression
+        run: python tests/approval_federation_v031.py
+      - name: Agent tools regression
+        run: python tests/agent_tools.py
+      - name: Capability registry regression
+        run: python tests/capability_registry_v033.py
+      - name: Full API smoke regression
+        run: python tests/smoke.py
+      - name: Database upgrade regression
+        run: python tests/migrations.py

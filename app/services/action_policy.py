@@ -11,6 +11,7 @@ SAFE_AUTOMATIC = "safe_automatic"
 APPROVAL_REQUIRED = "approval_required"
 SENSITIVE_HIGH_IMPACT = "sensitive_high_impact"
 VALID_MODES = {READ_ONLY, SAFE_AUTOMATIC, APPROVAL_REQUIRED, SENSITIVE_HIGH_IMPACT}
+APPROVAL_ONLY_WRITE_TOOLS = {"files.update", "files.delete"}
 
 
 class ActionPolicyError(RuntimeError):
@@ -34,6 +35,8 @@ def allowed_modes(tool_key: str) -> list[str]:
     mode = str(_tool(tool_key).get("mode") or "")
     if mode == "read":
         return [READ_ONLY, SENSITIVE_HIGH_IMPACT]
+    if tool_key in APPROVAL_ONLY_WRITE_TOOLS:
+        return [APPROVAL_REQUIRED, SENSITIVE_HIGH_IMPACT]
     return [SAFE_AUTOMATIC, APPROVAL_REQUIRED, SENSITIVE_HIGH_IMPACT]
 
 
@@ -45,7 +48,10 @@ def resolve_policy(app_id: int, app_key: str, tool_key: str) -> dict[str, Any]:
             (int(app_id), tool_key),
         ).fetchone()
     inherited = row is None
-    policy_mode = default_mode(tool_key) if inherited else str(row["policy_mode"])
+    allowed = allowed_modes(tool_key)
+    stored_mode = None if row is None else str(row["policy_mode"])
+    invalid_override_ignored = stored_mode is not None and stored_mode not in allowed
+    policy_mode = default_mode(tool_key) if inherited or invalid_override_ignored else str(stored_mode)
     return {
         "app_id": int(app_id),
         "app_key": str(app_key),
@@ -53,8 +59,8 @@ def resolve_policy(app_id: int, app_key: str, tool_key: str) -> dict[str, Any]:
         "tool_name": str(tool.get("name") or tool_key),
         "tool_mode": str(tool.get("mode") or ""),
         "policy_mode": policy_mode,
-        "inherited": inherited,
-        "allowed_modes": allowed_modes(tool_key),
+        "inherited": inherited or invalid_override_ignored,
+        "allowed_modes": allowed,
         "updated_at": None if row is None else row["updated_at"],
     }
 
@@ -119,7 +125,7 @@ def set_policy(app_id: int, tool_key: str, policy_mode: str | None) -> dict[str,
                 raise ActionPolicyError("Invalid action policy mode.")
             if normalized not in allowed_modes(tool_key):
                 raise ActionPolicyError(
-                    f"{normalized} is not valid for a {str(tool.get('mode') or 'unknown')} tool."
+                    f"{normalized} is not valid for this {str(tool.get('mode') or 'unknown')} tool."
                 )
             connection.execute(
                 """
