@@ -115,7 +115,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-sources-") as temp
         paired_text = json.dumps(paired.json(), ensure_ascii=False)
         assert str(source_dir.resolve()) not in paired_text
         assert str(root.resolve()) not in paired_text
-        assert paired.json()["items"][0]["source_path"] is None
+        paired_item = paired.json()["items"][0]
+        assert "source_path" not in paired_item
+        assert paired_item["citation"]["source_type"] == "watched_folder"
+        assert paired_item["citation"]["relative_path"] == "notes/beta.txt"
 
         unchanged = client.post(f"/api/v1/control/knowledge/sources/{source_id}/scan")
         assert unchanged.status_code == 200
