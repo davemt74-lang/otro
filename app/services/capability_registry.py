@@ -248,9 +248,23 @@ def _local_app_inventory() -> list[dict[str, Any]]:
     if not _table_exists("local_apps"):
         return []
     try:
-        return local_apps.installed_capabilities()
+        items = local_apps.installed_capabilities()
     except Exception:
         return []
+
+    # Local App binaries can remain byte-for-byte current while HomeServer adds
+    # a new reviewed adapter capability. For a healthy install whose binary
+    # version still matches the embedded catalog, expose the catalog's current
+    # capability metadata without forcing a needless binary reinstall. Never
+    # grant catalog additions to a version-mismatched/stale installed binary.
+    projected: list[dict[str, Any]] = []
+    for item in items:
+        current = dict(item)
+        package = local_apps.CATALOG.get(str(current.get("key") or ""))
+        if package and str(current.get("version") or "") == str(package.get("version") or ""):
+            current["capabilities"] = list(package.get("capabilities") or [])
+        projected.append(current)
+    return projected
 
 
 def _services(inference: dict[str, Any], local_app_inventory: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -1,0 +1,35 @@
+name: HomeServer Local Voice Runtime v0.41
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  local-voice:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile local voice runtime
+        run: python -m compileall app/services/local_voice.py app/local_voice_api.py tests/local_voice_v041.py tests/local_app_capability_metadata_v041.py
+      - name: Validate Agent Chat local voice JavaScript
+        run: node --check ui/chat-enhancements.js
+      - name: Local Whisper and Piper runtime regression
+        run: python tests/local_voice_v041.py
+      - name: Agent Chat local conversation UI contract
+        run: python tests/chat_enhancements_ui_contract.py
+      - name: Existing Local Apps installer regression
+        run: python tests/local_apps_v040.py
+      - name: Local App capability metadata compatibility regression
+        run: python tests/local_app_capability_metadata_v041.py

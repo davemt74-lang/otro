@@ -74,14 +74,19 @@ for marker in (
 ):
     assert marker in service, marker
 
+# The Local Apps catalog now carries an executable local voice stack: Piper for
+# synthesis and whisper.cpp + a quantized Tiny English model for transcription.
 for marker in (
     'Piper TTS',
     'Whisper STT',
     'piper_windows_amd64.zip',
     'en_US-lessac-medium.onnx',
-    'encoder_model_quantized.onnx',
-    'decoder_model_merged_quantized.onnx',
+    'speech.synthesize',
+    'whisper-bin-x64.zip',
+    'runtime/Release/whisper-cli.exe',
+    'ggml-tiny.en-q8_0.bin',
+    'speech.transcribe',
 ):
     assert marker in catalog, marker
 
-print('HomeServer v0.40 Local Apps UI contract passed')
+print('HomeServer Local Apps UI/catalog contract passed')
