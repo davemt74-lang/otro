@@ -8,6 +8,7 @@
 
   let recognition = null;
   let conversationMode = false;
+  let conversationStarting = false;
   let awaitingAgent = false;
   let speaking = false;
   let pendingTranscript = '';
@@ -259,8 +260,14 @@
     const button = byId('voiceInputButton');
     if (!button) return;
     button.classList.remove('listening', 'transcribing', 'thinking', 'speaking');
-    button.setAttribute('aria-pressed', conversationMode ? 'true' : 'false');
+    const engaged = conversationMode || conversationStarting;
+    button.setAttribute('aria-pressed', engaged ? 'true' : 'false');
     const label = button.querySelector('.chat-control-label');
+    if (conversationStarting) {
+      button.setAttribute('aria-label', 'Cancel conversation mode setup');
+      if (label) label.textContent = 'Checking';
+      return;
+    }
     if (!conversationMode) {
       button.setAttribute('aria-label', 'Start conversation mode');
       if (label) label.textContent = 'Talk';
@@ -326,6 +333,7 @@
   }
 
   function stopConversationMode(message = 'Conversation mode stopped.') {
+    conversationStarting = false;
     conversationMode = false;
     pendingTranscript = '';
     awaitingAgent = false;
@@ -680,7 +688,7 @@
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = navigator.language || document.documentElement.lang || 'en-US';
-    utterance.rate = 1;
+    utterance.rate = Number(window.HomeServerVoiceSettings?.getPreferences?.().speaking_rate || 1);
     utterance.pitch = 1;
     utterance.onend = finishSpeaking;
     utterance.onerror = finishSpeaking;
@@ -755,15 +763,21 @@
   }
 
   async function toggleConversationMode() {
-    if (conversationMode) {
-      stopConversationMode();
+    if (conversationMode || conversationStarting) {
+      stopConversationMode(conversationStarting ? 'Conversation mode setup cancelled.' : 'Conversation mode stopped.');
       return;
     }
+
+    // Mark setup as engaged before awaiting status so Dictate, Voice Settings,
+    // or a second Talk click can reliably cancel this startup transaction.
+    conversationStarting = true;
+    setVoiceState('checking');
 
     // Unlock local audio synchronously inside the user's click gesture. This
     // prevents delayed Piper playback from being rejected by autoplay policy.
     unlockLocalAudio();
     const status = await refreshLocalVoiceStatus();
+    if (!conversationStarting) return;
     const strict = strictLocalEnabled();
     const localStt = Boolean(status?.stt?.available && hasLocalCapture());
     const localTts = Boolean(status?.tts?.available && AudioContextCtor());
@@ -771,17 +785,23 @@
     const browserTts = Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
 
     if (strict && (!localStt || !localTts)) {
+      conversationStarting = false;
       closePlaybackContext();
+      setVoiceState('idle');
       flash('Strict Local Voice requires healthy Whisper STT and Piper TTS Local Apps plus browser microphone capture and audio playback support.', true);
       return;
     }
     if (!localStt && !browserRecognition) {
+      conversationStarting = false;
       closePlaybackContext();
+      setVoiceState('idle');
       flash('No speech-to-text path is available. Install Whisper STT or use a browser with speech recognition.', true);
       return;
     }
     if (!localTts && !browserTts) {
+      conversationStarting = false;
       closePlaybackContext();
+      setVoiceState('idle');
       flash('No speech-output path is available. Install Piper TTS or use a browser with speech synthesis.', true);
       return;
     }
@@ -791,6 +811,7 @@
       tts: localTts ? 'local' : 'browser',
     };
     if (voicePath.tts !== 'local') closePlaybackContext();
+    conversationStarting = false;
     conversationMode = true;
     awaitingAgent = false;
     speaking = false;
@@ -838,7 +859,7 @@
   window.addEventListener('homeserver:voice-settings-changed', () => {
     localVoiceStatus = null;
     refreshLocalVoiceStatus().catch(() => null);
-    if (conversationMode) stopConversationMode('Conversation mode stopped because Voice Settings changed.');
+    if (conversationMode || conversationStarting) stopConversationMode('Conversation mode stopped because Voice Settings changed.');
   });
 
   document.addEventListener('keydown', event => {
@@ -860,6 +881,7 @@
   }
 
   window.addEventListener('beforeunload', () => {
+    conversationStarting = false;
     conversationMode = false;
     captureGeneration += 1;
     cleanupLocalCapture();
