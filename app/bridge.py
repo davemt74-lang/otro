@@ -15,11 +15,13 @@ from .contacts_api import router as contacts_router
 from .config import settings
 from .delegation_api import router as delegation_router
 from .knowledge_backup_api import router as knowledge_backup_router
+from .knowledge_collections_api import router as knowledge_collections_router
 from .knowledge_sources_api import router as knowledge_sources_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
 from .services import providers
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
+from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tasks_api import router as tasks_router
@@ -35,6 +37,7 @@ class PairStatusRequest(BaseModel):
 # Extend the existing fail-closed Remote Bridge with bounded authenticated
 # operations before the worker begins serving relay requests.
 install_knowledge_backup_remote_operations()
+install_knowledge_collection_remote_operations()
 
 app.include_router(delegation_router)
 app.include_router(brain_router)
@@ -44,6 +47,7 @@ app.include_router(approvals_router)
 app.include_router(contacts_router)
 app.include_router(tasks_router)
 app.include_router(knowledge_sources_router)
+app.include_router(knowledge_collections_router)
 app.include_router(knowledge_backup_router)
 app.include_router(cognition_router)
 app.include_router(backups_router)
@@ -77,6 +81,14 @@ def capabilities() -> dict:
             "operation": "tools.list",
             "embedded": True,
             "owner_managed": True,
+        },
+        "knowledge": {
+            "version": "v0.37",
+            "local_index": True,
+            "collections": True,
+            "collection_scopes": True,
+            "citation_safe_search": True,
+            "remote_operation": "knowledge.search",
         },
         "inference": {
             "available": bool(inference["available"]),
@@ -113,8 +125,11 @@ def capabilities() -> dict:
             "events.write",
             "inference.routing",
             "inference.status",
+            "knowledge.citations.v1",
+            "knowledge.collections.v1",
             "knowledge.external_backup.v1",
             "knowledge.search",
+            "knowledge.search.scoped.v037",
             "knowledge.sources.local",
             "knowledge.sources.sync",
             "knowledge.write",
