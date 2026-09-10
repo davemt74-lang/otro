@@ -11,6 +11,7 @@ from . import approvals, tools
 
 _REF_RE = re.compile(r"^hsf-[0-9]+-[0-9a-f]{16}$")
 _FILE_ACTIONS = {"files.update", "files.delete"}
+_MAX_UPDATE_CHARS = 50000
 
 
 def _safe_file_meta(arguments: dict[str, Any] | None) -> dict[str, Any]:
@@ -43,6 +44,10 @@ def _validate_update(arguments: dict[str, Any] | None) -> dict[str, Any]:
     content = str(payload["content"])
     if not content.strip():
         raise approvals.ApprovalError("files.update proposal requires non-empty indexed text.")
+    if len(content) > _MAX_UPDATE_CHARS:
+        raise approvals.ApprovalError(
+            f"files.update proposal content exceeds {_MAX_UPDATE_CHARS:,} characters.", 413
+        )
     size = len(content.encode("utf-8"))
     if size > settings.max_upload_bytes:
         raise approvals.ApprovalError(
