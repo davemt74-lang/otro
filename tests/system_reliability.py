@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-") as data_dir:
         assert payload["setup"]["complete"] is False
         assert payload["diagnostics"]["version"] == "0.18.0"
         assert payload["diagnostics"]["database"]["ok"] is True
-        assert payload["diagnostics"]["database"]["schema_version"] == 19
+        assert payload["diagnostics"]["database"]["schema_version"] == 20
         assert payload["diagnostics"]["owner_security"]["exists"] is True
         assert payload["diagnostics"]["runtime_control"]["available"] is False
 

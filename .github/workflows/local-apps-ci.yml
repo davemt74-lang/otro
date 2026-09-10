@@ -1,0 +1,41 @@
+name: Local Apps CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  local-apps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Validate Local Apps JavaScript
+        run: node --check ui/local-apps.js
+      - name: Compile Local Apps runtime
+        run: >-
+          python -m compileall
+          app/local_apps_api.py
+          app/services/local_apps.py
+          app/services/local_app_catalog.py
+          app/services/capability_registry.py
+          tests/local_apps_v040.py
+          tests/local_apps_ui_contract.py
+      - name: Local Apps installer security and rollback regression
+        run: python tests/local_apps_v040.py
+      - name: Local Apps UI contract
+        run: python tests/local_apps_ui_contract.py
+      - name: Existing capability registry regression
+        run: python tests/capability_registry_v033.py
