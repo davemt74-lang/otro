@@ -11,7 +11,10 @@ from .config import settings
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT_DIR / "database" / "schema.sql"
 MIGRATIONS_DIR = ROOT_DIR / "database" / "migrations"
-KNOWLEDGE_COLLECTIONS_SCHEMA_PATH = ROOT_DIR / "database" / "knowledge_collections.sql"
+FEATURE_SCHEMA_PATHS = (
+    ROOT_DIR / "database" / "knowledge_collections.sql",
+    ROOT_DIR / "database" / "agent_voice_profiles.sql",
+)
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_.+\.sql$")
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
 SQLITE_BUSY_TIMEOUT_MS = SQLITE_BUSY_TIMEOUT_SECONDS * 1000
@@ -85,13 +88,14 @@ def _apply_migration(connection: sqlite3.Connection, version: int, path: Path) -
 
 
 def _ensure_schema_extensions() -> None:
-    if not KNOWLEDGE_COLLECTIONS_SCHEMA_PATH.exists():
-        return
-    sql = KNOWLEDGE_COLLECTIONS_SCHEMA_PATH.read_text(encoding="utf-8").strip()
-    if not sql:
-        return
-    with db() as connection:
-        connection.executescript(sql)
+    for path in FEATURE_SCHEMA_PATHS:
+        if not path.exists():
+            continue
+        sql = path.read_text(encoding="utf-8").strip()
+        if not sql:
+            continue
+        with db() as connection:
+            connection.executescript(sql)
 
 
 def initialize_database() -> None:
