@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import knowledge_collections
+from .services import app_scopes, knowledge_collections
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -45,6 +45,20 @@ def _knowledge_app(identity: dict = Depends(_paired_app)) -> dict:
     if "knowledge.search" not in identity.get("permissions", []):
         raise HTTPException(status_code=403, detail="Permission required: knowledge.search")
     return identity
+
+
+def scoped_knowledge_search(identity: dict, query: str, limit: int) -> dict:
+    """Intersect v0.37 collection scope with the existing knowledge-kind scope."""
+    requested = max(1, min(int(limit), 50))
+    result = knowledge_collections.search_for_app(identity, query, limit=50)
+    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
+    items = [
+        item for item in result.get("items", [])
+        if app_scopes.knowledge_kind_allowed(scope, item.get("kind"))
+    ][:requested]
+    result["items"] = items
+    result["count"] = len(items)
+    return result
 
 
 @router.get("/api/v1/control/knowledge/collections")
@@ -141,7 +155,7 @@ def paired_collection_search(
     identity: dict = Depends(_knowledge_app),
 ) -> dict:
     try:
-        result = knowledge_collections.search_for_app(identity, q, limit=limit)
+        result = scoped_knowledge_search(identity, q, limit)
     except knowledge_collections.KnowledgeCollectionError as exc:
         raise _error(exc) from exc
     return {**result, "app": identity["app_key"]}
