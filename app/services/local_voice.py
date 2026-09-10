@@ -222,14 +222,12 @@ def synthesize(text: str) -> bytes:
     work = Path(tempfile.mkdtemp(prefix="tts-", dir=_voice_temp_root()))
     output_path = work / "reply.wav"
     try:
-        # Piper length_scale is inverse speed: values below 1 are faster.
-        length_scale = round(1.0 / float(preferences["speaking_rate"]), 4)
         command = [
             str(executable),
             "--model", str(model),
             "--config", str(config),
             "--output_file", str(output_path),
-            "--length_scale", str(length_scale),
+            "--length_scale", str(voice_settings.piper_length_scale(preferences)),
             "--sentence_silence", str(preferences["sentence_silence"]),
         ]
         try:
