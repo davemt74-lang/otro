@@ -21,18 +21,18 @@ jobs:
             @{ Name='piper-runtime'; Url='https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip' },
             @{ Name='piper-lessac-model'; Url='https://huggingface.co/rhasspy/piper-voices/resolve/2525f22960f62209936f0ae3cce3ffe7b2c18f1f/en/en_US/lessac/medium/en_US-lessac-medium.onnx' },
             @{ Name='piper-lessac-config'; Url='https://huggingface.co/rhasspy/piper-voices/resolve/2525f22960f62209936f0ae3cce3ffe7b2c18f1f/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json' },
-            @{ Name='whisper-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/config.json' },
-            @{ Name='whisper-generation-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/generation_config.json' },
-            @{ Name='whisper-preprocessor'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/preprocessor_config.json' },
-            @{ Name='whisper-tokenizer'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/tokenizer.json' },
-            @{ Name='whisper-tokenizer-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/tokenizer_config.json' },
-            @{ Name='whisper-added-tokens'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/added_tokens.json' },
-            @{ Name='whisper-special-tokens'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/special_tokens_map.json' },
-            @{ Name='whisper-vocab'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/vocab.json' },
-            @{ Name='whisper-merges'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/merges.txt' },
-            @{ Name='whisper-normalizer'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/normalizer.json' },
-            @{ Name='whisper-encoder-q'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/onnx/encoder_model_quantized.onnx' },
-            @{ Name='whisper-decoder-merged-q'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/257535237bc0840e4e4400b375b9e009ddb789c2/onnx/decoder_model_merged_quantized.onnx' }
+            @{ Name='whisper-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/config.json' },
+            @{ Name='whisper-generation-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/generation_config.json' },
+            @{ Name='whisper-preprocessor'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/preprocessor_config.json' },
+            @{ Name='whisper-tokenizer'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/tokenizer.json' },
+            @{ Name='whisper-tokenizer-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/tokenizer_config.json' },
+            @{ Name='whisper-added-tokens'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/added_tokens.json' },
+            @{ Name='whisper-special-tokens'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/special_tokens_map.json' },
+            @{ Name='whisper-vocab'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/vocab.json' },
+            @{ Name='whisper-merges'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/merges.txt' },
+            @{ Name='whisper-normalizer'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/normalizer.json' },
+            @{ Name='whisper-encoder-q'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx' },
+            @{ Name='whisper-decoder-merged-q'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/decoder_model_merged_quantized.onnx' }
           )
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           foreach ($item in $items) {
