@@ -79,34 +79,56 @@ with tempfile.TemporaryDirectory(prefix="homeserver-multi-agent-v046-") as data_
             "sentence_silence": None,
         }
 
-        updated = client.put(
-            f"/api/v1/control/agents/{secondary_id}",
+        # Persona validation happens before the transaction. An invalid voice must
+        # not partially persist the identity fields from the same Save Agent action.
+        invalid_persona = client.put(
+            f"/api/v1/control/agents/{secondary_id}/persona",
+            json={
+                "name": "This Name Must Not Persist",
+                "instructions": "This must roll back with the invalid persona.",
+                "model": "bad-partial-save",
+                "voice_profile": {
+                    "voice": "external-untrusted-voice",
+                    "speaking_rate": 1.1,
+                    "sentence_silence": 0.25,
+                },
+            },
+        )
+        assert invalid_persona.status_code == 422
+        after_invalid = client.get(f"/api/v1/control/agents/{secondary_id}").json()["agent"]
+        assert after_invalid["name"] == "Research Agent"
+        assert after_invalid["model"] == "local-research-model"
+        assert after_invalid["voice_profile"]["overrides"]["voice"] is None
+
+        persona = client.put(
+            f"/api/v1/control/agents/{secondary_id}/persona",
             json={
                 "name": "Travel Research Agent",
                 "instructions": "Research travel options without exposing private local data.",
                 "model": "local-research-model-v2",
+                "voice_profile": {
+                    "voice": "en_US-amy-medium",
+                    "speaking_rate": 1.15,
+                    "sentence_silence": 0.3,
+                },
             },
         )
-        assert updated.status_code == 200, updated.text
-        assert updated.json()["agent"]["name"] == "Travel Research Agent"
-        assert updated.json()["agent"]["is_primary"] is False
-
-        voice = client.put(
-            f"/api/v1/control/voice/agents/{secondary_id}/profile",
-            json={
-                "voice": "en_US-amy-medium",
-                "speaking_rate": 1.15,
-                "sentence_silence": 0.3,
-            },
-        )
-        assert voice.status_code == 200, voice.text
-        assert voice.json()["overrides"]["voice"] == "en_US-amy-medium"
+        assert persona.status_code == 200, persona.text
+        saved = persona.json()["agent"]
+        assert saved["name"] == "Travel Research Agent"
+        assert saved["is_primary"] is False
+        assert saved["voice_profile"]["overrides"] == {
+            "voice": "en_US-amy-medium",
+            "speaking_rate": 1.15,
+            "sentence_silence": 0.3,
+        }
 
         listed = client.get("/api/v1/control/agents").json()
         listed_secondary = next(item for item in listed["items"] if item["id"] == secondary_id)
         assert listed_secondary["voice"]["customized"] is True
         assert listed_secondary["voice"]["profile_version"] == "v0.45"
         assert listed_secondary["voice"]["source"] in {"agent_override", "fallback_global", "fallback_default"}
+        assert "instructions" not in listed_secondary, "list responses should not repeat full Agent instructions"
 
         # A linked memory survives secondary-Agent deletion by becoming unassigned.
         with db() as connection:
@@ -123,9 +145,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-multi-agent-v046-") as data_
         assert duplicate_id != secondary_id
         assert duplicate["is_primary"] is False
         assert duplicate["name"] == "Travel Research Agent Copy"
-        assert duplicate["instructions"] == updated.json()["agent"]["instructions"]
-        assert duplicate["model"] == updated.json()["agent"]["model"]
-        assert duplicate["voice_profile"]["overrides"] == voice.json()["overrides"]
+        assert duplicate["instructions"] == saved["instructions"]
+        assert duplicate["model"] == saved["model"]
+        assert duplicate["voice_profile"]["overrides"] == saved["voice_profile"]["overrides"]
         assert duplicated.json()["duplicated_from"] == secondary_id
 
         with db() as connection:
@@ -160,6 +182,18 @@ with tempfile.TemporaryDirectory(prefix="homeserver-multi-agent-v046-") as data_
         removed_copy = client.delete(f"/api/v1/control/agents/{duplicate_id}")
         assert removed_copy.status_code == 200
         assert len(agent_voice_profiles.agents_referencing_voice("en_US-amy-medium")) == 0
+
+        with db() as connection:
+            actions = {
+                row["action"]
+                for row in connection.execute(
+                    "SELECT action FROM activity_log WHERE resource_type='agent'"
+                ).fetchall()
+            }
+        assert "agent.secondary.created" in actions
+        assert "agent.persona.updated" in actions
+        assert "agent.secondary.duplicated" in actions
+        assert "agent.secondary.deleted" in actions
 
         # Primary Agent was never replaced or deleted by secondary persona operations.
         final_primary = client.get("/api/v1/control/agent").json()["agent"]
