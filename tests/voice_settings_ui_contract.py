@@ -75,14 +75,20 @@ for source in (TALK_JS, DICTATE_JS):
     assert "timing.listenSilenceMs" in source
     assert "timing.noSpeechTimeoutMs" in source
     assert "timing.maxSegmentMs" in source
+    assert "const settingsController = window.HomeServerVoiceSettings;" in source
+    assert "await settingsController.load();" in source
 
 # Conversation startup is a cancellable engaged state. This closes the race
-# where Voice Settings or Dictate could open while Talk was awaiting status.
+# where Voice Settings or Dictate could open while Talk was awaiting settings/status.
 assert "let conversationStarting = false;" in TALK_JS
 assert "const engaged = conversationMode || conversationStarting;" in TALK_JS
 assert "if (conversationMode || conversationStarting)" in TALK_JS
-assert "if (!conversationStarting) return;" in TALK_JS
+assert TALK_JS.count("if (!conversationStarting) return;") >= 2
 assert "conversationStarting = false;\n    conversationMode = true;" in TALK_JS
+
+# Dictation also rechecks its generation after settings and status awaits so a
+# cancellation during either async boundary cannot resurrect microphone capture.
+assert DICTATE_JS.count("if (!starting || startGeneration !== generation) return;") >= 2
 
 # Local playback uses the selected output where supported and browser TTS
 # fallback honors the same speaking-rate preference as Piper.
