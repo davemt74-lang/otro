@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
+from . import app_scopes, knowledge_collection_policy
 from .contacts import list_contacts
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
@@ -331,7 +332,12 @@ def _contacts_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[st
     return {"items": items, "count": len(items)}, {"count": len(items)}
 
 
-def _knowledge_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _knowledge_search(
+    arguments: dict[str, Any],
+    source_app_key: str,
+    *,
+    owner: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     unknown = set(arguments) - {"query", "limit"}
     if unknown:
         raise ToolError(f"Unsupported knowledge.search argument: {sorted(unknown)[0]}")
@@ -341,6 +347,25 @@ def _knowledge_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[s
     if len(query) > 240:
         raise ToolError("knowledge.search query exceeds 240 characters.")
     limit = _bounded_int(arguments.get("limit"), 8, 1, 20, "limit")
+
+    if not owner and source_app_key.startswith("app:"):
+        app_id = knowledge_collection_policy.app_id_for_source(source_app_key)
+        if app_id is None:
+            raise ToolError("Connected application is unavailable.", 403)
+        identity = {
+            "id": app_id,
+            "scope": app_scopes.get_scope(app_id),
+        }
+        result = knowledge_collection_policy.scoped_search(identity, query, limit=limit)
+        safe = {
+            "items": result.get("items", []),
+            "count": int(result.get("count", 0)),
+            "scope": result.get("scope", {}),
+            "privacy": result.get("privacy", {}),
+            "citation_version": result.get("citation_version", "v0.37"),
+        }
+        return safe, {"count": safe["count"], "citation_version": safe["citation_version"]}
+
     rows = list_knowledge(query, limit=limit)
     items: list[dict[str, Any]] = []
     for row in rows:
@@ -460,7 +485,7 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
         if tool["key"] == "contacts.search":
             result, result_meta = _contacts_search(payload)
         elif tool["key"] == "knowledge.search":
-            result, result_meta = _knowledge_search(payload)
+            result, result_meta = _knowledge_search(payload, source, owner=owner)
         elif tool["key"] == "memory.list":
             result, result_meta = _memory_list(payload)
         elif tool["key"] == "memory.write":
