@@ -56,7 +56,9 @@
       const routed = `/api/v1/control/voice/agents/${Number(state.selectedAgentId)}/synthesize`;
       if (typeof input === 'string') nextInput = routed;
       else if (input instanceof URL) nextInput = new URL(routed, window.location.origin);
-      else if (input instanceof Request) nextInput = new Request(new URL(routed, window.location.origin), input);
+      // The HomeServer conversation TTS caller uses a URL string. Do not rebuild
+      // arbitrary Request objects here because doing so can consume or alter a
+      // streaming request body; unknown callers safely retain their original URL.
     }
 
     return nativeFetch(nextInput, nextInit);
@@ -256,12 +258,18 @@
     if (active !== state.activeConversationId) syncConversationBinding(active).catch(() => null);
   });
 
+  const appsObserver = new MutationObserver(() => {
+    if (document.querySelector('#view-apps.active')) enhanceConnectedApps().catch(() => null);
+  });
+
   function boot() {
     ensureStyles();
     ensureSelector();
     loadAgents().then(() => syncConversationBinding()).catch(() => null);
     const list = byId('conversationList');
     if (list) conversationObserver.observe(list, {subtree: true, childList: true, attributes: true, attributeFilter: ['class']});
+    const appsList = byId('appsList');
+    if (appsList) appsObserver.observe(appsList, {subtree: true, childList: true});
     if (location.hash === '#apps') setTimeout(() => enhanceConnectedApps(), 150);
   }
 
