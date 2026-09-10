@@ -1,0 +1,27 @@
+.agent-voice-profile { margin-top: 18px; }
+.agent-voice-head { align-items: flex-start; gap: 18px; }
+.agent-voice-head p { margin: 6px 0 0; max-width: 760px; }
+.agent-voice-badge { display: inline-flex; align-items: center; border: 1px solid var(--line, #d9dde6); border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.agent-voice-badge.ready { border-color: #b9d9c6; background: #f2faf5; }
+.agent-voice-badge.fallback { border-color: #e2d3a9; background: #fffaf0; }
+.agent-voice-badge.error { border-color: #e4bcbc; background: #fff5f5; }
+.agent-voice-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr); gap: 18px; margin-top: 18px; }
+.agent-voice-grid label { display: grid; gap: 7px; }
+.agent-voice-effective { border: 1px solid var(--line, #e0e3ea); border-radius: 14px; padding: 14px 16px; display: grid; gap: 4px; background: rgba(248,249,252,.72); }
+.agent-voice-effective > span { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700; opacity: .62; }
+.agent-voice-effective strong { font-size: 15px; }
+.agent-voice-characteristics { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; margin-top: 18px; }
+.agent-voice-characteristic { border: 1px solid var(--line, #e0e3ea); border-radius: 14px; padding: 14px 16px; display: grid; gap: 10px; }
+.agent-voice-range { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
+.agent-voice-range input[type="range"] { grid-column: 1 / -1; width: 100%; }
+.agent-voice-range input:disabled { opacity: .45; cursor: not-allowed; }
+.agent-voice-range output { font-variant-numeric: tabular-nums; font-weight: 700; }
+.agent-voice-warning { margin-top: 16px; border: 1px solid #e2d3a9; background: #fffaf0; border-radius: 12px; padding: 11px 13px; font-size: 13px; line-height: 1.45; }
+.agent-voice-actions { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 18px; }
+.agent-voice-actions > div { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 760px) {
+  .agent-voice-grid, .agent-voice-characteristics { grid-template-columns: 1fr; }
+  .agent-voice-actions { align-items: stretch; flex-direction: column; }
+  .agent-voice-actions > div { justify-content: stretch; }
+  .agent-voice-actions .button { flex: 1; }
+}
