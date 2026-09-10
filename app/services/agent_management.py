@@ -40,6 +40,13 @@ def normalize_agent(value: Any) -> dict[str, str]:
     }
 
 
+def _normalize_voice_profile(value: Any) -> dict[str, Any]:
+    try:
+        return agent_voice_profiles.normalize_overrides(value)
+    except agent_voice_profiles.AgentVoiceProfileError as exc:
+        raise AgentManagementError(str(exc), exc.status_code) from exc
+
+
 def _row(agent_id: int) -> dict[str, Any]:
     with db() as connection:
         row = connection.execute(
@@ -156,6 +163,50 @@ def update_agent(agent_id: int, value: Any) -> dict[str, Any]:
             connection,
             "agent.secondary.updated" if not current["is_primary"] else "agent.updated",
             int(current["id"]),
+        )
+    return get_agent(int(current["id"]))
+
+
+def save_persona(agent_id: int, value: Any) -> dict[str, Any]:
+    current = _row(agent_id)
+    source = value if isinstance(value, dict) else {}
+    agent = normalize_agent(source)
+    voice_profile = _normalize_voice_profile(source.get("voice_profile"))
+    with db() as connection:
+        connection.execute(
+            """
+            UPDATE agents
+            SET name=?, instructions=?, model=?, updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (agent["name"], agent["instructions"], agent["model"], int(current["id"])),
+        )
+        connection.execute(
+            """
+            INSERT INTO agent_voice_profiles(agent_id, voice_key, speaking_rate, sentence_silence)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                voice_key=excluded.voice_key,
+                speaking_rate=excluded.speaking_rate,
+                sentence_silence=excluded.sentence_silence,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (
+                int(current["id"]),
+                voice_profile["voice"],
+                voice_profile["speaking_rate"],
+                voice_profile["sentence_silence"],
+            ),
+        )
+        _log(
+            connection,
+            "agent.persona.updated",
+            int(current["id"]),
+            {
+                "voice_override": voice_profile["voice"],
+                "speaking_rate_override": voice_profile["speaking_rate"],
+                "sentence_silence_override": voice_profile["sentence_silence"],
+            },
         )
     return get_agent(int(current["id"]))
 
