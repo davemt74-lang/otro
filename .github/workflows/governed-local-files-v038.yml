@@ -1,0 +1,83 @@
+name: HomeServer Governed Local Files v0.38
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/files_api.py'
+      - 'app/services/agent_tools.py'
+      - 'app/services/app_scopes.py'
+      - 'app/services/capability_registry.py'
+      - 'app/services/knowledge_collection_policy.py'
+      - 'app/services/local_files.py'
+      - 'app/services/local_files_agent.py'
+      - 'app/services/local_files_remote.py'
+      - 'app/services/pairing.py'
+      - 'app/services/tools.py'
+      - 'app/tools_api.py'
+      - 'docs/section-9-governed-local-files-v038.md'
+      - 'tests/governed_local_files_v038.py'
+      - '.github/workflows/governed-local-files-v038.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/bridge.py'
+      - 'app/files_api.py'
+      - 'app/services/agent_tools.py'
+      - 'app/services/app_scopes.py'
+      - 'app/services/capability_registry.py'
+      - 'app/services/knowledge_collection_policy.py'
+      - 'app/services/local_files.py'
+      - 'app/services/local_files_agent.py'
+      - 'app/services/local_files_remote.py'
+      - 'app/services/pairing.py'
+      - 'app/services/tools.py'
+      - 'app/tools_api.py'
+      - 'docs/section-9-governed-local-files-v038.md'
+      - 'tests/governed_local_files_v038.py'
+      - '.github/workflows/governed-local-files-v038.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  governed-local-files:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Section 9 modules
+        run: >-
+          python -m py_compile
+          app/bridge.py
+          app/files_api.py
+          app/services/capability_registry.py
+          app/services/local_files.py
+          app/services/local_files_agent.py
+          app/services/local_files_remote.py
+          app/services/pairing.py
+          app/services/tools.py
+      - name: Governed local files regression
+        run: python tests/governed_local_files_v038.py
+      - name: Section 8 consumer regression
+        run: python tests/knowledge_collection_consumers_v037.py
+      - name: Existing watched-folder regression
+        run: python tests/knowledge_sources.py
+      - name: Existing source privacy regression
+        run: python tests/knowledge_source_retention_privacy.py
+      - name: Capability registry regression
+        run: python tests/capability_registry_v033.py
+      - name: Agent tools regression
+        run: python tests/agent_tools.py
+      - name: Action policy regression
+        run: python tests/action_policy_v035.py
+      - name: Database upgrade regression
+        run: python tests/migrations.py

@@ -65,6 +65,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
         assert default_policy.json()["policy"]["allow_write_proposals"] is False
         assert set(default_policy.json()["available_tools"]) == {
             "homeserver_contacts_search",
+            "homeserver_file_read",
+            "homeserver_files_list",
             "homeserver_knowledge_search",
             "homeserver_memory_list",
             "homeserver_notifications_list",
@@ -109,6 +111,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
         offered = {item["function"]["name"] for item in owner_steps[0]["tools"]}
         assert offered == {
             "homeserver_contacts_search",
+            "homeserver_file_read",
+            "homeserver_files_list",
             "homeserver_knowledge_search",
             "homeserver_memory_list",
             "homeserver_notifications_list",

@@ -15,6 +15,7 @@ DEFAULT_PERMISSIONS = {
     "contacts.read",
     "events.read",
     "events.write",
+    "files.read",
     "knowledge.search",
     "knowledge.write",
     "memory.read",

@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, knowledge_collection_policy
+from . import app_scopes, knowledge_collection_policy, local_files
 from .contacts import list_contacts
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
@@ -27,6 +27,38 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20},
             },
             "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+    "files.list": {
+        "key": "files.list",
+        "name": "List Local Files",
+        "description": "Discover bounded file metadata from owner-approved local Knowledge Sources within the app's collection scope.",
+        "mode": "read",
+        "required_permissions": ["files.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "maxLength": 240},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "files.read": {
+        "key": "files.read",
+        "name": "Read Local File",
+        "description": "Read a bounded slice of indexed text using an opaque HomeServer file reference; arbitrary filesystem paths are never accepted.",
+        "mode": "read",
+        "required_permissions": ["files.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "pattern": "^hsf-[0-9]+-[0-9a-f]{16}$", "maxLength": 96},
+                "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
+                "max_chars": {"type": "integer", "minimum": 1, "maximum": 12000},
+            },
+            "required": ["ref"],
             "additionalProperties": False,
         },
     },
@@ -138,6 +170,12 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "tools": ["knowledge.search", "memory.list"],
     },
     {
+        "key": "local.files",
+        "name": "Local File Reader",
+        "description": "Discover and read bounded indexed text from owner-approved local files without arbitrary filesystem access.",
+        "tools": ["files.list", "files.read"],
+    },
+    {
         "key": "relationship.context",
         "name": "Relationship Context",
         "description": "Search private contacts and relationship notes through an explicit read capability.",
@@ -244,9 +282,16 @@ def _safe_numeric(value: Any, default: int | float | None = None) -> int | float
 
 
 def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    if tool_key in {"contacts.search", "knowledge.search", "tasks.list"}:
+    if tool_key in {"contacts.search", "knowledge.search", "tasks.list", "files.list"}:
         query = str(arguments.get("query") or "")
         return {"query_length": len(query), "limit": _safe_numeric(arguments.get("limit"), 8)}
+    if tool_key == "files.read":
+        ref = str(arguments.get("ref") or "")
+        return {
+            "ref_length": len(ref),
+            "offset": _safe_numeric(arguments.get("offset"), 0),
+            "max_chars": _safe_numeric(arguments.get("max_chars"), 6000),
+        }
     if tool_key == "notifications.list":
         return {"unread_only": bool(arguments.get("unread_only", False)), "limit": _safe_numeric(arguments.get("limit"), 20)}
     if tool_key == "memory.list":
@@ -330,6 +375,62 @@ def _contacts_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[st
     rows = list_contacts(query, limit=limit)
     items = [{"id": row["id"], "display_name": row["display_name"], "organization": row.get("organization"), "email": row.get("email"), "phone": row.get("phone"), "relationship": row.get("relationship"), "notes": str(row.get("notes") or "")[:1600]} for row in rows]
     return {"items": items, "count": len(items)}, {"count": len(items)}
+
+
+def _file_identity(source_app_key: str, *, owner: bool) -> dict[str, Any] | None:
+    if owner:
+        return None
+    app_id = knowledge_collection_policy.app_id_for_source(source_app_key)
+    if app_id is None:
+        raise ToolError("Connected application is unavailable.", 403)
+    return {"id": app_id, "scope": app_scopes.get_scope(app_id)}
+
+
+def _files_list(
+    arguments: dict[str, Any], source_app_key: str, *, owner: bool
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown = set(arguments) - {"query", "limit"}
+    if unknown:
+        raise ToolError(f"Unsupported files.list argument: {sorted(unknown)[0]}")
+    query = str(arguments.get("query") or "").strip()
+    if len(query) > 240:
+        raise ToolError("files.list query exceeds 240 characters.")
+    limit = _bounded_int(arguments.get("limit"), 20, 1, 50, "limit")
+    try:
+        result = local_files.list_files(
+            _file_identity(source_app_key, owner=owner), query, limit, owner=owner
+        )
+    except local_files.LocalFileError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return result, {"count": int(result.get("count", 0)), "capability_version": local_files.FILE_CAPABILITY_VERSION}
+
+
+def _files_read(
+    arguments: dict[str, Any], source_app_key: str, *, owner: bool
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown = set(arguments) - {"ref", "offset", "max_chars"}
+    if unknown:
+        raise ToolError(f"Unsupported files.read argument: {sorted(unknown)[0]}")
+    file_ref = str(arguments.get("ref") or "").strip()
+    if not file_ref:
+        raise ToolError("files.read requires a HomeServer file reference.")
+    offset = _bounded_int(arguments.get("offset"), 0, 0, 10_000_000, "offset")
+    max_chars = _bounded_int(arguments.get("max_chars"), 6000, 1, 12000, "max_chars")
+    try:
+        result = local_files.read_file(
+            _file_identity(source_app_key, owner=owner),
+            file_ref,
+            offset=offset,
+            max_chars=max_chars,
+            owner=owner,
+        )
+    except local_files.LocalFileError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return result, {
+        "returned_chars": int(result.get("returned_chars", 0)),
+        "truncated": bool(result.get("truncated")),
+        "capability_version": local_files.FILE_CAPABILITY_VERSION,
+    }
 
 
 def _knowledge_search(
@@ -484,6 +585,10 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
     try:
         if tool["key"] == "contacts.search":
             result, result_meta = _contacts_search(payload)
+        elif tool["key"] == "files.list":
+            result, result_meta = _files_list(payload, source, owner=owner)
+        elif tool["key"] == "files.read":
+            result, result_meta = _files_read(payload, source, owner=owner)
         elif tool["key"] == "knowledge.search":
             result, result_meta = _knowledge_search(payload, source, owner=owner)
         elif tool["key"] == "memory.list":
