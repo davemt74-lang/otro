@@ -92,6 +92,21 @@ def _raise_profile(exc: agent_voice_profiles.AgentVoiceProfileError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+def _global_audio(text: str) -> Response:
+    try:
+        audio = local_voice.synthesize(text)
+    except local_voice.LocalVoiceError as exc:
+        _raise(exc)
+    return Response(
+        content=audio,
+        media_type="audio/wav",
+        headers={
+            "Cache-Control": "no-store",
+            "X-HomeServer-Voice-Provider": "piper",
+        },
+    )
+
+
 def _profile_audio(text: str, resolved: dict) -> Response:
     effective = resolved["effective"]
     if not effective["ready"]:
@@ -248,11 +263,13 @@ def preview_local_voice(payload: VoicePreviewRequest) -> Response:
 
 @router.post("/synthesize")
 def synthesize_local_voice(payload: SpeechRequest) -> Response:
-    # Owner Conversation Mode speaks the primary Agent. Agents with no voice
-    # override resolve to the existing global Voice Settings, preserving the
-    # v0.42/v0.43 behavior by default while enabling v0.45 personas.
+    # Preserve the v0.42/v0.43 global synthesis contract when the primary
+    # Agent inherits every voice setting. Once any v0.45 override exists,
+    # Conversation Mode speaks through the resolved Agent Voice Profile.
     try:
         resolved = agent_voice_profiles.get_profile(agent_voice_profiles.primary_agent_id())
     except agent_voice_profiles.AgentVoiceProfileError as exc:
         _raise_profile(exc)
+    if not any(value is not None for value in resolved["overrides"].values()):
+        return _global_audio(payload.text)
     return _profile_audio(payload.text, resolved)
