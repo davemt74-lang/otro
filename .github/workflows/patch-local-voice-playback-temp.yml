@@ -1,0 +1,89 @@
+name: Temporary Local Voice Playback Patch
+
+on:
+  push:
+    branches: [local-voice-runtime]
+    paths:
+      - .github/workflows/patch-local-voice-playback-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: local-voice-runtime
+      - name: Apply reviewed AudioContext playback patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('ui/chat-enhancements.js')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  "  let playbackAudio = null;\n  let playbackUrl = '';",
+                  "  let playbackContext = null;\n  let playbackSource = null;",
+              ),
+              (
+                  "  function cleanupPlayback() {\n    if (playbackAudio) {\n      try { playbackAudio.pause(); } catch (_) {}\n      playbackAudio.src = '';\n      playbackAudio = null;\n    }\n    if (playbackUrl) {\n      URL.revokeObjectURL(playbackUrl);\n      playbackUrl = '';\n    }\n  }",
+                  "  function cleanupPlayback() {\n    const source = playbackSource;\n    playbackSource = null;\n    if (!source) return;\n    source.onended = null;\n    try { source.stop(0); } catch (_) {}\n    try { source.disconnect(); } catch (_) {}\n  }\n\n  function unlockLocalAudio() {\n    const Context = AudioContextCtor();\n    if (!Context) return false;\n    if (!playbackContext || playbackContext.state === 'closed') playbackContext = new Context();\n    playbackContext.resume().catch(() => null);\n    return true;\n  }\n\n  function closePlaybackContext() {\n    cleanupPlayback();\n    const context = playbackContext;\n    playbackContext = null;\n    if (context) {\n      try { context.close(); } catch (_) {}\n    }\n  }",
+              ),
+              (
+                  "    if (window.speechSynthesis) window.speechSynthesis.cancel();\n    cleanupPlayback();\n    setVoiceState('idle');",
+                  "    if (window.speechSynthesis) window.speechSynthesis.cancel();\n    closePlaybackContext();\n    setVoiceState('idle');",
+              ),
+              (
+                  "  async function speakLocalReply(text) {\n    const response = await fetch(LOCAL_TTS_ENDPOINT, {\n      method: 'POST',\n      headers: {'Content-Type': 'application/json'},\n      body: JSON.stringify({text}),\n      cache: 'no-store',\n      credentials: 'same-origin',\n    });\n    if (!response.ok) throw await responseError(response, 'Local Piper speech synthesis failed.');\n    const blob = await response.blob();\n    if (!conversationMode) return;\n    playbackUrl = URL.createObjectURL(blob);\n    playbackAudio = new Audio(playbackUrl);\n    playbackAudio.onended = finishSpeaking;\n    playbackAudio.onerror = () => handleLocalTtsFailure(new Error('Local Piper audio playback failed.'));\n    try {\n      await playbackAudio.play();\n    } catch (err) {\n      handleLocalTtsFailure(err);\n    }\n  }",
+                  "  async function speakLocalReply(text) {\n    const response = await fetch(LOCAL_TTS_ENDPOINT, {\n      method: 'POST',\n      headers: {'Content-Type': 'application/json'},\n      body: JSON.stringify({text}),\n      cache: 'no-store',\n      credentials: 'same-origin',\n    });\n    if (!response.ok) throw await responseError(response, 'Local Piper speech synthesis failed.');\n    const audioBytes = await response.arrayBuffer();\n    if (!conversationMode) return;\n    const context = playbackContext;\n    if (!context || context.state === 'closed') throw new Error('Local audio playback context is unavailable.');\n    await context.resume();\n    const decoded = await context.decodeAudioData(audioBytes.slice(0));\n    if (!conversationMode || context !== playbackContext) return;\n    cleanupPlayback();\n    const source = context.createBufferSource();\n    playbackSource = source;\n    source.buffer = decoded;\n    source.connect(context.destination);\n    source.onended = () => {\n      if (playbackSource === source) playbackSource = null;\n      try { source.disconnect(); } catch (_) {}\n      finishSpeaking();\n    };\n    source.start(0);\n  }",
+              ),
+              (
+                  "  async function toggleConversationMode() {\n    if (conversationMode) {\n      stopConversationMode();\n      return;\n    }\n\n    const status = await refreshLocalVoiceStatus();",
+                  "  async function toggleConversationMode() {\n    if (conversationMode) {\n      stopConversationMode();\n      return;\n    }\n\n    // Unlock local audio synchronously inside the user's click gesture. This\n    // prevents delayed Piper playback from being rejected by autoplay policy.\n    unlockLocalAudio();\n    const status = await refreshLocalVoiceStatus();",
+              ),
+              (
+                  "    const localTts = Boolean(status?.tts?.available);",
+                  "    const localTts = Boolean(status?.tts?.available && AudioContextCtor());",
+              ),
+              (
+                  "    if (strict && (!localStt || !localTts)) {\n      flash('Strict Local Voice requires healthy Whisper STT and Piper TTS Local Apps plus browser microphone capture support.', true);\n      return;\n    }",
+                  "    if (strict && (!localStt || !localTts)) {\n      closePlaybackContext();\n      flash('Strict Local Voice requires healthy Whisper STT and Piper TTS Local Apps plus browser microphone capture and audio playback support.', true);\n      return;\n    }",
+              ),
+              (
+                  "    if (!localStt && !browserRecognition) {\n      flash('No speech-to-text path is available. Install Whisper STT or use a browser with speech recognition.', true);\n      return;\n    }\n    if (!localTts && !browserTts) {\n      flash('No speech-output path is available. Install Piper TTS or use a browser with speech synthesis.', true);\n      return;\n    }",
+                  "    if (!localStt && !browserRecognition) {\n      closePlaybackContext();\n      flash('No speech-to-text path is available. Install Whisper STT or use a browser with speech recognition.', true);\n      return;\n    }\n    if (!localTts && !browserTts) {\n      closePlaybackContext();\n      flash('No speech-output path is available. Install Piper TTS or use a browser with speech synthesis.', true);\n      return;\n    }",
+              ),
+              (
+                  "    voicePath = {\n      stt: localStt ? 'local' : 'browser',\n      tts: localTts ? 'local' : 'browser',\n    };\n    conversationMode = true;",
+                  "    voicePath = {\n      stt: localStt ? 'local' : 'browser',\n      tts: localTts ? 'local' : 'browser',\n    };\n    if (voicePath.tts !== 'local') closePlaybackContext();\n    conversationMode = true;",
+              ),
+              (
+                  "        ? 'Whisper STT and Piper TTS are ready locally. Conversation audio and speech stay on this HomeServer; Strict Local blocks browser/OS fallback.'",
+                  "        ? 'Whisper STT and Piper TTS process voice locally on this HomeServer. Transcribed chat still follows your configured Agent inference route; Strict Local blocks browser/OS voice fallback.'",
+              ),
+              (
+                  "    cleanupLocalCapture();\n    cleanupPlayback();\n  });",
+                  "    cleanupLocalCapture();\n    closePlaybackContext();\n  });",
+              ),
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one match, found {count}: {old[:80]!r}')
+              text = text.replace(old, new)
+
+          path.write_text(text, encoding='utf-8')
+          Path('.github/workflows/patch-local-voice-playback-temp.yml').unlink()
+      - name: Commit reviewed patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ui/chat-enhancements.js .github/workflows/patch-local-voice-playback-temp.yml
+          git commit -m "Fix local Piper playback autoplay reliability"
+          git push origin HEAD:local-voice-runtime
