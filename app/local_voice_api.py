@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .services import local_voice, voice_settings
 
@@ -16,6 +16,8 @@ class SpeechRequest(BaseModel):
 
 
 class VoiceSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     stt_model: Literal["tiny.en-q8_0"] = "tiny.en-q8_0"
     tts_voice: Literal["en_US-lessac-medium"] = "en_US-lessac-medium"
     speaking_rate: float = Field(default=1.0, ge=0.6, le=1.6)
