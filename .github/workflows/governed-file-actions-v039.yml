@@ -23,6 +23,7 @@ on:
       - 'tests/governed_file_actions_v039.py'
       - 'tests/governed_file_actions_remote_v039.py'
       - 'tests/governed_file_owner_approval_v039.py'
+      - 'tests/governed_file_policy_v039.py'
       - 'tests/governed_local_files_v038.py'
       - 'tests/action_approvals.py'
       - 'tests/action_policy_v035.py'
@@ -55,6 +56,7 @@ on:
       - 'tests/governed_file_actions_v039.py'
       - 'tests/governed_file_actions_remote_v039.py'
       - 'tests/governed_file_owner_approval_v039.py'
+      - 'tests/governed_file_policy_v039.py'
       - 'tests/governed_local_files_v038.py'
       - 'tests/action_approvals.py'
       - 'tests/action_policy_v035.py'
@@ -87,6 +89,7 @@ jobs:
           python -m py_compile
           app/bridge.py
           app/tools_api.py
+          app/services/action_policy.py
           app/services/local_file_actions.py
           app/services/local_file_actions_agent.py
           app/services/local_file_actions_approvals.py
@@ -96,6 +99,8 @@ jobs:
           app/services/pairing.py
       - name: Governed file actions regression
         run: python tests/governed_file_actions_v039.py
+      - name: Approval-only file policy regression
+        run: python tests/governed_file_policy_v039.py
       - name: Local-owner file approval regression
         run: python tests/governed_file_owner_approval_v039.py
       - name: Governed file action relay regression
