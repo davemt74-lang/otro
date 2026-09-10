@@ -11,17 +11,24 @@ assert index.index('/assets/brain.js') < index.index('/assets/chat-enhancements.
 
 for marker in [
     'voiceInputButton',
+    'Start conversation mode',
     'SpeechRecognition',
     'webkitSpeechRecognition',
+    'speechSynthesis',
+    'SpeechSynthesisUtterance',
     'aria-pressed',
     'voicePrivacyNote',
-    'may not be local',
-    'HomeServer receives text only when you send the message',
+    'auto-sends final speech',
+    'requestSubmit',
+    'speakAgentReply',
+    'startListening',
+    'awaitingAgent',
 ]:
-    assert marker in script, f'missing voice contract marker: {marker}'
+    assert marker in script, f'missing conversation-mode contract marker: {marker}'
 
-assert "requestSubmit" not in script, 'voice dictation must not auto-submit a message'
-assert "'/api/v1/control/chat'" not in script, 'enhancement layer must not bypass the canonical chat submission path'
+assert "'/api/v1/control/chat'" not in script, 'conversation mode must reuse the canonical chat form instead of bypassing it'
+assert 'form.requestSubmit()' in script, 'final recognized speech must auto-submit through the canonical chat form'
+assert "setTimeout(startListening, 250)" in script, 'conversation mode must resume listening after the spoken reply'
 
 for endpoint in [
     '/api/v1/control/inference',
@@ -29,12 +36,16 @@ for endpoint in [
     '/api/v1/control/cognition/events?limit=12',
     '/api/v1/control/tool-runs?limit=12',
     '/api/v1/control/activity?limit=12',
+    '/api/v1/control/tasks?q=',
 ]:
     assert endpoint in script, f'missing inspectable activity endpoint: {endpoint}'
 
 for marker in [
     'chatBrainToggle',
     'chatBrainDrawer',
+    'AGENT BRAIN & HISTORY',
+    'Active goals & tasks',
+    'CURRENT PLAN / DECISION SUMMARY',
     'aria-controls',
     'aria-expanded',
     'aria-hidden',
@@ -44,7 +55,15 @@ for marker in [
 ]:
     assert marker in script, f'missing Brain activity contract marker: {marker}'
 
-for marker in ['chat-brain-drawer', 'chat-brain-backdrop', 'chat-brain-stats', '@media(max-width:700px)']:
-    assert marker in styles, f'missing responsive drawer style marker: {marker}'
+for marker in [
+    'chat-brain-drawer',
+    'chat-brain-backdrop',
+    'chat-brain-stats',
+    '.chat-icon-button.listening',
+    '.chat-icon-button.thinking',
+    '.chat-icon-button.speaking',
+    '@media(max-width:700px)',
+]:
+    assert marker in styles, f'missing responsive conversation/drawer style marker: {marker}'
 
-print('Agent Chat voice + Brain activity UI contract passed.')
+print('Agent Chat conversation mode + Brain activity UI contract passed.')
