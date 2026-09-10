@@ -23,6 +23,8 @@ jobs:
         run: python tests/context_engine_contract.py
       - name: Canonical Agent Context v4.30 contract
         run: python tests/canonical_agent_context_v430.py
+      - name: Canonical Agent Context v4.30 runtime parity
+        run: python tests/canonical_context_runtime_v430.py
       - name: Agent Brain context engine regression
         run: python tests/context_engine.py
       - name: Database migration upgrade regression
