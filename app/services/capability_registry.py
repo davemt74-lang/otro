@@ -4,7 +4,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import app_scopes, local_files, plugins, providers, tools
+from . import app_scopes, local_apps, local_files, plugins, providers, tools
 from .knowledge import SUPPORTED_EXTENSIONS
 from .remote_bridge import bridge_status
 
@@ -244,17 +244,34 @@ def _plugin_inventory(scope: dict[str, Any], permissions: set[str]) -> list[dict
     return result
 
 
-def _services(inference: dict[str, Any]) -> list[dict[str, Any]]:
+def _local_app_inventory() -> list[dict[str, Any]]:
+    if not _table_exists("local_apps"):
+        return []
+    try:
+        return local_apps.installed_capabilities()
+    except Exception:
+        return []
+
+
+def _services(inference: dict[str, Any], local_app_inventory: list[dict[str, Any]]) -> list[dict[str, Any]]:
     try:
         remote = bridge_status().get("runtime", {})
     except Exception:
         remote = {}
-    return [
+    services = [
         {"key": "homeserver", "available": True, "status": "running", "version": settings.version},
         {"key": "inference", "available": bool(inference.get("available")), "status": "ready" if inference.get("available") else "not_configured"},
         {"key": "remote_bridge", "available": bool(remote.get("running")), "status": "connected" if remote.get("connected") else str(remote.get("stage") or "stopped")[:40]},
         {"key": "knowledge_index", "available": True, "status": "ready"},
     ]
+    for item in local_app_inventory[:50]:
+        services.append({
+            "key": f"local_app:{str(item.get('key') or '')[:80]}",
+            "available": item.get("status") == "installed",
+            "status": str(item.get("status") or "unknown")[:40],
+            "version": str(item.get("version") or "")[:80],
+        })
+    return services
 
 
 def _operations(permissions: set[str], contacts_available: bool) -> list[str]:
@@ -290,6 +307,7 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
     skills_inventory = _skill_inventory(scope, permissions)
     plugins_inventory = _plugin_inventory(scope, permissions)
     contacts_inventory = _contact_inventory(permissions)
+    local_app_inventory = _local_app_inventory()
     return {
         "registry_version": REGISTRY_VERSION,
         "service": settings.app_name,
@@ -309,7 +327,8 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
         "tools": tools_inventory,
         "skills": skills_inventory,
         "plugins": plugins_inventory,
-        "services": _services(inference),
+        "local_apps": local_app_inventory,
+        "services": _services(inference, local_app_inventory),
         "operations": _operations(permissions, bool(contacts_inventory.get("available"))),
         "counts": {
             "tools": len(tools_inventory),
@@ -318,5 +337,6 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
             "available_skills": sum(1 for item in skills_inventory if item["available"]),
             "plugins": len(plugins_inventory),
             "local_models": len(inference.get("installed_local_models", [])),
+            "local_apps": len(local_app_inventory),
         },
     }
