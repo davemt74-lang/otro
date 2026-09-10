@@ -327,6 +327,10 @@ def build_authorized_context(
         collaboration_grants,
         max_chars=collaboration_limit,
     )
+    collaboration = {
+        "version": app_collaboration.COLLABORATION_VERSION,
+        **collaboration,
+    }
     collaboration_used = int(collaboration.get("context_chars") or 0)
 
     surface_fragment = _surface_fragment(surface_context, surface_limit)
@@ -361,8 +365,6 @@ def build_authorized_context(
     )
     used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used
     if used > requested_budget:
-        # This should be unreachable because each layer is bounded before base
-        # retrieval. Fail closed rather than silently exceed the privacy budget.
         raise context_engine.ContextError("Canonical context budget exceeded.", 500)
 
     source_refs = [*bundle.sources, *awareness_sources]
