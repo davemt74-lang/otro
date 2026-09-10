@@ -196,9 +196,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-multi-agent-v046-") as data_
         assert "agent.secondary.deleted" in actions
 
         # Primary Agent was never replaced or deleted by secondary persona operations.
-        final_primary = client.get("/api/v1/control/agent").json()["agent"]
-        assert final_primary["id"] == primary["id"]
-        assert final_primary["is_primary"] is True
+        final_primary = client.get(f"/api/v1/control/agents/{primary['id']}")
+        assert final_primary.status_code == 200
+        final_primary_agent = final_primary.json()["agent"]
+        assert final_primary_agent["id"] == primary["id"]
+        assert final_primary_agent["is_primary"] is True
+        assert client.get("/api/v1/control/agent").json()["agent"]["id"] == primary["id"]
 
         capabilities = client.get("/api/v1/capabilities")
         assert capabilities.status_code == 200
