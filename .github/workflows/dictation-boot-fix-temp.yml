@@ -1,0 +1,47 @@
+name: Dictation boot fix temporary
+on:
+  push:
+    branches: [agent-chat-dictation-mode]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent-chat-dictation-mode
+      - name: Bound delayed-control boot retries and remove helper
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('ui/chat-dictation.js')
+          s = p.read_text(encoding='utf-8')
+          old1 = "  let cachedStatus = null;"
+          new1 = "  let cachedStatus = null;\n  let bootAttempts = 0;\n  const MAX_BOOT_ATTEMPTS = 100;"
+          old2 = "    if (!ensureControl()) {\n      setTimeout(boot, 0);\n      return;\n    }"
+          new2 = "    if (!ensureControl()) {\n      bootAttempts += 1;\n      if (bootAttempts < MAX_BOOT_ATTEMPTS) setTimeout(boot, 50);\n      return;\n    }\n    bootAttempts = 0;"
+          for old, new in [(old1, new1), (old2, new2)]:
+              if old not in s:
+                  raise SystemExit('Expected boot marker not found; refusing broad edit')
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          t = Path('tests/chat_dictation_ui_contract.py')
+          ts = t.read_text(encoding='utf-8')
+          marker = "    'active || starting',\n"
+          replacement = "    'active || starting',\n    'MAX_BOOT_ATTEMPTS = 100',\n    'setTimeout(boot, 50)',\n"
+          if marker not in ts:
+              raise SystemExit('Expected test marker not found')
+          t.write_text(ts.replace(marker, replacement, 1), encoding='utf-8')
+          Path('.github/workflows/dictation-boot-fix-temp.yml').unlink()
+          PY
+      - name: Commit bounded boot retry
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ui/chat-dictation.js tests/chat_dictation_ui_contract.py .github/workflows/dictation-boot-fix-temp.yml
+          git commit -m "Bound dictation control initialization retries"
+          git push origin HEAD:agent-chat-dictation-mode
