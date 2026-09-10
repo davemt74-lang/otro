@@ -1,0 +1,21 @@
+name: Chat Experience UI
+
+on:
+  push:
+    branches: [main, section-11-voice-brain-activity-ui]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate voice and Brain Activity UI contract
+        run: python tests/chat_experience_ui_contract.py
