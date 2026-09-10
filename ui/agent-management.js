@@ -311,11 +311,12 @@
   }
 
   async function duplicatePrimary() {
-    const primary = state.items.find(item => item.is_primary);
+    let primary = state.items.find(item => item.is_primary);
     if (!primary) {
       await load(true);
-      return duplicatePrimary();
+      primary = state.items.find(item => item.is_primary);
     }
+    if (!primary) throw new Error('Primary Agent is not configured.');
     return duplicateAgent(primary.id);
   }
 
@@ -393,7 +394,7 @@
       byId('addAgentForm')?.reset();
       byId('addAgentForm')?.classList.add('hidden');
     });
-    byId('duplicatePrimaryAgent')?.addEventListener('click', () => duplicatePrimary());
+    byId('duplicatePrimaryAgent')?.addEventListener('click', () => duplicatePrimary().catch(error => flash(error.message, true)));
     byId('addAgentForm')?.addEventListener('submit', event => {
       event.preventDefault();
       createAgent(event.currentTarget);
