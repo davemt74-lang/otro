@@ -136,8 +136,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-multi-agent-v046-") as data_
         assert copied_memory == 0, "duplicating a persona must not duplicate private memory"
 
         refs = agent_voice_profiles.agents_referencing_voice("en_US-amy-medium")
-        assert refs["count"] == 2
-        assert {item["id"] for item in refs["agents"]} == {secondary_id, duplicate_id}
+        assert len(refs) == 2
+        assert {item["id"] for item in refs} == {secondary_id, duplicate_id}
 
         catalog = client.get("/api/v1/control/voice/catalog")
         assert catalog.status_code == 200
@@ -155,11 +155,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-multi-agent-v046-") as data_
             ).fetchone()["agent_id"]
         assert memory_agent_id is None
         assert client.get(f"/api/v1/control/agents/{secondary_id}").status_code == 404
-        assert agent_voice_profiles.agents_referencing_voice("en_US-amy-medium")["count"] == 1
+        assert len(agent_voice_profiles.agents_referencing_voice("en_US-amy-medium")) == 1
 
         removed_copy = client.delete(f"/api/v1/control/agents/{duplicate_id}")
         assert removed_copy.status_code == 200
-        assert agent_voice_profiles.agents_referencing_voice("en_US-amy-medium")["count"] == 0
+        assert len(agent_voice_profiles.agents_referencing_voice("en_US-amy-medium")) == 0
 
         # Primary Agent was never replaced or deleted by secondary persona operations.
         final_primary = client.get("/api/v1/control/agent").json()["agent"]
