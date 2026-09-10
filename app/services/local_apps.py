@@ -98,14 +98,6 @@ def _under(root: Path, rel: str) -> Path:
     return target
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(_DOWNLOAD_CHUNK_BYTES), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _download(artifact: dict[str, Any], destination: Path) -> dict[str, Any]:
     url = str(artifact.get("url") or "")
     expected_hash = str(artifact.get("sha256") or "").lower()
@@ -221,17 +213,32 @@ def _row_to_public(row) -> dict[str, Any] | None:  # noqa: ANN001
     capabilities = _decode_json(item.pop("capabilities_json", "[]"), [])
     item["capabilities"] = capabilities if isinstance(capabilities, list) else []
     item["disk_bytes"] = sum(int(entry.get("size_bytes") or 0) for entry in manifest if isinstance(entry, dict))
-    # Never disclose owner filesystem paths through the API.
+    # Never disclose owner filesystem paths or raw artifact manifests through the API.
     item.pop("install_rel_path", None)
+    item.pop("manifest_sha256", None)
     return item
 
 
 def _installed_row(app_key: str):  # noqa: ANN201
     with db() as connection:
-        return connection.execute(
-            "SELECT * FROM local_apps WHERE app_key=?",
-            (app_key,),
-        ).fetchone()
+        return connection.execute("SELECT * FROM local_apps WHERE app_key=?", (app_key,)).fetchone()
+
+
+def _active_health(package: dict[str, Any]) -> tuple[bool, str | None]:
+    active = _apps_root() / package["key"]
+    manifest = active / "homeserver-app.json"
+    if not manifest.is_file():
+        return False, "Managed app manifest is missing. Reinstall this Local App."
+    try:
+        saved = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, "Managed app manifest is unreadable. Reinstall this Local App."
+    if saved.get("app_key") != package["key"]:
+        return False, "Managed app identity does not match the catalog. Reinstall this Local App."
+    for required in package.get("required_paths", []):
+        if not _under(active, required).is_file():
+            return False, f"Managed app file is missing: {required}. Reinstall this Local App."
+    return True, None
 
 
 def _log(action: str, app_key: str, metadata: dict[str, Any] | None = None) -> None:
@@ -264,12 +271,8 @@ def _set_operation_state(package: dict[str, Any], status: str) -> None:
                 last_error=NULL
             """,
             (
-                package["key"],
-                package["name"],
-                package["version"],
-                CATALOG_VERSION,
-                status,
-                package["key"],
+                package["key"], package["name"], package["version"], CATALOG_VERSION,
+                status, package["key"],
                 json.dumps(package.get("capabilities") or [], separators=(",", ":")),
                 package.get("source_label"),
             ),
@@ -306,7 +309,16 @@ def _record_failure(package: dict[str, Any], error: str) -> None:
                 source_label, last_error
             ) VALUES (?, ?, ?, ?, 'failed', ?, ?, '[]', ?, ?)
             ON CONFLICT(app_key) DO UPDATE SET
-                status='failed', updated_at=CURRENT_TIMESTAMP, last_error=excluded.last_error
+                name=excluded.name,
+                installed_version=excluded.installed_version,
+                catalog_version=excluded.catalog_version,
+                status='failed',
+                capabilities_json=excluded.capabilities_json,
+                source_label=excluded.source_label,
+                artifact_manifest_json='[]',
+                manifest_sha256=NULL,
+                updated_at=CURRENT_TIMESTAMP,
+                last_error=excluded.last_error
             """,
             (
                 package["key"], package["name"], package["version"], CATALOG_VERSION,
@@ -351,6 +363,12 @@ def _record_success(package: dict[str, Any], manifest: list[dict[str, Any]]) -> 
 def _public_package(package: dict[str, Any], installed) -> dict[str, Any]:  # noqa: ANN001
     supported, reason = _support(package)
     installed_item = _row_to_public(installed)
+    healthy = None
+    health_error = None
+    if installed_item and installed_item.get("status") == "installed":
+        healthy, health_error = _active_health(package)
+        installed_item["healthy"] = healthy
+        installed_item["health_error"] = health_error
     artifact_bytes = sum(int(item.get("size_bytes") or 0) for item in package.get("artifacts", []))
     return {
         "key": package["key"],
@@ -369,7 +387,11 @@ def _public_package(package: dict[str, Any], installed) -> dict[str, Any]:  # no
         "supported": supported,
         "support_reason": reason,
         "installed": installed_item,
-        "update_available": bool(installed_item and installed_item.get("installed_version") != package["version"]),
+        "update_available": bool(
+            installed_item
+            and installed_item.get("status") == "installed"
+            and (installed_item.get("installed_version") != package["version"] or healthy is False)
+        ),
     }
 
 
@@ -383,7 +405,12 @@ def catalog() -> dict[str, Any]:
         "catalog_version": CATALOG_VERSION,
         "platform": _platform_snapshot(),
         "packages": packages,
-        "installed_count": sum(1 for item in packages if item["installed"] and item["installed"]["status"] == "installed"),
+        "installed_count": sum(
+            1 for item in packages
+            if item["installed"]
+            and item["installed"].get("status") == "installed"
+            and item["installed"].get("healthy") is True
+        ),
     }
 
 
@@ -394,6 +421,12 @@ def installed_capabilities() -> list[dict[str, Any]]:
         ).fetchall()
     result: list[dict[str, Any]] = []
     for row in rows:
+        package = CATALOG.get(row["app_key"])
+        if package is None:
+            continue
+        healthy, _ = _active_health(package)
+        if not healthy:
+            continue
         capabilities = _decode_json(row["capabilities_json"], [])
         result.append({
             "key": row["app_key"],
@@ -425,16 +458,24 @@ def install(app_key: str, *, update: bool = False) -> dict[str, Any]:
     rollback = root / ".rollback" / f"{app_key}-{uuid.uuid4().hex}"
     previous_row = _installed_row(app_key)
     previous = dict(previous_row) if previous_row is not None else None
+    previous_installed = previous if previous and previous.get("status") == "installed" else None
     had_active = active.exists()
     moved_previous = False
+    operation_is_update = previous_installed is not None
     try:
-        if previous and previous.get("status") == "installed" and previous.get("installed_version") == package["version"]:
-            return {"changed": False, "reason": "already_current", "package": _public_package(package, previous_row)}
-        if update and not previous:
+        if previous_installed and previous_installed.get("installed_version") == package["version"]:
+            healthy, _ = _active_health(package)
+            if healthy:
+                return {"changed": False, "reason": "already_current", "package": _public_package(package, previous_row)}
+        if update and not previous_installed:
             raise LocalAppError("Local App is not installed; use Install first.", 409)
 
-        _set_operation_state(package, "updating" if previous else "installing")
-        _log("local_app.update.started" if previous else "local_app.install.started", app_key, {"version": package["version"]})
+        _set_operation_state(package, "updating" if operation_is_update else "installing")
+        _log(
+            "local_app.update.started" if operation_is_update else "local_app.install.started",
+            app_key,
+            {"version": package["version"]},
+        )
         payload.mkdir(parents=True, exist_ok=False)
         manifest: list[dict[str, Any]] = []
         for artifact in package.get("artifacts", []):
@@ -475,28 +516,40 @@ def install(app_key: str, *, update: bool = False) -> dict[str, Any]:
         os.replace(payload, active)
         _record_success(package, manifest)
         shutil.rmtree(rollback, ignore_errors=True)
-        _log("local_app.updated" if previous else "local_app.installed", app_key, {"version": package["version"], "artifact_count": len(manifest)})
+        _log(
+            "local_app.updated" if operation_is_update else "local_app.installed",
+            app_key,
+            {"version": package["version"], "artifact_count": len(manifest)},
+        )
         return {"changed": True, "package": _public_package(package, _installed_row(app_key))}
     except LocalAppError as exc:
         if moved_previous and rollback.exists():
             shutil.rmtree(active, ignore_errors=True)
             os.replace(rollback, active)
-        if previous:
-            _restore_row(previous, str(exc))
+        if previous_installed:
+            _restore_row(previous_installed, str(exc))
         else:
             _record_failure(package, str(exc))
-        _log("local_app.update.failed" if previous else "local_app.install.failed", app_key, {"error": str(exc)[:_ERROR_LIMIT]})
+        _log(
+            "local_app.update.failed" if operation_is_update else "local_app.install.failed",
+            app_key,
+            {"error": str(exc)[:_ERROR_LIMIT]},
+        )
         raise
-    except Exception as exc:  # fail closed and keep the previous installation intact
+    except Exception as exc:  # fail closed and keep a previous good installation intact
         if moved_previous and rollback.exists():
             shutil.rmtree(active, ignore_errors=True)
             os.replace(rollback, active)
         message = f"Local App installation failed safely: {exc}"
-        if previous:
-            _restore_row(previous, message)
+        if previous_installed:
+            _restore_row(previous_installed, message)
         else:
             _record_failure(package, message)
-        _log("local_app.update.failed" if previous else "local_app.install.failed", app_key, {"error": message[:_ERROR_LIMIT]})
+        _log(
+            "local_app.update.failed" if operation_is_update else "local_app.install.failed",
+            app_key,
+            {"error": message[:_ERROR_LIMIT]},
+        )
         raise LocalAppError(message, 500) from exc
     finally:
         shutil.rmtree(staging, ignore_errors=True)
