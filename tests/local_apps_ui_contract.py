@@ -25,10 +25,13 @@ for marker in (
     'data-local-app-action="uninstall"',
     'SHA-256 verification',
     'embedded reviewed catalog',
-    'Piper TTS',
-    'Whisper STT',
 ):
     assert marker in script, marker
+
+# Install/update are genuinely one-click. Only destructive uninstall asks for
+# confirmation after the user has already selected the action.
+assert "action === 'uninstall' && !window.confirm" in script
+assert 'Install ${item.name}?' not in script
 
 # Connected Apps remains a distinct paired-client surface.
 assert 'data-view="apps">Connected Apps' in index
@@ -64,6 +67,7 @@ for marker in (
     '_assert_trusted_url',
     '_safe_rel_path',
     '_extract_zip',
+    '_active_health',
     'SHA-256',
     'os.replace',
     '.rollback',
@@ -71,6 +75,8 @@ for marker in (
     assert marker in service, marker
 
 for marker in (
+    'Piper TTS',
+    'Whisper STT',
     'piper_windows_amd64.zip',
     'en_US-lessac-medium.onnx',
     'encoder_model_quantized.onnx',
