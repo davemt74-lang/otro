@@ -18,6 +18,7 @@ on:
       - 'app/services/local_file_actions_tools.py'
       - 'app/services/local_files.py'
       - 'app/services/pairing.py'
+      - 'database/migrations/019_governed_file_actions.sql'
       - 'docs/section-10-governed-file-actions-v039.md'
       - 'tests/governed_file_actions_v039.py'
       - 'tests/governed_file_actions_remote_v039.py'
@@ -28,6 +29,7 @@ on:
       - 'tests/agent_tools.py'
       - 'tests/approval_federation_v031.py'
       - 'tests/capability_registry_v033.py'
+      - 'tests/migrations.py'
       - 'tests/smoke.py'
       - '.github/workflows/governed-file-actions-v039.yml'
   push:
@@ -48,6 +50,7 @@ on:
       - 'app/services/local_file_actions_tools.py'
       - 'app/services/local_files.py'
       - 'app/services/pairing.py'
+      - 'database/migrations/019_governed_file_actions.sql'
       - 'docs/section-10-governed-file-actions-v039.md'
       - 'tests/governed_file_actions_v039.py'
       - 'tests/governed_file_actions_remote_v039.py'
@@ -58,6 +61,7 @@ on:
       - 'tests/agent_tools.py'
       - 'tests/approval_federation_v031.py'
       - 'tests/capability_registry_v033.py'
+      - 'tests/migrations.py'
       - 'tests/smoke.py'
       - '.github/workflows/governed-file-actions-v039.yml'
 
