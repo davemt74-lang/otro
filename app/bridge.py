@@ -23,6 +23,10 @@ from .remote_bridge_api import router as remote_bridge_router
 from .services import providers
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
+from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
+from .services.local_file_actions_approvals import install as install_local_file_action_approvals
+from .services.local_file_actions_registry import install as install_local_file_action_registry
+from .services.local_file_actions_tools import install as install_local_file_action_tools
 from .services.local_files_agent import install as install_local_file_agent_tools
 from .services.local_files_remote import install as install_local_files_remote_operations
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
@@ -37,12 +41,17 @@ class PairStatusRequest(BaseModel):
     claim_token: str = Field(min_length=20, max_length=256)
 
 
-# Extend the existing fail-closed Remote Bridge with bounded authenticated
-# operations before the worker begins serving relay requests.
+# Extend the existing fail-closed capability surfaces before the worker begins
+# serving requests. Write actions remain policy/approval gated and never accept
+# caller filesystem paths.
 install_knowledge_backup_remote_operations()
 install_knowledge_collection_remote_operations()
 install_local_files_remote_operations()
+install_local_file_action_tools()
+install_local_file_action_approvals()
 install_local_file_agent_tools()
+install_local_file_action_agent_tools()
+install_local_file_action_registry()
 
 app.include_router(delegation_router)
 app.include_router(brain_router)
@@ -97,12 +106,16 @@ def capabilities() -> dict:
             "remote_operation": "knowledge.search",
         },
         "files": {
-            "version": "v0.38",
-            "permission": "files.read",
-            "read_only": True,
+            "version": "v0.39",
+            "read_version": "v0.38",
+            "action_version": "v0.39",
+            "permissions": ["files.read", "files.write"],
+            "read_only_api": True,
+            "write_policy_gated": True,
             "indexed_text_only": True,
             "collection_scoped": True,
-            "operations": ["files.list", "files.read"],
+            "arbitrary_paths": False,
+            "operations": ["files.list", "files.read", "files.update", "files.delete"],
         },
         "inference": {
             "available": bool(inference["available"]),
@@ -137,9 +150,12 @@ def capabilities() -> dict:
             "conversations",
             "events.read",
             "events.write",
+            "files.actions.v1",
+            "files.approval_gated.v1",
             "files.governed.v1",
             "files.indexed_text.v1",
             "files.read",
+            "files.write",
             "inference.routing",
             "inference.status",
             "knowledge.citations.v1",
