@@ -299,6 +299,14 @@
 
   window.HomeServerAgentVoiceProfile = Object.freeze({load, getEffective, preview});
 
+  if (!document.querySelector('script[data-agent-management]')) {
+    const script = document.createElement('script');
+    script.src = '/assets/agent-management.js';
+    script.defer = true;
+    script.dataset.agentManagement = 'v0.46';
+    document.head.appendChild(script);
+  }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
 })();

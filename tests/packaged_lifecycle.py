@@ -53,6 +53,23 @@ def verify_agent_voice_profile(client: httpx.Client, *, expected_rate: float | N
     return agent_id
 
 
+def verify_secondary_persona(client: httpx.Client, agent_id: int) -> None:
+    response = client.get(f"/api/v1/control/agents/{agent_id}")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["version"] == "v0.46"
+    agent = payload["agent"]
+    assert agent["id"] == agent_id
+    assert agent["is_primary"] is False
+    assert agent["name"] == "Packaged Research Agent"
+    assert agent["model"] == "packaged-local-model"
+    assert agent["instructions"] == "Verify packaged multi-Agent persona persistence."
+    assert agent["voice_profile"]["version"] == "v0.45"
+    assert agent["voice_profile"]["overrides"]["voice"] is None
+    assert agent["voice_profile"]["overrides"]["speaking_rate"] == 1.2
+    assert agent["voice_profile"]["overrides"]["sentence_silence"] == 0.25
+
+
 def main() -> None:
     assert os.environ.get("HOMESERVER_DATA_DIR"), "HOMESERVER_DATA_DIR is required"
     assert wait_health(True, 20), "packaged HomeServer is not healthy before lifecycle test"
@@ -65,6 +82,33 @@ def main() -> None:
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()["overrides"]["speaking_rate"] == 1.1
+
+    created = first.post(
+        "/api/v1/control/agents",
+        json={
+            "name": "Packaged Research Agent",
+            "instructions": "Initial packaged persona.",
+            "model": "packaged-local-model",
+        },
+    )
+    assert created.status_code == 200, created.text
+    secondary_id = int(created.json()["agent"]["id"])
+    assert secondary_id != agent_id
+    persona = first.put(
+        f"/api/v1/control/agents/{secondary_id}/persona",
+        json={
+            "name": "Packaged Research Agent",
+            "instructions": "Verify packaged multi-Agent persona persistence.",
+            "model": "packaged-local-model",
+            "voice_profile": {
+                "voice": None,
+                "speaking_rate": 1.2,
+                "sentence_silence": 0.25,
+            },
+        },
+    )
+    assert persona.status_code == 200, persona.text
+    verify_secondary_persona(first, secondary_id)
 
     old_cookie = first.cookies.get("homeserver_owner")
     assert old_cookie
@@ -88,12 +132,17 @@ def main() -> None:
 
     second = authorize()
     assert verify_agent_voice_profile(second, expected_rate=1.1) == agent_id
+    verify_secondary_persona(second, secondary_id)
+    agents = second.get("/api/v1/control/agents")
+    assert agents.status_code == 200, agents.text
+    assert any(item["id"] == secondary_id and not item["is_primary"] for item in agents.json()["items"])
+
     shutdown = second.post("/api/v1/control/system/shutdown")
     assert shutdown.status_code == 200 and shutdown.json()["accepted"] is True
     second.close()
     assert wait_health(False, 20), "HomeServer listener remained active after supervised shutdown"
 
-    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile persistence/shutdown test passed")
+    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile/v0.46 persona persistence/shutdown test passed")
 
 
 if __name__ == "__main__":
