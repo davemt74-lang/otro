@@ -5,7 +5,15 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, awareness_context, brain, context_engine, knowledge_collection_policy, providers, usage as usage_service
+from . import (
+    app_scopes,
+    brain,
+    canonical_context,
+    context_engine,
+    knowledge_collection_policy,
+    providers,
+    usage as usage_service,
+)
 
 
 def _apply_context_options(conversation_id: str, options: dict[str, Any] | None) -> dict[str, Any]:
@@ -24,24 +32,6 @@ def _apply_context_options(conversation_id: str, options: dict[str, Any] | None)
         if value is not None:
             values[key] = value
     return context_engine.update_settings(conversation_id, **values)
-
-
-def _effective_settings(
-    settings: dict[str, Any],
-    *,
-    allow_memory: bool,
-    allow_knowledge: bool,
-    allow_contacts: bool,
-    allow_awareness: bool,
-    scope_cloud_allowed: bool = True,
-) -> dict[str, Any]:
-    result = dict(settings)
-    result["include_memory"] = bool(result.get("include_memory") and allow_memory)
-    result["include_knowledge"] = bool(result.get("include_knowledge") and allow_knowledge)
-    result["include_contacts"] = bool(result.get("include_contacts") and allow_contacts)
-    result["include_awareness"] = bool(allow_awareness)
-    result["cloud_allowed"] = bool(result.get("cloud_allowed") and scope_cloud_allowed)
-    return result
 
 
 def _private_inference_route(inference: dict[str, Any]) -> tuple[str, str, str | None]:
@@ -73,6 +63,12 @@ def _apply_collection_scope_to_bundle(
     *,
     owner_tools: bool,
 ) -> None:
+    """Compatibility shim for Section 8 consumers.
+
+    v4.30 applies this policy inside canonical_context before prompt assembly.
+    Keep the historical helper callable for older regression/integration code,
+    but do not use it from the active chat path.
+    """
     if owner_tools or not str(source_app_key or "").startswith("app:"):
         return
     app_id = knowledge_collection_policy.app_id_for_source(source_app_key)
@@ -88,7 +84,8 @@ def _apply_collection_scope_to_bundle(
         )
         allowed_ids = {int(item["id"]) for item in bundle.knowledge}
         bundle.sources = [
-            ref for ref in bundle.sources
+            ref
+            for ref in bundle.sources
             if ref.get("kind") != "knowledge" or int(ref.get("id") or 0) in allowed_ids
         ]
     bundle.context_chars = sum(
@@ -96,6 +93,27 @@ def _apply_collection_scope_to_bundle(
         for group in (bundle.memory, bundle.knowledge, bundle.contacts)
         for item in group
     )
+
+
+def _safe_run_metadata(
+    tool_state: dict[str, Any],
+    context: canonical_context.CanonicalContext,
+    *,
+    context_event_id: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "tool_run_ids": list(tool_state.get("run_ids") or []),
+        "action_request_ids": list(tool_state.get("action_request_ids") or []),
+        "provider_usage": dict(tool_state.get("provider_usage") or {}),
+        "context_event_id": context_event_id,
+        "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
+        "context_provenance": context.provenance,
+        "context_budget": context.budget,
+        "cloud_allowed": context.cloud_allowed,
+        "scope_enforced": True,
+        "collaboration_version": context.collaboration.get("version"),
+        "collaboration_sources": context.collaboration_sources,
+    }
 
 
 def chat(
@@ -117,26 +135,34 @@ def chat(
         raise brain.BrainError("Message exceeds the 32,000 character limit.")
 
     granted_permissions = set(tool_permissions or set())
-    allow_awareness = bool(owner_tools or "awareness.read" in granted_permissions)
-    scope = app_scopes.get_scope_for_source(source_app_key) if not owner_tools else dict(app_scopes.DEFAULT_SCOPE)
-    model_tool_permissions = (
-        granted_permissions
-        if owner_tools
-        else app_scopes.scoped_tool_permissions(scope, granted_permissions)
-    )
-
     agent = brain._primary_agent()
     conversation_id = brain._conversation_for_source(
         source_app_key, conversation_id, int(agent["id"]), text
     )
     settings = _apply_context_options(conversation_id, context_options)
-    effective_cloud_allowed = bool(settings["cloud_allowed"] and scope["cloud_allowed"])
+
+    canonical = canonical_context.build_authorized_context(
+        agent_id=int(agent["id"]),
+        query=text,
+        source_app_key=source_app_key,
+        permissions=granted_permissions,
+        owner=owner_tools,
+        include_memory=include_memory,
+        include_knowledge=include_knowledge,
+        include_contacts=include_contacts,
+        settings=settings,
+        max_context_chars=int(settings["max_context_chars"]),
+        cloud_allowed=bool(settings["cloud_allowed"]),
+        surface_context=None,
+        include_collaboration=True,
+    )
+    bundle = canonical.bundle
 
     inference = providers.inference_status()
     provider_key = str(inference.get("selected_provider") or "unavailable")
     provider_model = str(inference.get("model") or "")
     provider_override: str | None = None
-    if not effective_cloud_allowed:
+    if not canonical.cloud_allowed:
         provider_key, provider_model, provider_override = _private_inference_route(inference)
 
     with db() as connection:
@@ -148,55 +174,16 @@ def chat(
             "UPDATE conversations SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (conversation_id,)
         )
 
-    bundle = context_engine.collect_context(
-        int(agent["id"]),
-        text,
-        conversation_id,
-        allow_memory=include_memory,
-        allow_knowledge=include_knowledge,
-        allow_contacts=include_contacts,
-        memory_key_prefixes=scope["memory_key_prefixes"],
-        knowledge_kinds=scope["knowledge_kinds"],
-    )
-    _apply_collection_scope_to_bundle(source_app_key, scope, bundle, owner_tools=owner_tools)
-
-    awareness_items: list[dict[str, Any]] = []
-    awareness_fragment = ""
-    awareness_sources: list[dict[str, Any]] = []
-    if allow_awareness:
-        remaining = max(0, int(bundle.settings.get("max_context_chars") or 12000) - int(bundle.context_chars))
-        if remaining >= 180:
-            awareness_items = awareness_context.collect(text, limit=6)
-            awareness_fragment = awareness_context.prompt_fragment(awareness_items, max_chars=min(2400, remaining))
-            if awareness_fragment:
-                awareness_sources = awareness_context.source_refs(awareness_items)
-            else:
-                awareness_items = []
-
-    awareness_chars = len(awareness_fragment)
-    all_sources = [*bundle.sources, *awareness_sources]
-    total_context_chars = int(bundle.context_chars) + awareness_chars
-    effective_settings = _effective_settings(
-        bundle.settings,
-        allow_memory=include_memory,
-        allow_knowledge=include_knowledge,
-        allow_contacts=include_contacts,
-        allow_awareness=allow_awareness,
-        scope_cloud_allowed=scope["cloud_allowed"],
-    )
-    system_prompt = context_engine.system_prompt(agent, bundle)
-    if awareness_fragment:
-        system_prompt += "\n\n" + awareness_fragment
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": canonical_context.system_prompt(agent, canonical)},
         *brain._history(conversation_id),
     ]
-
     selected_model = (
         provider_model.strip()
         if provider_override == "ollama"
         else (agent.get("model") or provider_model).strip()
     )
+
     with db() as connection:
         cursor = connection.execute(
             """
@@ -213,35 +200,27 @@ def chat(
                 len(bundle.memory),
                 len(bundle.knowledge),
                 len(bundle.contacts),
-                len(awareness_items),
-                total_context_chars,
+                len(canonical.awareness_items),
+                canonical.total_context_chars,
             ),
         )
         run_id = int(cursor.lastrowid)
 
     started = time.perf_counter()
-    tool_state: dict[str, Any] = {
-        "policy_enabled": False,
-        "allow_write_proposals": False,
-        "available": False,
-        "max_calls": 3,
-        "call_count": 0,
-        "run_ids": [],
-        "action_request_ids": [],
-        "provider_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }
+    tool_state: dict[str, Any] = {}
     try:
         generated, tool_state = brain._generate_with_agent_tools(
             messages,
             source_app_key=source_app_key,
             selected_model=selected_model,
-            granted_permissions=model_tool_permissions,
+            granted_permissions=canonical.model_tool_permissions,
             owner=owner_tools,
             state=tool_state,
             provider_key=provider_override,
         )
     except providers.ProviderError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
+        failed_metadata = _safe_run_metadata(tool_state, canonical)
         with db() as connection:
             connection.execute(
                 """
@@ -249,35 +228,38 @@ def chat(
                 SET status='failed', duration_ms=?, error=?, tool_call_count=?, metadata_json=?, completed_at=CURRENT_TIMESTAMP
                 WHERE id=?
                 """,
-                (duration_ms, str(exc)[:1000], int(tool_state["call_count"]), brain._run_metadata(tool_state), run_id),
+                (
+                    duration_ms,
+                    str(exc)[:1000],
+                    int(tool_state.get("call_count") or 0),
+                    json.dumps(failed_metadata, separators=(",", ":")),
+                    run_id,
+                ),
             )
         raise brain.BrainError(str(exc), 503) from exc
 
     duration_ms = int((time.perf_counter() - started) * 1000)
-    reply = generated["content"].strip()
+    reply = str(generated.get("content") or "").strip()
+    if not reply:
+        raise brain.BrainError("Inference provider returned no final response text.", 503)
+
     context_event_id = context_engine.record_retrieval(conversation_id, source_app_key, bundle)
     metadata = {
         "provider": generated["provider"],
         "run_id": run_id,
-        "tool_call_count": int(tool_state["call_count"]),
-        "tool_run_ids": tool_state["run_ids"],
-        "action_request_ids": tool_state["action_request_ids"],
-        "provider_usage": tool_state["provider_usage"],
+        "tool_call_count": int(tool_state.get("call_count") or 0),
+        "tool_run_ids": list(tool_state.get("run_ids") or []),
+        "action_request_ids": list(tool_state.get("action_request_ids") or []),
+        "provider_usage": dict(tool_state.get("provider_usage") or {}),
         "context_event_id": context_event_id,
-        "context_sources": all_sources,
-        "awareness_count": len(awareness_items),
+        "context_sources": canonical.source_refs,
+        "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
+        "context_provenance": canonical.provenance,
+        "context_budget": canonical.budget,
         "scope_enforced": not owner_tools,
     }
-    run_metadata = json.loads(brain._run_metadata(tool_state))
-    run_metadata.update(
-        {
-            "context_event_id": context_event_id,
-            "context_source_refs": all_sources,
-            "cloud_allowed": effective_cloud_allowed,
-            "awareness_count": len(awareness_items),
-            "scope_enforced": not owner_tools,
-        }
-    )
+    run_metadata = _safe_run_metadata(tool_state, canonical, context_event_id=context_event_id)
+    run_metadata["scope_enforced"] = not owner_tools
 
     with db() as connection:
         connection.execute(
@@ -307,7 +289,7 @@ def chat(
                 generated["provider"],
                 generated["model"],
                 duration_ms,
-                int(tool_state["call_count"]),
+                int(tool_state.get("call_count") or 0),
                 json.dumps(run_metadata, separators=(",", ":")),
                 run_id,
             ),
@@ -328,11 +310,12 @@ def chat(
                         "memory_count": len(bundle.memory),
                         "knowledge_count": len(bundle.knowledge),
                         "contact_count": len(bundle.contacts),
-                        "awareness_count": len(awareness_items),
-                        "context_chars": total_context_chars,
+                        "awareness_count": len(canonical.awareness_items),
+                        "context_chars": canonical.total_context_chars,
+                        "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
                         "context_event_id": context_event_id,
-                        "tool_call_count": int(tool_state["call_count"]),
-                        "action_request_count": len(tool_state["action_request_ids"]),
+                        "tool_call_count": int(tool_state.get("call_count") or 0),
+                        "action_request_count": len(tool_state.get("action_request_ids") or []),
                         "duration_ms": duration_ms,
                         "scope_enforced": not owner_tools,
                     },
@@ -342,7 +325,7 @@ def chat(
         )
 
     actual_compute_source = "homeserver_local" if generated["provider"] == "ollama" else "user_provider"
-    provider_usage = tool_state.get("provider_usage", {})
+    provider_usage = dict(tool_state.get("provider_usage") or {})
     try:
         usage_service.record_usage(
             event_id=f"agent-run:{run_id}",
@@ -359,17 +342,22 @@ def chat(
                 "conversation_id": conversation_id,
                 "run_id": run_id,
                 "context_event_id": context_event_id,
-                "context_chars": total_context_chars,
+                "context_chars": canonical.total_context_chars,
+                "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
                 "scope_enforced": not owner_tools,
                 "context_source_counts": {
                     **bundle.counts,
-                    "awareness_count": len(awareness_items),
+                    "awareness_count": len(canonical.awareness_items),
+                    "collaboration_memory_count": canonical.collaboration_memory_count,
+                    "collaboration_knowledge_count": canonical.collaboration_knowledge_count,
                 },
             },
         )
     except usage_service.UsageError:
         pass
 
+    effective_settings = dict(canonical.effective_settings)
+    effective_settings["include_awareness"] = bool(owner_tools or "awareness.read" in granted_permissions)
     return {
         "conversation_id": conversation_id,
         "reply": reply,
@@ -381,10 +369,21 @@ def chat(
         "run_id": run_id,
         "context": {
             **bundle.counts,
-            "awareness_count": len(awareness_items),
-            "context_chars": total_context_chars,
-            "sources": all_sources,
+            "awareness_count": len(canonical.awareness_items),
+            "collaboration_memory_count": canonical.collaboration_memory_count,
+            "collaboration_knowledge_count": canonical.collaboration_knowledge_count,
+            "context_chars": canonical.total_context_chars,
+            "sources": canonical.source_refs,
+            "provenance": canonical.provenance,
+            "budget": canonical.budget,
+            "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
             "settings": effective_settings,
+        },
+        "collaboration": {
+            "version": canonical.collaboration.get("version"),
+            "active": bool(canonical.collaboration_sources),
+            "read_only_agent_context": True,
+            "sources": canonical.collaboration_sources,
         },
         "tools": tool_state,
     }
