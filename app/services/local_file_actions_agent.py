@@ -55,7 +55,6 @@ def install() -> None:
             execution = agent_tools._execution_policy(source_app_key, tool_key, owner)
             if execution and execution["policy_mode"] == action_policy.SENSITIVE_HIGH_IMPACT:
                 continue
-            automatic = bool(execution and execution["policy_mode"] == action_policy.SAFE_AUTOMATIC)
             schemas.append(
                 {
                     "type": "function",
@@ -63,11 +62,7 @@ def install() -> None:
                         "name": model_name,
                         "description": (
                             description
-                            + (
-                                " The owner has explicitly allowed safe-automatic execution for this app, so an accepted call may execute immediately."
-                                if automatic
-                                else " This creates a pending action request and does not change the file until an authorized approval executes it."
-                            )
+                            + " This always creates a pending action request; the file cannot change until local HomeServer owner control approves it."
                         ),
                         "parameters": item["input_schema"],
                     },
@@ -129,24 +124,10 @@ def install() -> None:
             )
             raise agent_tools._deny_unavailable(source_app_key, owner)
 
-        if execution and execution["policy_mode"] == action_policy.SAFE_AUTOMATIC:
-            try:
-                result = tools.execute_tool(
-                    source_app_key,
-                    tool_key,
-                    args,
-                    granted,
-                    owner=owner,
-                )
-            except tools.ToolError as exc:
-                raise agent_tools.AgentToolError(str(exc)) from exc
-            agent_tools._record_policy(
-                execution,
-                "allowed_automatic",
-                reason="File action allowed by owner-defined safe-automatic policy.",
-            )
-            return result
-
+        # Section 10 deliberately has no Agent auto-execute path. Even if a
+        # stale database row or future policy regression tried to classify a
+        # file mutation as safe automatic, the model-facing adapter remains a
+        # proposal-only boundary and requires local owner approval.
         try:
             result = creator(source_app_key, args, owner=owner)
         except Exception as exc:
@@ -158,7 +139,7 @@ def install() -> None:
             execution,
             "approval_requested",
             request_id=request_id,
-            reason="Agent file mutation requires approval before execution.",
+            reason="Agent file mutation requires local owner approval before execution.",
         )
         return result
 
