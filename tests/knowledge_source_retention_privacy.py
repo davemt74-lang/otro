@@ -48,7 +48,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-source-retention-") as temp_
         before = client.get("/api/v1/knowledge?q=RETENTION_PRIVACY_SENTINEL_55127", headers=headers)
         assert before.status_code == 200
         assert len(before.json()["items"]) == 1
-        assert before.json()["items"][0]["source_path"] is None
+        before_item = before.json()["items"][0]
+        assert "source_path" not in before_item
+        assert before_item["citation"]["source_type"] == "watched_folder"
+        assert before_item["citation"]["relative_path"] == "notes.md"
+        assert str(source_dir) not in before.text
+        assert str(root) not in before.text
 
         retained = client.delete(f"/api/v1/control/knowledge/sources/{source_id}?keep_indexed=true")
         assert retained.status_code == 200
@@ -63,7 +68,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-source-retention-") as temp_
         after = client.get("/api/v1/knowledge?q=RETENTION_PRIVACY_SENTINEL_55127", headers=headers)
         assert after.status_code == 200
         assert len(after.json()["items"]) == 1
-        assert after.json()["items"][0]["source_path"] is None
+        after_item = after.json()["items"][0]
+        assert "source_path" not in after_item
+        assert after_item["citation"]["source_type"] == "local_item"
+        assert after_item["citation"]["relative_path"] == ""
         assert str(source_dir) not in after.text
         assert str(root) not in after.text
 
