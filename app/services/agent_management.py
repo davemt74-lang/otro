@@ -77,7 +77,6 @@ def _decorate(agent: dict[str, Any], *, include_profile: bool = False) -> dict[s
     result = {
         "id": int(agent["id"]),
         "name": agent["name"],
-        "instructions": agent["instructions"],
         "model": agent["model"],
         "is_primary": bool(agent["is_primary"]),
         "created_at": agent["created_at"],
@@ -85,23 +84,23 @@ def _decorate(agent: dict[str, Any], *, include_profile: bool = False) -> dict[s
         "voice": _voice_summary(profile),
     }
     if include_profile:
+        result["instructions"] = agent["instructions"]
         result["voice_profile"] = profile
     return result
 
 
-def _log(action: str, agent_id: int, metadata: dict[str, Any] | None = None) -> None:
-    with db() as connection:
-        connection.execute(
-            """
-            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES ('owner', 'control-center', ?, 'agent', ?, ?)
-            """,
-            (
-                action,
-                str(int(agent_id)),
-                json.dumps(metadata or {}, ensure_ascii=False, separators=(",", ":")),
-            ),
-        )
+def _log(connection: Any, action: str, agent_id: int, metadata: dict[str, Any] | None = None) -> None:
+    connection.execute(
+        """
+        INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
+        VALUES ('owner', 'control-center', ?, 'agent', ?, ?)
+        """,
+        (
+            action,
+            str(int(agent_id)),
+            json.dumps(metadata or {}, ensure_ascii=False, separators=(",", ":")),
+        ),
+    )
 
 
 def list_agents() -> dict[str, Any]:
@@ -137,7 +136,7 @@ def create_agent(value: Any) -> dict[str, Any]:
             (agent["name"], agent["instructions"], agent["model"]),
         )
         agent_id = int(cursor.lastrowid)
-    _log("agent.secondary.created", agent_id)
+        _log(connection, "agent.secondary.created", agent_id)
     return get_agent(agent_id)
 
 
@@ -153,7 +152,11 @@ def update_agent(agent_id: int, value: Any) -> dict[str, Any]:
             """,
             (agent["name"], agent["instructions"], agent["model"], int(current["id"])),
         )
-    _log("agent.secondary.updated" if not current["is_primary"] else "agent.updated", int(current["id"]))
+        _log(
+            connection,
+            "agent.secondary.updated" if not current["is_primary"] else "agent.updated",
+            int(current["id"]),
+        )
     return get_agent(int(current["id"]))
 
 
@@ -169,11 +172,12 @@ def delete_agent(agent_id: int) -> dict[str, Any]:
             ).fetchone()[0]
         )
         connection.execute("DELETE FROM agents WHERE id=?", (int(current["id"]),))
-    _log(
-        "agent.secondary.deleted",
-        int(current["id"]),
-        {"name": current["name"], "detached_memory_items": detached_memories},
-    )
+        _log(
+            connection,
+            "agent.secondary.deleted",
+            int(current["id"]),
+            {"name": current["name"], "detached_memory_items": detached_memories},
+        )
     return {
         "version": AGENT_PERSONA_MANAGEMENT_VERSION,
         "deleted": True,
@@ -184,22 +188,29 @@ def delete_agent(agent_id: int) -> dict[str, Any]:
 
 def duplicate_agent(agent_id: int) -> dict[str, Any]:
     source = _row(agent_id)
-    source_profile = agent_voice_profiles.get_profile(int(source["id"]))
     suffix = " Copy"
     base_name = str(source["name"])
     name = (base_name[: 120 - len(suffix)] + suffix).strip()
-    created = create_agent(
-        {
-            "name": name,
-            "instructions": source["instructions"],
-            "model": source["model"],
-        }
-    )
-    new_id = int(created["agent"]["id"])
-    overrides = dict(source_profile["overrides"])
-    if any(value is not None for value in overrides.values()):
-        agent_voice_profiles.save_profile(new_id, overrides)
-    _log("agent.secondary.duplicated", new_id, {"source_agent_id": int(source["id"])})
+    with db() as connection:
+        cursor = connection.execute(
+            "INSERT INTO agents(name, instructions, model, is_primary) VALUES (?, ?, ?, 0)",
+            (name, source["instructions"], source["model"]),
+        )
+        new_id = int(cursor.lastrowid)
+        copied_profile = connection.execute(
+            """
+            INSERT INTO agent_voice_profiles(agent_id, voice_key, speaking_rate, sentence_silence)
+            SELECT ?, voice_key, speaking_rate, sentence_silence
+            FROM agent_voice_profiles WHERE agent_id=?
+            """,
+            (new_id, int(source["id"])),
+        ).rowcount > 0
+        _log(
+            connection,
+            "agent.secondary.duplicated",
+            new_id,
+            {"source_agent_id": int(source["id"]), "copied_voice_profile": copied_profile},
+        )
     result = get_agent(new_id)
     result["duplicated_from"] = int(source["id"])
     return result
