@@ -5,6 +5,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 service = (ROOT / "app/services/knowledge_collections.py").read_text(encoding="utf-8")
+api = (ROOT / "app/knowledge_collections_api.py").read_text(encoding="utf-8")
+main = (ROOT / "app/main.py").read_text(encoding="utf-8")
 remote = (ROOT / "app/services/knowledge_collections_remote.py").read_text(encoding="utf-8")
 bridge = (ROOT / "app/bridge.py").read_text(encoding="utf-8")
 schema = (ROOT / "database/knowledge_collections.sql").read_text(encoding="utf-8")
@@ -31,6 +33,15 @@ assert '"source_path"' not in result_block, "paired knowledge search must not ex
 assert '"content"' not in result_block, "paired knowledge search must not return full document content"
 assert "Path(" not in result_block, "paired knowledge search must not resolve local filesystem paths"
 assert "read_bytes" not in result_block and "read_text" not in result_block, "collection search must query the local index, not raw files"
+
+# Existing app kind scope and the historical authenticated route must both pass
+# through the canonical v0.37 scoped result contract.
+assert "def scoped_knowledge_search" in api
+assert "app_scopes.knowledge_kind_allowed" in api
+assert "knowledge_collections.search_for_app" in api
+legacy_block = main[main.index('@app.get("/api/v1/knowledge")'):main.index('@app.get("/api/v1/memory")')]
+assert "scoped_knowledge_search" in legacy_block
+assert "list_knowledge" not in legacy_block
 
 assert 'op != "knowledge.search"' in remote
 assert '"/api/v1/knowledge/search-v037"' in remote
