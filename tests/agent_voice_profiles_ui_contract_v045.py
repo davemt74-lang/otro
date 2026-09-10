@@ -8,6 +8,7 @@ api = (ROOT / "app" / "local_voice_api.py").read_text(encoding="utf-8")
 service = (ROOT / "app" / "services" / "agent_voice_profiles.py").read_text(encoding="utf-8")
 catalog_service = (ROOT / "app" / "services" / "voice_settings.py").read_text(encoding="utf-8")
 database = (ROOT / "app" / "database.py").read_text(encoding="utf-8")
+spec = (ROOT / "HomeServer.spec").read_text(encoding="utf-8")
 ui = (ROOT / "ui" / "agent-voice-profile.js").read_text(encoding="utf-8")
 catalog_ui = (ROOT / "ui" / "voice-catalog.js").read_text(encoding="utf-8")
 css = (ROOT / "ui" / "agent-voice-profile.css").read_text(encoding="utf-8")
@@ -22,6 +23,8 @@ assert "CREATE TABLE IF NOT EXISTS agent_voice_profiles" in feature_schema
 assert "FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE" in feature_schema
 assert "speaking_rate >= 0.6" in feature_schema and "speaking_rate <= 1.6" in feature_schema
 assert "sentence_silence >= 0.0" in feature_schema and "sentence_silence <= 1.5" in feature_schema
+assert "database/agent_voice_profiles.sql" in spec
+assert "database/knowledge_collections.sql" in spec
 
 for route in (
     '@router.get("/agents/{agent_id}/profile")',
