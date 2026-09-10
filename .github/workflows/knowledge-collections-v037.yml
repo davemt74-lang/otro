@@ -7,11 +7,15 @@ on:
       - 'app/database.py'
       - 'app/main.py'
       - 'app/knowledge_collections_api.py'
+      - 'app/services/app_collaboration.py'
+      - 'app/services/context_chat.py'
       - 'app/services/knowledge_collection_policy.py'
       - 'app/services/knowledge_collections.py'
       - 'app/services/knowledge_collections_remote.py'
+      - 'app/services/tools.py'
       - 'database/knowledge_collections.sql'
       - 'docs/section-8-local-knowledge-v037.md'
+      - 'tests/knowledge_collection_consumers_v037.py'
       - 'tests/knowledge_collections_v037.py'
       - 'tests/knowledge_collections_v037_contract.py'
       - 'tests/knowledge_collections_v037_remote_contract.py'
@@ -24,11 +28,15 @@ on:
       - 'app/database.py'
       - 'app/main.py'
       - 'app/knowledge_collections_api.py'
+      - 'app/services/app_collaboration.py'
+      - 'app/services/context_chat.py'
       - 'app/services/knowledge_collection_policy.py'
       - 'app/services/knowledge_collections.py'
       - 'app/services/knowledge_collections_remote.py'
+      - 'app/services/tools.py'
       - 'database/knowledge_collections.sql'
       - 'docs/section-8-local-knowledge-v037.md'
+      - 'tests/knowledge_collection_consumers_v037.py'
       - 'tests/knowledge_collections_v037.py'
       - 'tests/knowledge_collections_v037_contract.py'
       - 'tests/knowledge_collections_v037_remote_contract.py'
@@ -53,7 +61,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Section 8 modules
-        run: python -m py_compile app/database.py app/bridge.py app/main.py app/knowledge_collections_api.py app/services/knowledge_collection_policy.py app/services/knowledge_collections.py app/services/knowledge_collections_remote.py
+        run: >-
+          python -m py_compile
+          app/database.py
+          app/bridge.py
+          app/main.py
+          app/knowledge_collections_api.py
+          app/services/app_collaboration.py
+          app/services/context_chat.py
+          app/services/knowledge_collection_policy.py
+          app/services/knowledge_collections.py
+          app/services/knowledge_collections_remote.py
+          app/services/tools.py
       - name: Static trust-boundary contract
         run: python tests/knowledge_collections_v037_contract.py
       - name: Remote knowledge routing contract
@@ -62,6 +81,8 @@ jobs:
         run: python tests/knowledge_collections_v037.py
       - name: Legacy + knowledge-kind scope regression
         run: python tests/knowledge_scope_compat_v037.py
+      - name: Paired knowledge consumer regression
+        run: python tests/knowledge_collection_consumers_v037.py
       - name: Existing watched-folder regression
         run: python tests/knowledge_sources.py
       - name: Existing source privacy regression
