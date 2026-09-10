@@ -10,7 +10,7 @@ from typing import Any
 from ..config import settings
 from . import local_apps, voice_settings
 
-VOICE_RUNTIME_VERSION = "v0.43"
+VOICE_RUNTIME_VERSION = "v0.42"
 MAX_AUDIO_BYTES = 16 * 1024 * 1024
 MAX_TTS_CHARS = 4000
 TRANSCRIBE_TIMEOUT_SECONDS = 90
@@ -95,10 +95,7 @@ def _tts_status(tts_voice: dict[str, Any]) -> dict[str, Any]:
     runtime_key = tts_voice["runtime_app_key"]
     voice_key = tts_voice["app_key"]
     runtime = _provider_status(runtime_key, ["runtime/piper/piper.exe"])
-    if voice_key == runtime_key:
-        voice = _provider_status(voice_key, [tts_voice["model"], tts_voice["config"]])
-    else:
-        voice = _provider_status(voice_key, [tts_voice["model"], tts_voice["config"]])
+    voice = _provider_status(voice_key, [tts_voice["model"], tts_voice["config"]])
     reason = runtime.get("reason") or voice.get("reason")
     return {
         "available": bool(runtime["available"] and voice["available"]),
