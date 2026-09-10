@@ -4,9 +4,8 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import app_scopes, plugins, providers, tools
+from . import app_scopes, local_files, plugins, providers, tools
 from .knowledge import SUPPORTED_EXTENSIONS
-from .knowledge_sources import list_sources
 from .remote_bridge import bridge_status
 
 REGISTRY_VERSION = "v0.33"
@@ -140,20 +139,33 @@ def _knowledge_inventory(scope: dict[str, Any], permissions: set[str]) -> dict[s
     }
 
 
-def _file_inventory(permissions: set[str]) -> dict[str, Any]:
-    if "knowledge.search" not in permissions:
-        return {"available": False, "source_count": 0, "enabled_sources": 0, "tracked_files": 0, "indexed_files": 0, "supported_extensions": []}
-    try:
-        sources = list_sources()
-    except Exception:
-        return {"available": False, "source_count": 0, "enabled_sources": 0, "tracked_files": 0, "indexed_files": 0, "supported_extensions": []}
+def _file_inventory(identity: dict[str, Any], permissions: set[str]) -> dict[str, Any]:
+    available = (
+        _table_exists("knowledge_sources")
+        and _table_exists("knowledge_source_files")
+        and _table_exists("knowledge_items")
+    )
+    readable = "files.read" in permissions and available
+    visible_files = 0
+    if readable:
+        try:
+            visible_files = local_files.count_files(identity)
+        except Exception:
+            available = False
+            readable = False
+            visible_files = 0
+    scope = app_scopes.normalize(identity.get("scope") if isinstance(identity.get("scope"), dict) else None)
     return {
-        "available": True,
-        "source_count": len(sources),
-        "enabled_sources": sum(1 for item in sources if item.get("enabled")),
-        "tracked_files": sum(max(0, int(item.get("tracked_files") or 0)) for item in sources),
-        "indexed_files": sum(max(0, int(item.get("indexed_files") or 0)) for item in sources),
+        "available": available,
+        "readable": readable,
+        "read_only": True,
+        "visible_files": visible_files,
+        "collection_scoped": True,
+        "kind_restricted": bool(scope["knowledge_kinds"]),
+        "indexed_text_only": True,
+        "max_read_chars": local_files.MAX_READ_CHARS,
         "supported_extensions": sorted(str(value)[:16] for value in SUPPORTED_EXTENSIONS)[:100],
+        "capability_version": local_files.FILE_CAPABILITY_VERSION,
     }
 
 
@@ -249,6 +261,7 @@ def _operations(permissions: set[str], contacts_available: bool) -> list[str]:
     operations = ["capability.registry"]
     mapping = {
         "agent.chat": ["agent.chat", "inference.status", "conversations.list", "conversation.get"],
+        "files.read": ["files.list", "files.read"],
         "knowledge.search": ["knowledge.search"],
         "memory.read": ["memory.read"],
         "memory.write": ["memory.write"],
@@ -291,7 +304,7 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
         "compute": inference,
         "memory": _memory_inventory(scope, permissions),
         "knowledge": _knowledge_inventory(scope, permissions),
-        "files": _file_inventory(permissions),
+        "files": _file_inventory(identity, permissions),
         "contacts": contacts_inventory,
         "tools": tools_inventory,
         "skills": skills_inventory,
