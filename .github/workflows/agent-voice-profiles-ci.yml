@@ -3,6 +3,7 @@ name: Agent Voice Profiles CI
 on:
   pull_request:
     paths:
+      - 'HomeServer.spec'
       - 'database/agent_voice_profiles.sql'
       - 'app/database.py'
       - 'app/local_voice_api.py'
@@ -22,6 +23,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'HomeServer.spec'
       - 'database/agent_voice_profiles.sql'
       - 'app/database.py'
       - 'app/local_voice_api.py'
