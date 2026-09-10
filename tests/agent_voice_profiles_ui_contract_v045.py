@@ -7,18 +7,21 @@ ROOT = Path(__file__).resolve().parents[1]
 api = (ROOT / "app" / "local_voice_api.py").read_text(encoding="utf-8")
 service = (ROOT / "app" / "services" / "agent_voice_profiles.py").read_text(encoding="utf-8")
 catalog_service = (ROOT / "app" / "services" / "voice_settings.py").read_text(encoding="utf-8")
+database = (ROOT / "app" / "database.py").read_text(encoding="utf-8")
 ui = (ROOT / "ui" / "agent-voice-profile.js").read_text(encoding="utf-8")
 catalog_ui = (ROOT / "ui" / "voice-catalog.js").read_text(encoding="utf-8")
 css = (ROOT / "ui" / "agent-voice-profile.css").read_text(encoding="utf-8")
-migration = (ROOT / "database" / "migrations" / "021_agent_voice_profiles.sql").read_text(encoding="utf-8")
+feature_schema = (ROOT / "database" / "agent_voice_profiles.sql").read_text(encoding="utf-8")
 
 assert 'VOICE_AGENT_PROFILE_VERSION = "v0.45"' in service
 assert 'VOICE_CATALOG_VERSION = "v0.43"' in catalog_service
 assert 'VOICE_CATALOG_MANAGEMENT_VERSION = "v0.44"' in catalog_service
-assert "CREATE TABLE IF NOT EXISTS agent_voice_profiles" in migration
-assert "FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE" in migration
-assert "speaking_rate >= 0.6" in migration and "speaking_rate <= 1.6" in migration
-assert "sentence_silence >= 0.0" in migration and "sentence_silence <= 1.5" in migration
+assert "agent_voice_profiles.sql" in database
+assert "FEATURE_SCHEMA_PATHS" in database
+assert "CREATE TABLE IF NOT EXISTS agent_voice_profiles" in feature_schema
+assert "FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE" in feature_schema
+assert "speaking_rate >= 0.6" in feature_schema and "speaking_rate <= 1.6" in feature_schema
+assert "sentence_silence >= 0.0" in feature_schema and "sentence_silence <= 1.5" in feature_schema
 
 for route in (
     '@router.get("/agents/{agent_id}/profile")',
