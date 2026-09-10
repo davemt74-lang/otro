@@ -221,6 +221,19 @@
     return Boolean(byId('strictLocalVoice')?.checked);
   }
 
+  function captureTiming() {
+    return window.HomeServerVoiceSettings?.getCaptureTiming?.() || {
+      listenSilenceMs: SILENCE_MS,
+      noSpeechTimeoutMs: NO_SPEECH_MS,
+      maxSegmentMs: MAX_SEGMENT_MS,
+    };
+  }
+
+  function localCaptureConstraints() {
+    const base = {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true};
+    return window.HomeServerVoiceSettings?.captureConstraints?.(base) || {audio: base};
+  }
+
   async function refreshLocalVoiceStatus() {
     try {
       localVoiceStatus = await readJson(LOCAL_STATUS_ENDPOINT);
@@ -456,7 +469,7 @@
     captureVoiceStarted = false;
 
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+      mediaStream = await navigator.mediaDevices.getUserMedia(localCaptureConstraints());
       if (!conversationMode || generation !== captureGeneration) {
         mediaStream.getTracks().forEach(track => track.stop());
         mediaStream = null;
@@ -469,6 +482,7 @@
       source.connect(captureAnalyser);
 
       mediaRecorder = new MediaRecorder(mediaStream, recorderOptions());
+      const timing = captureTiming();
       const startedAt = performance.now();
       let lastVoiceAt = startedAt;
       mediaRecorder.ondataavailable = event => { if (event.data?.size) captureChunks.push(event.data); };
@@ -516,9 +530,9 @@
           captureVoiceStarted = true;
           lastVoiceAt = now;
         }
-        const silenceDone = captureVoiceStarted && now - lastVoiceAt >= SILENCE_MS;
-        const noSpeechDone = !captureVoiceStarted && now - startedAt >= NO_SPEECH_MS;
-        const maxDone = now - startedAt >= MAX_SEGMENT_MS;
+        const silenceDone = captureVoiceStarted && now - lastVoiceAt >= timing.listenSilenceMs;
+        const noSpeechDone = !captureVoiceStarted && now - startedAt >= timing.noSpeechTimeoutMs;
+        const maxDone = now - startedAt >= timing.maxSegmentMs;
         if (silenceDone || noSpeechDone || maxDone) {
           try { mediaRecorder.stop(); } catch (_) {}
         }
@@ -687,6 +701,7 @@
     const context = playbackContext;
     if (!context || context.state === 'closed') throw new Error('Local audio playback context is unavailable.');
     await context.resume();
+    await window.HomeServerVoiceSettings?.applyOutputSink?.(context);
     const decoded = await context.decodeAudioData(audioBytes.slice(0));
     if (!conversationMode || context !== playbackContext) return;
     cleanupPlayback();
@@ -818,6 +833,12 @@
     if (!event.target.closest('#strictLocalVoice')) return;
     try { localStorage.setItem('homeserver.strictLocalVoice', event.target.checked ? '1' : '0'); } catch (_) {}
     if (conversationMode) stopConversationMode('Conversation mode stopped because the local voice privacy setting changed.');
+  });
+
+  window.addEventListener('homeserver:voice-settings-changed', () => {
+    localVoiceStatus = null;
+    refreshLocalVoiceStatus().catch(() => null);
+    if (conversationMode) stopConversationMode('Conversation mode stopped because Voice Settings changed.');
   });
 
   document.addEventListener('keydown', event => {

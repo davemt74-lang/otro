@@ -50,6 +50,19 @@
     return Boolean(byId('strictLocalVoice')?.checked);
   }
 
+  function captureTiming() {
+    return window.HomeServerVoiceSettings?.getCaptureTiming?.() || {
+      listenSilenceMs: SILENCE_MS,
+      noSpeechTimeoutMs: NO_SPEECH_MS,
+      maxSegmentMs: MAX_SEGMENT_MS,
+    };
+  }
+
+  function localCaptureConstraints() {
+    const base = {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true};
+    return window.HomeServerVoiceSettings?.captureConstraints?.(base) || {audio: base};
+  }
+
   function localCaptureSupported() {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder && AudioContextCtor());
   }
@@ -339,7 +352,7 @@
     voiceStarted = false;
 
     try {
-      stream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+      stream = await navigator.mediaDevices.getUserMedia(localCaptureConstraints());
       if (!active || runGeneration !== generation) {
         stream.getTracks().forEach(track => track.stop());
         stream = null;
@@ -351,6 +364,7 @@
       analyser.fftSize = 1024;
       source.connect(analyser);
       recorder = new MediaRecorder(stream, recorderOptions());
+      const timing = captureTiming();
       const startedAt = performance.now();
       let lastVoiceAt = startedAt;
 
@@ -389,9 +403,9 @@
           voiceStarted = true;
           lastVoiceAt = now;
         }
-        const silenceDone = voiceStarted && now - lastVoiceAt >= SILENCE_MS;
-        const noSpeechDone = !voiceStarted && now - startedAt >= NO_SPEECH_MS;
-        const maxDone = now - startedAt >= MAX_SEGMENT_MS;
+        const silenceDone = voiceStarted && now - lastVoiceAt >= timing.listenSilenceMs;
+        const noSpeechDone = !voiceStarted && now - startedAt >= timing.noSpeechTimeoutMs;
+        const maxDone = now - startedAt >= timing.maxSegmentMs;
         if (silenceDone || noSpeechDone || maxDone) {
           try { recorder.stop(); } catch (_) {}
         }
@@ -535,6 +549,11 @@
     if ((active || starting) && event.target.closest('#strictLocalVoice')) {
       stopDictation('Dictation stopped because the local voice privacy setting changed.');
     }
+  });
+
+  window.addEventListener('homeserver:voice-settings-changed', () => {
+    cachedStatus = null;
+    if (active || starting) stopDictation('Dictation stopped because Voice Settings changed.');
   });
 
   window.addEventListener('beforeunload', () => stopDictation(''));
