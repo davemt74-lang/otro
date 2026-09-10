@@ -776,6 +776,11 @@
     // Unlock local audio synchronously inside the user's click gesture. This
     // prevents delayed Piper playback from being rejected by autoplay policy.
     unlockLocalAudio();
+    const settingsController = window.HomeServerVoiceSettings;
+    if (settingsController?.load) {
+      try { await settingsController.load(); } catch (_) {}
+    }
+    if (!conversationStarting) return;
     const status = await refreshLocalVoiceStatus();
     if (!conversationStarting) return;
     const strict = strictLocalEnabled();

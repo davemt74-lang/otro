@@ -472,6 +472,11 @@
     const startGeneration = ++generation;
     starting = true;
     setState('checking');
+    const settingsController = window.HomeServerVoiceSettings;
+    if (settingsController?.load) {
+      try { await settingsController.load(); } catch (_) {}
+    }
+    if (!starting || startGeneration !== generation) return;
     const status = await readStatus();
     if (!starting || startGeneration !== generation) return;
     const localReady = Boolean(status?.stt?.available && localCaptureSupported());
