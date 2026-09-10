@@ -1,0 +1,27 @@
+name: Agent Chat Dictation CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dictation-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate dictation JavaScript
+        run: node --check ui/chat-dictation.js
+      - name: Run dictation UI contract
+        run: python tests/chat_dictation_ui_contract.py
+      - name: Re-run conversation mode contract
+        run: python tests/chat_enhancements_ui_contract.py
