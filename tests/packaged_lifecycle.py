@@ -70,6 +70,18 @@ def verify_secondary_persona(client: httpx.Client, agent_id: int) -> None:
     assert agent["voice_profile"]["overrides"]["sentence_silence"] == 0.25
 
 
+def verify_agent_routing(client: httpx.Client, primary_id: int, secondary_id: int) -> None:
+    response = client.get("/api/v1/control/agent-routing")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["version"] == "v0.47"
+    assert payload["primary_implicit"] is True
+    agents = {int(item["id"]): item for item in payload["items"]}
+    assert agents[primary_id]["is_primary"] is True
+    assert agents[secondary_id]["is_primary"] is False
+    assert agents[secondary_id]["name"] == "Packaged Research Agent"
+
+
 def main() -> None:
     assert os.environ.get("HOMESERVER_DATA_DIR"), "HOMESERVER_DATA_DIR is required"
     assert wait_health(True, 20), "packaged HomeServer is not healthy before lifecycle test"
@@ -109,6 +121,7 @@ def main() -> None:
     )
     assert persona.status_code == 200, persona.text
     verify_secondary_persona(first, secondary_id)
+    verify_agent_routing(first, agent_id, secondary_id)
 
     old_cookie = first.cookies.get("homeserver_owner")
     assert old_cookie
@@ -133,6 +146,7 @@ def main() -> None:
     second = authorize()
     assert verify_agent_voice_profile(second, expected_rate=1.1) == agent_id
     verify_secondary_persona(second, secondary_id)
+    verify_agent_routing(second, agent_id, secondary_id)
     agents = second.get("/api/v1/control/agents")
     assert agents.status_code == 200, agents.text
     assert any(item["id"] == secondary_id and not item["is_primary"] for item in agents.json()["items"])
@@ -142,7 +156,7 @@ def main() -> None:
     second.close()
     assert wait_health(False, 20), "HomeServer listener remained active after supervised shutdown"
 
-    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile/v0.46 persona persistence/shutdown test passed")
+    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile/v0.46 persona/v0.47 routing persistence/shutdown test passed")
 
 
 if __name__ == "__main__":
