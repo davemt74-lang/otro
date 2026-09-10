@@ -7,6 +7,7 @@ on:
       - 'app/database.py'
       - 'app/main.py'
       - 'app/knowledge_collections_api.py'
+      - 'app/services/knowledge_collection_policy.py'
       - 'app/services/knowledge_collections.py'
       - 'app/services/knowledge_collections_remote.py'
       - 'database/knowledge_collections.sql'
@@ -23,6 +24,7 @@ on:
       - 'app/database.py'
       - 'app/main.py'
       - 'app/knowledge_collections_api.py'
+      - 'app/services/knowledge_collection_policy.py'
       - 'app/services/knowledge_collections.py'
       - 'app/services/knowledge_collections_remote.py'
       - 'database/knowledge_collections.sql'
@@ -51,7 +53,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Section 8 modules
-        run: python -m py_compile app/database.py app/bridge.py app/main.py app/knowledge_collections_api.py app/services/knowledge_collections.py app/services/knowledge_collections_remote.py
+        run: python -m py_compile app/database.py app/bridge.py app/main.py app/knowledge_collections_api.py app/services/knowledge_collection_policy.py app/services/knowledge_collections.py app/services/knowledge_collections_remote.py
       - name: Static trust-boundary contract
         run: python tests/knowledge_collections_v037_contract.py
       - name: Remote knowledge routing contract
