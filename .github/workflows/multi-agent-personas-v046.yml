@@ -1,0 +1,81 @@
+name: Multi-Agent Persona Management v0.46
+
+on:
+  pull_request:
+    paths:
+      - 'app/agents_api.py'
+      - 'app/bridge.py'
+      - 'app/services/agent_management.py'
+      - 'app/services/agent_voice_profiles.py'
+      - 'app/services/voice_settings.py'
+      - 'ui/agent-management.js'
+      - 'ui/agent-management.css'
+      - 'ui/agent-voice-profile.js'
+      - 'tests/multi_agent_personas_v046.py'
+      - 'tests/multi_agent_personas_ui_contract_v046.py'
+      - 'tests/agent_voice_profiles_v045.py'
+      - 'tests/voice_catalog_management_v044.py'
+      - 'tests/voice_catalog_v043.py'
+      - 'tests/voice_settings_v042.py'
+      - 'tests/local_voice_v041.py'
+      - '.github/workflows/multi-agent-personas-v046.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/agents_api.py'
+      - 'app/bridge.py'
+      - 'app/services/agent_management.py'
+      - 'app/services/agent_voice_profiles.py'
+      - 'app/services/voice_settings.py'
+      - 'ui/agent-management.js'
+      - 'ui/agent-management.css'
+      - 'ui/agent-voice-profile.js'
+      - 'tests/multi_agent_personas_v046.py'
+      - 'tests/multi_agent_personas_ui_contract_v046.py'
+      - 'tests/agent_voice_profiles_v045.py'
+      - 'tests/voice_catalog_management_v044.py'
+      - 'tests/voice_catalog_v043.py'
+      - 'tests/voice_settings_v042.py'
+      - 'tests/local_voice_v041.py'
+      - '.github/workflows/multi-agent-personas-v046.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  multi-agent-personas:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile multi-Agent persona backend
+        run: python -m compileall app/agents_api.py app/bridge.py app/services/agent_management.py tests/multi_agent_personas_v046.py tests/multi_agent_personas_ui_contract_v046.py
+      - name: Validate multi-Agent manager JavaScript
+        run: node --check ui/agent-management.js
+      - name: Validate primary Agent Voice Profile JavaScript
+        run: node --check ui/agent-voice-profile.js
+      - name: Multi-Agent Persona Management regression
+        run: python tests/multi_agent_personas_v046.py
+      - name: Multi-Agent Persona UI/API contract
+        run: python tests/multi_agent_personas_ui_contract_v046.py
+      - name: Retain v0.45 Agent Voice Profiles regression
+        run: python tests/agent_voice_profiles_v045.py
+      - name: Retain v0.44 Voice Catalog Management regression
+        run: python tests/voice_catalog_management_v044.py
+      - name: Retain v0.43 Voice Catalog regression
+        run: python tests/voice_catalog_v043.py
+      - name: Retain v0.42 Voice Settings regression
+        run: python tests/voice_settings_v042.py
+      - name: Retain v0.41 Local Voice Runtime regression
+        run: python tests/local_voice_v041.py
