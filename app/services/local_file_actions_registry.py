@@ -36,4 +36,13 @@ def install() -> None:
         return result
 
     capability_registry.build_registry = build_registry
+
+    # capability_registry_api imports build_registry by name, so update that
+    # already-loaded binding as well when the runtime bootstrap installs v0.39.
+    try:
+        from .. import capability_registry_api
+        capability_registry_api.build_registry = build_registry
+    except Exception:
+        pass
+
     capability_registry._local_file_actions_v039_installed = True
