@@ -63,6 +63,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "contacts.read",
             "events.read",
             "events.write",
+            "files.governed.v1",
+            "files.indexed_text.v1",
+            "files.read",
             "inference.routing",
             "inference.status",
             "knowledge.sources.local",
@@ -88,6 +91,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "contacts.read",
             "events.read",
             "events.write",
+            "files.read",
             "notifications.read",
             "plugins.read",
             "tasks.read",
@@ -134,6 +138,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert agent_tools.json()["policy"]["allow_write_proposals"] is False
         assert set(agent_tools.json()["available_tools"]) == {
             "homeserver_contacts_search",
+            "homeserver_file_read",
+            "homeserver_files_list",
             "homeserver_knowledge_search",
             "homeserver_memory_list",
             "homeserver_notifications_list",
@@ -145,6 +151,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert owner_tools.status_code == 200
         assert [item["key"] for item in owner_tools.json()["items"]] == [
             "contacts.search",
+            "files.list",
+            "files.read",
             "knowledge.search",
             "memory.list",
             "memory.write",
@@ -157,6 +165,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert owner_skills.status_code == 200
         assert [item["key"] for item in owner_skills.json()["items"]] == [
             "local.research",
+            "local.files",
             "relationship.context",
             "memory.manager",
             "task.manager",
@@ -371,6 +380,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert vp3_tools.status_code == 200
         by_key = {item["key"]: item for item in vp3_tools.json()["items"]}
         assert by_key["contacts.search"]["available"] is False
+        assert by_key["files.list"]["available"] is False
+        assert by_key["files.read"]["available"] is False
         assert by_key["knowledge.search"]["available"] is True
         assert by_key["memory.list"]["available"] is True
         assert by_key["memory.write"]["available"] is False
@@ -383,6 +394,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert vp3_skills.status_code == 200
         skills_by_key = {item["key"]: item for item in vp3_skills.json()["items"]}
         assert skills_by_key["local.research"]["available"] is True
+        assert skills_by_key["local.files"]["available"] is False
         assert skills_by_key["relationship.context"]["available"] is False
         assert skills_by_key["memory.manager"]["available"] is False
         assert skills_by_key["task.manager"]["available"] is False
