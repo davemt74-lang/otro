@@ -1,0 +1,67 @@
+name: Voice Settings CI
+
+on:
+  pull_request:
+    paths:
+      - 'app/local_voice_api.py'
+      - 'app/services/local_voice.py'
+      - 'app/services/voice_settings.py'
+      - 'ui/index.html'
+      - 'ui/voice-settings.js'
+      - 'ui/voice-settings.css'
+      - 'ui/chat-enhancements.js'
+      - 'ui/chat-dictation.js'
+      - 'tests/voice_settings_v042.py'
+      - 'tests/voice_settings_ui_contract.py'
+      - 'tests/local_voice_v041.py'
+      - '.github/workflows/voice-settings-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/local_voice_api.py'
+      - 'app/services/local_voice.py'
+      - 'app/services/voice_settings.py'
+      - 'ui/index.html'
+      - 'ui/voice-settings.js'
+      - 'ui/voice-settings.css'
+      - 'ui/chat-enhancements.js'
+      - 'ui/chat-dictation.js'
+      - 'tests/voice_settings_v042.py'
+      - 'tests/voice_settings_ui_contract.py'
+      - 'tests/local_voice_v041.py'
+      - '.github/workflows/voice-settings-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  voice-settings:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Voice Settings backend
+        run: python -m compileall app/local_voice_api.py app/services/local_voice.py app/services/voice_settings.py tests/voice_settings_v042.py tests/voice_settings_ui_contract.py
+      - name: Validate Voice Settings JavaScript
+        run: node --check ui/voice-settings.js
+      - name: Validate Conversation Mode JavaScript
+        run: node --check ui/chat-enhancements.js
+      - name: Validate Dictation Mode JavaScript
+        run: node --check ui/chat-dictation.js
+      - name: Voice Settings backend regression
+        run: python tests/voice_settings_v042.py
+      - name: Voice Settings UI contract
+        run: python tests/voice_settings_ui_contract.py
+      - name: Existing local voice runtime regression
+        run: python tests/local_voice_v041.py
+      - name: Existing Conversation Mode contract
+        run: python tests/chat_enhancements_ui_contract.py
+      - name: Existing Dictation Mode contract
+        run: python tests/chat_dictation_ui_contract.py
