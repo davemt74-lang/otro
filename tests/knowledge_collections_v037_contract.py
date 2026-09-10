@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 service = (ROOT / "app/services/knowledge_collections.py").read_text(encoding="utf-8")
+policy = (ROOT / "app/services/knowledge_collection_policy.py").read_text(encoding="utf-8")
 api = (ROOT / "app/knowledge_collections_api.py").read_text(encoding="utf-8")
 main = (ROOT / "app/main.py").read_text(encoding="utf-8")
 remote = (ROOT / "app/services/knowledge_collections_remote.py").read_text(encoding="utf-8")
@@ -34,11 +35,20 @@ assert '"content"' not in result_block, "paired knowledge search must not return
 assert "Path(" not in result_block, "paired knowledge search must not resolve local filesystem paths"
 assert "read_bytes" not in result_block and "read_text" not in result_block, "collection search must query the local index, not raw files"
 
-# Existing app kind scope and the historical authenticated route must both pass
-# through the canonical v0.37 scoped result contract.
+# Collection and legacy kind scopes are intersected by one policy layer. A
+# collection cannot be deleted while any source/item/app assignment depends on
+# it, preventing a scoped app from silently becoming unrestricted.
+for marker in (
+    "filter_items_for_app",
+    "app_scopes.knowledge_kind_allowed",
+    "knowledge_collections.search_for_app",
+    "delete_collection_if_unused",
+    "app_knowledge_collection_scopes",
+):
+    assert marker in policy, f"missing collection policy marker: {marker}"
 assert "def scoped_knowledge_search" in api
-assert "app_scopes.knowledge_kind_allowed" in api
-assert "knowledge_collections.search_for_app" in api
+assert "knowledge_collection_policy.scoped_search" in api
+assert "knowledge_collection_policy.delete_collection_if_unused" in api
 legacy_block = main[main.index('@app.get("/api/v1/knowledge")'):main.index('@app.get("/api/v1/memory")')]
 assert "scoped_knowledge_search" in legacy_block
 assert "list_knowledge" not in legacy_block
