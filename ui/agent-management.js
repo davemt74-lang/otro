@@ -254,9 +254,12 @@
     const submit = form.querySelector('button[type="submit"]');
     if (submit) submit.disabled = true;
     try {
-      await requestJson(`${API}/${id}`, {method: 'PUT', body: JSON.stringify(readIdentity(form))});
-      const profile = await requestJson(`${VOICE_API}/${id}/profile`, {method: 'PUT', body: JSON.stringify(readVoice(form))});
-      window.dispatchEvent(new CustomEvent('homeserver:agent-voice-profile-changed', {detail: profile}));
+      const payload = await requestJson(`${API}/${id}/persona`, {
+        method: 'PUT',
+        body: JSON.stringify({...readIdentity(form), voice_profile: readVoice(form)}),
+      });
+      const profile = payload.agent?.voice_profile || null;
+      if (profile) window.dispatchEvent(new CustomEvent('homeserver:agent-voice-profile-changed', {detail: profile}));
       state.details.delete(id);
       await load(true);
       await openEditor(id);
