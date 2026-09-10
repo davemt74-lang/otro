@@ -1,0 +1,73 @@
+name: Agent Voice Profiles CI
+
+on:
+  pull_request:
+    paths:
+      - 'database/migrations/021_agent_voice_profiles.sql'
+      - 'app/local_voice_api.py'
+      - 'app/services/agent_voice_profiles.py'
+      - 'app/services/local_voice.py'
+      - 'app/services/voice_settings.py'
+      - 'ui/agent-voice-profile.js'
+      - 'ui/agent-voice-profile.css'
+      - 'ui/voice-catalog.js'
+      - 'tests/agent_voice_profiles_v045.py'
+      - 'tests/agent_voice_profiles_ui_contract_v045.py'
+      - 'tests/voice_catalog_management_v044.py'
+      - 'tests/voice_catalog_v043.py'
+      - 'tests/voice_settings_v042.py'
+      - 'tests/local_voice_v041.py'
+      - '.github/workflows/agent-voice-profiles-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'database/migrations/021_agent_voice_profiles.sql'
+      - 'app/local_voice_api.py'
+      - 'app/services/agent_voice_profiles.py'
+      - 'app/services/local_voice.py'
+      - 'app/services/voice_settings.py'
+      - 'ui/agent-voice-profile.js'
+      - 'ui/agent-voice-profile.css'
+      - 'ui/voice-catalog.js'
+      - 'tests/agent_voice_profiles_v045.py'
+      - 'tests/agent_voice_profiles_ui_contract_v045.py'
+      - 'tests/voice_catalog_management_v044.py'
+      - 'tests/voice_catalog_v043.py'
+      - 'tests/voice_settings_v042.py'
+      - 'tests/local_voice_v041.py'
+      - '.github/workflows/agent-voice-profiles-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  agent-voice-profiles:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Agent Voice Profiles backend
+        run: python -m compileall app/local_voice_api.py app/services/agent_voice_profiles.py app/services/local_voice.py app/services/voice_settings.py tests/agent_voice_profiles_v045.py tests/agent_voice_profiles_ui_contract_v045.py
+      - name: Validate Agent Voice Profile JavaScript
+        run: node --check ui/agent-voice-profile.js
+      - name: Validate Voice Catalog JavaScript
+        run: node --check ui/voice-catalog.js
+      - name: Agent Voice Profiles regression
+        run: python tests/agent_voice_profiles_v045.py
+      - name: Agent Voice Profiles UI/API contract
+        run: python tests/agent_voice_profiles_ui_contract_v045.py
+      - name: Existing Voice Preview and catalog management regression
+        run: python tests/voice_catalog_management_v044.py
+      - name: Existing Local Voice Packs and catalog regression
+        run: python tests/voice_catalog_v043.py
+      - name: Existing Voice Settings regression
+        run: python tests/voice_settings_v042.py
+      - name: Existing local voice runtime regression
+        run: python tests/local_voice_v041.py
