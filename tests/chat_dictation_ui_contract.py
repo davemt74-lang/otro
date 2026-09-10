@@ -39,6 +39,8 @@ for marker in [
     'const startGeneration = ++generation',
     'startGeneration !== generation',
     'active || starting',
+    'MAX_BOOT_ATTEMPTS = 100',
+    'setTimeout(boot, 50)',
 ]:
     assert marker in script, f'missing dictation contract marker: {marker}'
 

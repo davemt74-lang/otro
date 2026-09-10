@@ -26,6 +26,8 @@
   let voiceStarted = false;
   let savedSelection = {start: 0, end: 0};
   let cachedStatus = null;
+  let bootAttempts = 0;
+  const MAX_BOOT_ATTEMPTS = 100;
 
   function ensureStyles() {
     if (document.querySelector('link[href="/assets/chat-dictation.css"]')) return;
@@ -497,9 +499,11 @@
   function boot() {
     ensureStyles();
     if (!ensureControl()) {
-      setTimeout(boot, 0);
+      bootAttempts += 1;
+      if (bootAttempts < MAX_BOOT_ATTEMPTS) setTimeout(boot, 50);
       return;
     }
+    bootAttempts = 0;
     const input = byId('chatInput');
     if (input) {
       ['select', 'keyup', 'click', 'input'].forEach(type => input.addEventListener(type, captureSelection));
