@@ -7,7 +7,7 @@ from ..database import db
 from . import local_apps
 
 SETTING_KEY = "voice.preferences"
-VOICE_CATALOG_VERSION = "v0.43"
+VOICE_CATALOG_VERSION = "v0.44"
 PIPER_RUNTIME_APP_KEY = "piper-tts"
 
 STT_MODELS = {
@@ -160,6 +160,13 @@ def save_preferences(value: Any) -> dict[str, Any]:
     return preferences
 
 
+def get_voice_definition(voice_key: str) -> dict[str, Any]:
+    voice = TTS_VOICES.get(str(voice_key or ""))
+    if voice is None:
+        raise local_apps.LocalAppError("Voice is not present in the trusted HomeServer catalog.", 404)
+    return voice
+
+
 def _install_state(app_key: str) -> dict[str, Any]:
     package = local_apps.CATALOG.get(app_key)
     if package is None:
@@ -181,27 +188,98 @@ def _install_state(app_key: str) -> dict[str, Any]:
     }
 
 
+def _package_metadata(app_key: str) -> dict[str, Any]:
+    package = local_apps.CATALOG.get(app_key) or {}
+    return {
+        "download_bytes": sum(int(item.get("size_bytes") or 0) for item in package.get("artifacts", [])),
+        "source_label": package.get("source_label"),
+        "license": package.get("license"),
+        "package_version": package.get("version"),
+    }
+
+
 def voice_catalog() -> dict[str, Any]:
     runtime_state = _install_state(PIPER_RUNTIME_APP_KEY)
+    active_voice = get_preferences()["tts_voice"]
+    runtime_meta = _package_metadata(PIPER_RUNTIME_APP_KEY)
     voices = []
     for key, value in TTS_VOICES.items():
         pack_state = runtime_state if value["app_key"] == PIPER_RUNTIME_APP_KEY else _install_state(value["app_key"])
+        pack_meta = _package_metadata(value["app_key"])
+        available = bool(runtime_state["healthy"] and pack_state["healthy"])
+        installed = bool(pack_state["installed"])
+        if available:
+            management_state = "ready"
+        elif runtime_state["installed"] or installed:
+            management_state = "repair"
+        else:
+            management_state = "install"
+        active = key == active_voice
         voices.append({
             "key": key,
             **value,
             "install_app_key": value["app_key"],
             "runtime_installed": runtime_state["installed"],
             "runtime_healthy": runtime_state["healthy"],
-            "installed": pack_state["installed"],
-            "healthy": bool(runtime_state["healthy"] and pack_state["healthy"]),
-            "available": bool(runtime_state["healthy"] and pack_state["healthy"]),
-            "install_reason": pack_state.get("reason"),
+            "installed": installed,
+            "healthy": available,
+            "available": available,
+            "active": active,
+            "can_preview": available,
+            "can_uninstall": bool(not value["bundled_with_runtime"] and installed and not active),
+            "management_state": management_state,
+            "install_reason": runtime_state.get("reason") or pack_state.get("reason"),
+            "installed_version": pack_state.get("version"),
+            **pack_meta,
         })
     return {
         "version": VOICE_CATALOG_VERSION,
-        "runtime": {"app_key": PIPER_RUNTIME_APP_KEY, **runtime_state},
+        "runtime": {
+            "app_key": PIPER_RUNTIME_APP_KEY,
+            **runtime_state,
+            **runtime_meta,
+        },
+        "active_voice": active_voice,
         "voices": voices,
     }
+
+
+def _voice_catalog_item(voice_key: str) -> dict[str, Any]:
+    for item in voice_catalog()["voices"]:
+        if item["key"] == voice_key:
+            return item
+    raise local_apps.LocalAppError("Voice is not present in the trusted HomeServer catalog.", 404)
+
+
+def install_voice(voice_key: str, *, repair: bool = False) -> dict[str, Any]:
+    voice = get_voice_definition(voice_key)
+    runtime_key = voice["runtime_app_key"]
+    runtime_state = _install_state(runtime_key)
+    pack_state = runtime_state if voice["app_key"] == runtime_key else _install_state(voice["app_key"])
+
+    if repair and not runtime_state["installed"] and not pack_state["installed"]:
+        raise local_apps.LocalAppError("Voice is not installed; use Install first.", 409)
+
+    changed = False
+    if not runtime_state["healthy"]:
+        result = local_apps.install(runtime_key, update=bool(runtime_state["installed"]))
+        changed = bool(result.get("changed")) or changed
+
+    if voice["app_key"] != runtime_key and not pack_state["healthy"]:
+        result = local_apps.install(voice["app_key"], update=bool(pack_state["installed"]))
+        changed = bool(result.get("changed")) or changed
+
+    return {"changed": changed, "voice": _voice_catalog_item(voice_key), "catalog": voice_catalog()}
+
+
+def uninstall_voice(voice_key: str) -> dict[str, Any]:
+    voice = get_voice_definition(voice_key)
+    if voice["bundled_with_runtime"]:
+        raise local_apps.LocalAppError("The bundled Lessac voice is part of the Piper runtime and cannot be removed separately.", 409)
+    if get_preferences()["tts_voice"] == voice_key:
+        raise local_apps.LocalAppError("Select and save another speaking voice before uninstalling the active voice pack.", 409)
+    result = local_apps.uninstall(voice["app_key"])
+    return {"changed": bool(result.get("changed")), "voice": _voice_catalog_item(voice_key), "catalog": voice_catalog()}
 
 
 def choices() -> dict[str, Any]:
