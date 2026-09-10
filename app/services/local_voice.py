@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from ..config import settings
-from . import local_apps
+from . import local_apps, voice_settings
 
-VOICE_RUNTIME_VERSION = "v0.41"
+VOICE_RUNTIME_VERSION = "v0.42"
 MAX_AUDIO_BYTES = 16 * 1024 * 1024
 MAX_TTS_CHARS = 4000
 TRANSCRIBE_TIMEOUT_SECONDS = 90
@@ -84,24 +84,36 @@ def _provider_status(app_key: str, required: list[str]) -> dict[str, Any]:
     }
 
 
+def _active_preferences() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    preferences = voice_settings.get_preferences()
+    stt_model = voice_settings.STT_MODELS[preferences["stt_model"]]
+    tts_voice = voice_settings.TTS_VOICES[preferences["tts_voice"]]
+    return preferences, stt_model, tts_voice
+
+
 def status() -> dict[str, Any]:
+    preferences, stt_model, tts_voice = _active_preferences()
     stt = _provider_status(
-        "whisper-stt",
-        ["runtime/Release/whisper-cli.exe", "models/ggml-tiny.en-q8_0.bin"],
+        stt_model["app_key"],
+        ["runtime/Release/whisper-cli.exe", stt_model["path"]],
     )
     tts = _provider_status(
-        "piper-tts",
+        tts_voice["app_key"],
         [
             "runtime/piper/piper.exe",
-            "voices/en_US-lessac-medium.onnx",
-            "voices/en_US-lessac-medium.onnx.json",
+            tts_voice["model"],
+            tts_voice["config"],
         ],
     )
+    stt["model"] = preferences["stt_model"]
+    tts["voice"] = preferences["tts_voice"]
     return {
         "version": VOICE_RUNTIME_VERSION,
         "local": True,
         "strict_local_supported": True,
         "conversation_ready": bool(stt["available"] and tts["available"]),
+        "preferences": preferences,
+        "choices": voice_settings.choices(),
         "stt": stt,
         "tts": tts,
     }
@@ -138,8 +150,9 @@ def _validate_wav(audio: bytes) -> None:
 
 def transcribe(audio: bytes) -> dict[str, Any]:
     _validate_wav(audio)
-    executable = _resolve_managed_file("whisper-stt", "runtime/Release/whisper-cli.exe")
-    model = _resolve_managed_file("whisper-stt", "models/ggml-tiny.en-q8_0.bin")
+    preferences, stt_model, _ = _active_preferences()
+    executable = _resolve_managed_file(stt_model["app_key"], "runtime/Release/whisper-cli.exe")
+    model = _resolve_managed_file(stt_model["app_key"], stt_model["path"])
 
     work = Path(tempfile.mkdtemp(prefix="stt-", dir=_voice_temp_root()))
     input_path = work / "input.wav"
@@ -188,7 +201,7 @@ def transcribe(audio: bytes) -> dict[str, Any]:
             "text": text,
             "provider": "whisper.cpp",
             "local": True,
-            "model": "tiny.en-q8_0",
+            "model": preferences["stt_model"],
         }
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -201,18 +214,23 @@ def synthesize(text: str) -> bytes:
     if len(content) > MAX_TTS_CHARS:
         raise LocalVoiceError(f"Speech text exceeds the {MAX_TTS_CHARS}-character local voice limit.", 413)
 
-    executable = _resolve_managed_file("piper-tts", "runtime/piper/piper.exe")
-    model = _resolve_managed_file("piper-tts", "voices/en_US-lessac-medium.onnx")
-    config = _resolve_managed_file("piper-tts", "voices/en_US-lessac-medium.onnx.json")
+    preferences, _, tts_voice = _active_preferences()
+    executable = _resolve_managed_file(tts_voice["app_key"], "runtime/piper/piper.exe")
+    model = _resolve_managed_file(tts_voice["app_key"], tts_voice["model"])
+    config = _resolve_managed_file(tts_voice["app_key"], tts_voice["config"])
 
     work = Path(tempfile.mkdtemp(prefix="tts-", dir=_voice_temp_root()))
     output_path = work / "reply.wav"
     try:
+        # Piper length_scale is inverse speed: values below 1 are faster.
+        length_scale = round(1.0 / float(preferences["speaking_rate"]), 4)
         command = [
             str(executable),
             "--model", str(model),
             "--config", str(config),
             "--output_file", str(output_path),
+            "--length_scale", str(length_scale),
+            "--sentence_silence", str(preferences["sentence_silence"]),
         ]
         try:
             completed = subprocess.run(
