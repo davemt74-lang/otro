@@ -91,6 +91,25 @@ def _active_preferences() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any
     return preferences, stt_model, tts_voice
 
 
+def _synthesis_preferences(
+    *,
+    voice_key: str | None = None,
+    speaking_rate: float | None = None,
+    sentence_silence: float | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    preferences = dict(voice_settings.get_preferences())
+    if voice_key is not None:
+        if voice_key not in voice_settings.TTS_VOICES:
+            raise LocalVoiceError("Voice is not present in the trusted HomeServer catalog.", 422)
+        preferences["tts_voice"] = voice_key
+    if speaking_rate is not None:
+        preferences["speaking_rate"] = speaking_rate
+    if sentence_silence is not None:
+        preferences["sentence_silence"] = sentence_silence
+    preferences = voice_settings.normalize(preferences)
+    return preferences, voice_settings.TTS_VOICES[preferences["tts_voice"]]
+
+
 def _tts_status(tts_voice: dict[str, Any]) -> dict[str, Any]:
     runtime_key = tts_voice["runtime_app_key"]
     voice_key = tts_voice["app_key"]
@@ -215,14 +234,24 @@ def transcribe(audio: bytes) -> dict[str, Any]:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def synthesize(text: str) -> bytes:
+def synthesize(
+    text: str,
+    *,
+    voice_key: str | None = None,
+    speaking_rate: float | None = None,
+    sentence_silence: float | None = None,
+) -> bytes:
     content = str(text or "").strip()
     if not content:
         raise LocalVoiceError("Speech text is empty.", 422)
     if len(content) > MAX_TTS_CHARS:
         raise LocalVoiceError(f"Speech text exceeds the {MAX_TTS_CHARS}-character local voice limit.", 413)
 
-    preferences, _, tts_voice = _active_preferences()
+    preferences, tts_voice = _synthesis_preferences(
+        voice_key=voice_key,
+        speaking_rate=speaking_rate,
+        sentence_silence=sentence_silence,
+    )
     executable = _resolve_managed_file(tts_voice["runtime_app_key"], "runtime/piper/piper.exe")
     model = _resolve_managed_file(tts_voice["app_key"], tts_voice["model"])
     config = _resolve_managed_file(tts_voice["app_key"], tts_voice["config"])
