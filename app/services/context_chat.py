@@ -5,7 +5,15 @@ import time
 from typing import Any
 
 from ..database import db
-from . import brain, canonical_context, context_engine, providers, usage as usage_service
+from . import (
+    app_scopes,
+    brain,
+    canonical_context,
+    context_engine,
+    knowledge_collection_policy,
+    providers,
+    usage as usage_service,
+)
 
 
 def _apply_context_options(conversation_id: str, options: dict[str, Any] | None) -> dict[str, Any]:
@@ -45,6 +53,45 @@ def _private_inference_route(inference: dict[str, Any]) -> tuple[str, str, str |
     raise brain.BrainError(
         "This conversation is set to Private. Configure and enable a local Ollama model to continue, or enable cloud providers for this chat.",
         409,
+    )
+
+
+def _apply_collection_scope_to_bundle(
+    source_app_key: str,
+    scope: dict[str, Any],
+    bundle: context_engine.ContextBundle,
+    *,
+    owner_tools: bool,
+) -> None:
+    """Compatibility shim for Section 8 consumers.
+
+    v4.30 applies this policy inside canonical_context before prompt assembly.
+    Keep the historical helper callable for older regression/integration code,
+    but do not use it from the active chat path.
+    """
+    if owner_tools or not str(source_app_key or "").startswith("app:"):
+        return
+    app_id = knowledge_collection_policy.app_id_for_source(source_app_key)
+    if app_id is None:
+        bundle.knowledge = []
+        bundle.sources = [ref for ref in bundle.sources if ref.get("kind") != "knowledge"]
+    else:
+        bundle.knowledge = knowledge_collection_policy.filter_items_for_app(
+            app_id,
+            bundle.knowledge,
+            apply_kind_scope=False,
+            scope=scope,
+        )
+        allowed_ids = {int(item["id"]) for item in bundle.knowledge}
+        bundle.sources = [
+            ref
+            for ref in bundle.sources
+            if ref.get("kind") != "knowledge" or int(ref.get("id") or 0) in allowed_ids
+        ]
+    bundle.context_chars = sum(
+        len(str(item.get("content") or ""))
+        for group in (bundle.memory, bundle.knowledge, bundle.contacts)
+        for item in group
     )
 
 
@@ -196,9 +243,6 @@ def chat(
     if not reply:
         raise brain.BrainError("Inference provider returned no final response text.", 503)
 
-    # Preserve the existing conversation-context history projection for UI
-    # compatibility. v4.30 provenance for all context layers is stored beside
-    # the run and returned separately without persisting private excerpts.
     context_event_id = context_engine.record_retrieval(conversation_id, source_app_key, bundle)
     metadata = {
         "provider": generated["provider"],
