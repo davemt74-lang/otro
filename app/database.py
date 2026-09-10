@@ -11,6 +11,7 @@ from .config import settings
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SCHEMA_PATH = ROOT_DIR / "database" / "schema.sql"
 MIGRATIONS_DIR = ROOT_DIR / "database" / "migrations"
+KNOWLEDGE_COLLECTIONS_SCHEMA_PATH = ROOT_DIR / "database" / "knowledge_collections.sql"
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_.+\.sql$")
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
 SQLITE_BUSY_TIMEOUT_MS = SQLITE_BUSY_TIMEOUT_SECONDS * 1000
@@ -83,6 +84,16 @@ def _apply_migration(connection: sqlite3.Connection, version: int, path: Path) -
         raise
 
 
+def _ensure_schema_extensions() -> None:
+    if not KNOWLEDGE_COLLECTIONS_SCHEMA_PATH.exists():
+        return
+    sql = KNOWLEDGE_COLLECTIONS_SCHEMA_PATH.read_text(encoding="utf-8").strip()
+    if not sql:
+        return
+    with db() as connection:
+        connection.executescript(sql)
+
+
 def initialize_database() -> None:
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
     with db() as connection:
@@ -98,6 +109,11 @@ def initialize_database() -> None:
             if applied is not None:
                 continue
             _apply_migration(connection, version, path)
+
+    # Feature schemas that do not change the canonical migration version are
+    # idempotent and run after numbered migrations so their foreign keys always
+    # target tables already present on both fresh installs and upgrades.
+    _ensure_schema_extensions()
 
     with db() as connection:
         existing = connection.execute(
