@@ -10,6 +10,8 @@ a = Analysis(
     binaries=[],
     datas=[
         ('database/schema.sql', 'database'),
+        ('database/knowledge_collections.sql', 'database'),
+        ('database/agent_voice_profiles.sql', 'database'),
         ('database/migrations', 'database/migrations'),
         ('ui', 'ui'),
     ],

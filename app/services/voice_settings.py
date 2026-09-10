@@ -199,6 +199,24 @@ def _package_metadata(app_key: str) -> dict[str, Any]:
     }
 
 
+def agent_voice_references(voice_key: str) -> list[dict[str, Any]]:
+    with db() as connection:
+        rows = connection.execute(
+            """
+            SELECT a.id, a.name, a.is_primary
+            FROM agent_voice_profiles p
+            JOIN agents a ON a.id=p.agent_id
+            WHERE p.voice_key=?
+            ORDER BY a.is_primary DESC, a.name COLLATE NOCASE, a.id
+            """,
+            (str(voice_key),),
+        ).fetchall()
+    return [
+        {"id": int(row["id"]), "name": row["name"], "is_primary": bool(row["is_primary"])}
+        for row in rows
+    ]
+
+
 def voice_catalog() -> dict[str, Any]:
     runtime_state = _install_state(PIPER_RUNTIME_APP_KEY)
     active_voice = get_preferences()["tts_voice"]
@@ -207,6 +225,7 @@ def voice_catalog() -> dict[str, Any]:
     for key, value in TTS_VOICES.items():
         pack_state = runtime_state if value["app_key"] == PIPER_RUNTIME_APP_KEY else _install_state(value["app_key"])
         pack_meta = _package_metadata(value["app_key"])
+        references = agent_voice_references(key)
         available = bool(runtime_state["healthy"] and pack_state["healthy"])
         installed = bool(pack_state["installed"])
         if available:
@@ -230,10 +249,12 @@ def voice_catalog() -> dict[str, Any]:
             "available": available,
             "active": active,
             "can_preview": available,
-            "can_uninstall": bool(not value["bundled_with_runtime"] and installed and not active),
+            "can_uninstall": bool(not value["bundled_with_runtime"] and installed and not active and not references),
             "management_state": management_state,
             "install_reason": runtime_state.get("reason") or pack_state.get("reason"),
             "installed_version": pack_state.get("version"),
+            "agent_reference_count": len(references),
+            "assigned_agents": references,
             **pack_meta,
         })
     return {
@@ -286,6 +307,15 @@ def uninstall_voice(voice_key: str) -> dict[str, Any]:
         raise local_apps.LocalAppError("The bundled Lessac voice is part of the Piper runtime and cannot be removed separately.", 409)
     if get_preferences()["tts_voice"] == voice_key:
         raise local_apps.LocalAppError("Select and save another speaking voice before uninstalling the active voice pack.", 409)
+    references = agent_voice_references(voice_key)
+    if references:
+        names = ", ".join(item["name"] for item in references[:3])
+        extra = len(references) - 3
+        suffix = f" and {extra} more" if extra > 0 else ""
+        raise local_apps.LocalAppError(
+            f"Voice pack is assigned to {len(references)} Agent(s): {names}{suffix}. Set those Agents to Use global voice or another voice before uninstalling.",
+            409,
+        )
     result = local_apps.uninstall(voice["app_key"])
     return {"changed": bool(result.get("changed")), "voice": _voice_catalog_item(voice_key), "catalog": voice_catalog()}
 

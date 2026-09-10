@@ -41,7 +41,7 @@ for marker in required_style_markers:
     assert marker in styles, f"missing Voice Catalog style marker: {marker}"
 
 assert "/api/v1/control/local-apps" not in script, "Voice Catalog UI must use policy-aware voice management endpoints"
-assert "voice.active ? 'Select and save another voice before uninstalling this pack.'" in script
+assert "Select and save another voice before uninstalling this pack." in script
 assert "voice: voice.key" in script
 assert "speaking_rate: speakingRate" in script
 assert "sentence_silence: sentenceSilence" in script

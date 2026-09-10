@@ -77,17 +77,19 @@
   }
 
   function defaultStatusMessage(voice) {
+    const assignments = Number(voice.agent_reference_count || 0);
+    const assignmentText = assignments ? ` Assigned to ${assignments} Agent${assignments === 1 ? '' : 's'}.` : '';
     if (voice.available) {
-      return voice.bundled_with_runtime
+      return (voice.bundled_with_runtime
         ? 'Installed with the shared Piper runtime and ready to use.'
-        : 'Voice pack installed and ready to use.';
+        : 'Voice pack installed and ready to use.') + assignmentText;
     }
     if (voice.management_state === 'repair') {
-      return voice.install_reason || 'This voice or its shared Piper runtime needs repair.';
+      return (voice.install_reason || 'This voice or its shared Piper runtime needs repair.') + assignmentText;
     }
-    return voice.runtime_installed
+    return (voice.runtime_installed
       ? 'This trusted voice pack is not installed yet.'
-      : 'The shared Piper runtime and this voice pack must be installed locally before use.';
+      : 'The shared Piper runtime and this voice pack must be installed locally before use.') + assignmentText;
   }
 
   function renderStatus() {
@@ -142,8 +144,10 @@
 
     uninstall.hidden = Boolean(voice.bundled_with_runtime || !voice.installed);
     uninstall.disabled = busy || !voice.can_uninstall;
-    uninstall.title = voice.active ? 'Select and save another voice before uninstalling this pack.' : '';
-    uninstall.textContent = busyAction === 'uninstall' ? 'Uninstalling…' : voice.active ? 'Active voice cannot be removed' : 'Uninstall pack';
+    if (voice.active) uninstall.title = 'Select and save another voice before uninstalling this pack.';
+    else if (Number(voice.agent_reference_count || 0) > 0) uninstall.title = `Assigned to ${voice.agent_reference_count} Agent${voice.agent_reference_count === 1 ? '' : 's'}. Change those Agent Voice Profiles before uninstalling.`;
+    else uninstall.title = '';
+    uninstall.textContent = busyAction === 'uninstall' ? 'Uninstalling…' : voice.active ? 'Active voice cannot be removed' : Number(voice.agent_reference_count || 0) > 0 ? 'Assigned voice cannot be removed' : 'Uninstall pack';
   }
 
   async function loadCatalog() {
@@ -273,6 +277,7 @@
   });
   window.addEventListener('homeserver:voice-settings-loaded', () => loadCatalog().catch(() => null));
   window.addEventListener('homeserver:voice-settings-changed', () => loadCatalog().catch(() => null));
+  window.addEventListener('homeserver:agent-voice-profile-changed', () => loadCatalog().catch(() => null));
 
   const observer = new MutationObserver(() => {
     if (document.getElementById('voiceTtsVoice')) {
@@ -288,4 +293,12 @@
     manageSelectedVoice,
     uninstallSelectedVoice,
   });
+
+  if (!document.querySelector('script[data-agent-voice-profile]')) {
+    const script = document.createElement('script');
+    script.src = '/assets/agent-voice-profile.js';
+    script.defer = true;
+    script.dataset.agentVoiceProfile = 'v0.45';
+    document.head.appendChild(script);
+  }
 })();
