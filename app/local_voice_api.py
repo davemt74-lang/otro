@@ -6,13 +6,29 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .services import local_voice, voice_settings
+from .services import local_apps, local_voice, voice_settings
 
 router = APIRouter(prefix="/api/v1/control/voice", tags=["local-voice"])
 
 
 class SpeechRequest(BaseModel):
     text: str = Field(min_length=1, max_length=local_voice.MAX_TTS_CHARS)
+
+
+class VoicePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice: str
+    text: str = Field(min_length=1, max_length=local_voice.MAX_TTS_CHARS)
+    speaking_rate: float = Field(default=1.0, ge=0.6, le=1.6)
+    sentence_silence: float = Field(default=0.2, ge=0.0, le=1.5)
+
+    @field_validator("voice")
+    @classmethod
+    def validate_voice(cls, value: str) -> str:
+        if value not in voice_settings.TTS_VOICES:
+            raise ValueError("Unknown local Piper voice.")
+        return value
 
 
 class VoiceSettingsRequest(BaseModel):
@@ -47,6 +63,10 @@ def _raise(exc: local_voice.LocalVoiceError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+def _raise_app(exc: local_apps.LocalAppError) -> None:
+    raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 @router.get("/status")
 def local_voice_status() -> dict:
     return local_voice.status()
@@ -55,6 +75,30 @@ def local_voice_status() -> dict:
 @router.get("/catalog")
 def get_local_voice_catalog() -> dict:
     return voice_settings.voice_catalog()
+
+
+@router.post("/catalog/{voice_key}/install")
+def install_local_voice(voice_key: str) -> dict:
+    try:
+        return voice_settings.install_voice(voice_key, repair=False)
+    except local_apps.LocalAppError as exc:
+        _raise_app(exc)
+
+
+@router.post("/catalog/{voice_key}/repair")
+def repair_local_voice(voice_key: str) -> dict:
+    try:
+        return voice_settings.install_voice(voice_key, repair=True)
+    except local_apps.LocalAppError as exc:
+        _raise_app(exc)
+
+
+@router.delete("/catalog/{voice_key}")
+def uninstall_local_voice(voice_key: str) -> dict:
+    try:
+        return voice_settings.uninstall_voice(voice_key)
+    except local_apps.LocalAppError as exc:
+        _raise_app(exc)
 
 
 @router.get("/settings")
@@ -90,6 +134,28 @@ async def transcribe_local_voice(file: UploadFile = File(...)) -> dict:
         _raise(exc)
     finally:
         await file.close()
+
+
+@router.post("/preview")
+def preview_local_voice(payload: VoicePreviewRequest) -> Response:
+    try:
+        audio = local_voice.synthesize(
+            payload.text,
+            voice_key=payload.voice,
+            speaking_rate=payload.speaking_rate,
+            sentence_silence=payload.sentence_silence,
+        )
+    except local_voice.LocalVoiceError as exc:
+        _raise(exc)
+    return Response(
+        content=audio,
+        media_type="audio/wav",
+        headers={
+            "Cache-Control": "no-store",
+            "X-HomeServer-Voice-Provider": "piper",
+            "X-HomeServer-Voice": payload.voice,
+        },
+    )
 
 
 @router.post("/synthesize")
