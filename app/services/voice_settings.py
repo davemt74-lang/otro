@@ -209,13 +209,12 @@ def voice_catalog() -> dict[str, Any]:
         pack_meta = _package_metadata(value["app_key"])
         available = bool(runtime_state["healthy"] and pack_state["healthy"])
         installed = bool(pack_state["installed"])
-        needs_repair = bool(
-            (runtime_state["installed"] and not runtime_state["healthy"])
-            or (installed and not pack_state["healthy"])
-        )
         if available:
             management_state = "ready"
-        elif needs_repair:
+        elif not value["bundled_with_runtime"] and not installed:
+            # Installing a missing optional pack also repairs/installs its shared runtime if needed.
+            management_state = "install"
+        elif (runtime_state["installed"] and not runtime_state["healthy"]) or (installed and not pack_state["healthy"]):
             management_state = "repair"
         else:
             management_state = "install"
