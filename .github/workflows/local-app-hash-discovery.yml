@@ -13,26 +13,18 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - name: Download and hash pinned Local App artifacts
+      - name: Verify pinned Local App artifact hashes and structures
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $items = @(
-            @{ Name='piper-runtime'; Url='https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip' },
-            @{ Name='piper-lessac-model'; Url='https://huggingface.co/rhasspy/piper-voices/resolve/2525f22960f62209936f0ae3cce3ffe7b2c18f1f/en/en_US/lessac/medium/en_US-lessac-medium.onnx' },
-            @{ Name='piper-lessac-config'; Url='https://huggingface.co/rhasspy/piper-voices/resolve/2525f22960f62209936f0ae3cce3ffe7b2c18f1f/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json' },
-            @{ Name='whisper-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/config.json' },
-            @{ Name='whisper-generation-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/generation_config.json' },
-            @{ Name='whisper-preprocessor'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/preprocessor_config.json' },
-            @{ Name='whisper-tokenizer'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/tokenizer.json' },
-            @{ Name='whisper-tokenizer-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/tokenizer_config.json' },
-            @{ Name='whisper-added-tokens'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/added_tokens.json' },
-            @{ Name='whisper-special-tokens'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/special_tokens_map.json' },
-            @{ Name='whisper-vocab'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/vocab.json' },
-            @{ Name='whisper-merges'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/merges.txt' },
-            @{ Name='whisper-normalizer'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/normalizer.json' },
-            @{ Name='whisper-encoder-q'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx' },
-            @{ Name='whisper-decoder-merged-q'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/decoder_model_merged_quantized.onnx' }
+            @{ Name='piper-runtime'; Url='https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip'; Hash='f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea' },
+            @{ Name='piper-lessac-model'; Url='https://huggingface.co/rhasspy/piper-voices/resolve/2525f22960f62209936f0ae3cce3ffe7b2c18f1f/en/en_US/lessac/medium/en_US-lessac-medium.onnx'; Hash='5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f' },
+            @{ Name='piper-lessac-config'; Url='https://huggingface.co/rhasspy/piper-voices/resolve/2525f22960f62209936f0ae3cce3ffe7b2c18f1f/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json'; Hash='f2b3fd2748ef96843101d2a2811cade306d4d57d58081123f9cb6625c4cde969' },
+            @{ Name='whisper-config'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/config.json'; Hash='251ea843b5901a99efa58c0b99b8052c6019aa3e7d2baf46693a1128ff606233' },
+            @{ Name='whisper-tokenizer'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/tokenizer.json'; Hash='5eb60cec1e77aeeb6869a2bb5a8e01a84c3fe5d072d75369343021fe6f5310d0' },
+            @{ Name='whisper-encoder-q'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx'; Hash='e93ec822f16a8fd264e7de972ad17d615ea7334b75a52d54c50c2e18dd503a25' },
+            @{ Name='whisper-decoder-merged-q'; Url='https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main/onnx/decoder_model_merged_quantized.onnx'; Hash='c0592d0749413c960569e1c7fb806b060d5d18f3ebad4a95cbf9a77dc6e9be52' }
           )
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           foreach ($item in $items) {
@@ -40,6 +32,15 @@ jobs:
             curl.exe --fail --location --retry 3 --retry-delay 2 --output $path $item.Url
             if ($LASTEXITCODE -ne 0) { throw "Download failed: $($item.Name)" }
             $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
-            $size = (Get-Item $path).Length
-            Write-Host "LOCAL_APP_HASH $($item.Name) sha256=$hash size=$size"
+            if ($hash -ne $item.Hash) { throw "Hash changed: $($item.Name)" }
+            Write-Host "PIN_OK $($item.Name) sha256=$hash"
           }
+
+          Expand-Archive -Path artifacts/piper-runtime -DestinationPath artifacts/piper-expanded -Force
+          if (-not (Test-Path 'artifacts/piper-expanded/piper/piper.exe')) {
+            throw 'Piper package does not contain piper/piper.exe at the catalog-required path.'
+          }
+          Get-Content artifacts/piper-lessac-config -Raw | ConvertFrom-Json | Out-Null
+          Get-Content artifacts/whisper-config -Raw | ConvertFrom-Json | Out-Null
+          Get-Content artifacts/whisper-tokenizer -Raw | ConvertFrom-Json | Out-Null
+          Write-Host 'PACKAGE_STRUCTURE_OK Piper runtime + Piper voice config + Whisper JSON/model bundle'
