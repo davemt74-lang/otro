@@ -188,4 +188,38 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-consumers-v037-") 
             "collection_names": ["Travel"],
         }
 
+        # A direct item assignment is an explicit override of the watched-source
+        # default. The item must leave Travel scope and become visible only when
+        # the paired app is allowed to read Private.
+        travel_item_id = int(tool_item["id"])
+        moved = client.put(
+            f"/api/v1/control/knowledge/{travel_item_id}/collection",
+            json={"collection_key": "private"},
+        )
+        assert moved.status_code == 200, moved.text
+        no_longer_travel = client.get(
+            "/api/v1/knowledge/search-v037",
+            params={"q": "TRAVEL_VISIBLE_3707"},
+            headers=auth,
+        )
+        assert no_longer_travel.status_code == 200
+        assert no_longer_travel.json()["count"] == 0
+
+        private_scope = client.put(
+            f"/api/v1/control/apps/{app_id}/knowledge-collections",
+            json={"collection_keys": ["private"]},
+        )
+        assert private_scope.status_code == 200, private_scope.text
+        moved_visible = client.get(
+            "/api/v1/knowledge/search-v037",
+            params={"q": "TRAVEL_VISIBLE_3707"},
+            headers=auth,
+        )
+        assert moved_visible.status_code == 200
+        assert moved_visible.json()["count"] == 1
+        moved_item = moved_visible.json()["items"][0]
+        assert moved_item["citation"]["collection_key"] == "private"
+        assert moved_item["citation"]["source_type"] == "watched_folder"
+        assert moved_item["citation"]["relative_path"] == "travel.txt"
+
 print("HomeServer knowledge collection consumers v0.37 regression passed")
