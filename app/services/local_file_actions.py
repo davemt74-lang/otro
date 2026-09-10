@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import uuid
 from pathlib import Path
@@ -9,7 +8,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import action_policy, app_scopes, knowledge_collection_policy, local_files
+from . import action_policy, app_scopes, local_files
 from .knowledge import KnowledgeImportError, extract_text
 from . import knowledge_sources
 
@@ -81,9 +80,8 @@ def _load_target(source_app_key: str, tool_key: str, file_ref: str) -> dict[str,
         row = connection.execute(
             """
             SELECT ksf.id AS file_id, ksf.source_id, ksf.relative_path,
-                   ksf.content_hash, ksf.size_bytes, ksf.status,
-                   ksf.knowledge_item_id, ks.path AS source_path, ks.enabled,
-                   ks.recursive, ks.exclude_json
+                   ksf.content_hash, ksf.size_bytes, ksf.modified_ns, ksf.status,
+                   ksf.knowledge_item_id, ks.path AS source_path, ks.enabled
             FROM knowledge_source_files ksf
             JOIN knowledge_sources ks ON ks.id=ksf.source_id
             WHERE ksf.id=? LIMIT 1
@@ -92,6 +90,8 @@ def _load_target(source_app_key: str, tool_key: str, file_ref: str) -> dict[str,
         ).fetchone()
     if row is None or not bool(row["enabled"]) or str(row["status"] or "") != "indexed":
         raise LocalFileActionError("File is unavailable for mutation.", 404)
+    if row["knowledge_item_id"] is None:
+        raise LocalFileActionError("Tracked file has no indexed Knowledge item.", 409)
     if requested_version != local_files._version(row["content_hash"]):
         raise LocalFileActionError("File reference is stale. Discover the file again before changing it.", 409)
 
@@ -131,8 +131,7 @@ def _load_target(source_app_key: str, tool_key: str, file_ref: str) -> dict[str,
     except ValueError:
         pass
 
-    suffix = target.suffix.lower()
-    if suffix not in knowledge_sources.SUPPORTED_EXTENSIONS:
+    if target.suffix.lower() not in knowledge_sources.SUPPORTED_EXTENSIONS:
         raise LocalFileActionError("Tracked file type is no longer supported.", 409)
 
     try:
@@ -148,7 +147,6 @@ def _load_target(source_app_key: str, tool_key: str, file_ref: str) -> dict[str,
 
     return {
         "row": dict(row),
-        "root": root,
         "target": target,
         "before_bytes": before_bytes,
         "metadata": visible["file"],
@@ -171,6 +169,51 @@ def _atomic_replace(target: Path, data: bytes, mode: int | None = None) -> None:
                 temporary.unlink()
         except OSError:
             pass
+
+
+def _reconcile_index(row: dict[str, Any], target: Path, data: bytes, digest: str) -> None:
+    stat = target.stat()
+    knowledge_sources._write_knowledge_item(
+        item_id=int(row["knowledge_item_id"]),
+        source_id=int(row["source_id"]),
+        absolute_path=target,
+        relative_path=str(row["relative_path"]),
+        data=data,
+        file_hash=digest,
+    )
+    with db() as connection:
+        updated = connection.execute(
+            """
+            UPDATE knowledge_source_files
+            SET content_hash=?, size_bytes=?, modified_ns=?, status='indexed',
+                last_error=NULL, updated_at=CURRENT_TIMESTAMP
+            WHERE id=? AND knowledge_item_id=?
+            """,
+            (
+                digest,
+                len(data),
+                int(stat.st_mtime_ns),
+                int(row["file_id"]),
+                int(row["knowledge_item_id"]),
+            ),
+        )
+        if updated.rowcount != 1:
+            raise RuntimeError("Tracked file row changed during index reconciliation.")
+
+
+def _rollback_update(row: dict[str, Any], target: Path, data: bytes, mode: int) -> None:
+    old_hash = hashlib.sha256(data).hexdigest()
+    _atomic_replace(target, data, mode)
+    _reconcile_index(row, target, data, old_hash)
+
+
+def _updated_metadata(previous: dict[str, Any], file_id: int, digest: str, size_bytes: int) -> dict[str, Any]:
+    result = dict(previous)
+    result["ref"] = local_files._file_ref(file_id, digest)
+    result["content_version"] = local_files._version(digest)
+    result["size_bytes"] = size_bytes
+    result["status"] = "indexed"
+    return result
 
 
 def update_file(source_app_key: str, file_ref: str, content: str) -> dict[str, Any]:
@@ -218,42 +261,26 @@ def update_file(source_app_key: str, file_ref: str, content: str) -> dict[str, A
 
         _atomic_replace(target, data, original_mode)
         try:
-            stat = target.stat()
-            knowledge_sources._write_knowledge_item(
-                item_id=int(row["knowledge_item_id"]),
-                source_id=int(row["source_id"]),
-                absolute_path=target,
-                relative_path=str(row["relative_path"]),
-                data=data,
-                file_hash=new_hash,
-            )
-            with db() as connection:
-                connection.execute(
-                    """
-                    UPDATE knowledge_source_files
-                    SET content_hash=?, size_bytes=?, modified_ns=?, status='indexed',
-                        last_error=NULL, updated_at=CURRENT_TIMESTAMP
-                    WHERE id=?
-                    """,
-                    (new_hash, len(data), int(stat.st_mtime_ns), int(row["file_id"])),
-                )
+            _reconcile_index(row, target, data, new_hash)
         except Exception as exc:
             try:
-                _atomic_replace(target, target_info["before_bytes"], original_mode)
-            except Exception:
-                pass
-            raise LocalFileActionError("File update could not be reconciled with the local Knowledge index.", 500) from exc
+                _rollback_update(row, target, target_info["before_bytes"], original_mode)
+            except Exception as rollback_exc:
+                raise LocalFileActionError(
+                    "File update failed and HomeServer could not fully restore the prior indexed state.",
+                    500,
+                ) from rollback_exc
+            raise LocalFileActionError(
+                "File update could not be reconciled with the local Knowledge index; the prior state was restored.",
+                500,
+            ) from exc
 
-        identity, owner = _app_identity_for_execution(source_app_key, "files.update")
-        new_ref = local_files._file_ref(int(row["file_id"]), new_hash)
-        try:
-            refreshed = local_files.read_file(identity, new_ref, max_chars=1, owner=owner)["file"]
-        except local_files.LocalFileError as exc:
-            raise LocalFileActionError("Updated file is no longer visible under the current app scope.", 403) from exc
         return {
             "updated": True,
             "unchanged": False,
-            "file": refreshed,
+            "file": _updated_metadata(
+                target_info["metadata"], int(row["file_id"]), new_hash, len(data)
+            ),
             "bytes_written": len(data),
             "capability_version": FILE_ACTION_VERSION,
         }
@@ -276,15 +303,16 @@ def delete_file(source_app_key: str, file_ref: str) -> dict[str, Any]:
 
         try:
             with db() as connection:
-                if row["knowledge_item_id"] is not None:
-                    connection.execute(
-                        "DELETE FROM knowledge_items WHERE id=?",
-                        (int(row["knowledge_item_id"]),),
-                    )
                 connection.execute(
+                    "DELETE FROM knowledge_items WHERE id=?",
+                    (int(row["knowledge_item_id"]),),
+                )
+                deleted = connection.execute(
                     "DELETE FROM knowledge_source_files WHERE id=?",
                     (int(row["file_id"]),),
                 )
+                if deleted.rowcount != 1:
+                    raise RuntimeError("Tracked file row changed during deletion.")
         except Exception as exc:
             try:
                 os.replace(tombstone, target)
@@ -295,11 +323,13 @@ def delete_file(source_app_key: str, file_ref: str) -> dict[str, Any]:
         try:
             tombstone.unlink()
         except OSError:
+            # The visible file is already removed and the index no longer exposes
+            # it. Leave cleanup to the owner rather than recreating a deleted item
+            # after the committed database transaction.
             pass
-        metadata = dict(target_info["metadata"])
         return {
             "deleted": True,
-            "file": metadata,
+            "file": dict(target_info["metadata"]),
             "capability_version": FILE_ACTION_VERSION,
         }
     finally:
