@@ -41,7 +41,7 @@ def collection_keys_for_items(item_ids: list[int]) -> dict[int, str]:
         rows = connection.execute(
             f"""
             SELECT ki.id,
-                   COALESCE(wc.collection_key, dc.collection_key, 'general') AS collection_key
+                   COALESCE(dc.collection_key, wc.collection_key, 'general') AS collection_key
             FROM knowledge_items ki
             LEFT JOIN (
                 SELECT ksf.knowledge_item_id, c.collection_key
