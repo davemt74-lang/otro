@@ -13,6 +13,7 @@
   const VAD_THRESHOLD = 0.025;
 
   let active = false;
+  let starting = false;
   let mode = null;
   let generation = 0;
   let recognition = null;
@@ -103,9 +104,14 @@
     const button = byId('dictateInputButton');
     if (!button) return;
     button.classList.remove('listening', 'transcribing');
-    button.setAttribute('aria-pressed', active ? 'true' : 'false');
-    button.setAttribute('aria-label', active ? 'Stop dictation' : 'Start dictation');
+    const engaged = active || starting;
+    button.setAttribute('aria-pressed', engaged ? 'true' : 'false');
+    button.setAttribute('aria-label', active ? 'Stop dictation' : starting ? 'Cancel dictation setup' : 'Start dictation');
     const label = button.querySelector('.dictate-label');
+    if (starting) {
+      if (label) label.textContent = 'Checking';
+      return;
+    }
     if (!active) {
       if (label) label.textContent = 'Dictate';
       return;
@@ -150,6 +156,7 @@
   }
 
   function stopDictation(message = '') {
+    starting = false;
     active = false;
     mode = null;
     generation += 1;
@@ -438,6 +445,7 @@
   }
 
   async function startDictation() {
+    if (active || starting) return;
     const input = byId('chatInput');
     if (!input || !ensureControl()) return;
 
@@ -445,21 +453,29 @@
     if (conversationButton?.getAttribute('aria-pressed') === 'true') conversationButton.click();
 
     captureSelection();
+    const startGeneration = ++generation;
+    starting = true;
+    setState('checking');
     const status = await readStatus();
+    if (!starting || startGeneration !== generation) return;
     const localReady = Boolean(status?.stt?.available && localCaptureSupported());
     const browserReady = Boolean(RecognitionCtor());
 
     if (strictLocalEnabled() && !localReady) {
+      starting = false;
+      setState('idle');
       flash('Strict Local Dictation requires healthy Whisper STT plus local microphone capture support.', true);
       return;
     }
     if (!localReady && !browserReady) {
+      starting = false;
+      setState('idle');
       flash('No speech-to-text path is available. Install Whisper STT or use a browser with speech recognition.', true);
       return;
     }
 
+    starting = false;
     active = true;
-    generation += 1;
     mode = localReady ? 'local' : 'browser';
     setState('listening');
     flash(localReady
@@ -470,7 +486,7 @@
   }
 
   async function toggleDictation() {
-    if (active) {
+    if (active || starting) {
       stopDictation('Dictation cancelled.');
       byId('chatInput')?.focus({preventScroll: true});
       return;
