@@ -524,11 +524,11 @@
   // Conversation and dictation are mutually exclusive. Stop dictation before
   // the existing conversation click handler sees the Talk button.
   document.addEventListener('click', event => {
-    if (active && event.target.closest('#voiceInputButton')) stopDictation('');
+    if ((active || starting) && event.target.closest('#voiceInputButton')) stopDictation('');
   }, true);
 
   document.addEventListener('change', event => {
-    if (active && event.target.closest('#strictLocalVoice')) {
+    if ((active || starting) && event.target.closest('#strictLocalVoice')) {
       stopDictation('Dictation stopped because the local voice privacy setting changed.');
     }
   });
