@@ -91,6 +91,67 @@ def resolve_agent(
         return agent
 
 
+def validate_conversation_agent(source_app_key: str, conversation_id: str | None, agent_id: int) -> None:
+    if not conversation_id:
+        return
+    source = str(source_app_key or "").strip() or "owner"
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT id, agent_id FROM conversations
+            WHERE id=? AND source_app_key=? AND status='active'
+            LIMIT 1
+            """,
+            (str(conversation_id), source),
+        ).fetchone()
+    if row is None:
+        raise AgentRoutingError("Conversation not found for this application.", 404)
+    if row["agent_id"] is None:
+        raise AgentRoutingError(
+            "This conversation's Agent is no longer available. Start a new conversation.",
+            409,
+        )
+    if int(row["agent_id"]) != int(agent_id):
+        raise AgentRoutingError(
+            "This conversation is bound to another Agent. Start a new conversation to switch Agents.",
+            409,
+        )
+
+
+def conversation_binding(source_app_key: str, conversation_id: str) -> dict[str, Any]:
+    source = str(source_app_key or "").strip() or "owner"
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT c.id, c.agent_id, a.name AS agent_name, a.is_primary
+            FROM conversations c
+            LEFT JOIN agents a ON a.id=c.agent_id
+            WHERE c.id=? AND c.source_app_key=?
+            LIMIT 1
+            """,
+            (str(conversation_id), source),
+        ).fetchone()
+    if row is None:
+        raise AgentRoutingError("Conversation not found for this application.", 404)
+    if row["agent_id"] is None:
+        return {
+            "version": AGENT_ROUTING_VERSION,
+            "conversation_id": str(row["id"]),
+            "agent": None,
+            "available": False,
+        }
+    return {
+        "version": AGENT_ROUTING_VERSION,
+        "conversation_id": str(row["id"]),
+        "agent": {
+            "id": int(row["agent_id"]),
+            "name": str(row["agent_name"] or "Agent"),
+            "is_primary": bool(row["is_primary"]),
+        },
+        "available": True,
+    }
+
+
 def selectable_agents(source_app_key: str, *, owner: bool = False) -> dict[str, Any]:
     with db() as connection:
         if owner:
