@@ -73,7 +73,8 @@ for table in (
 assert "FOREIGN KEY (source_id) REFERENCES knowledge_sources(id) ON DELETE CASCADE" in schema
 assert "FOREIGN KEY (knowledge_item_id) REFERENCES knowledge_items(id) ON DELETE CASCADE" in schema
 assert "FOREIGN KEY (paired_app_id) REFERENCES paired_apps(id) ON DELETE CASCADE" in schema
-assert "KNOWLEDGE_COLLECTIONS_SCHEMA_PATH" in database
+assert "FEATURE_SCHEMA_PATHS" in database
+assert '"knowledge_collections.sql"' in database
 assert "_ensure_schema_extensions()" in database
 
 print("HomeServer knowledge collections v0.37 contract passed")
