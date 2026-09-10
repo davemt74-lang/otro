@@ -16,6 +16,7 @@ DEFAULT_PERMISSIONS = {
     "events.read",
     "events.write",
     "files.read",
+    "files.write",
     "knowledge.search",
     "knowledge.write",
     "memory.read",
