@@ -8,6 +8,7 @@
 
   let recognition = null;
   let conversationMode = false;
+  let conversationStarting = false;
   let awaitingAgent = false;
   let speaking = false;
   let pendingTranscript = '';
@@ -221,6 +222,19 @@
     return Boolean(byId('strictLocalVoice')?.checked);
   }
 
+  function captureTiming() {
+    return window.HomeServerVoiceSettings?.getCaptureTiming?.() || {
+      listenSilenceMs: SILENCE_MS,
+      noSpeechTimeoutMs: NO_SPEECH_MS,
+      maxSegmentMs: MAX_SEGMENT_MS,
+    };
+  }
+
+  function localCaptureConstraints() {
+    const base = {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true};
+    return window.HomeServerVoiceSettings?.captureConstraints?.(base) || {audio: base};
+  }
+
   async function refreshLocalVoiceStatus() {
     try {
       localVoiceStatus = await readJson(LOCAL_STATUS_ENDPOINT);
@@ -246,8 +260,14 @@
     const button = byId('voiceInputButton');
     if (!button) return;
     button.classList.remove('listening', 'transcribing', 'thinking', 'speaking');
-    button.setAttribute('aria-pressed', conversationMode ? 'true' : 'false');
+    const engaged = conversationMode || conversationStarting;
+    button.setAttribute('aria-pressed', engaged ? 'true' : 'false');
     const label = button.querySelector('.chat-control-label');
+    if (conversationStarting) {
+      button.setAttribute('aria-label', 'Cancel conversation mode setup');
+      if (label) label.textContent = 'Checking';
+      return;
+    }
     if (!conversationMode) {
       button.setAttribute('aria-label', 'Start conversation mode');
       if (label) label.textContent = 'Talk';
@@ -313,6 +333,7 @@
   }
 
   function stopConversationMode(message = 'Conversation mode stopped.') {
+    conversationStarting = false;
     conversationMode = false;
     pendingTranscript = '';
     awaitingAgent = false;
@@ -456,7 +477,7 @@
     captureVoiceStarted = false;
 
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true}});
+      mediaStream = await navigator.mediaDevices.getUserMedia(localCaptureConstraints());
       if (!conversationMode || generation !== captureGeneration) {
         mediaStream.getTracks().forEach(track => track.stop());
         mediaStream = null;
@@ -469,6 +490,7 @@
       source.connect(captureAnalyser);
 
       mediaRecorder = new MediaRecorder(mediaStream, recorderOptions());
+      const timing = captureTiming();
       const startedAt = performance.now();
       let lastVoiceAt = startedAt;
       mediaRecorder.ondataavailable = event => { if (event.data?.size) captureChunks.push(event.data); };
@@ -516,9 +538,9 @@
           captureVoiceStarted = true;
           lastVoiceAt = now;
         }
-        const silenceDone = captureVoiceStarted && now - lastVoiceAt >= SILENCE_MS;
-        const noSpeechDone = !captureVoiceStarted && now - startedAt >= NO_SPEECH_MS;
-        const maxDone = now - startedAt >= MAX_SEGMENT_MS;
+        const silenceDone = captureVoiceStarted && now - lastVoiceAt >= timing.listenSilenceMs;
+        const noSpeechDone = !captureVoiceStarted && now - startedAt >= timing.noSpeechTimeoutMs;
+        const maxDone = now - startedAt >= timing.maxSegmentMs;
         if (silenceDone || noSpeechDone || maxDone) {
           try { mediaRecorder.stop(); } catch (_) {}
         }
@@ -666,7 +688,7 @@
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = navigator.language || document.documentElement.lang || 'en-US';
-    utterance.rate = 1;
+    utterance.rate = Number(window.HomeServerVoiceSettings?.getPreferences?.().speaking_rate || 1);
     utterance.pitch = 1;
     utterance.onend = finishSpeaking;
     utterance.onerror = finishSpeaking;
@@ -687,6 +709,7 @@
     const context = playbackContext;
     if (!context || context.state === 'closed') throw new Error('Local audio playback context is unavailable.');
     await context.resume();
+    await window.HomeServerVoiceSettings?.applyOutputSink?.(context);
     const decoded = await context.decodeAudioData(audioBytes.slice(0));
     if (!conversationMode || context !== playbackContext) return;
     cleanupPlayback();
@@ -740,15 +763,26 @@
   }
 
   async function toggleConversationMode() {
-    if (conversationMode) {
-      stopConversationMode();
+    if (conversationMode || conversationStarting) {
+      stopConversationMode(conversationStarting ? 'Conversation mode setup cancelled.' : 'Conversation mode stopped.');
       return;
     }
+
+    // Mark setup as engaged before awaiting status so Dictate, Voice Settings,
+    // or a second Talk click can reliably cancel this startup transaction.
+    conversationStarting = true;
+    setVoiceState('checking');
 
     // Unlock local audio synchronously inside the user's click gesture. This
     // prevents delayed Piper playback from being rejected by autoplay policy.
     unlockLocalAudio();
+    const settingsController = window.HomeServerVoiceSettings;
+    if (settingsController?.load) {
+      try { await settingsController.load(); } catch (_) {}
+    }
+    if (!conversationStarting) return;
     const status = await refreshLocalVoiceStatus();
+    if (!conversationStarting) return;
     const strict = strictLocalEnabled();
     const localStt = Boolean(status?.stt?.available && hasLocalCapture());
     const localTts = Boolean(status?.tts?.available && AudioContextCtor());
@@ -756,17 +790,23 @@
     const browserTts = Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
 
     if (strict && (!localStt || !localTts)) {
+      conversationStarting = false;
       closePlaybackContext();
+      setVoiceState('idle');
       flash('Strict Local Voice requires healthy Whisper STT and Piper TTS Local Apps plus browser microphone capture and audio playback support.', true);
       return;
     }
     if (!localStt && !browserRecognition) {
+      conversationStarting = false;
       closePlaybackContext();
+      setVoiceState('idle');
       flash('No speech-to-text path is available. Install Whisper STT or use a browser with speech recognition.', true);
       return;
     }
     if (!localTts && !browserTts) {
+      conversationStarting = false;
       closePlaybackContext();
+      setVoiceState('idle');
       flash('No speech-output path is available. Install Piper TTS or use a browser with speech synthesis.', true);
       return;
     }
@@ -776,6 +816,7 @@
       tts: localTts ? 'local' : 'browser',
     };
     if (voicePath.tts !== 'local') closePlaybackContext();
+    conversationStarting = false;
     conversationMode = true;
     awaitingAgent = false;
     speaking = false;
@@ -820,6 +861,12 @@
     if (conversationMode) stopConversationMode('Conversation mode stopped because the local voice privacy setting changed.');
   });
 
+  window.addEventListener('homeserver:voice-settings-changed', () => {
+    localVoiceStatus = null;
+    refreshLocalVoiceStatus().catch(() => null);
+    if (conversationMode || conversationStarting) stopConversationMode('Conversation mode stopped because Voice Settings changed.');
+  });
+
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && byId('chatBrainDrawer')?.getAttribute('aria-hidden') === 'false') setDrawer(false);
   });
@@ -839,6 +886,7 @@
   }
 
   window.addEventListener('beforeunload', () => {
+    conversationStarting = false;
     conversationMode = false;
     captureGeneration += 1;
     cleanupLocalCapture();

@@ -100,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-local-voice-v041-") as data_
             assert client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN}).status_code == 200
             status = client.get("/api/v1/control/voice/status")
             assert status.status_code == 200
-            assert status.json()["version"] == "v0.41"
+            assert status.json()["version"] == "v0.42"
             assert status.json()["local"] is True
             assert status.json()["strict_local_supported"] is True
 
@@ -143,6 +143,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-local-voice-v041-") as data_
             piper_call = next(item for item in calls if Path(item["command"][0]).name.lower() == "piper.exe")
             assert whisper_call["kwargs"]["stdin"] is subprocess.DEVNULL
             assert piper_call["kwargs"]["input"] == private_text
+            assert "--length_scale" in piper_call["command"]
+            assert "--sentence_silence" in piper_call["command"]
             assert private_text not in " ".join(piper_call["command"])
 
             # Do not trust whisper.cpp's process exit code by itself. A missing
@@ -160,4 +162,4 @@ with tempfile.TemporaryDirectory(prefix="homeserver-local-voice-v041-") as data_
         local_voice._resolve_managed_file = original_resolver
         subprocess.run = original_run
 
-print("HomeServer v0.41 local Whisper/Piper voice runtime regression passed")
+print("HomeServer v0.42 local Whisper/Piper voice runtime regression passed")
