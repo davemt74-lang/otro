@@ -307,6 +307,14 @@
     document.head.appendChild(script);
   }
 
+  if (!document.querySelector('script[data-agent-routing]')) {
+    const script = document.createElement('script');
+    script.src = '/assets/agent-routing.js';
+    script.defer = true;
+    script.dataset.agentRouting = 'v0.47';
+    document.head.appendChild(script);
+  }
+
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
 })();
