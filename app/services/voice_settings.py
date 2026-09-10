@@ -208,9 +208,13 @@ def voice_catalog() -> dict[str, Any]:
         pack_meta = _package_metadata(value["app_key"])
         available = bool(runtime_state["healthy"] and pack_state["healthy"])
         installed = bool(pack_state["installed"])
+        needs_repair = bool(
+            (runtime_state["installed"] and not runtime_state["healthy"])
+            or (installed and not pack_state["healthy"])
+        )
         if available:
             management_state = "ready"
-        elif runtime_state["installed"] or installed:
+        elif needs_repair:
             management_state = "repair"
         else:
             management_state = "install"
@@ -253,12 +257,15 @@ def _voice_catalog_item(voice_key: str) -> dict[str, Any]:
 
 def install_voice(voice_key: str, *, repair: bool = False) -> dict[str, Any]:
     voice = get_voice_definition(voice_key)
+    current = _voice_catalog_item(voice_key)
+    if repair and current["management_state"] != "repair":
+        if current["management_state"] == "install":
+            raise local_apps.LocalAppError("Voice is not installed; use Install first.", 409)
+        raise local_apps.LocalAppError("Voice is already healthy and does not need repair.", 409)
+
     runtime_key = voice["runtime_app_key"]
     runtime_state = _install_state(runtime_key)
     pack_state = runtime_state if voice["app_key"] == runtime_key else _install_state(voice["app_key"])
-
-    if repair and not runtime_state["installed"] and not pack_state["installed"]:
-        raise local_apps.LocalAppError("Voice is not installed; use Install first.", 409)
 
     changed = False
     if not runtime_state["healthy"]:
