@@ -87,7 +87,7 @@
     }
     if (installed?.status === 'installed') {
       const update = item.update_available
-        ? `<button class="button primary" type="button" data-local-app-action="update" data-app-key="${html(item.key)}">Update</button>`
+        ? `<button class="button primary" type="button" data-local-app-action="update" data-app-key="${html(item.key)}">Repair / Update</button>`
         : '<span class="local-app-current">Up to date</span>';
       return `${update}<button class="text-button danger" type="button" data-local-app-action="uninstall" data-app-key="${html(item.key)}">Uninstall</button>`;
     }
@@ -97,20 +97,25 @@
 
   function appCard(item) {
     const installed = item.installed;
-    const statusClass = installed?.status === 'installed' ? 'installed' : installed?.status === 'failed' ? 'failed' : 'available';
-    const statusText = installed?.status === 'installed'
-      ? `Installed ${html(installed.installed_version || '')}`
-      : installed?.status === 'failed'
-        ? 'Install needs attention'
-        : item.supported ? 'Available' : 'Not supported on this device';
+    const unhealthy = installed?.status === 'installed' && installed?.healthy === false;
+    const statusClass = installed?.status === 'installed' && !unhealthy ? 'installed' : installed?.status === 'failed' || unhealthy ? 'failed' : 'available';
+    const statusText = unhealthy
+      ? 'Repair required'
+      : installed?.status === 'installed'
+        ? `Installed ${html(installed.installed_version || '')}`
+        : installed?.status === 'failed'
+          ? 'Install needs attention'
+          : item.supported ? 'Available' : 'Not supported on this device';
     const detail = installed?.status === 'installed'
       ? `${byteLabel(installed.disk_bytes)} verified download · local capability registered`
       : `${byteLabel(item.download_bytes)} download · ${html(item.integrity || 'verified')}`;
-    const warning = !item.supported && item.support_reason
-      ? `<div class="local-app-warning">${html(item.support_reason)}</div>`
-      : installed?.last_error
-        ? `<div class="local-app-warning">Last attempt: ${html(installed.last_error)}</div>`
-        : '';
+    const warning = unhealthy && installed?.health_error
+      ? `<div class="local-app-warning">${html(installed.health_error)}</div>`
+      : !item.supported && item.support_reason
+        ? `<div class="local-app-warning">${html(item.support_reason)}</div>`
+        : installed?.last_error
+          ? `<div class="local-app-warning">Last attempt: ${html(installed.last_error)}</div>`
+          : '';
     const defaultVoice = item.default_voice ? `<span>Default voice: <strong>${html(item.default_voice)}</strong></span>` : '';
     return `
       <article class="panel local-app-card" data-local-app-card data-installed="${installed?.status === 'installed' ? '1' : '0'}" data-supported="${item.supported ? '1' : '0'}">
