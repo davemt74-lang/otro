@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from ..database import db
-from . import app_scopes, context_engine
+from . import app_scopes, context_engine, knowledge_collection_policy
 
 COLLABORATION_VERSION = "v0.30"
 MAX_COLLABORATION_CHARS = 6000
@@ -234,9 +234,16 @@ def collect_context(
                 memory_count += 1
 
         if grant.get("knowledge_allowed"):
-            for item in context_engine._knowledge_candidates(
-                query, limit=4, allowed_kinds=scope["knowledge_kinds"]
-            ):
+            candidates = context_engine._knowledge_candidates(
+                query, limit=20, allowed_kinds=scope["knowledge_kinds"]
+            )
+            candidates = knowledge_collection_policy.filter_items_for_app(
+                int(grant["source_app_id"]),
+                candidates,
+                apply_kind_scope=False,
+                scope=scope,
+            )[:4]
+            for item in candidates:
                 remaining = budget - used - sum(len(line) for line in source_lines)
                 if remaining < 180:
                     break

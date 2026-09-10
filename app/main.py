@@ -173,12 +173,18 @@ def client_agent(identity: dict = Depends(require("agent.chat"))) -> dict:
 
 @app.get("/api/v1/knowledge")
 def client_knowledge(q: str = Query(default="", max_length=240), identity: dict = Depends(require("knowledge.search"))) -> dict:
-    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
-    items = [
-        item for item in list_knowledge(q, limit=100)
-        if app_scopes.knowledge_kind_allowed(scope, item.get("kind"))
-    ]
-    return {"items": items, "app": identity["app_key"]}
+    # Import lazily to avoid coupling the core application module to the
+    # optional v0.37 router during early startup. All authenticated knowledge
+    # reads use the same collection + knowledge-kind scope contract.
+    from .knowledge_collections_api import scoped_knowledge_search
+
+    try:
+        result = scoped_knowledge_search(identity, q, 50)
+    except Exception as exc:
+        if hasattr(exc, "status_code"):
+            raise HTTPException(status_code=int(getattr(exc, "status_code")), detail=str(exc)) from exc
+        raise
+    return {**result, "app": identity["app_key"]}
 
 
 @app.get("/api/v1/memory")

@@ -1,0 +1,91 @@
+name: HomeServer Knowledge Collections v0.37
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'app/main.py'
+      - 'app/knowledge_collections_api.py'
+      - 'app/services/app_collaboration.py'
+      - 'app/services/context_chat.py'
+      - 'app/services/knowledge_collection_policy.py'
+      - 'app/services/knowledge_collections.py'
+      - 'app/services/knowledge_collections_remote.py'
+      - 'app/services/tools.py'
+      - 'database/knowledge_collections.sql'
+      - 'docs/section-8-local-knowledge-v037.md'
+      - 'tests/knowledge_collection_consumers_v037.py'
+      - 'tests/knowledge_collections_v037.py'
+      - 'tests/knowledge_collections_v037_contract.py'
+      - 'tests/knowledge_collections_v037_remote_contract.py'
+      - 'tests/knowledge_scope_compat_v037.py'
+      - '.github/workflows/knowledge-collections-v037.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'app/main.py'
+      - 'app/knowledge_collections_api.py'
+      - 'app/services/app_collaboration.py'
+      - 'app/services/context_chat.py'
+      - 'app/services/knowledge_collection_policy.py'
+      - 'app/services/knowledge_collections.py'
+      - 'app/services/knowledge_collections_remote.py'
+      - 'app/services/tools.py'
+      - 'database/knowledge_collections.sql'
+      - 'docs/section-8-local-knowledge-v037.md'
+      - 'tests/knowledge_collection_consumers_v037.py'
+      - 'tests/knowledge_collections_v037.py'
+      - 'tests/knowledge_collections_v037_contract.py'
+      - 'tests/knowledge_collections_v037_remote_contract.py'
+      - 'tests/knowledge_scope_compat_v037.py'
+      - '.github/workflows/knowledge-collections-v037.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  knowledge-collections:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Section 8 modules
+        run: >-
+          python -m py_compile
+          app/database.py
+          app/bridge.py
+          app/main.py
+          app/knowledge_collections_api.py
+          app/services/app_collaboration.py
+          app/services/context_chat.py
+          app/services/knowledge_collection_policy.py
+          app/services/knowledge_collections.py
+          app/services/knowledge_collections_remote.py
+          app/services/tools.py
+      - name: Static trust-boundary contract
+        run: python tests/knowledge_collections_v037_contract.py
+      - name: Remote knowledge routing contract
+        run: python tests/knowledge_collections_v037_remote_contract.py
+      - name: Collection-scoped knowledge regression
+        run: python tests/knowledge_collections_v037.py
+      - name: Legacy + knowledge-kind scope regression
+        run: python tests/knowledge_scope_compat_v037.py
+      - name: Paired knowledge consumer regression
+        run: python tests/knowledge_collection_consumers_v037.py
+      - name: Existing watched-folder regression
+        run: python tests/knowledge_sources.py
+      - name: Existing source privacy regression
+        run: python tests/knowledge_source_retention_privacy.py
+      - name: Database upgrade regression
+        run: python tests/migrations.py
