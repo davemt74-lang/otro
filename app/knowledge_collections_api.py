@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import app_scopes, knowledge_collections
+from .services import knowledge_collection_policy, knowledge_collections
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -48,17 +48,8 @@ def _knowledge_app(identity: dict = Depends(_paired_app)) -> dict:
 
 
 def scoped_knowledge_search(identity: dict, query: str, limit: int) -> dict:
-    """Intersect v0.37 collection scope with the existing knowledge-kind scope."""
-    requested = max(1, min(int(limit), 50))
-    result = knowledge_collections.search_for_app(identity, query, limit=50)
-    scope = identity.get("scope") or app_scopes.DEFAULT_SCOPE
-    items = [
-        item for item in result.get("items", [])
-        if app_scopes.knowledge_kind_allowed(scope, item.get("kind"))
-    ][:requested]
-    result["items"] = items
-    result["count"] = len(items)
-    return result
+    """Canonical paired-app knowledge projection: collection + kind scope."""
+    return knowledge_collection_policy.scoped_search(identity, query, limit=limit)
 
 
 @router.get("/api/v1/control/knowledge/collections")
@@ -102,7 +93,7 @@ def control_collection_update(collection_key: str, payload: KnowledgeCollectionU
 @router.delete("/api/v1/control/knowledge/collections/{collection_key}")
 def control_collection_delete(collection_key: str) -> dict:
     try:
-        return knowledge_collections.delete_collection(collection_key)
+        return knowledge_collection_policy.delete_collection_if_unused(collection_key)
     except knowledge_collections.KnowledgeCollectionError as exc:
         raise _error(exc) from exc
 
