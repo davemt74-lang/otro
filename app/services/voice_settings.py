@@ -7,7 +7,8 @@ from ..database import db
 from . import local_apps
 
 SETTING_KEY = "voice.preferences"
-VOICE_CATALOG_VERSION = "v0.44"
+VOICE_CATALOG_VERSION = "v0.43"
+VOICE_CATALOG_MANAGEMENT_VERSION = "v0.44"
 PIPER_RUNTIME_APP_KEY = "piper-tts"
 
 STT_MODELS = {
@@ -238,6 +239,7 @@ def voice_catalog() -> dict[str, Any]:
         })
     return {
         "version": VOICE_CATALOG_VERSION,
+        "management_version": VOICE_CATALOG_MANAGEMENT_VERSION,
         "runtime": {
             "app_key": PIPER_RUNTIME_APP_KEY,
             **runtime_state,
