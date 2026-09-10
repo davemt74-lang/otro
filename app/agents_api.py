@@ -16,6 +16,18 @@ class ManagedAgentRequest(BaseModel):
     model: str = Field(default="", max_length=120)
 
 
+class ManagedVoiceProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice: str | None = Field(default=None, max_length=120)
+    speaking_rate: float | None = Field(default=None, ge=0.6, le=1.6)
+    sentence_silence: float | None = Field(default=None, ge=0.0, le=1.5)
+
+
+class ManagedPersonaRequest(ManagedAgentRequest):
+    voice_profile: ManagedVoiceProfileRequest = Field(default_factory=ManagedVoiceProfileRequest)
+
+
 def _raise(exc: agent_management.AgentManagementError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -45,6 +57,14 @@ def get_managed_agent(agent_id: int) -> dict:
 def update_managed_agent(agent_id: int, payload: ManagedAgentRequest) -> dict:
     try:
         return agent_management.update_agent(agent_id, payload.model_dump())
+    except agent_management.AgentManagementError as exc:
+        _raise(exc)
+
+
+@router.put("/{agent_id}/persona")
+def save_managed_agent_persona(agent_id: int, payload: ManagedPersonaRequest) -> dict:
+    try:
+        return agent_management.save_persona(agent_id, payload.model_dump())
     except agent_management.AgentManagementError as exc:
         _raise(exc)
 
