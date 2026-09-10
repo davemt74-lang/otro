@@ -287,7 +287,7 @@
       await loadUsage(filter.dataset.usageFilter === 'all' ? null : filter.dataset.usageFilter);
       return;
     }
-    if (!event.target.closest('.sidebar-user-wrap') && !event.target.closest('.conversation-menu')) closeMenus();
+    if (!event.target.closest('.sidebar-user-wrap') && !event.target.closest('.conversation-menu') && !event.target.closest('.conversation-more')) closeMenus();
   });
 
   document.addEventListener('keydown', event => {
