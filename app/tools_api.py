@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import action_policy, app_scopes, approvals, tools
+from .services import action_policy, app_scopes, approvals, local_file_actions_approvals, tools
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -41,6 +41,10 @@ def _approval_or_http(tool_key: str, source: str, arguments: dict[str, Any]) -> 
             return approvals.create_memory_write_request(source, arguments, owner=False)
         if tool_key == "tasks.create":
             return approvals.create_task_create_request(source, arguments, owner=False)
+        if tool_key == "files.update":
+            return local_file_actions_approvals.create_file_update_request(source, arguments, owner=False)
+        if tool_key == "files.delete":
+            return local_file_actions_approvals.create_file_delete_request(source, arguments, owner=False)
     except approvals.ApprovalError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     raise HTTPException(status_code=409, detail="This write tool does not support deferred approval yet.")
