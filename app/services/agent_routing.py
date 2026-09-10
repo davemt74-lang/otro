@@ -74,11 +74,13 @@ def resolve_agent(
 ) -> dict[str, Any]:
     with db() as connection:
         agent = _primary_agent(connection) if requested_agent_id is None else _agent(int(requested_agent_id), connection)
-        if owner:
+        # Preserve the long-standing primary-Agent path for owner, paired, and
+        # internal service callers. App identity is required only when a caller
+        # explicitly selects a secondary persona; authenticated HTTP endpoints
+        # continue to enforce agent.chat before this service is reached.
+        if owner or bool(agent["is_primary"]):
             return agent
         app = _paired_app(source_app_key, connection)
-        if bool(agent["is_primary"]):
-            return agent
         grant = connection.execute(
             """
             SELECT allowed FROM app_agent_grants
