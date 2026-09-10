@@ -104,7 +104,7 @@ def create_file_delete_request(
 
 
 def install() -> None:
-    """Extend the canonical approval executor without changing memory/task behavior."""
+    """Extend approvals while keeping governed file approval local-owner-only."""
     if getattr(approvals, "_local_file_actions_v039_installed", False):
         return
 
@@ -180,4 +180,23 @@ def install() -> None:
         return approvals._request_for_owner(request["id"])
 
     approvals.approve_request = extended_approve_request
+
+    # Approval Federation intentionally supports delegated review for ordinary
+    # memory/task actions. File mutations are different: a paired wrapper may
+    # cancel/deny its own request, but only local owner control may approve one.
+    from . import approval_federation
+
+    original_federated_review = approval_federation.review_request_for_app
+
+    def review_request_for_app(app_key: str, request_id: str, decision: str) -> dict[str, Any]:
+        existing = approval_federation.get_request_for_app(app_key, request_id)
+        normalized = str(decision or "").strip().lower()
+        if existing.get("action_key") in _FILE_ACTIONS and normalized == "approve":
+            raise approvals.ApprovalError(
+                "Governed file mutations require approval from local HomeServer owner control.",
+                403,
+            )
+        return original_federated_review(app_key, request_id, decision)
+
+    approval_federation.review_request_for_app = review_request_for_app
     approvals._local_file_actions_v039_installed = True
