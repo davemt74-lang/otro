@@ -18,6 +18,8 @@ on:
       - 'ui/agent-voice-profile.js'
       - 'tests/agent_routing_v047.py'
       - 'tests/agent_routing_ui_contract_v047.py'
+      - 'tests/context_engine.py'
+      - 'tests/packaged_lifecycle.py'
       - 'tests/multi_agent_personas_v046.py'
       - 'tests/canonical_agent_context_v430.py'
       - '.github/workflows/agent-routing-v047.yml'
@@ -39,6 +41,8 @@ on:
       - 'ui/agent-voice-profile.js'
       - 'tests/agent_routing_v047.py'
       - 'tests/agent_routing_ui_contract_v047.py'
+      - 'tests/context_engine.py'
+      - 'tests/packaged_lifecycle.py'
       - 'tests/multi_agent_personas_v046.py'
       - 'tests/canonical_agent_context_v430.py'
       - '.github/workflows/agent-routing-v047.yml'
@@ -73,6 +77,8 @@ jobs:
         run: python tests/agent_routing_v047.py
       - name: Agent routing UI/API/package contract
         run: python tests/agent_routing_ui_contract_v047.py
+      - name: Retain legacy Context Engine runtime regression
+        run: python tests/context_engine.py
       - name: Retain v0.46 Multi-Agent Persona Management regression
         run: python tests/multi_agent_personas_v046.py
       - name: Retain v0.46 Multi-Agent Persona UI/API contract
