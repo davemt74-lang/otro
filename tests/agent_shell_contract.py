@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[1]
 index = (ROOT_DIR / "ui" / "index.html").read_text(encoding="utf-8")
 shell = (ROOT_DIR / "ui" / "shell.js").read_text(encoding="utf-8")
+styles = (ROOT_DIR / "ui" / "shell.css").read_text(encoding="utf-8")
 brain = (ROOT_DIR / "ui" / "brain.js").read_text(encoding="utf-8")
 
 # The agent-first shell must be part of the actual owner entry point, not only
@@ -29,6 +30,28 @@ assert 'homeServerConnectionButton' in shell
 assert 'loadConnectionModal' in shell
 assert 'openDefaultChat' in shell
 assert "history.replaceState(null, '', '#chat')" in shell
+
+# Desktop shell layout must remain viewport-sticky while only the chat-history
+# region is independently scrollable. The chat composer must not be trapped by
+# hidden/auto overflow ancestors or the legacy 520px message cap.
+assert '.shell-agent-first .sidebar {\n  position: sticky;' in styles
+assert 'height: 100dvh;' in styles
+assert 'max-height: 100dvh;' in styles
+assert '.shell-agent-first .sidebar-chat-history {' in styles
+assert 'overscroll-behavior: contain;' in styles
+assert '.shell-agent-first #view-chat .chat-panel {' in styles
+assert '.shell-agent-first #view-chat .chat-messages {' in styles
+assert 'max-height: none;' in styles
+assert 'overflow: visible;' in styles
+assert '.shell-agent-first #view-chat .chat-compose {' in styles
+assert 'position: sticky;' in styles
+assert 'bottom: 14px;' in styles
+
+# The shell's outside-click closer must not immediately close the conversation
+# options toggle on the same click that brain.js uses to open it.
+assert "!event.target.closest('.conversation-more')" in shell
+assert 'data-conversation-more' in brain
+assert 'data-conversation-menu' in brain
 
 # Chat management remains on the canonical conversation API.
 assert 'data-conversation-rename' in brain
