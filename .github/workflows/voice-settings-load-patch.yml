@@ -1,0 +1,32 @@
+name: Voice Settings Preload Patch
+
+on:
+  push:
+    branches:
+      - voice-settings
+    paths:
+      - .github/workflows/voice-settings-load-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: voice-settings
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply guarded preload patch
+        run: python .github/voice_settings_load_patch.py
+      - name: Commit Voice Settings preload fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Load saved Voice Settings before capture starts"
+          git push origin HEAD:voice-settings
