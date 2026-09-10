@@ -91,20 +91,31 @@ def _active_preferences() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any
     return preferences, stt_model, tts_voice
 
 
+def _tts_status(tts_voice: dict[str, Any]) -> dict[str, Any]:
+    runtime_key = tts_voice["runtime_app_key"]
+    voice_key = tts_voice["app_key"]
+    runtime = _provider_status(runtime_key, ["runtime/piper/piper.exe"])
+    voice = _provider_status(voice_key, [tts_voice["model"], tts_voice["config"]])
+    reason = runtime.get("reason") or voice.get("reason")
+    return {
+        "available": bool(runtime["available"] and voice["available"]),
+        "installed": bool(runtime["installed"] and voice["installed"]),
+        "healthy": bool(runtime["healthy"] and voice["healthy"]),
+        "runtime_app_key": runtime_key,
+        "voice_app_key": voice_key,
+        "runtime": runtime,
+        "voice_pack": voice,
+        "reason": reason,
+    }
+
+
 def status() -> dict[str, Any]:
     preferences, stt_model, tts_voice = _active_preferences()
     stt = _provider_status(
         stt_model["app_key"],
         ["runtime/Release/whisper-cli.exe", stt_model["path"]],
     )
-    tts = _provider_status(
-        tts_voice["app_key"],
-        [
-            "runtime/piper/piper.exe",
-            tts_voice["model"],
-            tts_voice["config"],
-        ],
-    )
+    tts = _tts_status(tts_voice)
     stt["model"] = preferences["stt_model"]
     tts["voice"] = preferences["tts_voice"]
     return {
@@ -114,6 +125,7 @@ def status() -> dict[str, Any]:
         "conversation_ready": bool(stt["available"] and tts["available"]),
         "preferences": preferences,
         "choices": voice_settings.choices(),
+        "voice_catalog": voice_settings.voice_catalog(),
         "stt": stt,
         "tts": tts,
     }
@@ -127,8 +139,6 @@ def _validate_wav(audio: bytes) -> None:
     if len(audio) < 44 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
         raise LocalVoiceError("Local transcription requires a 16-bit PCM WAV recording.", 415)
 
-    # whisper.cpp requires 16-bit WAV input. Scan the RIFF chunks rather than
-    # assuming the fmt chunk is always at byte 12.
     offset = 12
     audio_format = None
     bits_per_sample = None
@@ -189,8 +199,6 @@ def transcribe(audio: bytes) -> dict[str, Any]:
         except OSError as exc:
             raise LocalVoiceError("Local Whisper runtime could not start. Repair Whisper STT in Local Apps.", 503) from exc
 
-        # Current whisper.cpp builds can report success when decoding fails, so
-        # the output artifact is authoritative in addition to the process code.
         if completed.returncode != 0 or not output_path.is_file():
             raise LocalVoiceError("Local Whisper could not transcribe this recording.", 422)
         try:
@@ -215,7 +223,7 @@ def synthesize(text: str) -> bytes:
         raise LocalVoiceError(f"Speech text exceeds the {MAX_TTS_CHARS}-character local voice limit.", 413)
 
     preferences, _, tts_voice = _active_preferences()
-    executable = _resolve_managed_file(tts_voice["app_key"], "runtime/piper/piper.exe")
+    executable = _resolve_managed_file(tts_voice["runtime_app_key"], "runtime/piper/piper.exe")
     model = _resolve_managed_file(tts_voice["app_key"], tts_voice["model"])
     config = _resolve_managed_file(tts_voice["app_key"], tts_voice["config"])
 

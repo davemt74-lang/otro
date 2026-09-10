@@ -4,8 +4,11 @@ import json
 from typing import Any
 
 from ..database import db
+from . import local_apps
 
 SETTING_KEY = "voice.preferences"
+VOICE_CATALOG_VERSION = "v0.43"
+PIPER_RUNTIME_APP_KEY = "piper-tts"
 
 STT_MODELS = {
     "tiny.en-q8_0": {
@@ -16,13 +19,53 @@ STT_MODELS = {
     },
 }
 
+# Voice definitions deliberately separate the Piper runtime from voice assets.
+# The original Lessac voice remains inside piper-tts for backwards compatibility;
+# additional packs install only their ONNX model/config and share that runtime.
 TTS_VOICES = {
     "en_US-lessac-medium": {
         "label": "Lessac — US English (Medium)",
-        "app_key": "piper-tts",
+        "runtime_app_key": PIPER_RUNTIME_APP_KEY,
+        "app_key": PIPER_RUNTIME_APP_KEY,
         "model": "voices/en_US-lessac-medium.onnx",
         "config": "voices/en_US-lessac-medium.onnx.json",
         "language": "en-US",
+        "region": "United States",
+        "quality": "medium",
+        "bundled_with_runtime": True,
+    },
+    "en_US-amy-medium": {
+        "label": "Amy — US English (Medium)",
+        "runtime_app_key": PIPER_RUNTIME_APP_KEY,
+        "app_key": "piper-voice-amy-medium",
+        "model": "voices/en_US-amy-medium.onnx",
+        "config": "voices/en_US-amy-medium.onnx.json",
+        "language": "en-US",
+        "region": "United States",
+        "quality": "medium",
+        "bundled_with_runtime": False,
+    },
+    "en_US-ryan-medium": {
+        "label": "Ryan — US English (Medium)",
+        "runtime_app_key": PIPER_RUNTIME_APP_KEY,
+        "app_key": "piper-voice-ryan-medium",
+        "model": "voices/en_US-ryan-medium.onnx",
+        "config": "voices/en_US-ryan-medium.onnx.json",
+        "language": "en-US",
+        "region": "United States",
+        "quality": "medium",
+        "bundled_with_runtime": False,
+    },
+    "en_GB-alan-medium": {
+        "label": "Alan — British English (Medium)",
+        "runtime_app_key": PIPER_RUNTIME_APP_KEY,
+        "app_key": "piper-voice-alan-medium",
+        "model": "voices/en_GB-alan-medium.onnx",
+        "config": "voices/en_GB-alan-medium.onnx.json",
+        "language": "en-GB",
+        "region": "United Kingdom",
+        "quality": "medium",
+        "bundled_with_runtime": False,
     },
 }
 
@@ -117,10 +160,55 @@ def save_preferences(value: Any) -> dict[str, Any]:
     return preferences
 
 
+def _install_state(app_key: str) -> dict[str, Any]:
+    package = local_apps.CATALOG.get(app_key)
+    if package is None:
+        return {"installed": False, "healthy": False, "reason": "Not in trusted catalog."}
+    row = local_apps._installed_row(app_key)
+    installed = bool(row is not None and row["status"] == "installed")
+    if not installed:
+        return {
+            "installed": False,
+            "healthy": False,
+            "reason": f"Install {package['name']} from Local Apps.",
+        }
+    healthy, reason = local_apps._active_health(package)
+    return {
+        "installed": True,
+        "healthy": bool(healthy),
+        "reason": reason,
+        "version": row["installed_version"],
+    }
+
+
+def voice_catalog() -> dict[str, Any]:
+    runtime_state = _install_state(PIPER_RUNTIME_APP_KEY)
+    voices = []
+    for key, value in TTS_VOICES.items():
+        pack_state = runtime_state if value["app_key"] == PIPER_RUNTIME_APP_KEY else _install_state(value["app_key"])
+        voices.append({
+            "key": key,
+            **value,
+            "install_app_key": value["app_key"],
+            "runtime_installed": runtime_state["installed"],
+            "runtime_healthy": runtime_state["healthy"],
+            "installed": pack_state["installed"],
+            "healthy": bool(runtime_state["healthy"] and pack_state["healthy"]),
+            "available": bool(runtime_state["healthy"] and pack_state["healthy"]),
+            "install_reason": pack_state.get("reason"),
+        })
+    return {
+        "version": VOICE_CATALOG_VERSION,
+        "runtime": {"app_key": PIPER_RUNTIME_APP_KEY, **runtime_state},
+        "voices": voices,
+    }
+
+
 def choices() -> dict[str, Any]:
+    catalog = voice_catalog()
     return {
         "stt_models": [{"key": key, **value} for key, value in STT_MODELS.items()],
-        "tts_voices": [{"key": key, **value} for key, value in TTS_VOICES.items()],
+        "tts_voices": catalog["voices"],
         "default_modes": [
             {"key": "conversation", "label": "Conversation (Talk)"},
             {"key": "dictation", "label": "Dictation"},

@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .services import local_voice, voice_settings
 
@@ -18,8 +18,8 @@ class SpeechRequest(BaseModel):
 class VoiceSettingsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    stt_model: Literal["tiny.en-q8_0"] = "tiny.en-q8_0"
-    tts_voice: Literal["en_US-lessac-medium"] = "en_US-lessac-medium"
+    stt_model: str = "tiny.en-q8_0"
+    tts_voice: str = "en_US-lessac-medium"
     speaking_rate: float = Field(default=1.0, ge=0.6, le=1.6)
     sentence_silence: float = Field(default=0.2, ge=0.0, le=1.5)
     listen_silence_ms: int = Field(default=900, ge=400, le=3000)
@@ -27,6 +27,20 @@ class VoiceSettingsRequest(BaseModel):
     max_segment_ms: int = Field(default=30000, ge=5000, le=60000)
     default_mode: Literal["conversation", "dictation"] = "conversation"
     strict_local_default: bool = False
+
+    @field_validator("stt_model")
+    @classmethod
+    def validate_stt_model(cls, value: str) -> str:
+        if value not in voice_settings.STT_MODELS:
+            raise ValueError("Unknown local transcription model.")
+        return value
+
+    @field_validator("tts_voice")
+    @classmethod
+    def validate_tts_voice(cls, value: str) -> str:
+        if value not in voice_settings.TTS_VOICES:
+            raise ValueError("Unknown local Piper voice.")
+        return value
 
 
 def _raise(exc: local_voice.LocalVoiceError) -> None:
@@ -36,6 +50,11 @@ def _raise(exc: local_voice.LocalVoiceError) -> None:
 @router.get("/status")
 def local_voice_status() -> dict:
     return local_voice.status()
+
+
+@router.get("/catalog")
+def get_local_voice_catalog() -> dict:
+    return voice_settings.voice_catalog()
 
 
 @router.get("/settings")
