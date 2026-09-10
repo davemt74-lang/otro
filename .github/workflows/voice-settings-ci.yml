@@ -16,6 +16,7 @@ on:
       - 'tests/voice_settings_v042.py'
       - 'tests/voice_settings_ui_contract.py'
       - 'tests/voice_catalog_v043.py'
+      - 'tests/voice_catalog_management_v044.py'
       - 'tests/voice_catalog_ui_contract.py'
       - 'tests/local_voice_v041.py'
       - '.github/workflows/voice-settings-ci.yml'
@@ -35,6 +36,7 @@ on:
       - 'tests/voice_settings_v042.py'
       - 'tests/voice_settings_ui_contract.py'
       - 'tests/voice_catalog_v043.py'
+      - 'tests/voice_catalog_management_v044.py'
       - 'tests/voice_catalog_ui_contract.py'
       - 'tests/local_voice_v041.py'
       - '.github/workflows/voice-settings-ci.yml'
@@ -56,7 +58,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Voice Settings backend
-        run: python -m compileall app/local_voice_api.py app/services/local_voice.py app/services/voice_settings.py app/services/local_app_catalog.py tests/voice_settings_v042.py tests/voice_catalog_v043.py tests/voice_settings_ui_contract.py
+        run: python -m compileall app/local_voice_api.py app/services/local_voice.py app/services/voice_settings.py app/services/local_app_catalog.py tests/voice_settings_v042.py tests/voice_catalog_v043.py tests/voice_catalog_management_v044.py tests/voice_settings_ui_contract.py tests/voice_catalog_ui_contract.py
       - name: Validate Voice Settings JavaScript
         run: node --check ui/voice-settings.js
       - name: Validate Voice Catalog JavaScript
@@ -67,7 +69,9 @@ jobs:
         run: node --check ui/chat-dictation.js
       - name: Voice Settings backend regression
         run: python tests/voice_settings_v042.py
-      - name: Local Voice Packs and catalog regression
+      - name: Voice Preview and catalog management regression
+        run: python tests/voice_catalog_management_v044.py
+      - name: Existing Local Voice Packs and catalog regression
         run: python tests/voice_catalog_v043.py
       - name: Voice Settings UI contract
         run: python tests/voice_settings_ui_contract.py
