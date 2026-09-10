@@ -28,7 +28,9 @@ assert '@router.post("/catalog/{voice_key}/repair")' in api
 assert '@router.delete("/catalog/{voice_key}")' in api
 assert "VoicePreviewRequest" in api
 
-assert 'VOICE_CATALOG_VERSION = "v0.44"' in service
+assert 'VOICE_CATALOG_VERSION = "v0.43"' in service
+assert 'VOICE_CATALOG_MANAGEMENT_VERSION = "v0.44"' in service
+assert '"management_version": VOICE_CATALOG_MANAGEMENT_VERSION' in service
 assert 'management_state = "repair"' in service
 assert 'management_state = "install"' in service
 assert '"can_uninstall"' in service
