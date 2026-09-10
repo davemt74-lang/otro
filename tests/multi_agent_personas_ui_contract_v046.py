@@ -17,12 +17,14 @@ for marker in (
     "def get_agent(agent_id: int)",
     "def create_agent(value:",
     "def update_agent(agent_id: int",
+    "def save_persona(agent_id: int",
     "def delete_agent(agent_id: int)",
     "def duplicate_agent(agent_id: int)",
     '"The primary Agent cannot be deleted."',
     "SELECT COUNT(*) FROM agent_memory WHERE agent_id=?",
     '"detached_memory_items"',
     "INSERT INTO agent_voice_profiles(agent_id, voice_key, speaking_rate, sentence_silence)",
+    "ON CONFLICT(agent_id) DO UPDATE SET",
     "SELECT ?, voice_key, speaking_rate, sentence_silence",
     "_log(connection,",
 ):
@@ -36,10 +38,13 @@ for route in (
     '@router.post("")',
     '@router.get("/{agent_id}")',
     '@router.put("/{agent_id}")',
+    '@router.put("/{agent_id}/persona")',
     '@router.delete("/{agent_id}")',
     '@router.post("/{agent_id}/duplicate")',
 ):
     assert route in api, f"missing v0.46 route: {route}"
+assert "class ManagedPersonaRequest" in api
+assert "voice_profile: ManagedVoiceProfileRequest" in api
 assert "extra=\"forbid\"" in api
 
 assert "from .agents_api import router as agents_router" in bridge
@@ -60,15 +65,19 @@ for marker in (
     "Preview voice",
     "memory was not copied",
     "memories remain stored locally and become unassigned",
+    "Primary Agent is not configured.",
     "window.HomeServerAgentManagement",
 ):
     assert marker in ui, f"missing v0.46 UI marker: {marker}"
 assert "const API = '/api/v1/control/agents'" in ui
 assert "const VOICE_API = '/api/v1/control/voice/agents'" in ui
 assert "`${API}/${Number(agentId)}/duplicate`" in ui
-assert "`${VOICE_API}/${id}/profile`" in ui
+assert "`${API}/${id}/persona`" in ui
+assert "voice_profile: readVoice(form)" in ui
+assert "`${VOICE_API}/${Number(agentId)}/preview`" in ui
 assert "homeserver:agent-voice-profile-changed" in ui
 assert "HomeServerVoiceSettings?.applyOutputSink" in ui
+assert "return duplicatePrimary()" not in ui
 assert "data-agent-management" in voice_ui
 assert "agent-management.js" in voice_ui
 assert ".agent-manager" in css
