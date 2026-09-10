@@ -179,6 +179,8 @@
     drawer.classList.remove('open');
     backdrop?.classList.remove('open');
     drawer.setAttribute('aria-hidden', 'true');
+    drawer.inert = true;
+    document.querySelector('.shell')?.removeAttribute('inert');
     toggle?.setAttribute('aria-expanded', 'false');
     document.body.classList.remove('brain-activity-open');
     drawerReturnFocus?.focus?.();
@@ -191,6 +193,8 @@
     const toggle = byId('brainActivityToggle');
     if (!drawer) return;
     drawerReturnFocus = document.activeElement;
+    drawer.inert = false;
+    document.querySelector('.shell')?.setAttribute('inert', '');
     drawer.classList.add('open');
     backdrop?.classList.add('open');
     drawer.setAttribute('aria-hidden', 'false');
@@ -249,6 +253,7 @@
     drawer.id = 'brainActivityDrawer';
     drawer.className = 'brain-activity-drawer';
     drawer.tabIndex = -1;
+    drawer.inert = true;
     drawer.setAttribute('role', 'dialog');
     drawer.setAttribute('aria-modal', 'true');
     drawer.setAttribute('aria-hidden', 'true');
