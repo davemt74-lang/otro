@@ -92,10 +92,16 @@ with tempfile.TemporaryDirectory(prefix="homeserver-voice-catalog-v044-") as dat
 
         with TestClient(app) as client:
             scheduler.stop()
+            assert client.get("/api/v1/control/voice/catalog").status_code == 401
+            assert client.post(
+                "/api/v1/control/voice/preview",
+                json={"voice": "en_US-amy-medium", "text": "Unauthorized preview."},
+            ).status_code == 401
             assert client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN}).status_code == 200
 
             catalog = client.get("/api/v1/control/voice/catalog").json()
-            assert catalog["version"] == "v0.44"
+            assert catalog["version"] == "v0.43"
+            assert catalog["management_version"] == "v0.44"
             amy = next(item for item in catalog["voices"] if item["key"] == "en_US-amy-medium")
             ryan = next(item for item in catalog["voices"] if item["key"] == "en_US-ryan-medium")
             assert amy["available"] is True
@@ -140,6 +146,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-voice-catalog-v044-") as dat
             repair_response = client.post("/api/v1/control/voice/catalog/en_US-ryan-medium/repair")
             assert repair_response.status_code == 200, repair_response.text
             assert ("piper-voice-ryan-medium", True) in install_calls
+
+            installed["piper-voice-alan-medium"] = False
+            healthy["piper-voice-alan-medium"] = False
+            invalid_repair = client.post("/api/v1/control/voice/catalog/en_GB-alan-medium/repair")
+            assert invalid_repair.status_code == 409
 
             bundled_delete = client.delete("/api/v1/control/voice/catalog/en_US-lessac-medium")
             assert bundled_delete.status_code == 409
