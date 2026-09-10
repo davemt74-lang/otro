@@ -33,9 +33,12 @@ jobs:
           app/services/capability_registry.py
           tests/local_apps_v040.py
           tests/local_apps_ui_contract.py
+          tests/local_app_capability_metadata_v041.py
       - name: Local Apps installer security and rollback regression
         run: python tests/local_apps_v040.py
       - name: Local Apps UI contract
         run: python tests/local_apps_ui_contract.py
+      - name: Local App capability metadata compatibility regression
+        run: python tests/local_app_capability_metadata_v041.py
       - name: Existing capability registry regression
         run: python tests/capability_registry_v033.py
