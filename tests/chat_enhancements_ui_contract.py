@@ -12,23 +12,42 @@ assert index.index('/assets/brain.js') < index.index('/assets/chat-enhancements.
 for marker in [
     'voiceInputButton',
     'Start conversation mode',
+    'MediaRecorder',
+    'getUserMedia',
+    'AudioContext',
     'SpeechRecognition',
     'webkitSpeechRecognition',
     'speechSynthesis',
     'SpeechSynthesisUtterance',
+    'strictLocalVoice',
+    'Strict local voice',
     'aria-pressed',
     'voicePrivacyNote',
-    'auto-sends final speech',
     'requestSubmit',
     'speakAgentReply',
-    'startListening',
+    'resumeListening',
+    'startLocalListening',
+    'startBrowserListening',
     'awaitingAgent',
+    'Transcribing',
 ]:
     assert marker in script, f'missing conversation-mode contract marker: {marker}'
 
+for endpoint in [
+    '/api/v1/control/voice/status',
+    '/api/v1/control/voice/transcribe',
+    '/api/v1/control/voice/synthesize',
+]:
+    assert endpoint in script, f'missing local voice endpoint: {endpoint}'
+
 assert "'/api/v1/control/chat'" not in script, 'conversation mode must reuse the canonical chat form instead of bypassing it'
-assert 'form.requestSubmit()' in script, 'final recognized speech must auto-submit through the canonical chat form'
-assert "setTimeout(startListening, 250)" in script, 'conversation mode must resume listening after the spoken reply'
+assert 'form.requestSubmit()' in script, 'recognized speech must auto-submit through the canonical chat form'
+assert "voicePath.stt === 'local'" in script, 'installed local Whisper must be preferred for STT'
+assert "voicePath.tts === 'local'" in script, 'installed local Piper must be preferred for TTS'
+assert 'recordingToWav' in script and 'encodePcm16Wav' in script, 'browser microphone audio must be converted locally to PCM WAV'
+assert 'credentials: \'same-origin\'' in script, 'local voice requests must stay on the owner-session same-origin route'
+assert "if (strictLocalEnabled())" in script, 'strict local mode must block browser service fallback'
+assert 'resumeListening()' in script, 'conversation mode must resume listening after spoken replies and empty segments'
 
 for endpoint in [
     '/api/v1/control/inference',
@@ -60,10 +79,13 @@ for marker in [
     'chat-brain-backdrop',
     'chat-brain-stats',
     '.chat-icon-button.listening',
+    '.chat-icon-button.transcribing',
     '.chat-icon-button.thinking',
     '.chat-icon-button.speaking',
+    '.chat-voice-options',
+    '.chat-local-voice-badge.ready',
     '@media(max-width:700px)',
 ]:
     assert marker in styles, f'missing responsive conversation/drawer style marker: {marker}'
 
-print('Agent Chat conversation mode + Brain activity UI contract passed.')
+print('Agent Chat local conversation mode + Brain activity UI contract passed.')
