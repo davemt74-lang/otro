@@ -71,25 +71,9 @@ def _policy(identity: dict[str, Any] | None, *, owner: bool) -> tuple[set[str] |
     return allowed_collections, scope
 
 
-def _base_query() -> str:
-    return """
-        SELECT
-            ksf.id AS file_id,
-            ksf.source_id,
-            ksf.relative_path,
-            ksf.content_hash AS file_content_hash,
-            ksf.size_bytes,
-            ksf.status,
-            ksf.updated_at AS file_updated_at,
-            ks.label AS source_label,
-            ks.enabled AS source_enabled,
-            ki.id AS knowledge_item_id,
-            ki.title,
-            ki.kind,
-            COALESCE(ki.content_hash, '') AS knowledge_content_hash,
-            COALESCE(ki.content, '') AS indexed_text,
-            COALESCE(dc.collection_key, sc.collection_key, 'general') AS collection_key,
-            COALESCE(dc.name, sc.name, 'General') AS collection_name
+def _base_query(select_clause: str) -> str:
+    return f"""
+        SELECT {select_clause}
         FROM knowledge_source_files ksf
         JOIN knowledge_sources ks ON ks.id=ksf.source_id
         JOIN knowledge_items ki ON ki.id=ksf.knowledge_item_id
@@ -100,7 +84,56 @@ def _base_query() -> str:
     """
 
 
+def _row_select() -> str:
+    return """
+        ksf.id AS file_id,
+        ksf.source_id,
+        ksf.relative_path,
+        ksf.content_hash AS file_content_hash,
+        ksf.size_bytes,
+        ksf.status,
+        ksf.updated_at AS file_updated_at,
+        ks.label AS source_label,
+        ks.enabled AS source_enabled,
+        ki.id AS knowledge_item_id,
+        ki.title,
+        ki.kind,
+        COALESCE(ki.content_hash, '') AS knowledge_content_hash,
+        COALESCE(ki.content, '') AS indexed_text,
+        COALESCE(dc.collection_key, sc.collection_key, 'general') AS collection_key,
+        COALESCE(dc.name, sc.name, 'General') AS collection_name
+    """
+
+
+def _scope_where(
+    allowed_collections: set[str] | None,
+    scope: dict[str, Any],
+) -> tuple[str, list[Any]]:
+    clauses = ["ks.enabled=1", "ksf.status='indexed'", "ksf.knowledge_item_id IS NOT NULL"]
+    params: list[Any] = []
+
+    if allowed_collections is not None:
+        keys = sorted(str(value) for value in allowed_collections)
+        if not keys:
+            clauses.append("1=0")
+        else:
+            placeholders = ",".join("?" for _ in keys)
+            clauses.append(
+                f"COALESCE(dc.collection_key, sc.collection_key, 'general') IN ({placeholders})"
+            )
+            params.extend(keys)
+
+    kinds = [str(value) for value in scope.get("knowledge_kinds", []) if str(value)]
+    if kinds:
+        placeholders = ",".join("?" for _ in kinds)
+        clauses.append(f"ki.kind IN ({placeholders})")
+        params.extend(kinds)
+
+    return " WHERE " + " AND ".join(clauses), params
+
+
 def _visible_row(row: Any, allowed_collections: set[str] | None, scope: dict[str, Any]) -> bool:
+    """Defense-in-depth check mirroring the SQL policy constraints."""
     if not bool(row["source_enabled"]):
         return False
     if str(row["status"] or "") != "indexed":
@@ -130,6 +163,17 @@ def _safe_metadata(row: Any) -> dict[str, Any]:
     }
 
 
+def count_files(identity: dict[str, Any] | None, *, owner: bool = False) -> int:
+    allowed_collections, scope = _policy(identity, owner=owner)
+    where, params = _scope_where(allowed_collections, scope)
+    with db() as connection:
+        row = connection.execute(
+            _base_query("COUNT(DISTINCT ksf.id) AS file_count") + where,
+            tuple(params),
+        ).fetchone()
+    return max(0, int(row["file_count"] if row is not None else 0))
+
+
 def list_files(
     identity: dict[str, Any] | None,
     query: str = "",
@@ -140,9 +184,9 @@ def list_files(
     bounded = _bounded_int(limit, default=20, minimum=1, maximum=MAX_LIST_LIMIT, label="limit")
     q = str(query or "").strip()[:240]
     allowed_collections, scope = _policy(identity, owner=owner)
+    where, params = _scope_where(allowed_collections, scope)
 
-    sql = _base_query() + " WHERE ks.enabled=1 AND ksf.status='indexed' AND ksf.knowledge_item_id IS NOT NULL"
-    params: list[Any] = []
+    sql = _base_query(_row_select()) + where
     if q:
         term = f"%{_escape_like(q.lower())}%"
         sql += (
@@ -152,17 +196,14 @@ def list_files(
         )
         params.extend([term, term, term])
     sql += " ORDER BY ksf.updated_at DESC, ksf.id DESC LIMIT ?"
-    params.append(max(200, bounded * 10))
+    params.append(bounded)
 
     items: list[dict[str, Any]] = []
     with db() as connection:
         rows = connection.execute(sql, tuple(params)).fetchall()
         for row in rows:
-            if not _visible_row(row, allowed_collections, scope):
-                continue
-            items.append(_safe_metadata(row))
-            if len(items) >= bounded:
-                break
+            if _visible_row(row, allowed_collections, scope):
+                items.append(_safe_metadata(row))
 
     return {
         "items": items,
@@ -193,7 +234,7 @@ def read_file(
 
     with db() as connection:
         row = connection.execute(
-            _base_query() + " WHERE ksf.id=? LIMIT 1",
+            _base_query(_row_select()) + " WHERE ksf.id=? LIMIT 1",
             (file_id,),
         ).fetchone()
     if row is None or not _visible_row(row, allowed_collections, scope):
