@@ -1,0 +1,26 @@
+name: Agent Chat Voice and Brain Activity
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  chat-enhancements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate Agent Chat enhancement JavaScript
+        run: node --check ui/chat-enhancements.js
+      - name: Validate existing Agent Brain JavaScript
+        run: node --check ui/brain.js
+      - name: Agent Chat voice and Brain activity UI contract
+        run: python tests/chat_enhancements_ui_contract.py
+      - name: Agent-first shell regression
+        run: python tests/agent_shell_contract.py
