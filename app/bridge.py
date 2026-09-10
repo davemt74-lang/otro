@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .action_policy_api import router as action_policy_router
+from .agents_api import router as agents_router
 from .approvals_api import router as approvals_router
 from .backups_api import router as backups_router
 from .brain_api import router as brain_router
@@ -57,6 +58,7 @@ install_local_file_agent_tools()
 install_local_file_action_agent_tools()
 install_local_file_action_registry()
 
+app.include_router(agents_router)
 app.include_router(delegation_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
@@ -104,6 +106,12 @@ def capabilities() -> dict:
             "local_only": True,
             "operations": ["speech.transcribe", "speech.synthesize"],
         },
+        "agent_personas": {
+            "version": "v0.46",
+            "owner_managed": True,
+            "multi_agent": True,
+            "voice_profiles": "v0.45",
+        },
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -148,6 +156,7 @@ def capabilities() -> dict:
             "agent.context.awareness",
             "agent.context.budget",
             "agent.context.sources",
+            "agent.personas.v046",
             "agent.privacy.local_only",
             "agent.tools.read",
             "app.collaboration.v1",
