@@ -22,7 +22,9 @@ for marker in (
     '"The primary Agent cannot be deleted."',
     "SELECT COUNT(*) FROM agent_memory WHERE agent_id=?",
     '"detached_memory_items"',
-    "agent_voice_profiles.save_profile(new_id, overrides)",
+    "INSERT INTO agent_voice_profiles(agent_id, voice_key, speaking_rate, sentence_silence)",
+    "SELECT ?, voice_key, speaking_rate, sentence_silence",
+    "_log(connection,",
 ):
     assert marker in service, f"missing v0.46 service contract marker: {marker}"
 assert "UPDATE agents\n            SET name=?, instructions=?, model=?" in service
