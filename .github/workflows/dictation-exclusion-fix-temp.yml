@@ -1,0 +1,40 @@
+name: Dictation exclusion fix temporary
+on:
+  push:
+    branches: [agent-chat-dictation-mode]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent-chat-dictation-mode
+      - name: Patch starting-state exclusion and remove helper
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('ui/chat-dictation.js')
+          s = p.read_text(encoding='utf-8')
+          replacements = [
+            ("if (active && event.target.closest('#voiceInputButton')) stopDictation('');", "if ((active || starting) && event.target.closest('#voiceInputButton')) stopDictation('');"),
+            ("if (active && event.target.closest('#strictLocalVoice')) {", "if ((active || starting) && event.target.closest('#strictLocalVoice')) {")
+          ]
+          for old, new in replacements:
+              if old not in s:
+                  raise SystemExit('Expected exclusion marker not found: ' + old)
+              s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+          Path('.github/workflows/dictation-exclusion-fix-temp.yml').unlink()
+          PY
+      - name: Commit exclusion fix
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add ui/chat-dictation.js .github/workflows/dictation-exclusion-fix-temp.yml
+          git commit -m "Keep Talk and Dictate mutually exclusive during startup"
+          git push origin HEAD:agent-chat-dictation-mode
