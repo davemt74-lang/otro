@@ -76,8 +76,18 @@ for source in (TALK_JS, DICTATE_JS):
     assert "timing.noSpeechTimeoutMs" in source
     assert "timing.maxSegmentMs" in source
 
-# Conversation-mode local playback uses the selected output where supported.
+# Conversation startup is a cancellable engaged state. This closes the race
+# where Voice Settings or Dictate could open while Talk was awaiting status.
+assert "let conversationStarting = false;" in TALK_JS
+assert "const engaged = conversationMode || conversationStarting;" in TALK_JS
+assert "if (conversationMode || conversationStarting)" in TALK_JS
+assert "if (!conversationStarting) return;" in TALK_JS
+assert "conversationStarting = false;\n    conversationMode = true;" in TALK_JS
+
+# Local playback uses the selected output where supported and browser TTS
+# fallback honors the same speaking-rate preference as Piper.
 assert "HomeServerVoiceSettings?.applyOutputSink?.(context)" in TALK_JS
+assert "utterance.rate = Number(window.HomeServerVoiceSettings?.getPreferences?.().speaking_rate || 1);" in TALK_JS
 
 # Dictation remains compose-only: it must not submit a chat message or speak.
 assert "requestSubmit" not in DICTATE_JS
