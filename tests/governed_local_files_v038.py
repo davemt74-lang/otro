@@ -147,6 +147,45 @@ with tempfile.TemporaryDirectory(prefix="homeserver-governed-files-v038-") as te
         assert second_read.json()["offset"] == first_json["next_offset"]
 
         with db() as connection:
+            travel_row = connection.execute(
+                "SELECT knowledge_item_id FROM knowledge_source_files WHERE source_id=? LIMIT 1",
+                (source_ids["travel"],),
+            ).fetchone()
+        assert travel_row is not None
+        travel_item_id = int(travel_row["knowledge_item_id"])
+
+        # Section 8 item-level collection overrides remain authoritative for
+        # Section 9 files, even when the containing watched source says Travel.
+        item_private = client.put(
+            f"/api/v1/control/knowledge/{travel_item_id}/collection",
+            json={"collection_key": "private"},
+        )
+        assert item_private.status_code == 200, item_private.text
+        assert client.get("/api/v1/files", headers=headers).json()["count"] == 0
+        assert client.get(f"/api/v1/files/{visible['ref']}", headers=headers).status_code == 404
+        item_travel = client.put(
+            f"/api/v1/control/knowledge/{travel_item_id}/collection",
+            json={"collection_key": "travel"},
+        )
+        assert item_travel.status_code == 200, item_travel.text
+        restored = client.get("/api/v1/files", headers=headers)
+        assert restored.status_code == 200
+        assert restored.json()["count"] == 1
+        visible = restored.json()["items"][0]
+
+        # The paired read consumes the indexed SQLite copy, not the original
+        # watched file. Making the approved source temporarily unavailable must
+        # not cause HomeServer to traverse/reopen the source path during a read.
+        offline_travel_dir = root / "travel-private-root-offline"
+        travel_dir.rename(offline_travel_dir)
+        indexed_only = client.get(
+            f"/api/v1/files/{visible['ref']}", params={"max_chars": 160}, headers=headers
+        )
+        assert indexed_only.status_code == 200, indexed_only.text
+        assert "TRAVEL_FILE_VISIBLE_3801" in indexed_only.json()["text"]
+        assert indexed_only.json()["privacy"]["original_files_reopened"] is False
+
+        with db() as connection:
             private_row = connection.execute(
                 "SELECT id, content_hash FROM knowledge_source_files WHERE source_id=? LIMIT 1",
                 (source_ids["private"],),
