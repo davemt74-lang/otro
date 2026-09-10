@@ -9,8 +9,10 @@ on:
       - 'app/services/knowledge_collections.py'
       - 'app/services/knowledge_collections_remote.py'
       - 'database/knowledge_collections.sql'
+      - 'docs/section-8-local-knowledge-v037.md'
       - 'tests/knowledge_collections_v037.py'
       - 'tests/knowledge_collections_v037_contract.py'
+      - 'tests/knowledge_collections_v037_remote_contract.py'
       - '.github/workflows/knowledge-collections-v037.yml'
   push:
     branches: [main]
@@ -21,8 +23,10 @@ on:
       - 'app/services/knowledge_collections.py'
       - 'app/services/knowledge_collections_remote.py'
       - 'database/knowledge_collections.sql'
+      - 'docs/section-8-local-knowledge-v037.md'
       - 'tests/knowledge_collections_v037.py'
       - 'tests/knowledge_collections_v037_contract.py'
+      - 'tests/knowledge_collections_v037_remote_contract.py'
       - '.github/workflows/knowledge-collections-v037.yml'
 
 permissions:
@@ -46,6 +50,8 @@ jobs:
         run: python -m py_compile app/database.py app/bridge.py app/knowledge_collections_api.py app/services/knowledge_collections.py app/services/knowledge_collections_remote.py
       - name: Static trust-boundary contract
         run: python tests/knowledge_collections_v037_contract.py
+      - name: Remote knowledge routing contract
+        run: python tests/knowledge_collections_v037_remote_contract.py
       - name: Collection-scoped knowledge regression
         run: python tests/knowledge_collections_v037.py
       - name: Existing watched-folder regression
