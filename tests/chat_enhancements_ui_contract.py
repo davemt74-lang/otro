@@ -30,6 +30,10 @@ for marker in [
     'startBrowserListening',
     'awaitingAgent',
     'Transcribing',
+    'unlockLocalAudio',
+    'playbackContext',
+    'createBufferSource',
+    'decodeAudioData',
 ]:
     assert marker in script, f'missing conversation-mode contract marker: {marker}'
 
@@ -48,6 +52,8 @@ assert 'recordingToWav' in script and 'encodePcm16Wav' in script, 'browser micro
 assert 'credentials: \'same-origin\'' in script, 'local voice requests must stay on the owner-session same-origin route'
 assert "if (strictLocalEnabled())" in script, 'strict local mode must block browser service fallback'
 assert 'resumeListening()' in script, 'conversation mode must resume listening after spoken replies and empty segments'
+assert "new Audio(" not in script, 'delayed Piper playback must use the user-gesture-unlocked AudioContext rather than autoplay-sensitive HTMLAudioElement.play()'
+assert 'configured Agent inference route' in script, 'privacy disclosure must distinguish local voice processing from the configured Agent inference route'
 
 for endpoint in [
     '/api/v1/control/inference',
