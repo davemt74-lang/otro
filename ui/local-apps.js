@@ -80,7 +80,7 @@
   function actionMarkup(item) {
     const installed = item.installed;
     if (!item.supported && !installed) {
-      return `<button class="button secondary" type="button" disabled>Unavailable</button>`;
+      return '<button class="button secondary" type="button" disabled>Unavailable</button>';
     }
     if (installed?.status === 'installing' || installed?.status === 'updating') {
       return `<button class="button secondary" type="button" disabled>${installed.status === 'updating' ? 'Updating…' : 'Installing…'}</button>`;
@@ -88,7 +88,7 @@
     if (installed?.status === 'installed') {
       const update = item.update_available
         ? `<button class="button primary" type="button" data-local-app-action="update" data-app-key="${html(item.key)}">Update</button>`
-        : `<span class="local-app-current">Up to date</span>`;
+        : '<span class="local-app-current">Up to date</span>';
       return `${update}<button class="text-button danger" type="button" data-local-app-action="uninstall" data-app-key="${html(item.key)}">Uninstall</button>`;
     }
     const label = installed?.status === 'failed' ? 'Retry install' : 'Install';
@@ -140,8 +140,9 @@
     container.innerHTML = packages.length ? packages.map(appCard).join('') : '<div class="panel empty-state">No Local Apps match this filter.</div>';
   }
 
-  async function load() {
+  async function load(force = false) {
     if (state.loading) return;
+    if (force) state.data = null;
     state.loading = true;
     const container = document.getElementById('localAppsCatalog');
     if (container && !state.data) container.innerHTML = '<div class="panel empty-state">Loading Local Apps…</div>';
@@ -161,11 +162,11 @@
     const key = button.dataset.appKey;
     const item = state.data?.packages?.find((entry) => entry.key === key);
     if (!item) return;
-    if (action === 'uninstall') {
-      if (!window.confirm(`Uninstall ${item.name}? This removes only its managed Local App files. HomeServer data, memory and conversations are not removed.`)) return;
-    } else if (action === 'install') {
-      if (!window.confirm(`Install ${item.name}? HomeServer will download ${byteLabel(item.download_bytes)}, verify every artifact, and activate it only after all checks pass.`)) return;
-    }
+
+    // Install and update are deliberately one-click. The catalog card already
+    // shows source, size, runtime and integrity policy. Destructive uninstall
+    // still requires confirmation.
+    if (action === 'uninstall' && !window.confirm(`Uninstall ${item.name}? This removes only its managed Local App files. HomeServer data, memory and conversations are not removed.`)) return;
 
     const original = button.textContent;
     button.disabled = true;
@@ -188,15 +189,6 @@
       button.textContent = original;
     }
   }
-
-  // Force reload is intentionally represented by clearing the cached payload;
-  // install/update/uninstall requests remain synchronous so the UI cannot claim
-  // success before verification and activation are complete.
-  const originalLoad = load;
-  load = async (force = false) => { // eslint-disable-line no-func-assign
-    if (force) state.data = null;
-    return originalLoad();
-  };
 
   ensureWorkspace();
   window.loadHomeServerLocalApps = load;
