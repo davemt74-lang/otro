@@ -25,8 +25,8 @@
   let captureChunks = [];
   let captureGeneration = 0;
   let captureVoiceStarted = false;
-  let playbackAudio = null;
-  let playbackUrl = '';
+  let playbackContext = null;
+  let playbackSource = null;
 
   const LOCAL_STT_ENDPOINT = '/api/v1/control/voice/transcribe';
   const LOCAL_TTS_ENDPOINT = '/api/v1/control/voice/synthesize';
@@ -236,7 +236,7 @@
     }
     if (note) {
       note.textContent = ready
-        ? 'Whisper STT and Piper TTS are ready locally. Conversation audio and speech stay on this HomeServer; Strict Local blocks browser/OS fallback.'
+        ? 'Whisper STT and Piper TTS process voice locally on this HomeServer. Transcribed chat still follows your configured Agent inference route; Strict Local blocks browser/OS voice fallback.'
         : 'Install/repair Whisper STT and Piper TTS in Local Apps for private local voice. With Strict Local off, browser/OS speech services may be used as fallback.';
     }
     return localVoiceStatus;
@@ -270,14 +270,28 @@
   }
 
   function cleanupPlayback() {
-    if (playbackAudio) {
-      try { playbackAudio.pause(); } catch (_) {}
-      playbackAudio.src = '';
-      playbackAudio = null;
-    }
-    if (playbackUrl) {
-      URL.revokeObjectURL(playbackUrl);
-      playbackUrl = '';
+    const source = playbackSource;
+    playbackSource = null;
+    if (!source) return;
+    source.onended = null;
+    try { source.stop(0); } catch (_) {}
+    try { source.disconnect(); } catch (_) {}
+  }
+
+  function unlockLocalAudio() {
+    const Context = AudioContextCtor();
+    if (!Context) return false;
+    if (!playbackContext || playbackContext.state === 'closed') playbackContext = new Context();
+    playbackContext.resume().catch(() => null);
+    return true;
+  }
+
+  function closePlaybackContext() {
+    cleanupPlayback();
+    const context = playbackContext;
+    playbackContext = null;
+    if (context) {
+      try { context.close(); } catch (_) {}
     }
   }
 
@@ -311,7 +325,7 @@
       recognition = null;
     }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
-    cleanupPlayback();
+    closePlaybackContext();
     setVoiceState('idle');
     if (message) flash(message);
   }
@@ -668,17 +682,24 @@
       credentials: 'same-origin',
     });
     if (!response.ok) throw await responseError(response, 'Local Piper speech synthesis failed.');
-    const blob = await response.blob();
+    const audioBytes = await response.arrayBuffer();
     if (!conversationMode) return;
-    playbackUrl = URL.createObjectURL(blob);
-    playbackAudio = new Audio(playbackUrl);
-    playbackAudio.onended = finishSpeaking;
-    playbackAudio.onerror = () => handleLocalTtsFailure(new Error('Local Piper audio playback failed.'));
-    try {
-      await playbackAudio.play();
-    } catch (err) {
-      handleLocalTtsFailure(err);
-    }
+    const context = playbackContext;
+    if (!context || context.state === 'closed') throw new Error('Local audio playback context is unavailable.');
+    await context.resume();
+    const decoded = await context.decodeAudioData(audioBytes.slice(0));
+    if (!conversationMode || context !== playbackContext) return;
+    cleanupPlayback();
+    const source = context.createBufferSource();
+    playbackSource = source;
+    source.buffer = decoded;
+    source.connect(context.destination);
+    source.onended = () => {
+      if (playbackSource === source) playbackSource = null;
+      try { source.disconnect(); } catch (_) {}
+      finishSpeaking();
+    };
+    source.start(0);
   }
 
   function handleLocalTtsFailure(err) {
@@ -724,22 +745,28 @@
       return;
     }
 
+    // Unlock local audio synchronously inside the user's click gesture. This
+    // prevents delayed Piper playback from being rejected by autoplay policy.
+    unlockLocalAudio();
     const status = await refreshLocalVoiceStatus();
     const strict = strictLocalEnabled();
     const localStt = Boolean(status?.stt?.available && hasLocalCapture());
-    const localTts = Boolean(status?.tts?.available);
+    const localTts = Boolean(status?.tts?.available && AudioContextCtor());
     const browserRecognition = Boolean(recognitionConstructor());
     const browserTts = Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
 
     if (strict && (!localStt || !localTts)) {
-      flash('Strict Local Voice requires healthy Whisper STT and Piper TTS Local Apps plus browser microphone capture support.', true);
+      closePlaybackContext();
+      flash('Strict Local Voice requires healthy Whisper STT and Piper TTS Local Apps plus browser microphone capture and audio playback support.', true);
       return;
     }
     if (!localStt && !browserRecognition) {
+      closePlaybackContext();
       flash('No speech-to-text path is available. Install Whisper STT or use a browser with speech recognition.', true);
       return;
     }
     if (!localTts && !browserTts) {
+      closePlaybackContext();
       flash('No speech-output path is available. Install Piper TTS or use a browser with speech synthesis.', true);
       return;
     }
@@ -748,6 +775,7 @@
       stt: localStt ? 'local' : 'browser',
       tts: localTts ? 'local' : 'browser',
     };
+    if (voicePath.tts !== 'local') closePlaybackContext();
     conversationMode = true;
     awaitingAgent = false;
     speaking = false;
@@ -814,7 +842,7 @@
     conversationMode = false;
     captureGeneration += 1;
     cleanupLocalCapture();
-    cleanupPlayback();
+    closePlaybackContext();
   });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
