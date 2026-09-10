@@ -18,6 +18,7 @@ from .files_api import router as files_router
 from .knowledge_backup_api import router as knowledge_backup_router
 from .knowledge_collections_api import router as knowledge_collections_router
 from .knowledge_sources_api import router as knowledge_sources_router
+from .local_apps_api import router as local_apps_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
 from .services import providers
@@ -72,6 +73,7 @@ app.include_router(system_router)
 app.include_router(remote_bridge_router)
 app.include_router(usage_router)
 app.include_router(connected_apps_router)
+app.include_router(local_apps_router)
 app.include_router(capability_registry_router)
 
 app.add_middleware(
@@ -93,6 +95,7 @@ def capabilities() -> dict:
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
         "capability_registry": {"version": "v0.33", "operation": "capability.registry", "authenticated": True},
+        "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -168,6 +171,8 @@ def capabilities() -> dict:
             "knowledge.sources.local",
             "knowledge.sources.sync",
             "knowledge.write",
+            "local.apps.v1",
+            "local.apps.install.v1",
             "memory.provenance",
             "memory.read",
             "memory.write",
