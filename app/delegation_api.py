@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from .brain_api import ChatRequest, client_chat
-from .services import brain, delegation
+from .services import agent_routing, brain, delegation
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -26,6 +26,7 @@ class DelegatedMessage(BaseModel):
 class DelegationRequest(BaseModel):
     message: str = Field(min_length=1, max_length=32000)
     conversation_id: str | None = Field(default=None, max_length=64)
+    agent_id: int | None = Field(default=None, ge=1)
     external_conversation_id: str | None = Field(default=None, max_length=160)
     delegation: DelegatedAgent | None = None
     history: list[DelegatedMessage] = Field(default_factory=list, max_length=12)
@@ -67,6 +68,7 @@ def _delegate(payload: DelegationRequest, identity: dict) -> dict:
             payload.delegation.model_dump(),
             [item.model_dump() for item in payload.history],
             payload.surface_context,
+            agent_id=payload.agent_id,
             include_memory=(payload.include_memory is not False) and "memory.read" in permissions,
             include_knowledge=(payload.include_knowledge is not False) and "knowledge.search" in permissions,
             include_contacts=(payload.include_contacts is not False) and "contacts.read" in permissions,
@@ -74,8 +76,9 @@ def _delegate(payload: DelegationRequest, identity: dict) -> dict:
             max_context_chars=payload.max_context_chars or 12000,
             tool_permissions=permissions,
         )
-    except brain.BrainError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except (agent_routing.AgentRoutingError, brain.BrainError) as exc:
+        status_code = getattr(exc, "status_code", 422)
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.post("/api/v1/chat")
@@ -84,10 +87,11 @@ def compatible_chat(payload: DelegationRequest, identity: dict = Depends(_requir
         return _delegate(payload, identity)
 
     # v0.18-compatible payloads continue through the canonical stateful
-    # HomeServer chat implementation unchanged.
+    # HomeServer chat implementation. Omitting agent_id still selects primary.
     legacy = ChatRequest(
         message=payload.message,
         conversation_id=payload.conversation_id,
+        agent_id=payload.agent_id,
         include_memory=payload.include_memory,
         include_knowledge=payload.include_knowledge,
         include_contacts=payload.include_contacts,
