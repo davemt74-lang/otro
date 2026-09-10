@@ -79,6 +79,12 @@ def normalize(value: Any) -> dict[str, Any]:
     }
 
 
+def piper_length_scale(preferences: Any) -> float:
+    normalized = normalize(preferences)
+    # Piper length_scale is inverse speed: values below 1 are faster.
+    return round(1.0 / float(normalized["speaking_rate"]), 4)
+
+
 def get_preferences() -> dict[str, Any]:
     with db() as connection:
         row = connection.execute(
