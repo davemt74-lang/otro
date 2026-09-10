@@ -84,7 +84,7 @@ def _base_query(select_clause: str) -> str:
     """
 
 
-def _row_select() -> str:
+def _metadata_select() -> str:
     return """
         ksf.id AS file_id,
         ksf.source_id,
@@ -98,11 +98,13 @@ def _row_select() -> str:
         ki.id AS knowledge_item_id,
         ki.title,
         ki.kind,
-        COALESCE(ki.content_hash, '') AS knowledge_content_hash,
-        COALESCE(ki.content, '') AS indexed_text,
         COALESCE(dc.collection_key, sc.collection_key, 'general') AS collection_key,
         COALESCE(dc.name, sc.name, 'General') AS collection_name
     """
+
+
+def _read_select() -> str:
+    return _metadata_select() + ", LENGTH(COALESCE(ki.content, '')) AS content_chars, SUBSTR(COALESCE(ki.content, ''), ?, ?) AS indexed_text"
 
 
 def _scope_where(
@@ -186,7 +188,7 @@ def list_files(
     allowed_collections, scope = _policy(identity, owner=owner)
     where, params = _scope_where(allowed_collections, scope)
 
-    sql = _base_query(_row_select()) + where
+    sql = _base_query(_metadata_select()) + where
     if q:
         term = f"%{_escape_like(q.lower())}%"
         sql += (
@@ -234,8 +236,8 @@ def read_file(
 
     with db() as connection:
         row = connection.execute(
-            _base_query(_row_select()) + " WHERE ksf.id=? LIMIT 1",
-            (file_id,),
+            _base_query(_read_select()) + " WHERE ksf.id=? LIMIT 1",
+            (bounded_offset + 1, bounded_chars, file_id),
         ).fetchone()
     if row is None or not _visible_row(row, allowed_collections, scope):
         raise LocalFileError("File is unavailable to this application.", status_code=404)
@@ -244,12 +246,11 @@ def read_file(
     if requested_version != current_version:
         raise LocalFileError("File reference is stale. Discover the file again before reading it.", status_code=409)
 
-    text = str(row["indexed_text"] or "")
-    total_chars = len(text)
+    total_chars = max(0, int(row["content_chars"] or 0))
     if bounded_offset > total_chars:
         raise LocalFileError("offset is beyond the indexed file content.", status_code=416)
-    end = min(total_chars, bounded_offset + bounded_chars)
-    content = text[bounded_offset:end]
+    content = str(row["indexed_text"] or "")
+    end = bounded_offset + len(content)
     next_offset = end if end < total_chars else None
     metadata = _safe_metadata(row)
     return {
