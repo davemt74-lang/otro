@@ -82,6 +82,32 @@ def verify_agent_routing(client: httpx.Client, primary_id: int, secondary_id: in
     assert agents[secondary_id]["name"] == "Packaged Research Agent"
 
 
+def verify_agent_workflow(
+    client: httpx.Client,
+    task_id: int,
+    primary_id: int,
+    secondary_id: int,
+) -> None:
+    policy = client.get("/api/v1/control/agent-workflows/policy")
+    assert policy.status_code == 200, policy.text
+    policy_payload = policy.json()
+    assert policy_payload["version"] == "v0.48"
+    assert policy_payload["enabled"] is True
+    assert policy_payload["max_context_chars"] == 16000
+
+    task = client.get(f"/api/v1/control/agent-workflows/delegations/{task_id}")
+    assert task.status_code == 200, task.text
+    payload = task.json()
+    assert payload["version"] == "v0.48"
+    assert payload["status"] == "queued"
+    assert payload["parent_agent_id"] == primary_id
+    assert payload["worker_agent_id"] == secondary_id
+    assert payload["parent_agent_name"]
+    assert payload["worker_agent_name"] == "Packaged Research Agent"
+    assert payload["task"] == "Verify packaged v0.48 delegation workflow persistence."
+    assert payload["metadata"]["created_via"] == "owner_api"
+
+
 def main() -> None:
     assert os.environ.get("HOMESERVER_DATA_DIR"), "HOMESERVER_DATA_DIR is required"
     assert wait_health(True, 20), "packaged HomeServer is not healthy before lifecycle test"
@@ -123,6 +149,28 @@ def main() -> None:
     verify_secondary_persona(first, secondary_id)
     verify_agent_routing(first, agent_id, secondary_id)
 
+    workflow_policy = first.put(
+        "/api/v1/control/agent-workflows/policy",
+        json={"enabled": True, "max_context_chars": 16000},
+    )
+    assert workflow_policy.status_code == 200, workflow_policy.text
+    queued = first.post(
+        "/api/v1/control/agent-workflows/delegations",
+        json={
+            "parent_agent_id": agent_id,
+            "worker_agent_id": secondary_id,
+            "task": "Verify packaged v0.48 delegation workflow persistence.",
+            "include_memory": True,
+            "include_knowledge": True,
+            "include_contacts": False,
+            "cloud_allowed": True,
+            "max_context_chars": 16000,
+        },
+    )
+    assert queued.status_code == 200, queued.text
+    workflow_task_id = int(queued.json()["id"])
+    verify_agent_workflow(first, workflow_task_id, agent_id, secondary_id)
+
     old_cookie = first.cookies.get("homeserver_owner")
     assert old_cookie
     restart = first.post("/api/v1/control/system/restart")
@@ -147,6 +195,7 @@ def main() -> None:
     assert verify_agent_voice_profile(second, expected_rate=1.1) == agent_id
     verify_secondary_persona(second, secondary_id)
     verify_agent_routing(second, agent_id, secondary_id)
+    verify_agent_workflow(second, workflow_task_id, agent_id, secondary_id)
     agents = second.get("/api/v1/control/agents")
     assert agents.status_code == 200, agents.text
     assert any(item["id"] == secondary_id and not item["is_primary"] for item in agents.json()["items"])
@@ -156,7 +205,7 @@ def main() -> None:
     second.close()
     assert wait_health(False, 20), "HomeServer listener remained active after supervised shutdown"
 
-    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile/v0.46 persona/v0.47 routing persistence/shutdown test passed")
+    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile/v0.46 persona/v0.47 routing/v0.48 delegation persistence/shutdown test passed")
 
 
 if __name__ == "__main__":
