@@ -108,7 +108,7 @@ jobs:
       - name: Retain v0.47 Agent Selection and Persona Routing regression
         run: python tests/agent_routing_v047.py
       - name: Retain database migration upgrade regression
-        run: python tests/migration_upgrade.py
+        run: python tests/migrations.py
       - name: Retain canonical Agent context v4.30 contract
         run: python tests/canonical_agent_context_v430.py
       - name: Retain canonical Agent context runtime regression
