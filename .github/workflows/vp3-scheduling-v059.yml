@@ -12,6 +12,7 @@ on:
       - 'app/services/vp3_scheduling_agent.py'
       - 'app/services/vp3_scheduling_remote.py'
       - 'tests/vp3_scheduling_v059.py'
+      - 'tests/vp3_scheduling_v059_static.py'
       - '.github/workflows/vp3-scheduling-v059.yml'
   push:
     branches: [main]
@@ -25,6 +26,7 @@ on:
       - 'app/services/vp3_scheduling_agent.py'
       - 'app/services/vp3_scheduling_remote.py'
       - 'tests/vp3_scheduling_v059.py'
+      - 'tests/vp3_scheduling_v059_static.py'
       - '.github/workflows/vp3-scheduling-v059.yml'
 
 permissions:
@@ -45,7 +47,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile scheduling integration
-        run: python -m compileall app/tools_api.py app/services/action_policy.py app/services/pairing.py app/services/vp3_scheduling_connector.py app/services/vp3_scheduling_tools.py app/services/vp3_scheduling_approvals.py app/services/vp3_scheduling_agent.py app/services/vp3_scheduling_remote.py tests/vp3_scheduling_v059.py
+        run: python -m compileall app/tools_api.py app/services/action_policy.py app/services/pairing.py app/services/vp3_scheduling_connector.py app/services/vp3_scheduling_tools.py app/services/vp3_scheduling_approvals.py app/services/vp3_scheduling_agent.py app/services/vp3_scheduling_remote.py tests/vp3_scheduling_v059.py tests/vp3_scheduling_v059_static.py
+      - name: VP3 scheduling static safety
+        run: python tests/vp3_scheduling_v059_static.py
       - name: VP3 scheduling regression
         run: python tests/vp3_scheduling_v059.py
       - name: Retain action policy regression
