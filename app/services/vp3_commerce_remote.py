@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import base64
+import json
 from typing import Callable
 
+from ..database import db
 from . import pairing, remote_bridge, stripe_commerce_payments, stripe_payment_secrets
 
 VERSION = "v0.60"
@@ -33,6 +35,32 @@ def _identity(operation: str, bearer_token: str | None) -> dict:
     return identity
 
 
+def _audit(operation: str, body: dict, result: dict) -> None:
+    action = {
+        "vp3.commerce.checkout.create": "commerce.payment.checkout_created",
+        "vp3.commerce.webhook.verify": "commerce.payment.webhook_verified",
+        "vp3.commerce.refund": "commerce.payment.refund_executed",
+    }.get(operation)
+    if not action:
+        return
+    order_id = int(result.get("order_id") or body.get("order_id") or 0)
+    metadata = {
+        "provider": str(result.get("provider") or "stripe")[:32],
+        "authority": "homeserver",
+        "amount_cents": int(result.get("amount_cents") or body.get("amount_cents") or 0),
+        "fulfillment_type": str(result.get("fulfillment_type") or body.get("fulfillment_type") or "")[:40],
+        "contract": CONTRACT,
+    }
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
+            VALUES ('app', 'vp3', ?, 'commerce_order', ?, ?)
+            """,
+            (action, str(order_id) if order_id > 0 else "", json.dumps(metadata, separators=(",", ":"))),
+        )
+
+
 def install() -> None:
     if getattr(remote_bridge, "_vp3_commerce_v060_installed", False):
         return
@@ -49,11 +77,18 @@ def install() -> None:
         try:
             if op == "vp3.commerce.payments.status":
                 credential = stripe_payment_secrets.status()
+                account = stripe_commerce_payments.account_status() if credential["configured"] else None
+                ready = bool(
+                    credential["configured"]
+                    and credential["webhook_configured"]
+                    and isinstance(account, dict)
+                    and account.get("charges_enabled")
+                )
                 result = {
                     "version": VERSION,
                     "contract": CONTRACT,
                     "authority": "homeserver",
-                    "providers": {"stripe": credential},
+                    "providers": {"stripe": {**credential, "account": account, "ready": ready}},
                     "operations": sorted(OPERATIONS),
                     "platform_fees_supported": False,
                 }
@@ -90,6 +125,7 @@ def install() -> None:
                 result = stripe_commerce_payments.verify_webhook(raw, str(body.get("stripe_signature") or ""))
         except (stripe_payment_secrets.StripePaymentSecretError, stripe_commerce_payments.StripeCommercePaymentError) as exc:
             raise remote_bridge.RemoteBridgeError(str(exc)) from exc
+        _audit(op, body, result)
         return {"status": 200, "ok": True, "payload": result}
 
     remote_bridge.dispatch_remote_request = dispatch_remote_request
