@@ -26,7 +26,7 @@ def _bounded_limit(value: int) -> int:
     return max(1, min(int(value), MAX_RESUME_CONVERSATIONS))
 
 
-def _candidate_conversations(source_app_key: str) -> list[dict[str, Any]]:
+def _candidate_conversations(source_app_key: str) -> tuple[list[dict[str, Any]], bool]:
     with db() as connection:
         rows = connection.execute(
             """
@@ -42,9 +42,10 @@ def _candidate_conversations(source_app_key: str) -> list[dict[str, Any]]:
             ORDER BY latest_plan_id DESC, c.id DESC
             LIMIT ?
             """,
-            (source_app_key, MAX_SCAN_CONVERSATIONS),
+            (source_app_key, MAX_SCAN_CONVERSATIONS + 1),
         ).fetchall()
-    return [dict(row) for row in rows]
+    truncated = len(rows) > MAX_SCAN_CONVERSATIONS
+    return [dict(row) for row in rows[:MAX_SCAN_CONVERSATIONS]], truncated
 
 
 def _retryable_ids(values: Any) -> list[int]:
@@ -104,7 +105,8 @@ def resume_index(
     # older still-resumable workflow behind newer completed threads. Candidates
     # are ranked by Plan id rather than conversation activity because creating a
     # v0.52 Team Plan does not mutate conversations.updated_at.
-    for row in _candidate_conversations(source):
+    candidates, scan_truncated = _candidate_conversations(source)
+    for row in candidates:
         try:
             continuation = agent_workflow_continuation.conversation_continuation(
                 source,
@@ -139,6 +141,8 @@ def resume_index(
         "items": visible_items,
         "resumable_count": resumable_count,
         "suggested": dict(visible_items[0]) if visible_items else None,
+        "scan_limit": MAX_SCAN_CONVERSATIONS,
+        "scan_truncated": scan_truncated,
         "read_only": True,
         "auto_executes": False,
         "navigation_only": True,
