@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     connection.commit()
     connection.close()
 
-    # Build an authentic schema-10 database first so migrations 11 through 21
+    # Build an authentic schema-10 database first so migrations 11 through 22
     # are tested as upgrades rather than only as a fresh install.
     for version, path in migration_files():
         if version >= 11:
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 22))
+        assert versions == list(range(1, 23))
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
@@ -224,12 +224,19 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
         action_schema = migrated.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='action_requests'"
-        ).fetchone()[0].replace(" ", "")
-        assert "'memory.write','tasks.create','files.update','files.delete'" in action_schema
+        ).fetchone()[0].replace(" ", "").replace("\n", "")
+        for action_key in (
+            "memory.write", "tasks.create", "files.update", "files.delete",
+            "vp3.booking.create", "vp3.booking.reschedule", "vp3.booking.cancel",
+        ):
+            assert f"'{action_key}'" in action_schema
         proposal_checks = (
             ("task-proposal-check", "tasks.create", '{"title":"test"}', '{"title_length":4}'),
             ("file-update-proposal-check", "files.update", '{"ref":"hsf-1-0123456789abcdef","content":"test"}', '{"content_length":4}'),
             ("file-delete-proposal-check", "files.delete", '{"ref":"hsf-1-0123456789abcdef"}', '{"ref_length":22}'),
+            ("vp3-booking-create-check", "vp3.booking.create", '{"kind":"personal","target_id":1,"start_at_utc":"2099-01-01T18:00:00Z","guest_name":"Test"}', '{"kind":"personal"}'),
+            ("vp3-booking-reschedule-check", "vp3.booking.reschedule", '{"booking_id":1,"start_at_utc":"2099-01-02T18:00:00Z"}', '{"booking_id":1}'),
+            ("vp3-booking-cancel-check", "vp3.booking.cancel", '{"kind":"personal","booking_id":1}', '{"booking_id":1}'),
         )
         for request_id, action_key, arguments_json, arguments_meta_json in proposal_checks:
             migrated.execute(
@@ -258,7 +265,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 22))
+        assert versions_again == list(range(1, 23))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
