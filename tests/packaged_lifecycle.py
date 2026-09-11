@@ -11,6 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from app.database import db  # noqa: E402
 from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
 
 BASE = "http://127.0.0.1:4377"
@@ -108,6 +109,33 @@ def verify_agent_workflow(
     assert payload["metadata"]["created_via"] == "owner_api"
 
 
+def verify_team_run(
+    client: httpx.Client,
+    team_run_id: int,
+    primary_id: int,
+    research_id: int,
+    analysis_id: int,
+    expected_task_ids: list[int],
+) -> None:
+    response = client.get(f"/api/v1/control/agent-workflows/team-runs/{team_run_id}")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["version"] == "v0.51"
+    assert payload["id"] == team_run_id
+    assert payload["status"] == "queued"
+    assert payload["parent_agent_id"] == primary_id
+    assert payload["objective"] == "Verify packaged v0.51 Team Run persistence across restart."
+    assert payload["counts"]["members"] == 2
+    assert payload["counts"]["queued"] == 2
+    assert payload["task_ids"] == expected_task_ids
+    assert payload["one_hop_only"] is True
+    assert payload["synthesis_version"] == "v0.50"
+    members = payload["members"]
+    assert [int(item["worker_agent_id"]) for item in members] == [research_id, analysis_id]
+    assert [item["worker_agent_name"] for item in members] == ["Packaged Research Agent", "Packaged Analysis Agent"]
+    assert [item["status"] for item in members] == ["queued", "queued"]
+
+
 def main() -> None:
     assert os.environ.get("HOMESERVER_DATA_DIR"), "HOMESERVER_DATA_DIR is required"
     assert wait_health(True, 20), "packaged HomeServer is not healthy before lifecycle test"
@@ -149,6 +177,18 @@ def main() -> None:
     verify_secondary_persona(first, secondary_id)
     verify_agent_routing(first, agent_id, secondary_id)
 
+    analysis = first.post(
+        "/api/v1/control/agents",
+        json={
+            "name": "Packaged Analysis Agent",
+            "instructions": "Verify packaged Team Run persistence.",
+            "model": "packaged-analysis-model",
+        },
+    )
+    assert analysis.status_code == 200, analysis.text
+    analysis_id = int(analysis.json()["agent"]["id"])
+    assert analysis_id not in {agent_id, secondary_id}
+
     workflow_policy = first.put(
         "/api/v1/control/agent-workflows/policy",
         json={"enabled": True, "max_context_chars": 16000},
@@ -170,6 +210,50 @@ def main() -> None:
     assert queued.status_code == 200, queued.text
     workflow_task_id = int(queued.json()["id"])
     verify_agent_workflow(first, workflow_task_id, agent_id, secondary_id)
+
+    team_conversation_id = "packaged-team-run-v051"
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO conversations(id, agent_id, source_app_key, title, status)
+            VALUES (?, ?, 'owner', 'Packaged Team Run v0.51', 'active')
+            """,
+            (team_conversation_id, agent_id),
+        )
+
+    team_created = first.post(
+        "/api/v1/control/agent-workflows/team-runs",
+        json={
+            "parent_agent_id": agent_id,
+            "conversation_id": team_conversation_id,
+            "objective": "Verify packaged v0.51 Team Run persistence across restart.",
+            "members": [
+                {
+                    "worker_agent_id": secondary_id,
+                    "task": "Preserve the packaged research specialist member.",
+                    "include_memory": True,
+                    "include_knowledge": True,
+                    "include_contacts": False,
+                    "cloud_allowed": True,
+                    "max_context_chars": 12000,
+                },
+                {
+                    "worker_agent_id": analysis_id,
+                    "task": "Preserve the packaged analysis specialist member.",
+                    "include_memory": True,
+                    "include_knowledge": True,
+                    "include_contacts": False,
+                    "cloud_allowed": True,
+                    "max_context_chars": 12000,
+                },
+            ],
+        },
+    )
+    assert team_created.status_code == 200, team_created.text
+    team_payload = team_created.json()
+    team_run_id = int(team_payload["id"])
+    team_task_ids = [int(value) for value in team_payload["task_ids"]]
+    verify_team_run(first, team_run_id, agent_id, secondary_id, analysis_id, team_task_ids)
 
     old_cookie = first.cookies.get("homeserver_owner")
     assert old_cookie
@@ -196,16 +280,23 @@ def main() -> None:
     verify_secondary_persona(second, secondary_id)
     verify_agent_routing(second, agent_id, secondary_id)
     verify_agent_workflow(second, workflow_task_id, agent_id, secondary_id)
+    verify_team_run(second, team_run_id, agent_id, secondary_id, analysis_id, team_task_ids)
+    listed_teams = second.get(
+        f"/api/v1/control/agent-workflows/team-runs?conversation_id={team_conversation_id}"
+    )
+    assert listed_teams.status_code == 200, listed_teams.text
+    assert any(int(item["id"]) == team_run_id for item in listed_teams.json()["items"])
     agents = second.get("/api/v1/control/agents")
     assert agents.status_code == 200, agents.text
-    assert any(item["id"] == secondary_id and not item["is_primary"] for item in agents.json()["items"])
+    ids = {int(item["id"]) for item in agents.json()["items"]}
+    assert secondary_id in ids and analysis_id in ids
 
     shutdown = second.post("/api/v1/control/system/shutdown")
     assert shutdown.status_code == 200 and shutdown.json()["accepted"] is True
     second.close()
     assert wait_health(False, 20), "HomeServer listener remained active after supervised shutdown"
 
-    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile/v0.46 persona/v0.47 routing/v0.48 delegation persistence/shutdown test passed")
+    print("Packaged HomeServer restart/session-rotation/Agent Voice Profile/v0.46 persona/v0.47 routing/v0.48 delegation/v0.51 Team Run persistence/shutdown test passed")
 
 
 if __name__ == "__main__":

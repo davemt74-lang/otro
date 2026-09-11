@@ -81,3 +81,41 @@ CREATE INDEX IF NOT EXISTS idx_agent_handoffs_source_conversation
     ON agent_result_handoffs(source_app_key, conversation_id, status, id DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_handoffs_parent
     ON agent_result_handoffs(parent_agent_id, status, id DESC);
+
+CREATE TABLE IF NOT EXISTS agent_team_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_app_key TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    parent_agent_id INTEGER,
+    parent_agent_name TEXT NOT NULL,
+    objective TEXT NOT NULL,
+    cancelled_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_agent_id) REFERENCES agents(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_team_runs_source_conversation
+    ON agent_team_runs(source_app_key, conversation_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_team_runs_parent
+    ON agent_team_runs(parent_agent_id, id DESC);
+
+CREATE TABLE IF NOT EXISTS agent_team_run_members (
+    team_run_id INTEGER NOT NULL,
+    position INTEGER NOT NULL CHECK (position BETWEEN 1 AND 4),
+    task_id INTEGER NOT NULL UNIQUE,
+    worker_agent_id INTEGER,
+    worker_agent_name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (team_run_id, position),
+    UNIQUE (team_run_id, worker_agent_id),
+    FOREIGN KEY (team_run_id) REFERENCES agent_team_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES agent_delegation_tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (worker_agent_id) REFERENCES agents(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_team_members_task
+    ON agent_team_run_members(task_id);
+CREATE INDEX IF NOT EXISTS idx_agent_team_members_worker
+    ON agent_team_run_members(worker_agent_id, team_run_id);

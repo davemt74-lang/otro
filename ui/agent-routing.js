@@ -95,12 +95,20 @@
   }
 
   function ensureWorkflowExtension() {
-    if (document.querySelector('script[data-agent-workflows-v048]')) return;
-    const script = document.createElement('script');
-    script.src = '/assets/agent-workflows.js';
-    script.dataset.agentWorkflowsV048 = '1';
-    script.async = false;
-    document.head.appendChild(script);
+    if (!document.querySelector('script[data-agent-workflows-v048]')) {
+      const script = document.createElement('script');
+      script.src = '/assets/agent-workflows.js';
+      script.dataset.agentWorkflowsV048 = '1';
+      script.async = false;
+      document.head.appendChild(script);
+    }
+    if (!document.querySelector('script[data-agent-team-runs-v051]')) {
+      const script = document.createElement('script');
+      script.src = '/assets/agent-team-runs.js';
+      script.dataset.agentTeamRunsV051 = '1';
+      script.async = false;
+      document.head.appendChild(script);
+    }
   }
 
   function ensureSelector() {
