@@ -6,7 +6,7 @@
   const MIN_MEMBERS = 2;
   const MAX_MEMBERS = 4;
   const byId = id => document.getElementById(id);
-  const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+  const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const state = {plans: [], workers: [], busy: false, actionBusy: null, bootAttempts: 0};
 
   function routing() { return window.HomeServerAgentRouting || null; }
