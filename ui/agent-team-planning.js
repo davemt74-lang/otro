@@ -6,7 +6,7 @@
   const MIN_MEMBERS = 2;
   const MAX_MEMBERS = 4;
   const byId = id => document.getElementById(id);
-  const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
   const state = {plans: [], workers: [], busy: false, actionBusy: null, bootAttempts: 0};
 
   function routing() { return window.HomeServerAgentRouting || null; }
@@ -43,6 +43,23 @@
     link.href = '/assets/agent-team-planning.css';
     link.dataset.agentTeamPlanningV052 = '1';
     document.head.appendChild(link);
+  }
+
+  function ensureOrchestrationExtension() {
+    if (!document.querySelector('link[data-agent-team-orchestration-v053]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/assets/agent-team-orchestration.css';
+      link.dataset.agentTeamOrchestrationV053 = '1';
+      document.head.appendChild(link);
+    }
+    if (!document.querySelector('script[data-agent-team-orchestration-v053]')) {
+      const script = document.createElement('script');
+      script.src = '/assets/agent-team-orchestration.js';
+      script.dataset.agentTeamOrchestrationV053 = '1';
+      script.async = false;
+      document.head.appendChild(script);
+    }
   }
 
   function ensureUi() {
@@ -174,6 +191,7 @@
     if (!ensureUi()) return;
     await Promise.all([loadWorkers(), loadPlans()]);
     render();
+    window.HomeServerAgentTeamOrchestration?.refresh?.().catch(() => null);
   }
 
   async function proposePlan(event) {
@@ -284,6 +302,7 @@
       state.actionBusy = null;
       await loadPlans().catch(() => null);
       render();
+      window.HomeServerAgentTeamOrchestration?.refresh?.().catch(() => null);
     }
   }
 
@@ -333,6 +352,7 @@
 
   function boot() {
     ensureStyles();
+    ensureOrchestrationExtension();
     if (!window.HomeServerAgentTeamRuns || !ensureUi()) {
       state.bootAttempts += 1;
       if (state.bootAttempts < 120) setTimeout(boot, 80);
