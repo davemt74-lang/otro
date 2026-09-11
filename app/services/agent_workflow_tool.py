@@ -4,10 +4,19 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator
 
-from . import agent_routing, agent_tools, brain, context_chat
+from . import (
+    agent_handoffs,
+    agent_routing,
+    agent_tools,
+    brain,
+    canonical_context,
+    context_chat,
+    context_engine,
+)
 
 _CURRENT_PARENT_AGENT_ID: ContextVar[int | None] = ContextVar("agent_workflow_parent_agent_id", default=None)
 _CURRENT_CONVERSATION_ID: ContextVar[str | None] = ContextVar("agent_workflow_conversation_id", default=None)
+_CURRENT_HANDOFF: ContextVar[dict[str, Any] | None] = ContextVar("agent_workflow_handoff", default=None)
 _DELEGATION_DEPTH: ContextVar[int] = ContextVar("agent_workflow_delegation_depth", default=0)
 _INSTALLED = False
 
@@ -33,6 +42,21 @@ def current_conversation_id() -> str | None:
     return _CURRENT_CONVERSATION_ID.get()
 
 
+def current_handoff() -> dict[str, Any]:
+    return dict(_CURRENT_HANDOFF.get() or {})
+
+
+def _empty_handoff() -> dict[str, Any]:
+    return {
+        "version": agent_handoffs.HANDOFF_VERSION,
+        "items": [],
+        "ids": [],
+        "fragment": "",
+        "chars": 0,
+        "provenance": [],
+    }
+
+
 def install() -> None:
     global _INSTALLED
     if _INSTALLED:
@@ -41,6 +65,8 @@ def install() -> None:
 
     original_chat = context_chat.chat
     original_conversation_for_source = brain._conversation_for_source
+    original_build_context = canonical_context.build_authorized_context
+    original_system_prompt = canonical_context.system_prompt
     original_schemas = agent_tools.model_tool_schemas
     original_execute = agent_tools.execute_model_tool
 
@@ -61,6 +87,116 @@ def install() -> None:
             _CURRENT_CONVERSATION_ID.set(str(resolved))
         return resolved
 
+    def workflow_build_authorized_context(
+        *,
+        agent_id: int,
+        query: str,
+        source_app_key: str,
+        permissions: set[str] | None,
+        owner: bool,
+        include_memory: bool,
+        include_knowledge: bool,
+        include_contacts: bool,
+        settings: dict[str, Any] | None = None,
+        max_context_chars: int | None = None,
+        cloud_allowed: bool = True,
+        surface_context: dict[str, Any] | None = None,
+        include_collaboration: bool = True,
+    ) -> canonical_context.CanonicalContext:
+        if delegation_depth() > 0:
+            return original_build_context(
+                agent_id=agent_id,
+                query=query,
+                source_app_key=source_app_key,
+                permissions=permissions,
+                owner=owner,
+                include_memory=include_memory,
+                include_knowledge=include_knowledge,
+                include_contacts=include_contacts,
+                settings=settings,
+                max_context_chars=max_context_chars,
+                cloud_allowed=cloud_allowed,
+                surface_context=surface_context,
+                include_collaboration=include_collaboration,
+            )
+
+        parent_agent_id = current_parent_agent_id()
+        conversation_id = current_conversation_id()
+        requested = context_engine._clamp_budget(
+            max_context_chars if max_context_chars is not None else (settings or {}).get("max_context_chars")
+        )
+        pending = _empty_handoff()
+        if (
+            parent_agent_id is not None
+            and int(parent_agent_id) == int(agent_id)
+            and conversation_id
+        ):
+            available = max(0, requested - context_engine.MIN_CONTEXT_CHARS)
+            handoff_limit = min(
+                agent_handoffs.MAX_HANDOFF_CONTEXT_CHARS,
+                available,
+                max(0, requested // 4),
+            )
+            pending = agent_handoffs.pending_context(
+                source_app_key,
+                str(conversation_id),
+                int(agent_id),
+                max_chars=handoff_limit,
+                owner=owner,
+                current_permissions=set(permissions or set()),
+            )
+        handoff_chars = int(pending.get("chars") or 0)
+        canonical_limit = max(context_engine.MIN_CONTEXT_CHARS, requested - handoff_chars)
+        context = original_build_context(
+            agent_id=agent_id,
+            query=query,
+            source_app_key=source_app_key,
+            permissions=permissions,
+            owner=owner,
+            include_memory=include_memory,
+            include_knowledge=include_knowledge,
+            include_contacts=include_contacts,
+            settings=settings,
+            max_context_chars=canonical_limit,
+            cloud_allowed=cloud_allowed,
+            surface_context=surface_context,
+            include_collaboration=include_collaboration,
+        )
+        if handoff_chars:
+            canonical_used = int(context.budget.get("used_chars") or 0)
+            total_used = min(requested, canonical_used + handoff_chars)
+            context.budget["canonical_limit_chars"] = canonical_limit
+            context.budget["handoff_limit_chars"] = min(
+                agent_handoffs.MAX_HANDOFF_CONTEXT_CHARS,
+                max(0, requested - context_engine.MIN_CONTEXT_CHARS),
+                max(0, requested // 4),
+            )
+            context.budget["handoff_used_chars"] = handoff_chars
+            context.budget["max_context_chars"] = requested
+            context.budget["used_chars"] = total_used
+            context.budget["remaining_chars"] = max(0, requested - total_used)
+            context.effective_settings["max_context_chars"] = requested
+            context.provenance.extend(list(pending.get("provenance") or []))
+        _CURRENT_HANDOFF.set(pending)
+        return context
+
+    def workflow_system_prompt(
+        agent: dict[str, Any],
+        context: canonical_context.CanonicalContext,
+    ) -> str:
+        prompt = original_system_prompt(agent, context)
+        if delegation_depth() > 0:
+            return prompt
+        parent_agent_id = current_parent_agent_id()
+        handoff = current_handoff()
+        if (
+            parent_agent_id is not None
+            and int(agent.get("id") or 0) == int(parent_agent_id)
+            and handoff.get("fragment")
+        ):
+            prompt += "\n\n" + str(handoff["fragment"])
+        return prompt
+
     def scoped_chat(
         source_app_key: str,
         message: str,
@@ -77,8 +213,9 @@ def install() -> None:
         agent = agent_routing.resolve_agent(source_app_key, agent_id, owner=owner_tools)
         parent_token = _CURRENT_PARENT_AGENT_ID.set(int(agent["id"]))
         conversation_token = _CURRENT_CONVERSATION_ID.set(str(conversation_id) if conversation_id else None)
+        handoff_token = _CURRENT_HANDOFF.set(_empty_handoff())
         try:
-            return original_chat(
+            result = original_chat(
                 source_app_key,
                 message,
                 conversation_id,
@@ -90,7 +227,34 @@ def install() -> None:
                 tool_permissions=tool_permissions,
                 owner_tools=owner_tools,
             )
+            handoff = current_handoff()
+            handoff_ids = [int(value) for value in handoff.get("ids") or []]
+            consumed = 0
+            consumption_error = None
+            if handoff_ids and result.get("conversation_id") and result.get("run_id"):
+                try:
+                    consumed = agent_handoffs.consume_handoffs(
+                        handoff_ids,
+                        source_app_key,
+                        str(result["conversation_id"]),
+                        run_id=int(result["run_id"]),
+                    )
+                except Exception as exc:  # Preserve a successful parent response; leave the handoff pending for recovery.
+                    consumption_error = str(exc)[:500]
+            result["handoffs"] = {
+                "version": agent_handoffs.HANDOFF_VERSION,
+                "consumed": consumed,
+                "ids": handoff_ids,
+                "context_chars": int(handoff.get("chars") or 0),
+                "consumption_error": consumption_error,
+            }
+            context = result.get("context")
+            if isinstance(context, dict):
+                context["handoff_count"] = len(handoff_ids)
+                context["handoff_chars"] = int(handoff.get("chars") or 0)
+            return result
         finally:
+            _CURRENT_HANDOFF.reset(handoff_token)
             _CURRENT_CONVERSATION_ID.reset(conversation_token)
             _CURRENT_PARENT_AGENT_ID.reset(parent_token)
 
@@ -167,6 +331,8 @@ def install() -> None:
             raise agent_tools.AgentToolError(str(exc)) from exc
 
     brain._conversation_for_source = workflow_conversation_for_source
+    canonical_context.build_authorized_context = workflow_build_authorized_context
+    canonical_context.system_prompt = workflow_system_prompt
     context_chat.chat = scoped_chat
     agent_tools.model_tool_schemas = workflow_schemas
     agent_tools.execute_model_tool = workflow_execute
