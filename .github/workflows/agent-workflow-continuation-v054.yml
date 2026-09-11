@@ -13,6 +13,7 @@ on:
       - 'ui/agent-workflow-continuation.js'
       - 'ui/agent-workflow-continuation.css'
       - 'tests/agent_workflow_continuation_v054.py'
+      - 'tests/agent_workflow_continuation_access_v054.py'
       - 'tests/agent_workflow_continuation_ui_contract_v054.py'
       - 'tests/agent_team_orchestration_v053.py'
       - 'tests/agent_team_orchestration_integrity_v053.py'
@@ -38,6 +39,7 @@ on:
       - 'ui/agent-workflow-continuation.js'
       - 'ui/agent-workflow-continuation.css'
       - 'tests/agent_workflow_continuation_v054.py'
+      - 'tests/agent_workflow_continuation_access_v054.py'
       - 'tests/agent_workflow_continuation_ui_contract_v054.py'
       - 'tests/agent_team_orchestration_v053.py'
       - 'tests/agent_team_orchestration_integrity_v053.py'
@@ -72,11 +74,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Workflow Continuation backend
-        run: python -m compileall app/bridge.py app/workflow_continuation_api.py app/services/agent_workflow_continuation.py tests/agent_workflow_continuation_v054.py tests/agent_workflow_continuation_ui_contract_v054.py
+        run: python -m compileall app/bridge.py app/workflow_continuation_api.py app/services/agent_workflow_continuation.py tests/agent_workflow_continuation_v054.py tests/agent_workflow_continuation_access_v054.py tests/agent_workflow_continuation_ui_contract_v054.py
       - name: Validate Workflow Continuation JavaScript
         run: node --check ui/agent-workflow-continuation.js && node --check ui/agent-team-orchestration.js
       - name: Workflow Continuation regression
         run: python tests/agent_workflow_continuation_v054.py
+      - name: Workflow Continuation live access-boundary regression
+        run: python tests/agent_workflow_continuation_access_v054.py
       - name: Workflow Continuation UI API contract
         run: python tests/agent_workflow_continuation_ui_contract_v054.py
       - name: Retain v0.53 Team Orchestration lifecycle regression
