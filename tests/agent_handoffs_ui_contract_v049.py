@@ -25,6 +25,12 @@ assert "MAX_HANDOFF_CONTEXT_CHARS = 8000" in service
 assert "Only a completed delegation result" in service
 assert "not attached to a parent conversation" in service
 assert "already been consumed" in service
+assert "Current application permissions or Agent access no longer authorize" in service
+assert "_required_permissions" in service
+assert "_authorized_now" in service
+assert "agent_routing.resolve_agent" in service
+assert "current_permissions" in service
+assert "scope_rechecked" in service
 assert "status='pending'" in service
 assert "status='consumed'" in service
 assert "status='revoked'" in service
@@ -51,6 +57,7 @@ assert 'context.budget["handoff_used_chars"]' in adapter
 assert "delegation_depth() > 0" in adapter
 assert "consume_handoffs" in adapter
 assert "consumption_error" in adapter
+assert "current_permissions=set(permissions or set())" in adapter
 
 for route in (
     '/api/v1/agent-workflows/handoffs',
@@ -62,6 +69,7 @@ for route in (
 ):
     assert route in api
 assert "Permission required: agent.chat" in api
+assert 'current_permissions=set(identity["permissions"])' in api
 assert "handoffs_router" in bridge
 assert '"agent_handoffs": {' in bridge
 assert '"version": "v0.49"' in bridge
