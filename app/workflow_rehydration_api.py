@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from .services import agent_workflow_rehydration
 from .services.pairing import authenticate
+from .workflow_supervision_api import router as workflow_supervision_router
 
 router = APIRouter()
 
@@ -96,3 +97,8 @@ def control_workflow_rehydrate_capability() -> dict:
         "explicit_actions_preserved": True,
         "paired_app_scoped": True,
     }
+
+
+# v0.56 remains explicit checkpoint recovery. v0.57 is a separate child
+# surface that can only start from one exact ready v0.56 checkpoint.
+router.include_router(workflow_supervision_router)
