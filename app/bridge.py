@@ -17,6 +17,7 @@ from .contacts_api import router as contacts_router
 from .config import settings
 from .delegation_api import router as delegation_router
 from .files_api import router as files_router
+from .handoffs_api import router as handoffs_router
 from .knowledge_backup_api import router as knowledge_backup_router
 from .knowledge_collections_api import router as knowledge_collections_router
 from .knowledge_sources_api import router as knowledge_sources_router
@@ -62,6 +63,7 @@ install_local_file_action_registry()
 app.include_router(agents_router)
 app.include_router(agent_routing_router)
 app.include_router(delegation_router)
+app.include_router(handoffs_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(action_policy_router)
@@ -131,6 +133,15 @@ def capabilities() -> dict:
             "nested_delegation": False,
             "requires_agent_routing": "v0.47",
         },
+        "agent_handoffs": {
+            "version": "v0.49",
+            "explicit": True,
+            "one_shot": True,
+            "conversation_bound": True,
+            "paired_app_scoped": True,
+            "context_budgeted": True,
+            "requires_agent_workflows": "v0.48",
+        },
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -173,6 +184,7 @@ def capabilities() -> dict:
             "agent.delegation.v1",
             "agent.workflows.v048",
             "agent.workflows.model_delegate",
+            "agent.handoffs.v049",
             "agent.context",
             "agent.context.awareness",
             "agent.context.budget",
