@@ -3,6 +3,7 @@ name: Agent Workflow Supervision v0.57
 on:
   pull_request:
     paths:
+      - 'HomeServer.spec'
       - 'app/bridge.py'
       - 'app/database.py'
       - 'app/workflow_resume_api.py'
@@ -18,12 +19,14 @@ on:
       - 'ui/agent-workflow-supervision.css'
       - 'tests/agent_workflow_supervision_v057.py'
       - 'tests/agent_workflow_supervision_edges_v057.py'
+      - 'tests/agent_workflow_supervision_schema_v057.py'
       - 'tests/agent_workflow_supervision_ui_contract_v057.py'
       - 'tests/packaged_workflow_supervision_v057.py'
       - '.github/workflows/agent-workflow-supervision-v057.yml'
   push:
     branches: [main]
     paths:
+      - 'HomeServer.spec'
       - 'app/bridge.py'
       - 'app/database.py'
       - 'app/workflow_resume_api.py'
@@ -39,6 +42,7 @@ on:
       - 'ui/agent-workflow-supervision.css'
       - 'tests/agent_workflow_supervision_v057.py'
       - 'tests/agent_workflow_supervision_edges_v057.py'
+      - 'tests/agent_workflow_supervision_schema_v057.py'
       - 'tests/agent_workflow_supervision_ui_contract_v057.py'
       - 'tests/packaged_workflow_supervision_v057.py'
       - '.github/workflows/agent-workflow-supervision-v057.yml'
@@ -64,13 +68,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Workflow Supervision backend
-        run: python -m compileall app/bridge.py app/database.py app/workflow_resume_api.py app/workflow_rehydration_api.py app/workflow_supervision_api.py app/services/agent_workflow_supervision.py tests/agent_workflow_supervision_v057.py tests/agent_workflow_supervision_edges_v057.py tests/agent_workflow_supervision_ui_contract_v057.py
+        run: python -m compileall app/bridge.py app/database.py app/workflow_resume_api.py app/workflow_rehydration_api.py app/workflow_supervision_api.py app/services/agent_workflow_supervision.py tests/agent_workflow_supervision_v057.py tests/agent_workflow_supervision_edges_v057.py tests/agent_workflow_supervision_schema_v057.py tests/agent_workflow_supervision_ui_contract_v057.py
       - name: Validate Workflow Supervision JavaScript
         run: node --check ui/agent-workflow-supervision.js && node --check ui/agent-workflow-rehydration.js && node --check ui/agent-workflow-continuation.js && node --check ui/agent-workflow-resume.js
       - name: Workflow Supervision regression
         run: python tests/agent_workflow_supervision_v057.py
       - name: Workflow Supervision access/race boundaries
         run: python tests/agent_workflow_supervision_edges_v057.py
+      - name: Workflow Supervision feature-schema upgrade/idempotency
+        run: python tests/agent_workflow_supervision_schema_v057.py
       - name: Workflow Supervision UI API contract
         run: python tests/agent_workflow_supervision_ui_contract_v057.py
       - name: Retain v0.56 Workflow Rehydration regression

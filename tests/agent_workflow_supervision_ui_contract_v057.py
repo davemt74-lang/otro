@@ -15,11 +15,13 @@ rehydration_api = text("app/workflow_rehydration_api.py")
 bridge = text("app/bridge.py")
 database = text("app/database.py")
 schema = text("database/agent_workflow_supervision.sql")
+spec = text("HomeServer.spec")
 ui = text("ui/agent-workflow-supervision.js")
 css = text("ui/agent-workflow-supervision.css")
 rehydration_ui = text("ui/agent-workflow-rehydration.js")
 regression = text("tests/agent_workflow_supervision_v057.py")
 edges = text("tests/agent_workflow_supervision_edges_v057.py")
+schema_test = text("tests/agent_workflow_supervision_schema_v057.py")
 packaged = text("tests/packaged_workflow_supervision_v057.py")
 workflow = text(".github/workflows/agent-workflow-supervision-v057.yml")
 
@@ -34,7 +36,7 @@ assert ".approve" not in service
 assert "parent_chat" not in service
 assert "BEGIN IMMEDIATE" in service
 assert "agent_workflow_supervisions" in service
-assert "idempotent" not in service.lower() or "rehydration_id" in service
+assert "rehydration_id" in service
 assert "requires_explicit_start" in service
 assert '"auto_approval": False' in service
 assert '"auto_retry": False' in service
@@ -53,7 +55,6 @@ assert "max_steps" in api
 assert "agent_workflow_supervision.continue_workflow" in api
 assert "workflow_supervision_router" in rehydration_api
 assert "router.include_router(workflow_supervision_router)" in rehydration_api
-# v0.56 recovery remains its own explicit POST contract.
 assert rehydration_api.count('@router.post("/api/v1/agent-workflows/rehydrate")') == 1
 assert rehydration_api.count('@router.post("/api/v1/control/agent-workflows/rehydrate")') == 1
 
@@ -79,6 +80,7 @@ assert "rehydration_id INTEGER NOT NULL UNIQUE" in schema
 assert "CHECK (max_steps BETWEEN 1 AND 2)" in schema
 assert "CHECK (step_count BETWEEN 0 AND 2)" in schema
 assert "FOREIGN KEY (rehydration_id) REFERENCES agent_workflow_rehydrations(id) ON DELETE CASCADE" in schema
+assert "('database/agent_workflow_supervision.sql', 'database')" in spec
 
 assert "const VERSION = 'v0.57'" in ui
 assert "Continue safely" in ui
@@ -96,7 +98,6 @@ assert "@media" in css
 assert "/assets/agent-workflow-supervision.js" in rehydration_ui
 assert "data-agent-workflow-supervision-v057" in rehydration_ui
 assert "getPayload" in rehydration_ui
-# v0.56 recovery still only posts because the user explicitly pressed Resume.
 assert "user explicitly pressed Resume" in rehydration_ui
 
 assert "[\"run\", \"prepare\"]" in regression
@@ -108,11 +109,16 @@ assert "knowledge.search" in edges
 assert "app_agent_grants" in edges
 assert "fresh checkpoint" in edges
 assert "agent_workflow_supervisions" in edges
+assert "DROP TABLE agent_workflow_supervisions" in schema_test
+assert "versions_after == versions_before" in schema_test
+assert "initialize_database()" in schema_test
 
 assert "workflow-supervision:" in workflow
 assert "packaged-supervision:" in workflow
+assert "HomeServer.spec" in workflow
 assert "python tests/agent_workflow_supervision_v057.py" in workflow
 assert "python tests/agent_workflow_supervision_edges_v057.py" in workflow
+assert "python tests/agent_workflow_supervision_schema_v057.py" in workflow
 assert "python tests/agent_workflow_supervision_ui_contract_v057.py" in workflow
 assert "python tests/packaged_workflow_supervision_v057.py" in workflow
 assert "python tests/agent_workflow_rehydration_v056.py" in workflow
