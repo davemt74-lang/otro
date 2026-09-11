@@ -52,3 +52,32 @@ CREATE INDEX IF NOT EXISTS idx_agent_delegation_worker
     ON agent_delegation_tasks(worker_agent_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_delegation_status
     ON agent_delegation_tasks(status, updated_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS agent_result_handoffs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL UNIQUE,
+    source_app_key TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    parent_agent_id INTEGER,
+    worker_agent_id INTEGER,
+    parent_agent_name TEXT NOT NULL,
+    worker_agent_name TEXT NOT NULL,
+    task_excerpt TEXT NOT NULL,
+    result TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','consumed','revoked')),
+    consumed_run_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    consumed_at TEXT,
+    revoked_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES agent_delegation_tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_agent_id) REFERENCES agents(id) ON DELETE SET NULL,
+    FOREIGN KEY (worker_agent_id) REFERENCES agents(id) ON DELETE SET NULL,
+    FOREIGN KEY (consumed_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_handoffs_source_conversation
+    ON agent_result_handoffs(source_app_key, conversation_id, status, id DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_handoffs_parent
+    ON agent_result_handoffs(parent_agent_id, status, id DESC);
