@@ -5,9 +5,16 @@ import uuid
 from typing import Any, Callable
 
 from ..database import db
-from . import approvals, tools
+from . import approvals, tools, vp3_scheduling_connector
 
 ACTIONS = {"vp3.booking.create", "vp3.booking.reschedule", "vp3.booking.cancel"}
+
+
+def _connector_ready() -> bool:
+    try:
+        return bool(vp3_scheduling_connector.status().get("configured"))
+    except Exception:
+        return False
 
 
 def _normalize(action_key: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
@@ -64,6 +71,8 @@ def create_request(
 ) -> dict[str, Any]:
     if action_key not in ACTIONS:
         raise approvals.ApprovalError("Unsupported VP3 scheduling action.")
+    if not _connector_ready():
+        raise approvals.ApprovalError("VP3 scheduling connector is not configured.", 409)
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor = "owner" if owner else "app"
     required = [] if owner else ["scheduling.write", "tools.execute"]
