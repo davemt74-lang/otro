@@ -8,6 +8,7 @@ from ..config import settings
 from .provider_secrets import _atomic_write, _protect_windows, _unprotect_windows
 
 VERSION = "v0.60"
+STORE_NAME = "commerce-payment-stripe.dat"
 
 
 class StripePaymentSecretError(RuntimeError):
@@ -15,7 +16,7 @@ class StripePaymentSecretError(RuntimeError):
 
 
 def _path() -> Path:
-    return settings.data_dir / "security" / "appointment-payment-stripe.dat"
+    return settings.data_dir / "security" / STORE_NAME
 
 
 def _encode(data: dict[str, str]) -> bytes:
@@ -27,7 +28,7 @@ def _decode(payload: bytes) -> dict[str, str]:
     raw = _unprotect_windows(payload) if os.name == "nt" else payload
     parsed = json.loads(raw.decode("utf-8"))
     if not isinstance(parsed, dict):
-        raise StripePaymentSecretError("Stripe appointment payment credential store is invalid.")
+        raise StripePaymentSecretError("Stripe commerce credential store is invalid.")
     result: dict[str, str] = {}
     for key in ("secret_key", "webhook_secret"):
         value = str(parsed.get(key) or "").strip()
@@ -43,7 +44,7 @@ def load_credentials() -> dict[str, str]:
     try:
         return _decode(path.read_bytes())
     except Exception as exc:
-        raise StripePaymentSecretError("Stripe appointment payment credentials could not be decrypted on this device.") from exc
+        raise StripePaymentSecretError("Stripe commerce credentials could not be decrypted on this device.") from exc
 
 
 def status() -> dict:
@@ -93,7 +94,7 @@ def save(secret_key: str | None = None, webhook_secret: str | None = None, *, cl
 def secret_key() -> str:
     value = load_credentials().get("secret_key", "")
     if not value:
-        raise StripePaymentSecretError("Local Stripe appointment payments are not configured.")
+        raise StripePaymentSecretError("Local Stripe commerce payments are not configured.")
     return value
 
 
