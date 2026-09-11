@@ -15,6 +15,7 @@ FEATURE_SCHEMA_PATHS = (
     ROOT_DIR / "database" / "knowledge_collections.sql",
     ROOT_DIR / "database" / "agent_voice_profiles.sql",
     ROOT_DIR / "database" / "agent_routing.sql",
+    ROOT_DIR / "database" / "agent_delegation_workflows.sql",
 )
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_.+\.sql$")
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
@@ -119,13 +120,3 @@ def initialize_database() -> None:
     # idempotent and run after numbered migrations so their foreign keys always
     # target tables already present on both fresh installs and upgrades.
     _ensure_schema_extensions()
-
-    with db() as connection:
-        existing = connection.execute(
-            "SELECT id FROM agents WHERE is_primary=1 LIMIT 1"
-        ).fetchone()
-        if existing is None:
-            connection.execute(
-                "INSERT INTO agents(name, instructions, is_primary) VALUES (?, ?, 1)",
-                ("HomeServer Agent", "Primary local HomeServer agent."),
-            )
