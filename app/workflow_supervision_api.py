@@ -92,7 +92,6 @@ def _capability() -> dict:
         "paired_app_scoped": True,
         "requires_rehydration": agent_workflow_supervision.agent_workflow_rehydration.AGENT_WORKFLOW_REHYDRATION_VERSION,
         "actions_via": agent_workflow_supervision.agent_team_orchestration.AGENT_TEAM_ORCHESTRATION_VERSION,
-        "automation_extension": "v0.58",
     }
 
 
