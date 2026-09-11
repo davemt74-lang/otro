@@ -11,7 +11,13 @@ SAFE_AUTOMATIC = "safe_automatic"
 APPROVAL_REQUIRED = "approval_required"
 SENSITIVE_HIGH_IMPACT = "sensitive_high_impact"
 VALID_MODES = {READ_ONLY, SAFE_AUTOMATIC, APPROVAL_REQUIRED, SENSITIVE_HIGH_IMPACT}
-APPROVAL_ONLY_WRITE_TOOLS = {"files.update", "files.delete"}
+APPROVAL_ONLY_WRITE_TOOLS = {
+    "files.update",
+    "files.delete",
+    "vp3.booking.create",
+    "vp3.booking.reschedule",
+    "vp3.booking.cancel",
+}
 
 
 class ActionPolicyError(RuntimeError):
