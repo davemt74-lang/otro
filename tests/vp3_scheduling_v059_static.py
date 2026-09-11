@@ -23,8 +23,12 @@ assert 'parsed.scheme != "https"' in connector
 assert "parsed.query" in connector
 assert "pairing_token_hash" in connector
 assert "_pairing_binding_active" in connector
+assert "_REQUIRED_PAIRING_PERMISSIONS" in connector
+for permission in ("tools.execute", "scheduling.read", "scheduling.write"):
+    assert permission in connector
 assert "app_key='vp3'" in connector
 assert "status='active'" in connector
+assert "app_permissions" in connector and "allowed=1" in connector
 assert "follow_redirects=False" in connector
 assert "Authorization" in connector
 assert "access_token" not in connector
