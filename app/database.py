@@ -120,3 +120,13 @@ def initialize_database() -> None:
     # idempotent and run after numbered migrations so their foreign keys always
     # target tables already present on both fresh installs and upgrades.
     _ensure_schema_extensions()
+
+    with db() as connection:
+        existing = connection.execute(
+            "SELECT id FROM agents WHERE is_primary=1 LIMIT 1"
+        ).fetchone()
+        if existing is None:
+            connection.execute(
+                "INSERT INTO agents(name, instructions, is_primary) VALUES (?, ?, 1)",
+                ("HomeServer Agent", "Primary local HomeServer agent."),
+            )
