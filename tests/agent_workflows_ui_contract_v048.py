@@ -35,6 +35,8 @@ assert "agent.delegation.queued" in service
 assert "agent.delegation.completed" in service
 assert "nested_delegation" in service
 assert "invoked_by_model" in service
+assert "current_agent_id=" not in service
+assert "allow_agent_delegation=" not in service
 
 assert "CREATE TABLE IF NOT EXISTS agent_delegation_policy" in schema
 assert "CREATE TABLE IF NOT EXISTS agent_delegation_tasks" in schema
@@ -48,6 +50,9 @@ assert "('database/agent_delegation_workflows.sql', 'database')" in spec
 assert "ContextVar" in adapter
 assert "worker_scope" in adapter
 assert "delegation_depth() > 0" in adapter
+assert "original_conversation_for_source = brain._conversation_for_source" in adapter
+assert "brain._conversation_for_source = workflow_conversation_for_source" in adapter
+assert "_CURRENT_CONVERSATION_ID.set(str(resolved))" in adapter
 assert "agent_tools.model_tool_schemas = workflow_schemas" in adapter
 assert "agent_tools.execute_model_tool = workflow_execute" in adapter
 assert "context_chat.chat = scoped_chat" in adapter
