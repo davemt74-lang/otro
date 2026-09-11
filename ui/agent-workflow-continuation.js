@@ -31,6 +31,15 @@
     document.head.appendChild(link);
   }
 
+  function ensureResumeExtension() {
+    if (document.querySelector('script[data-agent-workflow-resume-v055]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/agent-workflow-resume.js';
+    script.dataset.agentWorkflowResumeV055 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function ensureCue() {
     const panel = document.querySelector('#view-chat .chat-panel');
     const head = panel?.querySelector('.chat-head');
@@ -154,6 +163,7 @@
 
   function boot() {
     ensureStyles();
+    ensureResumeExtension();
     if (!window.HomeServerAgentTeamOrchestration || !ensureCue()) {
       state.bootAttempts += 1;
       if (state.bootAttempts < 160) setTimeout(boot, 80);
