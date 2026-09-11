@@ -280,7 +280,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-team-planning-v052-") 
         )
         assert unauthorized.status_code == 403, unauthorized.text
         assert counts() == wrapper_before
-        assert str(worker_ids[2]) not in planner_calls[-1]["system"], "Unauthorized Agent must not appear in the planner allow-list."
+        assert f"id={worker_ids[2]}:" not in planner_calls[-1]["system"], "Unauthorized Agent must not appear in the planner allow-list."
 
         planner_mode = "valid"
         wrapper_plan_response = client.post(
