@@ -147,3 +147,19 @@ CREATE INDEX IF NOT EXISTS idx_agent_team_plans_source_conversation
     ON agent_team_plans(source_app_key, conversation_id, status, id DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_team_plans_parent
     ON agent_team_plans(parent_agent_id, status, id DESC);
+
+-- Team Plan approval must honor the conversation's privacy state at the exact
+-- task-insert boundary. This fail-closed trigger prevents a plan proposed while
+-- cloud was allowed from queuing cloud-enabled v0.51 tasks after the user makes
+-- the conversation private. Paired-app cloud scope is also intersected in the
+-- approval service before this trigger runs.
+CREATE TRIGGER IF NOT EXISTS trg_agent_team_plan_current_privacy
+AFTER INSERT ON agent_delegation_tasks
+WHEN NEW.external_conversation_id LIKE 'team-plan:%'
+  AND EXISTS (
+      SELECT 1 FROM conversation_context_settings
+      WHERE conversation_id=NEW.conversation_id AND cloud_allowed=0
+  )
+BEGIN
+    UPDATE agent_delegation_tasks SET cloud_allowed=0 WHERE id=NEW.id;
+END;
