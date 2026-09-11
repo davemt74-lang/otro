@@ -15,11 +15,14 @@ bridge = text("app/bridge.py")
 ui = text("ui/agent-workflow-continuation.js")
 css = text("ui/agent-workflow-continuation.css")
 loader = text("ui/agent-team-orchestration.js")
+workflow = text(".github/workflows/agent-workflow-continuation-v054.yml")
 
 assert 'AGENT_WORKFLOW_CONTINUATION_VERSION = "v0.54"' in service
 assert 'TERMINAL_STATUSES = {"rejected", "synthesized", "cancelled"}' in service
 assert "conversation_continuation" in service
 assert "agent_routing.conversation_binding" in service
+assert "agent_routing.resolve_agent" in service
+assert "agent_routing.validate_conversation_agent" in service
 assert "agent_team_orchestration.list_orchestrations" in service
 assert '"read_only": True' in service
 assert '"auto_executes": False' in service
@@ -72,5 +75,9 @@ assert "@media" in css
 assert "/assets/agent-workflow-continuation.js" in loader
 assert "data-agent-workflow-continuation-v054" in loader
 assert "ensureContinuationExtension" in loader
+
+assert "tests/agent_workflow_continuation_access_v054.py" in workflow
+assert "Workflow Continuation live access-boundary regression" in workflow
+assert "python tests/agent_workflow_continuation_access_v054.py" in workflow
 
 print("HomeServer v0.54 Workflow Continuation Awareness UI/API contract passed")
