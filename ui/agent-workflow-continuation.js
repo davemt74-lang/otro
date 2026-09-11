@@ -40,6 +40,15 @@
     document.head.appendChild(script);
   }
 
+  function ensureRehydrationExtension() {
+    if (document.querySelector('script[data-agent-workflow-rehydration-v056]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/agent-workflow-rehydration.js';
+    script.dataset.agentWorkflowRehydrationV056 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function ensureCue() {
     const panel = document.querySelector('#view-chat .chat-panel');
     const head = panel?.querySelector('.chat-head');
@@ -164,6 +173,7 @@
   function boot() {
     ensureStyles();
     ensureResumeExtension();
+    ensureRehydrationExtension();
     if (!window.HomeServerAgentTeamOrchestration || !ensureCue()) {
       state.bootAttempts += 1;
       if (state.bootAttempts < 160) setTimeout(boot, 80);
