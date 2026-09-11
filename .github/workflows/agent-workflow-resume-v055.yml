@@ -12,6 +12,7 @@ on:
       - 'ui/agent-workflow-resume.js'
       - 'ui/agent-workflow-resume.css'
       - 'tests/agent_workflow_resume_v055.py'
+      - 'tests/agent_workflow_resume_scan_v055.py'
       - 'tests/agent_workflow_resume_ui_contract_v055.py'
       - 'tests/packaged_workflow_resume_v055.py'
       - '.github/workflows/agent-workflow-resume-v055.yml'
@@ -27,6 +28,7 @@ on:
       - 'ui/agent-workflow-resume.js'
       - 'ui/agent-workflow-resume.css'
       - 'tests/agent_workflow_resume_v055.py'
+      - 'tests/agent_workflow_resume_scan_v055.py'
       - 'tests/agent_workflow_resume_ui_contract_v055.py'
       - 'tests/packaged_workflow_resume_v055.py'
       - '.github/workflows/agent-workflow-resume-v055.yml'
@@ -52,11 +54,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Workflow Resume backend
-        run: python -m compileall app/bridge.py app/workflow_resume_api.py app/services/agent_workflow_resume.py tests/agent_workflow_resume_v055.py tests/agent_workflow_resume_ui_contract_v055.py
+        run: python -m compileall app/bridge.py app/workflow_resume_api.py app/services/agent_workflow_resume.py tests/agent_workflow_resume_v055.py tests/agent_workflow_resume_scan_v055.py tests/agent_workflow_resume_ui_contract_v055.py
       - name: Validate Workflow Resume JavaScript
         run: node --check ui/agent-workflow-resume.js && node --check ui/agent-workflow-continuation.js
       - name: Workflow Resume regression
         run: python tests/agent_workflow_resume_v055.py
+      - name: Workflow Resume terminal-saturation scan regression
+        run: python tests/agent_workflow_resume_scan_v055.py
       - name: Workflow Resume UI API contract
         run: python tests/agent_workflow_resume_ui_contract_v055.py
       - name: Retain v0.54 Workflow Continuation regression
