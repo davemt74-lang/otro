@@ -1,0 +1,85 @@
+name: Agent Delegation and Multi-Agent Workflows v0.48
+
+on:
+  pull_request:
+    paths:
+      - 'app/delegation_api.py'
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'app/services/agent_workflows.py'
+      - 'app/services/agent_workflow_tool.py'
+      - 'database/agent_delegation_workflows.sql'
+      - 'HomeServer.spec'
+      - 'ui/agent-routing.js'
+      - 'ui/agent-workflows.js'
+      - 'ui/agent-workflows.css'
+      - 'tests/agent_workflows_v048.py'
+      - 'tests/agent_workflows_first_turn_v048.py'
+      - 'tests/agent_workflows_ui_contract_v048.py'
+      - 'tests/agent_routing_v047.py'
+      - 'tests/agent_delegation_v025.py'
+      - 'tests/packaged_lifecycle.py'
+      - '.github/workflows/agent-workflows-v048.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/delegation_api.py'
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'app/services/agent_workflows.py'
+      - 'app/services/agent_workflow_tool.py'
+      - 'database/agent_delegation_workflows.sql'
+      - 'HomeServer.spec'
+      - 'ui/agent-routing.js'
+      - 'ui/agent-workflows.js'
+      - 'ui/agent-workflows.css'
+      - 'tests/agent_workflows_v048.py'
+      - 'tests/agent_workflows_first_turn_v048.py'
+      - 'tests/agent_workflows_ui_contract_v048.py'
+      - 'tests/agent_routing_v047.py'
+      - 'tests/agent_delegation_v025.py'
+      - 'tests/packaged_lifecycle.py'
+      - '.github/workflows/agent-workflows-v048.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  agent-workflows:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Agent workflow backend
+        run: python -m compileall app/delegation_api.py app/bridge.py app/database.py app/services/agent_workflows.py app/services/agent_workflow_tool.py tests/agent_workflows_v048.py tests/agent_workflows_first_turn_v048.py tests/agent_workflows_ui_contract_v048.py
+      - name: Validate Agent workflow JavaScript
+        run: node --check ui/agent-workflows.js
+      - name: Validate Agent routing loader JavaScript
+        run: node --check ui/agent-routing.js
+      - name: Agent Delegation and Multi-Agent Workflows regression
+        run: python tests/agent_workflows_v048.py
+      - name: First-turn delegation conversation binding regression
+        run: python tests/agent_workflows_first_turn_v048.py
+      - name: Agent workflow UI API package contract
+        run: python tests/agent_workflows_ui_contract_v048.py
+      - name: Retain v0.47 Agent Selection and Persona Routing regression
+        run: python tests/agent_routing_v047.py
+      - name: Retain v0.46 Multi-Agent Persona Management regression
+        run: python tests/multi_agent_personas_v046.py
+      - name: Retain canonical Agent context v4.30 contract
+        run: python tests/canonical_agent_context_v430.py
+      - name: Retain canonical Agent context runtime regression
+        run: python tests/canonical_context_runtime_v430.py
+      - name: Retain v0.25 stateless VP3 delegation regression
+        run: python tests/agent_delegation_v025.py

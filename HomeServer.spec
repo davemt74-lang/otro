@@ -13,6 +13,7 @@ a = Analysis(
         ('database/knowledge_collections.sql', 'database'),
         ('database/agent_voice_profiles.sql', 'database'),
         ('database/agent_routing.sql', 'database'),
+        ('database/agent_delegation_workflows.sql', 'database'),
         ('database/migrations', 'database/migrations'),
         ('ui', 'ui'),
     ],
