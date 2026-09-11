@@ -1,0 +1,56 @@
+name: VP3 Scheduling Tools v0.59
+
+on:
+  pull_request:
+    paths:
+      - 'app/tools_api.py'
+      - 'app/services/action_policy.py'
+      - 'app/services/pairing.py'
+      - 'app/services/vp3_scheduling_connector.py'
+      - 'app/services/vp3_scheduling_tools.py'
+      - 'app/services/vp3_scheduling_approvals.py'
+      - 'app/services/vp3_scheduling_agent.py'
+      - 'app/services/vp3_scheduling_remote.py'
+      - 'tests/vp3_scheduling_v059.py'
+      - '.github/workflows/vp3-scheduling-v059.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/tools_api.py'
+      - 'app/services/action_policy.py'
+      - 'app/services/pairing.py'
+      - 'app/services/vp3_scheduling_connector.py'
+      - 'app/services/vp3_scheduling_tools.py'
+      - 'app/services/vp3_scheduling_approvals.py'
+      - 'app/services/vp3_scheduling_agent.py'
+      - 'app/services/vp3_scheduling_remote.py'
+      - 'tests/vp3_scheduling_v059.py'
+      - '.github/workflows/vp3-scheduling-v059.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  scheduling:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile scheduling integration
+        run: python -m compileall app/tools_api.py app/services/action_policy.py app/services/pairing.py app/services/vp3_scheduling_connector.py app/services/vp3_scheduling_tools.py app/services/vp3_scheduling_approvals.py app/services/vp3_scheduling_agent.py app/services/vp3_scheduling_remote.py tests/vp3_scheduling_v059.py
+      - name: VP3 scheduling regression
+        run: python tests/vp3_scheduling_v059.py
+      - name: Retain action policy regression
+        run: python tests/action_policy_v035.py
+      - name: Retain governed file approval-only regression
+        run: python tests/governed_file_policy_v039.py
+      - name: Retain Remote Bridge regression
+        run: python tests/remote_bridge.py
