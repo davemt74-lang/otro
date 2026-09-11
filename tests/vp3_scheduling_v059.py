@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -123,6 +124,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-vp3-scheduling-v059-") as da
         assert configured["payload"]["configured"] is True
         connector_status = vp3_scheduling_connector.status()
         assert connector_status["configured"] is True
+        assert connector_status["pairing_bound"] is True
         assert connector_status["endpoint_host"] == "127.0.0.1"
         assert connector_status["token_suffix"] == "yyyy"
 
@@ -210,10 +212,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-vp3-scheduling-v059-") as da
 
         # Credential-bearing calls reject non-HTTPS remote endpoints and write
         # calls require a stable idempotency key.
+        pairing_hash = hashlib.sha256(request["claim_token"].encode("utf-8")).hexdigest()
         try:
             vp3_scheduling_connector.configure(
                 "http://example.com/api/homeserver-scheduling-v620.php",
                 "vps_" + "z" * 40,
+                pairing_token_hash=pairing_hash,
             )
             raise AssertionError("insecure remote scheduling endpoint accepted")
         except vp3_scheduling_connector.VP3SchedulingConnectorError:
@@ -223,5 +227,51 @@ with tempfile.TemporaryDirectory(prefix="homeserver-vp3-scheduling-v059-") as da
             raise AssertionError("write operation accepted without idempotency key")
         except vp3_scheduling_connector.VP3SchedulingConnectorError:
             pass
+
+        # Local revocation invalidates the reverse cloud connector immediately.
+        # The encrypted connector file may remain for diagnostics, but it cannot
+        # be used and the scheduling tools disappear from all normal surfaces.
+        with db() as connection:
+            connection.execute("UPDATE paired_apps SET status='revoked' WHERE app_key='vp3'")
+        revoked_status = vp3_scheduling_connector.status()
+        assert revoked_status["configured"] is False
+        assert revoked_status["pairing_bound"] is False
+        assert expected.isdisjoint({item["key"] for item in client.get("/api/v1/control/tools").json()["items"]})
+        assert all(
+            not str(item["key"]).startswith("vp3.")
+            for item in client.get("/api/v1/control/skills").json()["items"]
+        )
+        try:
+            vp3_scheduling_connector.request("overview", {})
+            raise AssertionError("revoked VP3 pairing retained reverse scheduling access")
+        except vp3_scheduling_connector.VP3SchedulingConnectorError as exc:
+            assert exc.status_code == 409
+
+        # Re-pairing rotates the canonical VP3 bearer. The stale reverse
+        # connector must remain disabled until the newly paired VP3 identity
+        # explicitly provisions it again.
+        repaired_pair = client.post(
+            "/api/v1/pairing/request",
+            json={
+                "app_key": "vp3",
+                "app_name": "VP3",
+                "permissions": ["scheduling.read", "scheduling.write", "tools.execute"],
+            },
+        ).json()
+        assert client.post("/api/v1/pairing/approve", json={"code": repaired_pair["code"]}).status_code == 200
+        assert vp3_scheduling_connector.status()["configured"] is False
+        reprovisioned = remote_bridge.dispatch_remote_request(
+            "vp3.connector.configure",
+            {
+                "endpoint": "http://127.0.0.1/api/homeserver-scheduling-v620.php",
+                "token": "vps_" + "r" * 40,
+                "version": "v6.20",
+                "capabilities": ["overview", "availability", "booking.create"],
+            },
+            repaired_pair["claim_token"],
+        )
+        assert reprovisioned["ok"] is True
+        assert reprovisioned["payload"]["configured"] is True
+        assert vp3_scheduling_connector.status()["pairing_bound"] is True
 
 print("HomeServer VP3 scheduling v0.59 regression passed")
