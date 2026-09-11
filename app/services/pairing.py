@@ -23,6 +23,8 @@ DEFAULT_PERMISSIONS = {
     "memory.write",
     "notifications.read",
     "plugins.read",
+    "scheduling.read",
+    "scheduling.write",
     "tasks.read",
     "tasks.write",
     "tools.execute",
@@ -131,8 +133,6 @@ def approve_pairing(code: str) -> dict | None:
         if app is None:
             raise RuntimeError("Paired application record was not created")
 
-        # Preserve owner-defined resource scopes when an existing wrapper is
-        # re-paired; a new app starts unrestricted within its granted permissions.
         connection.execute(
             "INSERT OR IGNORE INTO app_capability_scopes(paired_app_id) VALUES (?)",
             (app["id"],),
