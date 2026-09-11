@@ -224,10 +224,23 @@ def install() -> None:
         return [item for item in items if item.get("key") not in SCHEDULING_KEYS]
 
     def list_skills(granted_permissions: set[str] | None = None, *, owner: bool = False) -> list[dict[str, Any]]:
-        items = original_list_skills(granted_permissions, owner=owner)
         if _connector_ready():
-            return items
-        return [item for item in items if item.get("key") not in SCHEDULING_SKILL_KEYS]
+            return original_list_skills(granted_permissions, owner=owner)
+        tool_items = {item["key"]: item for item in original_list_tools(granted_permissions, owner=owner)}
+        skills: list[dict[str, Any]] = []
+        for skill in tools.SKILL_DEFINITIONS:
+            if skill.get("key") in SCHEDULING_SKILL_KEYS:
+                continue
+            required: set[str] = set()
+            available = True
+            for tool_key in skill["tools"]:
+                item = tool_items[tool_key]
+                required.update(item["required_permissions"])
+                if not owner:
+                    required.add(tools.TOOL_EXECUTE_PERMISSION)
+                available = available and bool(item["available"])
+            skills.append({**skill, "required_permissions": sorted(required), "available": available})
+        return skills
 
     def set_tool_enabled(tool_key: str, enabled: bool) -> dict[str, Any]:
         if tool_key in SCHEDULING_KEYS and not _connector_ready():
