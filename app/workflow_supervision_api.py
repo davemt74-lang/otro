@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from .services import agent_workflow_supervision
 from .services.pairing import authenticate
+from .workflow_automation_api import router as workflow_automation_router
 
 router = APIRouter()
 
@@ -91,6 +92,7 @@ def _capability() -> dict:
         "paired_app_scoped": True,
         "requires_rehydration": agent_workflow_supervision.agent_workflow_rehydration.AGENT_WORKFLOW_REHYDRATION_VERSION,
         "actions_via": agent_workflow_supervision.agent_team_orchestration.AGENT_TEAM_ORCHESTRATION_VERSION,
+        "automation_extension": "v0.58",
     }
 
 
@@ -102,3 +104,9 @@ def client_workflow_supervise_capability(identity: dict = Depends(_require_chat)
 @router.get("/api/v1/control/agent-workflows/supervise/capability")
 def control_workflow_supervise_capability() -> dict:
     return _capability()
+
+
+# v0.58 is a child of the v0.57 safety kernel. Creating an automation is
+# explicit, while every later trigger still rehydrates and enters v0.57 rather
+# than calling team orchestration directly.
+router.include_router(workflow_automation_router)
