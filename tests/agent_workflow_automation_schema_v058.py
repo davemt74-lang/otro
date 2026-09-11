@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-automation-sc
     initialize_database()
     with db() as connection:
         versions_before = [int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
-        assert versions_before.count(22) == 1
+        assert versions_before == list(range(1, 22))
         automation_sql = str(connection.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_workflow_automations'"
         ).fetchone()["sql"])
@@ -30,12 +30,22 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-automation-sc
         assert "UNIQUE (source_app_key, conversation_id, plan_id, trigger_type, trigger_config_json)" in automation_sql
         assert "UNIQUE (automation_id, trigger_key)" in runs_sql
         assert "REFERENCES agent_workflow_supervisions(id) ON DELETE SET NULL" in runs_sql
+        connection.execute("DROP TABLE agent_workflow_automation_runs")
+        connection.execute("DROP TABLE agent_workflow_automations")
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_workflow_automations'"
+        ).fetchone()[0] == 0
 
     initialize_database()
     with db() as connection:
         versions_after = [int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
         assert versions_after == versions_before
-        assert versions_after.count(22) == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_workflow_automations'"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_workflow_automation_runs'"
+        ).fetchone()[0] == 1
         indexes = {
             str(row["name"])
             for row in connection.execute(
@@ -45,5 +55,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-automation-sc
         assert "idx_agent_workflow_automations_due" in indexes
         assert "idx_agent_workflow_automations_activity" in indexes
         assert "idx_agent_workflow_automation_runs_automation" in indexes
+        assert "idx_agent_workflow_automation_runs_status" in indexes
 
-print("HomeServer v0.58 workflow automation schema/idempotency test passed")
+print("HomeServer v0.58 workflow automation feature-schema/idempotency test passed")
