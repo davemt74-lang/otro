@@ -94,6 +94,15 @@
     document.head.appendChild(link);
   }
 
+  function ensureWorkflowExtension() {
+    if (document.querySelector('script[data-agent-workflows-v048]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/agent-workflows.js';
+    script.dataset.agentWorkflowsV048 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function ensureSelector() {
     const head = document.querySelector('#view-chat .chat-head');
     if (!head) return false;
@@ -264,6 +273,7 @@
 
   function boot() {
     ensureStyles();
+    ensureWorkflowExtension();
     ensureSelector();
     loadAgents().then(() => syncConversationBinding()).catch(() => null);
     const list = byId('conversationList');
@@ -277,6 +287,8 @@
     version: VERSION,
     getSelectedAgentId: () => state.selectedAgentId,
     getSelectedAgent: () => selectedAgent() ? {...selectedAgent()} : null,
+    getActiveConversationId: () => state.activeConversationId,
+    getAgents: () => state.agents.map(item => ({...item})),
     refresh: loadAgents,
     syncConversationBinding,
   });
