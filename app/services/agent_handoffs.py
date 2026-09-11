@@ -35,12 +35,65 @@ def _decorate(row: Any) -> dict[str, Any]:
     return item
 
 
-def _columns() -> str:
-    return """
-        id, task_id, source_app_key, conversation_id, parent_agent_id, worker_agent_id,
-        parent_agent_name, worker_agent_name, task_excerpt, result, status,
-        consumed_run_id, created_at, consumed_at, revoked_at, updated_at
+def _columns(prefix: str = "") -> str:
+    p = f"{prefix}." if prefix else ""
+    return f"""
+        {p}id, {p}task_id, {p}source_app_key, {p}conversation_id, {p}parent_agent_id, {p}worker_agent_id,
+        {p}parent_agent_name, {p}worker_agent_name, {p}task_excerpt, {p}result, {p}status,
+        {p}consumed_run_id, {p}created_at, {p}consumed_at, {p}revoked_at, {p}updated_at
     """
+
+
+def _required_permissions(item: dict[str, Any]) -> set[str]:
+    required: set[str] = set()
+    if bool(item.get("include_memory")):
+        required.add("memory.read")
+    if bool(item.get("include_knowledge")):
+        required.add("knowledge.search")
+    if bool(item.get("include_contacts")):
+        required.add("contacts.read")
+    return required
+
+
+def _authorized_now(
+    item: dict[str, Any],
+    source_app_key: str,
+    *,
+    owner: bool,
+    current_permissions: set[str] | None,
+) -> bool:
+    if owner:
+        return True
+    granted = set(current_permissions or set())
+    if not _required_permissions(item).issubset(granted):
+        return False
+    worker_agent_id = item.get("worker_agent_id")
+    if worker_agent_id is None:
+        return False
+    try:
+        agent_routing.resolve_agent(source_app_key, int(worker_agent_id), owner=False)
+    except agent_routing.AgentRoutingError:
+        return False
+    return True
+
+
+def _require_authorized_now(
+    item: dict[str, Any],
+    source_app_key: str,
+    *,
+    owner: bool,
+    current_permissions: set[str] | None,
+) -> None:
+    if not _authorized_now(
+        item,
+        source_app_key,
+        owner=owner,
+        current_permissions=current_permissions,
+    ):
+        raise AgentHandoffError(
+            "Current application permissions or Agent access no longer authorize this specialist result handoff.",
+            403,
+        )
 
 
 def get_handoff(handoff_id: int, source_app_key: str) -> dict[str, Any]:
@@ -75,14 +128,20 @@ def list_handoffs(
     return {"version": HANDOFF_VERSION, "items": [_decorate(row) for row in rows]}
 
 
-def queue_task_result(task_id: int, source_app_key: str, *, owner: bool) -> dict[str, Any]:
+def queue_task_result(
+    task_id: int,
+    source_app_key: str,
+    *,
+    owner: bool,
+    current_permissions: set[str] | None = None,
+) -> dict[str, Any]:
     source = _source(source_app_key)
     with db() as connection:
         task = connection.execute(
             """
             SELECT id, source_app_key, parent_agent_id, worker_agent_id,
                    parent_agent_name, worker_agent_name, conversation_id,
-                   task, status, result
+                   task, status, result, include_memory, include_knowledge, include_contacts
             FROM agent_delegation_tasks
             WHERE id=? AND source_app_key=?
             LIMIT 1
@@ -106,6 +165,12 @@ def queue_task_result(task_id: int, source_app_key: str, *, owner: bool) -> dict
 
     parent = agent_routing.resolve_agent(source, int(parent_agent_id), owner=owner)
     agent_routing.validate_conversation_agent(source, conversation_id, int(parent["id"]))
+    _require_authorized_now(
+        task_item,
+        source,
+        owner=owner,
+        current_permissions=current_permissions,
+    )
 
     stored_result = result[:MAX_STORED_RESULT_CHARS]
     task_excerpt = " ".join(str(task_item.get("task") or "").split())[:MAX_TASK_EXCERPT_CHARS]
@@ -159,6 +224,7 @@ def queue_task_result(task_id: int, source_app_key: str, *, owner: bool) -> dict
                 "conversation_id": conversation_id,
                 "parent_agent_id": int(parent["id"]),
                 "worker_agent_id": int(task_item["worker_agent_id"]) if task_item.get("worker_agent_id") is not None else None,
+                "scope_rechecked": not owner,
             },
             separators=(",", ":"),
         )
@@ -212,6 +278,8 @@ def pending_context(
     parent_agent_id: int,
     *,
     max_chars: int,
+    owner: bool,
+    current_permissions: set[str] | None = None,
 ) -> dict[str, Any]:
     source = _source(source_app_key)
     limit_chars = max(0, min(int(max_chars), MAX_HANDOFF_CONTEXT_CHARS))
@@ -220,15 +288,26 @@ def pending_context(
     with db() as connection:
         rows = connection.execute(
             f"""
-            SELECT {_columns()}
-            FROM agent_result_handoffs
-            WHERE source_app_key=? AND conversation_id=? AND parent_agent_id=? AND status='pending'
-            ORDER BY id ASC
+            SELECT {_columns('h')}, t.include_memory, t.include_knowledge, t.include_contacts
+            FROM agent_result_handoffs h
+            JOIN agent_delegation_tasks t ON t.id=h.task_id AND t.source_app_key=h.source_app_key
+            WHERE h.source_app_key=? AND h.conversation_id=? AND h.parent_agent_id=? AND h.status='pending'
+            ORDER BY h.id ASC
             LIMIT ?
             """,
             (source, str(conversation_id), int(parent_agent_id), MAX_HANDOFF_ITEMS),
         ).fetchall()
-    items = [_decorate(row) for row in rows]
+    candidates = [_decorate(row) for row in rows]
+    items = [
+        item
+        for item in candidates
+        if _authorized_now(
+            item,
+            source,
+            owner=owner,
+            current_permissions=current_permissions,
+        )
+    ]
     if not items:
         return {"version": HANDOFF_VERSION, "items": [], "ids": [], "fragment": "", "chars": 0}
 
@@ -274,6 +353,7 @@ def pending_context(
                 "task_id": int(item["task_id"]),
                 "worker_agent_id": item.get("worker_agent_id"),
                 "worker_agent_name": item["worker_agent_name"],
+                "scope_rechecked": not owner,
             }
             for item in included
         ],
