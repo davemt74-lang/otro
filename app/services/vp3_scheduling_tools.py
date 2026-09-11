@@ -202,6 +202,8 @@ def _execute(key: str, args: dict[str, Any]) -> dict[str, Any]:
 def install() -> None:
     if getattr(tools, "_vp3_scheduling_v059_installed", False):
         return
+
+    base_skills = tuple(tools.SKILL_DEFINITIONS)
     for key, definition in DEFINITIONS.items():
         existing = tools.TOOL_DEFINITIONS.get(key)
         if existing not in (None, definition):
@@ -212,25 +214,44 @@ def install() -> None:
             tools.SKILL_DEFINITIONS = (*tools.SKILL_DEFINITIONS, skill)
 
     original_list_tools = tools.list_tools
+    original_list_skills = tools.list_skills
+    original_set_tool_enabled = tools.set_tool_enabled
 
     def list_tools(granted_permissions: set[str] | None = None, *, owner: bool = False) -> list[dict[str, Any]]:
         items = original_list_tools(granted_permissions, owner=owner)
-        ready = _connector_ready()
-        if ready:
+        if _connector_ready():
             return items
-        result: list[dict[str, Any]] = []
-        for item in items:
-            if item.get("key") in SCHEDULING_KEYS:
-                current = dict(item)
-                current["available"] = False
-                current["runtime_unavailable"] = True
-                current["runtime_reason"] = "VP3 scheduling connector is not configured."
-                result.append(current)
-            else:
-                result.append(item)
-        return result
+        return [item for item in items if item.get("key") not in SCHEDULING_KEYS]
+
+    def list_skills(granted_permissions: set[str] | None = None, *, owner: bool = False) -> list[dict[str, Any]]:
+        if _connector_ready():
+            return original_list_skills(granted_permissions, owner=owner)
+        tool_items = {
+            item["key"]: item
+            for item in original_list_tools(granted_permissions, owner=owner)
+            if item.get("key") not in SCHEDULING_KEYS
+        }
+        skills: list[dict[str, Any]] = []
+        for skill in base_skills:
+            required: set[str] = set()
+            available = True
+            for tool_key in skill["tools"]:
+                item = tool_items[tool_key]
+                required.update(item["required_permissions"])
+                if not owner:
+                    required.add(tools.TOOL_EXECUTE_PERMISSION)
+                available = available and bool(item["available"])
+            skills.append({**skill, "required_permissions": sorted(required), "available": available})
+        return skills
+
+    def set_tool_enabled(tool_key: str, enabled: bool) -> dict[str, Any]:
+        if tool_key in SCHEDULING_KEYS and not _connector_ready():
+            raise tools.ToolError("VP3 scheduling connector is not configured.", 409)
+        return original_set_tool_enabled(tool_key, enabled)
 
     tools.list_tools = list_tools
+    tools.list_skills = list_skills
+    tools.set_tool_enabled = set_tool_enabled
     original_meta = tools._safe_argument_metadata
 
     def safe_meta(key: str, args: dict[str, Any]) -> dict[str, Any]:
