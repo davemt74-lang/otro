@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..config import settings
+from ..database import db
 from .provider_secrets import _atomic_write, _protect_windows, _unprotect_windows
 
 VERSION = "v0.59"
@@ -39,6 +40,8 @@ def _validate_endpoint(value: str) -> str:
     host = (parsed.hostname or "").lower()
     if not parsed.scheme or not host or parsed.username or parsed.password or parsed.fragment:
         raise VP3SchedulingConnectorError("VP3 scheduling endpoint is invalid.")
+    if parsed.query:
+        raise VP3SchedulingConnectorError("VP3 scheduling endpoint may not include a query string.")
     if parsed.scheme != "https" and not (parsed.scheme == "http" and host in _LOOPBACK):
         raise VP3SchedulingConnectorError("VP3 scheduling connector requires HTTPS except for loopback tests.")
     if not parsed.path.endswith("/api/homeserver-scheduling-v620.php"):
@@ -71,13 +74,49 @@ def _load() -> dict[str, Any]:
         raise VP3SchedulingConnectorError("VP3 scheduling connector could not be decrypted on this device.", 500) from exc
 
 
-def configure(endpoint: str, token: str, version: str = CLOUD_CONTRACT_VERSION, capabilities: list[str] | None = None) -> dict:
+def _pairing_binding_active(pairing_token_hash: str) -> bool:
+    binding = str(pairing_token_hash or "").strip().lower()
+    if len(binding) != 64 or any(ch not in "0123456789abcdef" for ch in binding):
+        return False
+    try:
+        with db() as connection:
+            row = connection.execute(
+                """
+                SELECT 1
+                FROM paired_apps
+                WHERE app_key='vp3' AND token_hash=? AND status='active'
+                LIMIT 1
+                """,
+                (binding,),
+            ).fetchone()
+    except Exception:
+        return False
+    return row is not None
+
+
+def configure(
+    endpoint: str,
+    token: str,
+    version: str = CLOUD_CONTRACT_VERSION,
+    capabilities: list[str] | None = None,
+    *,
+    pairing_token_hash: str,
+) -> dict:
     normalized = _validate_endpoint(endpoint)
     secret = str(token or "").strip()
     if len(secret) < 32 or len(secret) > 512:
         raise VP3SchedulingConnectorError("VP3 scheduling credential is invalid.")
+    binding = str(pairing_token_hash or "").strip().lower()
+    if not _pairing_binding_active(binding):
+        raise VP3SchedulingConnectorError("VP3 scheduling connector requires the active paired VP3 identity.", 403)
     advertised = sorted({str(item).strip() for item in (capabilities or []) if str(item).strip() in _ALLOWED_OPERATIONS})
-    data = {"endpoint": normalized, "token": secret, "version": str(version or CLOUD_CONTRACT_VERSION)[:40], "capabilities": advertised}
+    data = {
+        "endpoint": normalized,
+        "token": secret,
+        "version": str(version or CLOUD_CONTRACT_VERSION)[:40],
+        "capabilities": advertised,
+        "pairing_token_hash": binding,
+    }
     _atomic_write(_path(), _encode(data))
     return status()
 
@@ -95,8 +134,11 @@ def status() -> dict:
     endpoint = str(data.get("endpoint") or "")
     parsed = urlparse(endpoint) if endpoint else None
     token = str(data.get("token") or "")
+    binding = str(data.get("pairing_token_hash") or "")
+    pairing_bound = _pairing_binding_active(binding)
     return {
-        "configured": bool(endpoint and token),
+        "configured": bool(endpoint and token and pairing_bound),
+        "pairing_bound": pairing_bound,
         "endpoint_host": (parsed.hostname or "") if parsed else "",
         "cloud_version": str(data.get("version") or ""),
         "capabilities": list(data.get("capabilities") or []),
@@ -115,6 +157,8 @@ def request(operation: str, arguments: dict[str, Any] | None = None, *, idempote
     token = str(data.get("token") or "").strip()
     if not endpoint or not token:
         raise VP3SchedulingConnectorError("VP3 scheduling connector is not configured.", 409)
+    if not _pairing_binding_active(str(data.get("pairing_token_hash") or "")):
+        raise VP3SchedulingConnectorError("VP3 scheduling connector pairing is no longer active.", 409)
     key = str(idempotency_key or "").strip()
     if op in _WRITE_OPERATIONS and (not key or len(key) > 160):
         raise VP3SchedulingConnectorError("Scheduling mutations require a stable idempotency key.")
@@ -123,7 +167,11 @@ def request(operation: str, arguments: dict[str, Any] | None = None, *, idempote
         payload["idempotency_key"] = key
     try:
         with httpx.Client(timeout=30.0, follow_redirects=False, trust_env=True) as client:
-            response = client.post(endpoint, json=payload, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+            response = client.post(
+                endpoint,
+                json=payload,
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            )
     except httpx.HTTPError as exc:
         raise VP3SchedulingConnectorError("VP3 scheduling service is unreachable.", 503) from exc
     try:
