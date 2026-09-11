@@ -16,6 +16,7 @@ on:
       - 'ui/agent-team-orchestration.js'
       - 'ui/agent-team-orchestration.css'
       - 'tests/agent_team_orchestration_v053.py'
+      - 'tests/agent_team_orchestration_integrity_v053.py'
       - 'tests/agent_team_orchestration_ui_contract_v053.py'
       - 'tests/agent_team_planning_v052.py'
       - 'tests/agent_team_planning_privacy_v052.py'
@@ -45,6 +46,7 @@ on:
       - 'ui/agent-team-orchestration.js'
       - 'ui/agent-team-orchestration.css'
       - 'tests/agent_team_orchestration_v053.py'
+      - 'tests/agent_team_orchestration_integrity_v053.py'
       - 'tests/agent_team_orchestration_ui_contract_v053.py'
       - 'tests/agent_team_planning_v052.py'
       - 'tests/agent_team_planning_privacy_v052.py'
@@ -80,11 +82,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Team Orchestration backend
-        run: python -m compileall app/bridge.py app/team_orchestration_api.py app/services/agent_team_orchestration.py tests/agent_team_orchestration_v053.py tests/agent_team_orchestration_ui_contract_v053.py
+        run: python -m compileall app/bridge.py app/team_orchestration_api.py app/services/agent_team_orchestration.py tests/agent_team_orchestration_v053.py tests/agent_team_orchestration_integrity_v053.py tests/agent_team_orchestration_ui_contract_v053.py
       - name: Validate Team Orchestration JavaScript
         run: node --check ui/agent-team-planning.js && node --check ui/agent-team-orchestration.js && node --check ui/agent-team-runs.js
       - name: Team Orchestration lifecycle regression
         run: python tests/agent_team_orchestration_v053.py
+      - name: Team Orchestration fail-closed linkage regression
+        run: python tests/agent_team_orchestration_integrity_v053.py
       - name: Team Orchestration UI API contract
         run: python tests/agent_team_orchestration_ui_contract_v053.py
       - name: Retain v0.52 Team Planning regression
