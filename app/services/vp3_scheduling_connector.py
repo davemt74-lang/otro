@@ -20,6 +20,7 @@ _ALLOWED_OPERATIONS = {
     "team.availability", "team.booking.create", "team.booking.cancel",
 }
 _WRITE_OPERATIONS = {"booking.create", "booking.reschedule", "booking.cancel", "team.booking.create", "team.booking.cancel"}
+_REQUIRED_PAIRING_PERMISSIONS = {"tools.execute", "scheduling.read", "scheduling.write"}
 
 
 class VP3SchedulingConnectorError(RuntimeError):
@@ -80,18 +81,30 @@ def _pairing_binding_active(pairing_token_hash: str) -> bool:
         return False
     try:
         with db() as connection:
-            row = connection.execute(
+            app = connection.execute(
                 """
-                SELECT 1
+                SELECT id
                 FROM paired_apps
                 WHERE app_key='vp3' AND token_hash=? AND status='active'
                 LIMIT 1
                 """,
                 (binding,),
             ).fetchone()
+            if app is None:
+                return False
+            rows = connection.execute(
+                """
+                SELECT permission
+                FROM app_permissions
+                WHERE paired_app_id=? AND allowed=1
+                  AND permission IN ('tools.execute','scheduling.read','scheduling.write')
+                """,
+                (app["id"],),
+            ).fetchall()
     except Exception:
         return False
-    return row is not None
+    granted = {str(row["permission"]) for row in rows}
+    return _REQUIRED_PAIRING_PERMISSIONS.issubset(granted)
 
 
 def configure(
@@ -108,7 +121,7 @@ def configure(
         raise VP3SchedulingConnectorError("VP3 scheduling credential is invalid.")
     binding = str(pairing_token_hash or "").strip().lower()
     if not _pairing_binding_active(binding):
-        raise VP3SchedulingConnectorError("VP3 scheduling connector requires the active paired VP3 identity.", 403)
+        raise VP3SchedulingConnectorError("VP3 scheduling connector requires the active paired VP3 identity and scheduling grants.", 403)
     advertised = sorted({str(item).strip() for item in (capabilities or []) if str(item).strip() in _ALLOWED_OPERATIONS})
     data = {
         "endpoint": normalized,
@@ -158,7 +171,7 @@ def request(operation: str, arguments: dict[str, Any] | None = None, *, idempote
     if not endpoint or not token:
         raise VP3SchedulingConnectorError("VP3 scheduling connector is not configured.", 409)
     if not _pairing_binding_active(str(data.get("pairing_token_hash") or "")):
-        raise VP3SchedulingConnectorError("VP3 scheduling connector pairing is no longer active.", 409)
+        raise VP3SchedulingConnectorError("VP3 scheduling connector pairing or scheduling grants are no longer active.", 409)
     key = str(idempotency_key or "").strip()
     if op in _WRITE_OPERATIONS and (not key or len(key) > 160):
         raise VP3SchedulingConnectorError("Scheduling mutations require a stable idempotency key.")
