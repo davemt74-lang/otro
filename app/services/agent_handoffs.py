@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..database import db
@@ -151,24 +152,22 @@ def queue_task_result(task_id: int, source_app_key: str, *, owner: bool) -> dict
             )
             handoff_id = int(cursor.lastrowid)
             action = "agent.handoff.queued"
+        audit = json.dumps(
+            {
+                "version": HANDOFF_VERSION,
+                "task_id": int(task_id),
+                "conversation_id": conversation_id,
+                "parent_agent_id": int(parent["id"]),
+                "worker_agent_id": int(task_item["worker_agent_id"]) if task_item.get("worker_agent_id") is not None else None,
+            },
+            separators=(",", ":"),
+        )
         connection.execute(
             """
             INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES (?, ?, ?, 'agent_handoff', ?, json_object(
-                'version', ?, 'task_id', ?, 'conversation_id', ?, 'parent_agent_id', ?, 'worker_agent_id', ?
-            ))
+            VALUES (?, ?, ?, 'agent_handoff', ?, ?)
             """,
-            (
-                _actor_type(source),
-                source,
-                action,
-                str(handoff_id),
-                HANDOFF_VERSION,
-                int(task_id),
-                conversation_id,
-                int(parent["id"]),
-                int(task_item["worker_agent_id"]) if task_item.get("worker_agent_id") is not None else None,
-            ),
+            (_actor_type(source), source, action, str(handoff_id), audit),
         )
     return get_handoff(handoff_id, source)
 
@@ -195,9 +194,14 @@ def revoke_handoff(handoff_id: int, source_app_key: str) -> dict[str, Any]:
         connection.execute(
             """
             INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES (?, ?, 'agent.handoff.revoked', 'agent_handoff', ?, json_object('version', ?))
+            VALUES (?, ?, 'agent.handoff.revoked', 'agent_handoff', ?, ?)
             """,
-            (_actor_type(source), source, str(handoff_id), HANDOFF_VERSION),
+            (
+                _actor_type(source),
+                source,
+                str(handoff_id),
+                json.dumps({"version": HANDOFF_VERSION}, separators=(",", ":")),
+            ),
         )
     return get_handoff(handoff_id, source)
 
@@ -302,10 +306,16 @@ def consume_handoffs(
             connection.execute(
                 """
                 INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-                VALUES (?, ?, 'agent.handoff.consumed', 'conversation', ?, json_object(
-                    'version', ?, 'run_id', ?, 'handoff_count', ?
-                ))
+                VALUES (?, ?, 'agent.handoff.consumed', 'conversation', ?, ?)
                 """,
-                (_actor_type(source), source, str(conversation_id), HANDOFF_VERSION, int(run_id), count),
+                (
+                    _actor_type(source),
+                    source,
+                    str(conversation_id),
+                    json.dumps(
+                        {"version": HANDOFF_VERSION, "run_id": int(run_id), "handoff_count": count},
+                        separators=(",", ":"),
+                    ),
+                ),
             )
     return count
