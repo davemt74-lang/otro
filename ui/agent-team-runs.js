@@ -240,6 +240,7 @@
     state.busy = true;
     render();
     try {
+      const maxContext = Number(byId('agentWorkflowContext')?.value || 12000);
       const created = await requestJson(`${API}/team-runs`, {
         method: 'POST',
         body: JSON.stringify({
@@ -253,7 +254,7 @@
             include_knowledge: true,
             include_contacts: true,
             cloud_allowed: true,
-            max_context_chars: 12000,
+            max_context_chars: maxContext,
           })),
         }),
       });
