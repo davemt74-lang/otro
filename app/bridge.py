@@ -44,6 +44,7 @@ from .team_runs_api import router as team_runs_router
 from .tools_api import router as tools_router
 from .usage_api import router as usage_router
 from .workflow_continuation_api import router as workflow_continuation_router
+from .workflow_resume_api import router as workflow_resume_router
 from .workflow_timeline_api import router as workflow_timeline_router
 
 
@@ -74,6 +75,7 @@ app.include_router(team_runs_router)
 app.include_router(team_planning_router)
 app.include_router(team_orchestration_router)
 app.include_router(workflow_continuation_router)
+app.include_router(workflow_resume_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(action_policy_router)
@@ -210,6 +212,17 @@ def capabilities() -> dict:
             "explicit_actions_preserved": True,
             "paired_app_scoped": True,
         },
+        "agent_workflow_resume": {
+            "version": "v0.55",
+            "read_only": True,
+            "cross_conversation_index": True,
+            "explicit_navigation": True,
+            "restart_resumable": True,
+            "auto_execute": False,
+            "explicit_actions_preserved": True,
+            "paired_app_scoped": True,
+            "requires_continuation": "v0.54",
+        },
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -263,6 +276,8 @@ def capabilities() -> dict:
             "agent.workflows.team_lifecycle.v053",
             "agent.workflows.continuation.v054",
             "agent.chat.workflow_awareness.v054",
+            "agent.workflows.resume.v055",
+            "agent.chat.workflow_recovery.v055",
             "agent.context",
             "agent.context.awareness",
             "agent.context.budget",
