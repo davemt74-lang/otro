@@ -1,0 +1,109 @@
+name: Agent Workflow Continuation v0.54
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/workflow_continuation_api.py'
+      - 'app/services/agent_workflow_continuation.py'
+      - 'app/services/agent_team_orchestration.py'
+      - 'app/services/agent_team_planning.py'
+      - 'app/services/agent_team_runs.py'
+      - 'ui/agent-team-orchestration.js'
+      - 'ui/agent-workflow-continuation.js'
+      - 'ui/agent-workflow-continuation.css'
+      - 'tests/agent_workflow_continuation_v054.py'
+      - 'tests/agent_workflow_continuation_access_v054.py'
+      - 'tests/agent_workflow_continuation_ui_contract_v054.py'
+      - 'tests/agent_team_orchestration_v053.py'
+      - 'tests/agent_team_orchestration_integrity_v053.py'
+      - 'tests/agent_team_orchestration_ui_contract_v053.py'
+      - 'tests/agent_team_planning_v052.py'
+      - 'tests/agent_team_planning_privacy_v052.py'
+      - 'tests/agent_team_runs_v051.py'
+      - 'tests/agent_workflow_timeline_v050.py'
+      - 'tests/agent_handoffs_v049.py'
+      - 'tests/agent_workflows_v048.py'
+      - 'tests/agent_routing_v047.py'
+      - '.github/workflows/agent-workflow-continuation-v054.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/bridge.py'
+      - 'app/workflow_continuation_api.py'
+      - 'app/services/agent_workflow_continuation.py'
+      - 'app/services/agent_team_orchestration.py'
+      - 'app/services/agent_team_planning.py'
+      - 'app/services/agent_team_runs.py'
+      - 'ui/agent-team-orchestration.js'
+      - 'ui/agent-workflow-continuation.js'
+      - 'ui/agent-workflow-continuation.css'
+      - 'tests/agent_workflow_continuation_v054.py'
+      - 'tests/agent_workflow_continuation_access_v054.py'
+      - 'tests/agent_workflow_continuation_ui_contract_v054.py'
+      - 'tests/agent_team_orchestration_v053.py'
+      - 'tests/agent_team_orchestration_integrity_v053.py'
+      - 'tests/agent_team_orchestration_ui_contract_v053.py'
+      - 'tests/agent_team_planning_v052.py'
+      - 'tests/agent_team_planning_privacy_v052.py'
+      - 'tests/agent_team_runs_v051.py'
+      - 'tests/agent_workflow_timeline_v050.py'
+      - 'tests/agent_handoffs_v049.py'
+      - 'tests/agent_workflows_v048.py'
+      - 'tests/agent_routing_v047.py'
+      - '.github/workflows/agent-workflow-continuation-v054.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  agent-workflow-continuation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Workflow Continuation backend
+        run: python -m compileall app/bridge.py app/workflow_continuation_api.py app/services/agent_workflow_continuation.py tests/agent_workflow_continuation_v054.py tests/agent_workflow_continuation_access_v054.py tests/agent_workflow_continuation_ui_contract_v054.py
+      - name: Validate Workflow Continuation JavaScript
+        run: node --check ui/agent-workflow-continuation.js && node --check ui/agent-team-orchestration.js
+      - name: Workflow Continuation regression
+        run: python tests/agent_workflow_continuation_v054.py
+      - name: Workflow Continuation live access-boundary regression
+        run: python tests/agent_workflow_continuation_access_v054.py
+      - name: Workflow Continuation UI API contract
+        run: python tests/agent_workflow_continuation_ui_contract_v054.py
+      - name: Retain v0.53 Team Orchestration lifecycle regression
+        run: python tests/agent_team_orchestration_v053.py
+      - name: Retain v0.53 fail-closed linkage regression
+        run: python tests/agent_team_orchestration_integrity_v053.py
+      - name: Retain v0.53 Team Orchestration UI API contract
+        run: python tests/agent_team_orchestration_ui_contract_v053.py
+      - name: Retain v0.52 Team Planning regression
+        run: python tests/agent_team_planning_v052.py
+      - name: Retain v0.52 approval privacy-race regression
+        run: python tests/agent_team_planning_privacy_v052.py
+      - name: Retain v0.51 Agent Team Runs regression
+        run: python tests/agent_team_runs_v051.py
+      - name: Retain v0.50 Workflow Timeline regression
+        run: python tests/agent_workflow_timeline_v050.py
+      - name: Retain v0.49 Agent Result Handoff regression
+        run: python tests/agent_handoffs_v049.py
+      - name: Retain v0.48 Agent Delegation and Multi-Agent Workflows regression
+        run: python tests/agent_workflows_v048.py
+      - name: Retain v0.47 Agent Selection and Persona Routing regression
+        run: python tests/agent_routing_v047.py
+      - name: Retain canonical Agent context v4.30 contract
+        run: python tests/canonical_agent_context_v430.py
+      - name: Retain canonical Agent context runtime regression
+        run: python tests/canonical_context_runtime_v430.py

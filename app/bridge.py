@@ -43,6 +43,7 @@ from .team_planning_api import router as team_planning_router
 from .team_runs_api import router as team_runs_router
 from .tools_api import router as tools_router
 from .usage_api import router as usage_router
+from .workflow_continuation_api import router as workflow_continuation_router
 from .workflow_timeline_api import router as workflow_timeline_router
 
 
@@ -72,6 +73,7 @@ app.include_router(workflow_timeline_router)
 app.include_router(team_runs_router)
 app.include_router(team_planning_router)
 app.include_router(team_orchestration_router)
+app.include_router(workflow_continuation_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(action_policy_router)
@@ -199,6 +201,15 @@ def capabilities() -> dict:
             "requires_team_planning": "v0.52",
             "requires_team_runs": "v0.51",
         },
+        "agent_workflow_continuation": {
+            "version": "v0.54",
+            "read_only": True,
+            "conversation_bound": True,
+            "derived_from": "v0.53",
+            "auto_execute": False,
+            "explicit_actions_preserved": True,
+            "paired_app_scoped": True,
+        },
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -250,6 +261,8 @@ def capabilities() -> dict:
             "agent.workflows.team_approval.v052",
             "agent.workflows.team_orchestration.v053",
             "agent.workflows.team_lifecycle.v053",
+            "agent.workflows.continuation.v054",
+            "agent.chat.workflow_awareness.v054",
             "agent.context",
             "agent.context.awareness",
             "agent.context.budget",

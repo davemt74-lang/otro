@@ -33,6 +33,15 @@
     return payload;
   }
 
+  function ensureContinuationExtension() {
+    if (document.querySelector('script[data-agent-workflow-continuation-v054]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/agent-workflow-continuation.js';
+    script.dataset.agentWorkflowContinuationV054 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function statusLabel(value) {
     const status = String(value || 'queued');
     return status.charAt(0).toUpperCase() + status.slice(1);
@@ -225,6 +234,7 @@
   }
 
   window.HomeServerAgentTeamOrchestration = Object.freeze({version: VERSION, refresh});
+  ensureContinuationExtension();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
 })();
