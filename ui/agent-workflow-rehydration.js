@@ -36,6 +36,15 @@
     document.head.appendChild(link);
   }
 
+  function ensureSupervisionExtension() {
+    if (document.querySelector('script[data-agent-workflow-supervision-v057]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/agent-workflow-supervision.js';
+    script.dataset.agentWorkflowSupervisionV057 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function ensureCue() {
     const panel = document.querySelector('#view-chat .chat-panel');
     const messages = byId('chatMessages');
@@ -158,6 +167,7 @@
 
   function boot() {
     ensureStyles();
+    ensureSupervisionExtension();
     if (!window.HomeServerAgentWorkflowResume || !ensureCue()) {
       state.bootAttempts += 1;
       if (state.bootAttempts < 180) setTimeout(boot, 80);
@@ -166,7 +176,11 @@
     render();
   }
 
-  window.HomeServerAgentWorkflowRehydration = Object.freeze({version: VERSION, recover});
+  window.HomeServerAgentWorkflowRehydration = Object.freeze({
+    version: VERSION,
+    recover,
+    getPayload: () => state.payload,
+  });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
 })();
