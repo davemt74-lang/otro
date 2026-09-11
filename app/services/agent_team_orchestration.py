@@ -18,6 +18,21 @@ def _source(value: str | None) -> str:
     return normalized or "owner"
 
 
+def _validate_linkage(plan: dict[str, Any], team: dict[str, Any], source: str) -> dict[str, Any]:
+    """Fail closed if canonical v0.52/v0.51 records do not describe the same workflow."""
+    if str(team.get("source_app_key") or "") != source:
+        raise AgentTeamOrchestrationError("Team Plan and Team Run source linkage is inconsistent.", 409)
+    if str(team.get("conversation_id") or "") != str(plan.get("conversation_id") or ""):
+        raise AgentTeamOrchestrationError("Team Plan and Team Run conversation linkage is inconsistent.", 409)
+    plan_parent = plan.get("parent_agent_id")
+    team_parent = team.get("parent_agent_id")
+    if plan_parent is None or team_parent is None or int(plan_parent) != int(team_parent):
+        raise AgentTeamOrchestrationError("Team Plan and Team Run parent Agent linkage is inconsistent.", 409)
+    if plan.get("team_run_id") is None or int(plan["team_run_id"]) != int(team.get("id") or 0):
+        raise AgentTeamOrchestrationError("Team Plan and Team Run id linkage is inconsistent.", 409)
+    return team
+
+
 def _team_for_plan(
     plan: dict[str, Any],
     source: str,
@@ -25,14 +40,13 @@ def _team_for_plan(
     owner: bool,
     current_permissions: set[str] | None,
 ) -> dict[str, Any] | None:
-    status = str(plan.get("status") or "proposed")
-    if status != "approved":
+    if str(plan.get("status") or "proposed") != "approved":
         return None
     team_run_id = plan.get("team_run_id")
     if team_run_id is None:
         raise AgentTeamOrchestrationError("Approved Team Plan is missing its Team Run linkage.", 500)
     try:
-        return agent_team_runs.get_team_run(
+        team = agent_team_runs.get_team_run(
             int(team_run_id),
             source,
             owner=owner,
@@ -40,6 +54,7 @@ def _team_for_plan(
         )
     except agent_team_runs.AgentTeamRunError as exc:
         raise AgentTeamOrchestrationError(str(exc), exc.status_code) from exc
+    return _validate_linkage(plan, team, source)
 
 
 def _allowed_actions(plan_status: str, team: dict[str, Any] | None) -> list[str]:
@@ -181,12 +196,7 @@ def get_orchestration(
         plan = agent_team_planning.get_plan(int(plan_id), source)
     except agent_team_planning.AgentTeamPlanningError as exc:
         raise AgentTeamOrchestrationError(str(exc), exc.status_code) from exc
-    team = _team_for_plan(
-        plan,
-        source,
-        owner=owner,
-        current_permissions=current_permissions,
-    )
+    team = _team_for_plan(plan, source, owner=owner, current_permissions=current_permissions)
     return _decorate(plan, team)
 
 
@@ -235,7 +245,10 @@ def _approved_team_id(
         current_permissions=current_permissions,
     )
     if orchestration["plan_status"] != "approved" or orchestration["team_run_id"] is None:
-        raise AgentTeamOrchestrationError("Team Plan must be explicitly approved before Team Run actions are available.", 409)
+        raise AgentTeamOrchestrationError(
+            "Team Plan must be explicitly approved before Team Run actions are available.",
+            409,
+        )
     return int(orchestration["team_run_id"])
 
 
@@ -262,12 +275,7 @@ def run_plan_team(
         )
     except agent_team_runs.AgentTeamRunError as exc:
         raise AgentTeamOrchestrationError(str(exc), exc.status_code) from exc
-    return get_orchestration(
-        plan_id,
-        source,
-        owner=owner,
-        current_permissions=current_permissions,
-    )
+    return get_orchestration(plan_id, source, owner=owner, current_permissions=current_permissions)
 
 
 def retry_plan_member(
@@ -295,12 +303,7 @@ def retry_plan_member(
         )
     except agent_team_runs.AgentTeamRunError as exc:
         raise AgentTeamOrchestrationError(str(exc), exc.status_code) from exc
-    return get_orchestration(
-        plan_id,
-        source,
-        owner=owner,
-        current_permissions=current_permissions,
-    )
+    return get_orchestration(plan_id, source, owner=owner, current_permissions=current_permissions)
 
 
 def prepare_plan_synthesis(
@@ -326,9 +329,4 @@ def prepare_plan_synthesis(
         )
     except agent_team_runs.AgentTeamRunError as exc:
         raise AgentTeamOrchestrationError(str(exc), exc.status_code) from exc
-    return get_orchestration(
-        plan_id,
-        source,
-        owner=owner,
-        current_permissions=current_permissions,
-    )
+    return get_orchestration(plan_id, source, owner=owner, current_permissions=current_permissions)
