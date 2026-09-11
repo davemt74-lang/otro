@@ -88,7 +88,7 @@
           <label class="check-inline"><input id="agentWorkflowModelEnabled" type="checkbox"> Let Agents delegate tasks automatically</label>
           <label>Worker context<select id="agentWorkflowContext"><option value="8000">8k</option><option value="12000">12k</option><option value="16000">16k</option><option value="20000">20k</option><option value="24000">24k</option></select></label>
           <button class="button secondary" id="agentWorkflowSavePolicy" type="button">Save policy</button>
-          <small>Delegation remains one-hop in v0.48. ${HANDOFF_VERSION} handoffs are explicit, bounded and consumed once.</small>
+          <small>One-hop only in v0.48. ${HANDOFF_VERSION} handoffs are explicit, bounded and consumed once.</small>
         </div>
         <div class="agent-workflow-history-head"><strong>Delegation activity</strong><button class="text-button" id="agentWorkflowRefresh" type="button">Refresh</button></div>
         <div id="agentWorkflowTasks" class="agent-workflow-tasks"><div class="muted">No delegation tasks yet.</div></div>`;
