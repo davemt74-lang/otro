@@ -1,0 +1,104 @@
+name: VP3 Local Commerce Payments v0.60
+
+on:
+  pull_request:
+    paths:
+      - 'app/payments_api.py'
+      - 'app/system_api.py'
+      - 'app/services/pairing.py'
+      - 'app/services/stripe_payment_secrets.py'
+      - 'app/services/stripe_commerce_payments.py'
+      - 'app/services/vp3_commerce_remote.py'
+      - 'ui/system.html'
+      - 'ui/system.js'
+      - 'ui/system.css'
+      - 'tests/vp3_commerce_payments_v060.py'
+      - 'tests/vp3_commerce_payments_v060_static.py'
+      - 'tests/packaged_commerce_payments_v060.py'
+      - '.github/workflows/vp3-commerce-payments-v060.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/payments_api.py'
+      - 'app/system_api.py'
+      - 'app/services/pairing.py'
+      - 'app/services/stripe_payment_secrets.py'
+      - 'app/services/stripe_commerce_payments.py'
+      - 'app/services/vp3_commerce_remote.py'
+      - 'ui/system.html'
+      - 'ui/system.js'
+      - 'ui/system.css'
+      - 'tests/vp3_commerce_payments_v060.py'
+      - 'tests/vp3_commerce_payments_v060_static.py'
+      - 'tests/packaged_commerce_payments_v060.py'
+      - '.github/workflows/vp3-commerce-payments-v060.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  commerce-payments:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile commerce payment integration
+        run: python -m compileall app/payments_api.py app/system_api.py app/services/pairing.py app/services/stripe_payment_secrets.py app/services/stripe_commerce_payments.py app/services/vp3_commerce_remote.py tests/vp3_commerce_payments_v060.py tests/vp3_commerce_payments_v060_static.py tests/packaged_commerce_payments_v060.py
+      - name: Validate System UI JavaScript
+        run: node --check ui/system.js
+      - name: VP3 commerce payment static safety
+        run: python tests/vp3_commerce_payments_v060_static.py
+      - name: VP3 commerce payment regression
+        run: python tests/vp3_commerce_payments_v060.py
+      - name: Retain pairing and Connected Apps regression
+        run: python tests/connected_apps_v029.py
+      - name: Retain Remote Bridge regression
+        run: python tests/remote_bridge.py
+      - name: Retain VP3 scheduling integration
+        run: python tests/vp3_scheduling_v059.py
+      - name: Retain canonical database migration regression
+        run: python tests/migrations.py
+      - name: Retain full API smoke
+        run: python tests/smoke.py
+
+  packaged-commerce-payments:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile packaged commerce payment regression
+        run: python -m compileall tests/packaged_commerce_payments_v060.py
+      - name: Build Windows executable
+        run: pyinstaller HomeServer.spec --clean --noconfirm
+      - name: Verify protected Stripe credential persistence across packaged restart
+        shell: pwsh
+        run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is occupied before the v0.60 packaged commerce payment test'
+          }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-v060-commerce-payments'
+          $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          try {
+            python tests/packaged_commerce_payments_v060.py
+            if ($LASTEXITCODE -ne 0) { throw "Packaged v0.60 commerce payment test failed with exit code $LASTEXITCODE" }
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'v0.60 packaged commerce payment test left a HomeServer listener on port 4377'
+          }
