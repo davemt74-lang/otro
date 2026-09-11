@@ -3,6 +3,7 @@ name: Agent Workflow Rehydration v0.56
 on:
   pull_request:
     paths:
+      - 'app/bridge.py'
       - 'app/workflow_resume_api.py'
       - 'app/workflow_rehydration_api.py'
       - 'app/services/agent_workflow_rehydration.py'
@@ -17,12 +18,14 @@ on:
       - 'ui/agent-workflow-rehydration.css'
       - 'tests/agent_workflow_rehydration_v056.py'
       - 'tests/agent_workflow_rehydration_edges_v056.py'
+      - 'tests/agent_workflow_rehydration_capability_v056.py'
       - 'tests/agent_workflow_rehydration_ui_contract_v056.py'
       - 'tests/packaged_workflow_rehydration_v056.py'
       - '.github/workflows/agent-workflow-rehydration-v056.yml'
   push:
     branches: [main]
     paths:
+      - 'app/bridge.py'
       - 'app/workflow_resume_api.py'
       - 'app/workflow_rehydration_api.py'
       - 'app/services/agent_workflow_rehydration.py'
@@ -37,6 +40,7 @@ on:
       - 'ui/agent-workflow-rehydration.css'
       - 'tests/agent_workflow_rehydration_v056.py'
       - 'tests/agent_workflow_rehydration_edges_v056.py'
+      - 'tests/agent_workflow_rehydration_capability_v056.py'
       - 'tests/agent_workflow_rehydration_ui_contract_v056.py'
       - 'tests/packaged_workflow_rehydration_v056.py'
       - '.github/workflows/agent-workflow-rehydration-v056.yml'
@@ -62,13 +66,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Workflow Rehydration backend
-        run: python -m compileall app/workflow_resume_api.py app/workflow_rehydration_api.py app/services/agent_workflow_rehydration.py tests/agent_workflow_rehydration_v056.py tests/agent_workflow_rehydration_edges_v056.py tests/agent_workflow_rehydration_ui_contract_v056.py
+        run: python -m compileall app/bridge.py app/workflow_resume_api.py app/workflow_rehydration_api.py app/services/agent_workflow_rehydration.py tests/agent_workflow_rehydration_v056.py tests/agent_workflow_rehydration_edges_v056.py tests/agent_workflow_rehydration_capability_v056.py tests/agent_workflow_rehydration_ui_contract_v056.py
       - name: Validate Workflow Rehydration JavaScript
         run: node --check ui/agent-workflow-rehydration.js && node --check ui/agent-workflow-continuation.js && node --check ui/agent-workflow-resume.js
       - name: Workflow Rehydration regression
         run: python tests/agent_workflow_rehydration_v056.py
       - name: Workflow Rehydration proposed-plan and race-boundary regression
         run: python tests/agent_workflow_rehydration_edges_v056.py
+      - name: Workflow Rehydration capability registry contract
+        run: python tests/agent_workflow_rehydration_capability_v056.py
       - name: Workflow Rehydration UI API contract
         run: python tests/agent_workflow_rehydration_ui_contract_v056.py
       - name: Retain v0.55 Workflow Resume regression

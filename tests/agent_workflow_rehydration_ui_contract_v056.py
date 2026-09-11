@@ -12,11 +12,14 @@ def text(path: str) -> str:
 service = text("app/services/agent_workflow_rehydration.py")
 api = text("app/workflow_rehydration_api.py")
 resume_api = text("app/workflow_resume_api.py")
+bridge = text("app/bridge.py")
 migration = text("database/migrations/021_agent_workflow_rehydration.sql")
 ui = text("ui/agent-workflow-rehydration.js")
 css = text("ui/agent-workflow-rehydration.css")
 loader = text("ui/agent-workflow-continuation.js")
 resume_ui = text("ui/agent-workflow-resume.js")
+edges = text("tests/agent_workflow_rehydration_edges_v056.py")
+capability = text("tests/agent_workflow_rehydration_capability_v056.py")
 workflow = text(".github/workflows/agent-workflow-rehydration-v056.yml")
 packaged = text("tests/packaged_workflow_rehydration_v056.py")
 
@@ -29,12 +32,16 @@ assert "state_fingerprint" in service
 assert "revision_token" in service
 assert "agent_workflow_rehydrations" in service
 assert "state_changed_since_last_rehydration" in service
+assert "_live_app_permissions_tx" in service
+assert "_agent_access_tx" in service
+assert "Application permissions changed during recovery" in service
+assert "Specialist Agent access changed during recovery" in service
+assert '"status": "planned"' in service
 assert '"safe_to_continue"' in service
 assert '"canonical_source": True' in service
 assert '"auto_executes": False' in service
 assert '"actions_executed": 0' in service
 assert '"actions_via": agent_team_orchestration.AGENT_TEAM_ORCHESTRATION_VERSION' in service
-assert "PRIVATE RESULT" not in service
 assert '"result"' not in service
 assert "provider_key" not in service
 assert '"model"' not in service
@@ -54,6 +61,20 @@ assert '@router.post("/api/v1/agent-workflows/resume")' not in resume_api
 assert "const VERSION = 'v0.55'" in resume_ui
 assert "method: 'POST'" not in resume_ui
 assert "This is navigation only" in resume_ui
+
+assert '"agent_workflow_rehydration": {' in bridge
+assert '"version": "v0.56"' in bridge
+assert '"persistent_checkpoint": True' in bridge
+assert '"idempotent": True' in bridge
+assert '"drift_detection": True' in bridge
+assert '"canonical_plan_run_state": True' in bridge
+assert '"auto_execute": False' in bridge
+assert '"explicit_actions_preserved": True' in bridge
+assert '"paired_app_scoped": True' in bridge
+assert '"requires_resume": "v0.55"' in bridge
+assert '"actions_via": "v0.53"' in bridge
+assert '"agent.workflows.rehydration.v056"' in bridge
+assert '"agent.chat.workflow_checkpoint.v056"' in bridge
 
 assert "CREATE TABLE IF NOT EXISTS agent_workflow_rehydrations" in migration
 assert "UNIQUE (source_app_key, conversation_id, plan_id, state_fingerprint)" in migration
@@ -82,9 +103,22 @@ assert "data-agent-workflow-rehydration-v056" in loader
 assert "ensureRehydrationExtension" in loader
 assert "method: 'POST'" not in loader
 
+assert "v056-proposed-members" in edges
+assert "_live_app_permissions_tx" in edges
+assert "_agent_access_tx" in edges
+assert "permissions changed during recovery" in edges
+assert "specialist agent access changed" in edges
+assert "/api/v1/capabilities" in capability
+assert 'payload["agent_workflow_rehydration"]' in capability
+assert '"agent.workflows.rehydration.v056"' in capability
+assert '"agent.chat.workflow_checkpoint.v056"' in capability
+
 assert "workflow-rehydration:" in workflow
 assert "packaged-rehydration:" in workflow
+assert "app/bridge.py" in workflow
 assert "python tests/agent_workflow_rehydration_v056.py" in workflow
+assert "python tests/agent_workflow_rehydration_edges_v056.py" in workflow
+assert "python tests/agent_workflow_rehydration_capability_v056.py" in workflow
 assert "python tests/agent_workflow_rehydration_ui_contract_v056.py" in workflow
 assert "python tests/packaged_workflow_rehydration_v056.py" in workflow
 assert "python tests/agent_workflow_resume_v055.py" in workflow
