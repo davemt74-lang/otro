@@ -12,12 +12,12 @@ from .database import db
 from .payments_api import router as payments_router
 from .services.runtime_control import request_runtime_command
 from .services.system_state import set_first_run_complete, system_summary
-from .services.vp3_payment_remote import install as install_vp3_payment_remote
+from .services.vp3_commerce_remote import install as install_vp3_commerce_remote
 from .services.windows_integration import WindowsIntegrationError, open_folder, set_startup_enabled
 
 router = APIRouter()
 router.include_router(payments_router)
-install_vp3_payment_remote()
+install_vp3_commerce_remote()
 UI_DIR = Path(__file__).resolve().parents[1] / "ui"
 
 
