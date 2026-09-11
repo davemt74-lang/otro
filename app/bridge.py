@@ -38,6 +38,7 @@ from .services.local_files_remote import install as install_local_files_remote_o
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tasks_api import router as tasks_router
+from .team_orchestration_api import router as team_orchestration_router
 from .team_planning_api import router as team_planning_router
 from .team_runs_api import router as team_runs_router
 from .tools_api import router as tools_router
@@ -70,6 +71,7 @@ app.include_router(handoffs_router)
 app.include_router(workflow_timeline_router)
 app.include_router(team_runs_router)
 app.include_router(team_planning_router)
+app.include_router(team_orchestration_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(action_policy_router)
@@ -183,6 +185,20 @@ def capabilities() -> dict:
             "nested_delegation": False,
             "requires_team_runs": "v0.51",
         },
+        "agent_team_orchestration": {
+            "version": "v0.53",
+            "derived_state": True,
+            "linked_plan_run_lifecycle": True,
+            "explicit_run": True,
+            "explicit_retry": True,
+            "explicit_prepare": True,
+            "synthesis_via_parent_chat": True,
+            "auto_execute": False,
+            "paired_app_scoped": True,
+            "nested_delegation": False,
+            "requires_team_planning": "v0.52",
+            "requires_team_runs": "v0.51",
+        },
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -232,6 +248,8 @@ def capabilities() -> dict:
             "agent.workflows.team_retry.v051",
             "agent.workflows.team_planning.v052",
             "agent.workflows.team_approval.v052",
+            "agent.workflows.team_orchestration.v053",
+            "agent.workflows.team_lifecycle.v053",
             "agent.context",
             "agent.context.awareness",
             "agent.context.budget",

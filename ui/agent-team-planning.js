@@ -45,6 +45,23 @@
     document.head.appendChild(link);
   }
 
+  function ensureOrchestrationExtension() {
+    if (!document.querySelector('link[data-agent-team-orchestration-v053]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/assets/agent-team-orchestration.css';
+      link.dataset.agentTeamOrchestrationV053 = '1';
+      document.head.appendChild(link);
+    }
+    if (!document.querySelector('script[data-agent-team-orchestration-v053]')) {
+      const script = document.createElement('script');
+      script.src = '/assets/agent-team-orchestration.js';
+      script.dataset.agentTeamOrchestrationV053 = '1';
+      script.async = false;
+      document.head.appendChild(script);
+    }
+  }
+
   function ensureUi() {
     const teamSection = byId('agentTeamRunsV051');
     if (!teamSection) return false;
@@ -174,6 +191,7 @@
     if (!ensureUi()) return;
     await Promise.all([loadWorkers(), loadPlans()]);
     render();
+    window.HomeServerAgentTeamOrchestration?.refresh?.().catch(() => null);
   }
 
   async function proposePlan(event) {
@@ -284,6 +302,7 @@
       state.actionBusy = null;
       await loadPlans().catch(() => null);
       render();
+      window.HomeServerAgentTeamOrchestration?.refresh?.().catch(() => null);
     }
   }
 
@@ -333,6 +352,7 @@
 
   function boot() {
     ensureStyles();
+    ensureOrchestrationExtension();
     if (!window.HomeServerAgentTeamRuns || !ensureUi()) {
       state.bootAttempts += 1;
       if (state.bootAttempts < 120) setTimeout(boot, 80);

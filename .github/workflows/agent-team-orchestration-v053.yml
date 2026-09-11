@@ -1,0 +1,119 @@
+name: Agent Team Orchestration v0.53
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/team_orchestration_api.py'
+      - 'app/team_planning_api.py'
+      - 'app/team_runs_api.py'
+      - 'app/services/agent_team_orchestration.py'
+      - 'app/services/agent_team_planning.py'
+      - 'app/services/agent_team_runs.py'
+      - 'app/services/agent_workflow_timeline.py'
+      - 'app/services/agent_handoffs.py'
+      - 'ui/agent-team-planning.js'
+      - 'ui/agent-team-orchestration.js'
+      - 'ui/agent-team-orchestration.css'
+      - 'tests/agent_team_orchestration_v053.py'
+      - 'tests/agent_team_orchestration_integrity_v053.py'
+      - 'tests/agent_team_orchestration_ui_contract_v053.py'
+      - 'tests/agent_team_planning_v052.py'
+      - 'tests/agent_team_planning_privacy_v052.py'
+      - 'tests/agent_team_planning_ui_contract_v052.py'
+      - 'tests/agent_team_runs_v051.py'
+      - 'tests/agent_team_runs_ui_contract_v051.py'
+      - 'tests/agent_workflow_timeline_v050.py'
+      - 'tests/agent_workflow_timeline_ui_contract_v050.py'
+      - 'tests/agent_handoffs_v049.py'
+      - 'tests/agent_handoff_revocation_v049.py'
+      - 'tests/agent_workflows_v048.py'
+      - 'tests/agent_routing_v047.py'
+      - '.github/workflows/agent-team-orchestration-v053.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/bridge.py'
+      - 'app/team_orchestration_api.py'
+      - 'app/team_planning_api.py'
+      - 'app/team_runs_api.py'
+      - 'app/services/agent_team_orchestration.py'
+      - 'app/services/agent_team_planning.py'
+      - 'app/services/agent_team_runs.py'
+      - 'app/services/agent_workflow_timeline.py'
+      - 'app/services/agent_handoffs.py'
+      - 'ui/agent-team-planning.js'
+      - 'ui/agent-team-orchestration.js'
+      - 'ui/agent-team-orchestration.css'
+      - 'tests/agent_team_orchestration_v053.py'
+      - 'tests/agent_team_orchestration_integrity_v053.py'
+      - 'tests/agent_team_orchestration_ui_contract_v053.py'
+      - 'tests/agent_team_planning_v052.py'
+      - 'tests/agent_team_planning_privacy_v052.py'
+      - 'tests/agent_team_planning_ui_contract_v052.py'
+      - 'tests/agent_team_runs_v051.py'
+      - 'tests/agent_team_runs_ui_contract_v051.py'
+      - 'tests/agent_workflow_timeline_v050.py'
+      - 'tests/agent_workflow_timeline_ui_contract_v050.py'
+      - 'tests/agent_handoffs_v049.py'
+      - 'tests/agent_handoff_revocation_v049.py'
+      - 'tests/agent_workflows_v048.py'
+      - 'tests/agent_routing_v047.py'
+      - '.github/workflows/agent-team-orchestration-v053.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  agent-team-orchestration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Team Orchestration backend
+        run: python -m compileall app/bridge.py app/team_orchestration_api.py app/services/agent_team_orchestration.py tests/agent_team_orchestration_v053.py tests/agent_team_orchestration_integrity_v053.py tests/agent_team_orchestration_ui_contract_v053.py
+      - name: Validate Team Orchestration JavaScript
+        run: node --check ui/agent-team-planning.js && node --check ui/agent-team-orchestration.js && node --check ui/agent-team-runs.js
+      - name: Team Orchestration lifecycle regression
+        run: python tests/agent_team_orchestration_v053.py
+      - name: Team Orchestration fail-closed linkage regression
+        run: python tests/agent_team_orchestration_integrity_v053.py
+      - name: Team Orchestration UI API contract
+        run: python tests/agent_team_orchestration_ui_contract_v053.py
+      - name: Retain v0.52 Team Planning regression
+        run: python tests/agent_team_planning_v052.py
+      - name: Retain v0.52 approval privacy-race regression
+        run: python tests/agent_team_planning_privacy_v052.py
+      - name: Retain v0.52 Team Planning UI API contract
+        run: python tests/agent_team_planning_ui_contract_v052.py
+      - name: Retain v0.51 Agent Team Runs regression
+        run: python tests/agent_team_runs_v051.py
+      - name: Retain v0.51 Agent Team Runs UI API contract
+        run: python tests/agent_team_runs_ui_contract_v051.py
+      - name: Retain v0.50 Workflow Timeline regression
+        run: python tests/agent_workflow_timeline_v050.py
+      - name: Retain v0.50 Workflow Timeline UI API contract
+        run: python tests/agent_workflow_timeline_ui_contract_v050.py
+      - name: Retain v0.49 Agent Result Handoff regression
+        run: python tests/agent_handoffs_v049.py
+      - name: Retain v0.49 live-revocation regression
+        run: python tests/agent_handoff_revocation_v049.py
+      - name: Retain v0.48 Agent Delegation and Multi-Agent Workflows regression
+        run: python tests/agent_workflows_v048.py
+      - name: Retain v0.47 Agent Selection and Persona Routing regression
+        run: python tests/agent_routing_v047.py
+      - name: Retain canonical Agent context v4.30 contract
+        run: python tests/canonical_agent_context_v430.py
+      - name: Retain canonical Agent context runtime regression
+        run: python tests/canonical_context_runtime_v430.py
