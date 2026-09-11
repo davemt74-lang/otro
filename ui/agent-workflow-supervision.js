@@ -35,6 +35,15 @@
     document.head.appendChild(link);
   }
 
+  function ensureAutomationExtension() {
+    if (document.querySelector('script[data-agent-workflow-automation-v058]')) return;
+    const script = document.createElement('script');
+    script.src = '/assets/agent-workflow-automation.js';
+    script.dataset.agentWorkflowAutomationV058 = '1';
+    script.async = false;
+    document.head.appendChild(script);
+  }
+
   function ensureCue() {
     const recovery = byId('agentWorkflowRehydrationV056');
     const panel = document.querySelector('#view-chat .chat-panel');
@@ -191,6 +200,7 @@
 
   function boot() {
     ensureStyles();
+    ensureAutomationExtension();
     if (!window.HomeServerAgentWorkflowRehydration || !ensureCue()) {
       state.bootAttempts += 1;
       if (state.bootAttempts < 180) setTimeout(boot, 80);

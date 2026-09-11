@@ -15,6 +15,7 @@ a = Analysis(
         ('database/agent_routing.sql', 'database'),
         ('database/agent_delegation_workflows.sql', 'database'),
         ('database/agent_workflow_supervision.sql', 'database'),
+        ('database/agent_workflow_automation.sql', 'database'),
         ('database/migrations', 'database/migrations'),
         ('ui', 'ui'),
     ],
