@@ -1,0 +1,163 @@
+name: Agent Workflow Automation v0.58
+
+on:
+  pull_request:
+    paths:
+      - 'HomeServer.spec'
+      - 'app/database.py'
+      - 'app/workflow_rehydration_api.py'
+      - 'app/workflow_supervision_api.py'
+      - 'app/workflow_automation_api.py'
+      - 'app/services/agent_workflow_automation.py'
+      - 'app/services/agent_workflow_supervision.py'
+      - 'app/services/agent_workflow_rehydration.py'
+      - 'database/migrations/022_agent_workflow_automation.sql'
+      - 'ui/agent-workflow-supervision.js'
+      - 'ui/agent-workflow-automation.js'
+      - 'ui/agent-workflow-automation.css'
+      - 'tests/agent_workflow_automation_v058.py'
+      - 'tests/agent_workflow_automation_lifespan_v058.py'
+      - 'tests/agent_workflow_automation_schema_v058.py'
+      - 'tests/agent_workflow_automation_ui_contract_v058.py'
+      - 'tests/packaged_workflow_automation_v058.py'
+      - '.github/workflows/agent-workflow-automation-v058.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'HomeServer.spec'
+      - 'app/database.py'
+      - 'app/workflow_rehydration_api.py'
+      - 'app/workflow_supervision_api.py'
+      - 'app/workflow_automation_api.py'
+      - 'app/services/agent_workflow_automation.py'
+      - 'app/services/agent_workflow_supervision.py'
+      - 'app/services/agent_workflow_rehydration.py'
+      - 'database/migrations/022_agent_workflow_automation.sql'
+      - 'ui/agent-workflow-supervision.js'
+      - 'ui/agent-workflow-automation.js'
+      - 'ui/agent-workflow-automation.css'
+      - 'tests/agent_workflow_automation_v058.py'
+      - 'tests/agent_workflow_automation_lifespan_v058.py'
+      - 'tests/agent_workflow_automation_schema_v058.py'
+      - 'tests/agent_workflow_automation_ui_contract_v058.py'
+      - 'tests/packaged_workflow_automation_v058.py'
+      - '.github/workflows/agent-workflow-automation-v058.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-automation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Workflow Automation backend
+        run: python -m compileall app/workflow_automation_api.py app/workflow_supervision_api.py app/services/agent_workflow_automation.py tests/agent_workflow_automation_v058.py tests/agent_workflow_automation_lifespan_v058.py tests/agent_workflow_automation_schema_v058.py tests/agent_workflow_automation_ui_contract_v058.py
+      - name: Validate Workflow Automation JavaScript
+        run: node --check ui/agent-workflow-automation.js && node --check ui/agent-workflow-supervision.js && node --check ui/agent-workflow-rehydration.js
+      - name: Workflow Automation regression
+        run: python tests/agent_workflow_automation_v058.py
+      - name: Workflow Automation API/lifespan
+        run: python tests/agent_workflow_automation_lifespan_v058.py
+      - name: Workflow Automation schema upgrade/idempotency
+        run: python tests/agent_workflow_automation_schema_v058.py
+      - name: Workflow Automation UI API contract
+        run: python tests/agent_workflow_automation_ui_contract_v058.py
+      - name: Retain v0.57 Workflow Supervision regression
+        run: python tests/agent_workflow_supervision_v057.py
+      - name: Retain v0.57 access/race boundaries
+        run: python tests/agent_workflow_supervision_edges_v057.py
+      - name: Retain v0.57 feature-schema upgrade/idempotency
+        run: python tests/agent_workflow_supervision_schema_v057.py
+      - name: Retain v0.57 UI API contract
+        run: python tests/agent_workflow_supervision_ui_contract_v057.py
+      - name: Retain v0.56 Workflow Rehydration regression
+        run: python tests/agent_workflow_rehydration_v056.py
+      - name: Retain v0.56 proposed-plan and race-boundary regression
+        run: python tests/agent_workflow_rehydration_edges_v056.py
+      - name: Retain v0.56 capability registry contract
+        run: python tests/agent_workflow_rehydration_capability_v056.py
+      - name: Retain v0.56 UI API contract
+        run: python tests/agent_workflow_rehydration_ui_contract_v056.py
+      - name: Retain v0.55 Workflow Resume regression
+        run: python tests/agent_workflow_resume_v055.py
+      - name: Retain v0.55 terminal-saturation scan regression
+        run: python tests/agent_workflow_resume_scan_v055.py
+      - name: Retain v0.55 Workflow Resume UI API contract
+        run: python tests/agent_workflow_resume_ui_contract_v055.py
+      - name: Retain v0.54 Workflow Continuation regression
+        run: python tests/agent_workflow_continuation_v054.py
+      - name: Retain v0.54 live access-boundary regression
+        run: python tests/agent_workflow_continuation_access_v054.py
+      - name: Retain v0.54 Workflow Continuation UI API contract
+        run: python tests/agent_workflow_continuation_ui_contract_v054.py
+      - name: Retain v0.53 Team Orchestration lifecycle regression
+        run: python tests/agent_team_orchestration_v053.py
+      - name: Retain v0.53 fail-closed linkage regression
+        run: python tests/agent_team_orchestration_integrity_v053.py
+      - name: Retain v0.52 Team Planning regression
+        run: python tests/agent_team_planning_v052.py
+      - name: Retain v0.52 approval privacy-race regression
+        run: python tests/agent_team_planning_privacy_v052.py
+      - name: Retain v0.51 Agent Team Runs regression
+        run: python tests/agent_team_runs_v051.py
+      - name: Retain v0.50 Workflow Timeline regression
+        run: python tests/agent_workflow_timeline_v050.py
+      - name: Retain v0.49 Agent Result Handoff regression
+        run: python tests/agent_handoffs_v049.py
+      - name: Retain v0.48 Agent Delegation and Multi-Agent Workflows regression
+        run: python tests/agent_workflows_v048.py
+      - name: Retain v0.47 Agent Selection and Persona Routing regression
+        run: python tests/agent_routing_v047.py
+      - name: Retain database migration upgrade regression
+        run: python tests/migrations.py
+      - name: Retain canonical Agent context v4.30 contract
+        run: python tests/canonical_agent_context_v430.py
+      - name: Retain canonical Agent context runtime regression
+        run: python tests/canonical_context_runtime_v430.py
+
+  packaged-automation:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile packaged automation regression
+        run: python -m compileall tests/packaged_workflow_automation_v058.py
+      - name: Build Windows executable
+        run: pyinstaller HomeServer.spec --clean --noconfirm
+      - name: Verify packaged scheduled continuation across restart
+        shell: pwsh
+        run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is occupied before the v0.58 packaged automation test'
+          }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-v058-automation'
+          $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          try {
+            python tests/packaged_workflow_automation_v058.py
+            if ($LASTEXITCODE -ne 0) { throw "Packaged v0.58 automation test failed with exit code $LASTEXITCODE" }
+          } finally {
+            $process.Refresh()
+            if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'v0.58 packaged automation test left a HomeServer listener on port 4377'
+          }
