@@ -33,16 +33,21 @@ def _actor_type(source_app_key: str) -> str:
 
 
 def _json_list(value: Any) -> list[str]:
-    try:
-        parsed = json.loads(str(value or "[]"))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        parsed = []
+    if isinstance(value, (list, tuple, set)):
+        parsed = list(value)
+    else:
+        try:
+            parsed = json.loads(str(value or "[]"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = []
     if not isinstance(parsed, list):
         return []
     return sorted({str(item) for item in parsed if str(item).strip()})
 
 
 def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
     try:
         parsed = json.loads(str(value or "{}"))
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -114,22 +119,23 @@ def _decorate(row: Any) -> dict[str, Any]:
     return item
 
 
+def _select_columns() -> str:
+    return """
+        id, source_app_key, parent_agent_id, worker_agent_id,
+        parent_agent_name, worker_agent_name, conversation_id, external_conversation_id,
+        task, status, result, error, provider_key, model, agent_run_id,
+        include_memory, include_knowledge, include_contacts, cloud_allowed,
+        max_context_chars, permission_snapshot_json, metadata_json,
+        created_at, started_at, completed_at, updated_at
+    """
+
+
 def _task(task_id: int, source_app_key: str, connection=None) -> dict[str, Any]:
     if connection is None:
         with db() as owned:
             return _task(task_id, source_app_key, owned)
     row = connection.execute(
-        """
-        SELECT id, source_app_key, parent_agent_id, worker_agent_id,
-               parent_agent_name, worker_agent_name, conversation_id, external_conversation_id,
-               task, status, result, error, provider_key, model, agent_run_id,
-               include_memory, include_knowledge, include_contacts, cloud_allowed,
-               max_context_chars, permission_snapshot_json, metadata_json,
-               created_at, started_at, completed_at, updated_at
-        FROM agent_delegation_tasks
-        WHERE id=? AND source_app_key=?
-        LIMIT 1
-        """,
+        f"SELECT {_select_columns()} FROM agent_delegation_tasks WHERE id=? AND source_app_key=? LIMIT 1",
         (int(task_id), _source(source_app_key)),
     ).fetchone()
     if row is None:
@@ -149,37 +155,15 @@ def list_tasks(
 ) -> dict[str, Any]:
     source = _source(source_app_key)
     bounded = max(1, min(int(limit), 100))
+    query = f"SELECT {_select_columns()} FROM agent_delegation_tasks WHERE source_app_key=?"
+    params: list[Any] = [source]
+    if conversation_id:
+        query += " AND conversation_id=?"
+        params.append(str(conversation_id))
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(bounded)
     with db() as connection:
-        if conversation_id:
-            rows = connection.execute(
-                """
-                SELECT id, source_app_key, parent_agent_id, worker_agent_id,
-                       parent_agent_name, worker_agent_name, conversation_id, external_conversation_id,
-                       task, status, result, error, provider_key, model, agent_run_id,
-                       include_memory, include_knowledge, include_contacts, cloud_allowed,
-                       max_context_chars, permission_snapshot_json, metadata_json,
-                       created_at, started_at, completed_at, updated_at
-                FROM agent_delegation_tasks
-                WHERE source_app_key=? AND conversation_id=?
-                ORDER BY id DESC LIMIT ?
-                """,
-                (source, str(conversation_id), bounded),
-            ).fetchall()
-        else:
-            rows = connection.execute(
-                """
-                SELECT id, source_app_key, parent_agent_id, worker_agent_id,
-                       parent_agent_name, worker_agent_name, conversation_id, external_conversation_id,
-                       task, status, result, error, provider_key, model, agent_run_id,
-                       include_memory, include_knowledge, include_contacts, cloud_allowed,
-                       max_context_chars, permission_snapshot_json, metadata_json,
-                       created_at, started_at, completed_at, updated_at
-                FROM agent_delegation_tasks
-                WHERE source_app_key=?
-                ORDER BY id DESC LIMIT ?
-                """,
-                (source, bounded),
-            ).fetchall()
+        rows = connection.execute(query, tuple(params)).fetchall()
     return {"version": AGENT_WORKFLOW_VERSION, "items": [_decorate(row) for row in rows]}
 
 
@@ -306,7 +290,7 @@ def cancel_task(task_id: int, source_app_key: str) -> dict[str, Any]:
             raise AgentWorkflowError("Delegation task not found for this application.", 404)
         if str(row["status"]) != "queued":
             raise AgentWorkflowError("Only queued delegation tasks can be cancelled.", 409)
-        connection.execute(
+        changed = connection.execute(
             """
             UPDATE agent_delegation_tasks
             SET status='cancelled', completed_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
@@ -314,6 +298,8 @@ def cancel_task(task_id: int, source_app_key: str) -> dict[str, Any]:
             """,
             (int(task_id), source),
         )
+        if changed.rowcount <= 0:
+            raise AgentWorkflowError("Delegation task is already being processed or is no longer queued.", 409)
         connection.execute(
             """
             INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
@@ -343,17 +329,40 @@ def _worker_prompt(
     )
 
 
-def _mark_failed(task_id: int, source: str, error: str, *, run_id: int | None = None, duration_ms: int = 0) -> None:
+def _mark_failed(
+    task_id: int,
+    source: str,
+    error: str,
+    *,
+    run_id: int | None = None,
+    duration_ms: int = 0,
+    tool_state: dict[str, Any] | None = None,
+) -> None:
     message = str(error or "Delegation failed.")[:1000]
+    state = dict(tool_state or {})
     with db() as connection:
         if run_id is not None:
             connection.execute(
                 """
                 UPDATE agent_runs
-                SET status='failed', duration_ms=?, error=?, completed_at=CURRENT_TIMESTAMP
+                SET status='failed', duration_ms=?, error=?, tool_call_count=?, metadata_json=?, completed_at=CURRENT_TIMESTAMP
                 WHERE id=?
                 """,
-                (int(duration_ms), message, int(run_id)),
+                (
+                    int(duration_ms),
+                    message,
+                    int(state.get("call_count") or 0),
+                    json.dumps(
+                        {
+                            "workflow_version": AGENT_WORKFLOW_VERSION,
+                            "delegation_task_id": int(task_id),
+                            "tool_run_ids": list(state.get("run_ids") or []),
+                            "action_request_ids": list(state.get("action_request_ids") or []),
+                        },
+                        separators=(",", ":"),
+                    ),
+                    int(run_id),
+                ),
             )
         connection.execute(
             """
@@ -388,6 +397,8 @@ def execute_task(
     task = get_task(task_id, source)
     if task["status"] != "queued":
         raise AgentWorkflowError("Delegation task is not queued.", 409)
+    if task["parent_agent_id"] is None:
+        raise AgentWorkflowError("The parent Agent no longer exists.", 409)
     if task["worker_agent_id"] is None:
         raise AgentWorkflowError("The delegated worker Agent no longer exists.", 409)
 
@@ -481,19 +492,27 @@ def execute_task(
             owner=owner,
             state=tool_state,
             provider_key=provider_override,
-            current_agent_id=int(worker["id"]),
-            conversation_id=task.get("conversation_id"),
-            allow_agent_delegation=False,
         )
     except providers.ProviderError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
-        _mark_failed(task_id, source, str(exc), run_id=run_id, duration_ms=duration_ms)
+        _mark_failed(task_id, source, str(exc), run_id=run_id, duration_ms=duration_ms, tool_state=tool_state)
         raise AgentWorkflowError(str(exc), 503) from exc
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        _mark_failed(task_id, source, str(exc), run_id=run_id, duration_ms=duration_ms, tool_state=tool_state)
+        raise
 
     duration_ms = int((time.perf_counter() - started) * 1000)
     reply = str(generated.get("content") or "").strip()
     if not reply:
-        _mark_failed(task_id, source, "Inference provider returned no final response text.", run_id=run_id, duration_ms=duration_ms)
+        _mark_failed(
+            task_id,
+            source,
+            "Inference provider returned no final response text.",
+            run_id=run_id,
+            duration_ms=duration_ms,
+            tool_state=tool_state,
+        )
         raise AgentWorkflowError("Inference provider returned no final response text.", 503)
 
     run_metadata = {
@@ -513,6 +532,23 @@ def execute_task(
         "action_request_ids": list(tool_state.get("action_request_ids") or []),
         "provider_usage": dict(tool_state.get("provider_usage") or {}),
     }
+    task_metadata = _json_object(task.get("metadata") or {})
+    task_metadata.update(
+        {
+            "workflow_version": AGENT_WORKFLOW_VERSION,
+            "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
+            "context_provenance": canonical.provenance,
+            "context_budget": canonical.budget,
+            "memory_count": len(bundle.memory),
+            "knowledge_count": len(bundle.knowledge),
+            "contact_count": len(bundle.contacts),
+            "awareness_count": len(canonical.awareness_items),
+            "context_chars": canonical.total_context_chars,
+            "tool_call_count": int(tool_state.get("call_count") or 0),
+            "scope_enforced": not owner,
+            "nested_delegation": False,
+        }
+    )
     with db() as connection:
         connection.execute(
             """
@@ -541,24 +577,7 @@ def execute_task(
                 reply,
                 str(generated.get("provider") or provider_key),
                 str(generated.get("model") or selected_model),
-                json.dumps(
-                    {
-                        **_json_object(task.get("metadata") or {}),
-                        "workflow_version": AGENT_WORKFLOW_VERSION,
-                        "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
-                        "context_provenance": canonical.provenance,
-                        "context_budget": canonical.budget,
-                        "memory_count": len(bundle.memory),
-                        "knowledge_count": len(bundle.knowledge),
-                        "contact_count": len(bundle.contacts),
-                        "awareness_count": len(canonical.awareness_items),
-                        "context_chars": canonical.total_context_chars,
-                        "tool_call_count": int(tool_state.get("call_count") or 0),
-                        "scope_enforced": not owner,
-                        "nested_delegation": False,
-                    },
-                    separators=(",", ":"),
-                ),
+                json.dumps(task_metadata, separators=(",", ":")),
                 int(task_id),
                 source,
             ),
@@ -765,4 +784,7 @@ def execute_model_delegation(
             duration_ms=duration_ms,
             error=str(exc),
         )
-        raise AgentWorkflowError(f"Delegation failed. Run {run_id} was recorded.", getattr(exc, "status_code", 422)) from exc
+        raise AgentWorkflowError(
+            f"Delegation failed. Run {run_id} was recorded.",
+            getattr(exc, "status_code", 422),
+        ) from exc
