@@ -2,10 +2,11 @@
   'use strict';
 
   const VERSION = 'v0.48';
+  const HANDOFF_VERSION = 'v0.49';
   const API = '/api/v1/control/agent-workflows';
   const byId = id => document.getElementById(id);
   const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const state = {policy: null, workers: [], tasks: [], open: false, busy: false};
+  const state = {policy: null, workers: [], tasks: [], handoffs: [], open: false, busy: false, handoffBusy: null};
 
   async function requestJson(path, options = {}) {
     const response = await fetch(path, {
@@ -87,7 +88,7 @@
           <label class="check-inline"><input id="agentWorkflowModelEnabled" type="checkbox"> Let Agents delegate tasks automatically</label>
           <label>Worker context<select id="agentWorkflowContext"><option value="8000">8k</option><option value="12000">12k</option><option value="16000">16k</option><option value="20000">20k</option><option value="24000">24k</option></select></label>
           <button class="button secondary" id="agentWorkflowSavePolicy" type="button">Save policy</button>
-          <small>One-hop only in v0.48. Worker Agents cannot recursively delegate.</small>
+          <small>Delegation remains one-hop in v0.48. ${HANDOFF_VERSION} handoffs are explicit, bounded and consumed once.</small>
         </div>
         <div class="agent-workflow-history-head"><strong>Delegation activity</strong><button class="text-button" id="agentWorkflowRefresh" type="button">Refresh</button></div>
         <div id="agentWorkflowTasks" class="agent-workflow-tasks"><div class="muted">No delegation tasks yet.</div></div>`;
@@ -99,6 +100,28 @@
   function statusLabel(status) {
     const value = String(status || 'queued');
     return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function handoffForTask(taskId) {
+    return state.handoffs.find(item => Number(item.task_id) === Number(taskId)) || null;
+  }
+
+  function handoffMarkup(item) {
+    if (!item.result || item.status !== 'completed') return '';
+    const handoff = handoffForTask(item.id);
+    if (handoff?.status === 'pending') {
+      return `<div class="agent-handoff-row"><span class="agent-handoff-state handoff-pending">Queued for parent · next turn</span><button class="text-button" type="button" data-revoke-handoff="${Number(handoff.id)}" ${state.handoffBusy ? 'disabled' : ''}>Undo</button></div>`;
+    }
+    if (handoff?.status === 'consumed') {
+      return `<div class="agent-handoff-row"><span class="agent-handoff-state handoff-consumed">Used by parent Agent</span></div>`;
+    }
+    if (handoff?.status === 'revoked') {
+      return `<div class="agent-handoff-row"><span class="agent-handoff-state">Handoff cancelled</span><button class="text-button" type="button" data-queue-handoff="${Number(item.id)}" ${state.handoffBusy ? 'disabled' : ''}>Use in parent chat</button></div>`;
+    }
+    if (!item.conversation_id) {
+      return `<div class="agent-handoff-row"><span class="agent-handoff-state">Start or attach a parent conversation to hand off this result.</span></div>`;
+    }
+    return `<div class="agent-handoff-row"><span class="agent-handoff-state">${HANDOFF_VERSION} · one-shot result handoff</span><button class="button secondary agent-handoff-button" type="button" data-queue-handoff="${Number(item.id)}" ${state.handoffBusy ? 'disabled' : ''}>Use in parent chat</button></div>`;
   }
 
   function render() {
@@ -142,6 +165,7 @@
         <p>${esc(item.task)}</p>
         ${item.result ? `<div class="agent-workflow-result"><span>Result</span>${esc(item.result)}</div>` : ''}
         ${item.error ? `<div class="agent-workflow-error">${esc(item.error)}</div>` : ''}
+        ${handoffMarkup(item)}
         <small>Parent: ${esc(item.parent_agent_name || 'Agent')}${item.model ? ` · ${esc(item.model)}` : ''}</small>
       </article>`).join('');
   }
@@ -167,10 +191,17 @@
     state.tasks = Array.isArray(payload.items) ? payload.items : [];
   }
 
+  async function loadHandoffs() {
+    const conversationId = activeConversationId();
+    const query = conversationId ? `?limit=50&conversation_id=${encodeURIComponent(conversationId)}` : '?limit=50';
+    const payload = await requestJson(`${API}/handoffs${query}`);
+    state.handoffs = Array.isArray(payload.items) ? payload.items : [];
+  }
+
   async function refresh() {
     if (!ensureUi()) return;
     try {
-      await Promise.all([loadPolicy(), loadWorkers(), loadTasks()]);
+      await Promise.all([loadPolicy(), loadWorkers(), loadTasks(), loadHandoffs()]);
       render();
     } catch (error) {
       flash(error.message, true);
@@ -217,6 +248,40 @@
     }
   }
 
+  async function queueHandoff(taskId) {
+    if (state.handoffBusy) return;
+    state.handoffBusy = Number(taskId);
+    render();
+    try {
+      const handoff = await requestJson(`${API}/delegations/${encodeURIComponent(taskId)}/handoff`, {method: 'POST'});
+      state.handoffs = [handoff, ...state.handoffs.filter(item => Number(item.id) !== Number(handoff.id))];
+      flash(`${handoff.worker_agent_name}'s result will be provided to the parent Agent on the next message.`);
+    } catch (error) {
+      flash(error.message, true);
+      await loadHandoffs().catch(() => null);
+    } finally {
+      state.handoffBusy = null;
+      render();
+    }
+  }
+
+  async function revokeHandoff(handoffId) {
+    if (state.handoffBusy) return;
+    state.handoffBusy = Number(handoffId);
+    render();
+    try {
+      const handoff = await requestJson(`${API}/handoffs/${encodeURIComponent(handoffId)}/revoke`, {method: 'POST'});
+      state.handoffs = [handoff, ...state.handoffs.filter(item => Number(item.id) !== Number(handoff.id))];
+      flash('Specialist result handoff cancelled.');
+    } catch (error) {
+      flash(error.message, true);
+      await loadHandoffs().catch(() => null);
+    } finally {
+      state.handoffBusy = null;
+      render();
+    }
+  }
+
   async function savePolicy() {
     const enabled = Boolean(byId('agentWorkflowModelEnabled')?.checked);
     const maxContext = Number(byId('agentWorkflowContext')?.value || 12000);
@@ -243,6 +308,16 @@
       if (state.open) refresh();
       return;
     }
+    const queue = event.target.closest('[data-queue-handoff]');
+    if (queue) {
+      queueHandoff(Number(queue.dataset.queueHandoff));
+      return;
+    }
+    const revoke = event.target.closest('[data-revoke-handoff]');
+    if (revoke) {
+      revokeHandoff(Number(revoke.dataset.revokeHandoff));
+      return;
+    }
     if (event.target.closest('#agentWorkflowRefresh')) refresh();
     if (event.target.closest('#agentWorkflowSavePolicy')) savePolicy();
     if (event.target.closest('[data-view="chat"], [data-go="chat"]') && state.open) setTimeout(refresh, 0);
@@ -256,12 +331,20 @@
     if (state.open) refresh();
   });
 
+  const chatObserver = new MutationObserver(() => {
+    if (!state.open) return;
+    clearTimeout(chatObserver._refreshTimer);
+    chatObserver._refreshTimer = setTimeout(() => Promise.all([loadTasks(), loadHandoffs()]).then(render).catch(() => null), 120);
+  });
+
   function boot() {
     ensureStyles();
     ensureUi();
+    const messages = byId('chatMessages');
+    if (messages) chatObserver.observe(messages, {childList: true, subtree: true});
   }
 
-  window.HomeServerAgentWorkflows = Object.freeze({version: VERSION, refresh});
+  window.HomeServerAgentWorkflows = Object.freeze({version: VERSION, handoffVersion: HANDOFF_VERSION, refresh});
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
 })();
