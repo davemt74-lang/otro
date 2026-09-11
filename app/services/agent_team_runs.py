@@ -11,6 +11,35 @@ MIN_TEAM_MEMBERS = 2
 MAX_TEAM_MEMBERS = 4
 MAX_OBJECTIVE_CHARS = 16000
 
+_TASK_COLUMNS = (
+    "id",
+    "source_app_key",
+    "parent_agent_id",
+    "worker_agent_id",
+    "parent_agent_name",
+    "worker_agent_name",
+    "conversation_id",
+    "external_conversation_id",
+    "task",
+    "status",
+    "result",
+    "error",
+    "provider_key",
+    "model",
+    "agent_run_id",
+    "include_memory",
+    "include_knowledge",
+    "include_contacts",
+    "cloud_allowed",
+    "max_context_chars",
+    "permission_snapshot_json",
+    "metadata_json",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "updated_at",
+)
+
 
 class AgentTeamRunError(RuntimeError):
     def __init__(self, message: str, status_code: int = 422):
@@ -25,6 +54,10 @@ def _source(value: str | None) -> str:
 
 def _actor_type(source_app_key: str) -> str:
     return "owner" if source_app_key == "owner" else "app"
+
+
+def _qualified_task_columns(alias: str = "t") -> str:
+    return ", ".join(f"{alias}.{name} AS {name}" for name in _TASK_COLUMNS)
 
 
 def _required_permissions(task: dict[str, Any]) -> set[str]:
@@ -101,12 +134,16 @@ def _matching_synthesis_audit(
             metadata = json.loads(str(row["metadata_json"] or "{}"))
         except (TypeError, ValueError, json.JSONDecodeError):
             continue
-        found = sorted(
-            int(value)
-            for value in metadata.get("task_ids", [])
-            if str(value).isdigit()
-        )
-        if found == expected:
+        raw_task_ids = metadata.get("task_ids", []) if isinstance(metadata, dict) else []
+        if not isinstance(raw_task_ids, list):
+            continue
+        found: list[int] = []
+        for value in raw_task_ids:
+            try:
+                found.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        if sorted(found) == expected:
             return str(row["created_at"])
     return None
 
@@ -114,10 +151,9 @@ def _matching_synthesis_audit(
 def _members(connection, team_run_id: int) -> list[dict[str, Any]]:
     rows = connection.execute(
         f"""
-        SELECT m.position, m.task_id,
-               {agent_workflows._select_columns()}
+        SELECT m.position, {_qualified_task_columns('t')}
         FROM agent_team_run_members m
-        JOIN agent_delegation_tasks ON agent_delegation_tasks.id=m.task_id
+        JOIN agent_delegation_tasks t ON t.id=m.task_id
         WHERE m.team_run_id=?
         ORDER BY m.position ASC
         """,
@@ -127,7 +163,6 @@ def _members(connection, team_run_id: int) -> list[dict[str, Any]]:
     for row in rows:
         raw = dict(row)
         position = int(raw.pop("position"))
-        raw.pop("task_id", None)
         task = agent_workflows._decorate(raw)
         task["position"] = position
         items.append(task)
@@ -499,6 +534,13 @@ def create_team_run(
     )
 
 
+def _actual_task_status(task_id: int, source: str, fallback: str) -> str:
+    try:
+        return str(agent_workflows.get_task(task_id, source).get("status") or fallback)
+    except Exception:
+        return fallback
+
+
 def run_team(
     team_run_id: int,
     source_app_key: str,
@@ -534,7 +576,7 @@ def run_team(
             outcomes.append(
                 {
                     "task_id": task_id,
-                    "status": "failed",
+                    "status": _actual_task_status(task_id, source, "failed"),
                     "ok": False,
                     "error": str(exc)[:500],
                     "status_code": int(getattr(exc, "status_code", 500)),
@@ -556,10 +598,7 @@ def run_team(
                 source,
                 str(team_run_id),
                 json.dumps(
-                    {
-                        "version": AGENT_TEAM_RUN_VERSION,
-                        "outcomes": outcomes,
-                    },
+                    {"version": AGENT_TEAM_RUN_VERSION, "outcomes": outcomes},
                     separators=(",", ":"),
                 ),
             ),
@@ -663,7 +702,7 @@ def retry_member(
     except Exception as exc:
         outcome = {
             "task_id": int(task_id),
-            "status": "failed",
+            "status": _actual_task_status(int(task_id), source, "failed"),
             "ok": False,
             "error": str(exc)[:500],
             "status_code": int(getattr(exc, "status_code", 500)),
