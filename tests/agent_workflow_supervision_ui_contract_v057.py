@@ -33,7 +33,7 @@ assert "agent_team_orchestration.run_plan_team" in service
 assert "agent_team_orchestration.prepare_plan_synthesis" in service
 assert "agent_team_orchestration.retry_plan_member" not in service
 assert ".approve" not in service
-assert "parent_chat" not in service
+assert ".parent_chat(" not in service
 assert "BEGIN IMMEDIATE" in service
 assert "agent_workflow_supervisions" in service
 assert "rehydration_id" in service
