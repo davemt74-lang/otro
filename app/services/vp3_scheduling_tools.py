@@ -128,16 +128,33 @@ SKILLS = (
 )
 
 
+def _positive_int(value: Any, name: str) -> int:
+    if isinstance(value, bool):
+        raise tools.ToolError(f"{name} must be a positive integer.")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise tools.ToolError(f"{name} must be a positive integer.") from exc
+    if parsed < 1:
+        raise tools.ToolError(f"{name} must be a positive integer.")
+    return parsed
+
+
 def _execute(key: str, args: dict[str, Any]) -> dict[str, Any]:
     if key == "vp3.schedule.overview":
         return connector.request("overview", {})
     if key == "vp3.schedule.availability":
-        kind = str(args.get("kind") or "personal")
-        target_id = int(args.get("target_id") or 0)
+        kind = str(args.get("kind") or "")
+        if kind not in {"personal", "team"}:
+            raise tools.ToolError("kind must be personal or team.")
+        target_id = _positive_int(args.get("target_id"), "target_id")
+        date = str(args.get("date") or "").strip()
+        if len(date) != 10:
+            raise tools.ToolError("date must be YYYY-MM-DD.")
         payload = {
             "target_id": target_id,
-            "date": str(args.get("date") or ""),
-            "routing_answer": str(args.get("routing_answer") or ""),
+            "date": date,
+            "routing_answer": str(args.get("routing_answer") or "")[:500],
         }
         if kind == "team":
             payload["pool_id"] = target_id
@@ -145,11 +162,13 @@ def _execute(key: str, args: dict[str, Any]) -> dict[str, Any]:
         payload["event_type_id"] = target_id
         return connector.request("availability", payload)
     if key == "vp3.booking.create":
-        kind = str(args.get("kind") or "personal")
+        kind = str(args.get("kind") or "")
+        if kind not in {"personal", "team"}:
+            raise tools.ToolError("kind must be personal or team.")
         payload = dict(args)
         payload.pop("kind", None)
         idempotency_key = str(payload.pop("idempotency_key", "") or "")
-        target_id = int(payload.pop("target_id", 0) or 0)
+        target_id = _positive_int(payload.pop("target_id", 0), "target_id")
         if kind == "team":
             payload["pool_id"] = target_id
             return connector.request("team.booking.create", payload, idempotency_key=idempotency_key)
@@ -157,18 +176,20 @@ def _execute(key: str, args: dict[str, Any]) -> dict[str, Any]:
         return connector.request("booking.create", payload, idempotency_key=idempotency_key)
     if key == "vp3.booking.reschedule":
         payload = dict(args)
+        payload["booking_id"] = _positive_int(payload.get("booking_id"), "booking_id")
         idempotency_key = str(payload.pop("idempotency_key", "") or "")
         return connector.request("booking.reschedule", payload, idempotency_key=idempotency_key)
     if key == "vp3.booking.cancel":
-        kind = str(args.get("kind") or "personal")
+        kind = str(args.get("kind") or "")
+        if kind not in {"personal", "team"}:
+            raise tools.ToolError("kind must be personal or team.")
         payload = dict(args)
         payload.pop("kind", None)
+        payload["booking_id"] = _positive_int(payload.get("booking_id"), "booking_id")
         idempotency_key = str(payload.pop("idempotency_key", "") or "")
-        target_id = int(payload.pop("target_id", 0) or 0)
+        target_raw = payload.pop("target_id", 0)
         if kind == "team":
-            if target_id < 1:
-                raise tools.ToolError("Team cancellation requires the scheduling Team target_id.")
-            payload["pool_id"] = target_id
+            payload["pool_id"] = _positive_int(target_raw, "target_id")
             return connector.request("team.booking.cancel", payload, idempotency_key=idempotency_key)
         return connector.request("booking.cancel", payload, idempotency_key=idempotency_key)
     raise tools.ToolError("Unsupported VP3 scheduling tool.")
@@ -190,11 +211,19 @@ def install() -> None:
 
     def safe_meta(key: str, args: dict[str, Any]) -> dict[str, Any]:
         if key in SCHEDULING_KEYS:
+            try:
+                target_id = int(args.get("target_id") or 0)
+            except (TypeError, ValueError):
+                target_id = 0
+            try:
+                booking_id = int(args.get("booking_id") or 0)
+            except (TypeError, ValueError):
+                booking_id = 0
             return {
                 "argument_keys": sorted(k for k in args if k != "idempotency_key"),
                 "kind": str(args.get("kind") or ""),
-                "target_id": int(args.get("target_id") or 0),
-                "booking_id": int(args.get("booking_id") or 0),
+                "target_id": target_id,
+                "booking_id": booking_id,
             }
         return original_meta(key, args)
 
@@ -233,6 +262,18 @@ def install() -> None:
         meta = tools._safe_argument_metadata(tool_key, payload)
         try:
             result = _execute(tool_key, payload)
+        except tools.ToolError as exc:
+            run_id = tools._record_run(
+                tool_key=tool_key,
+                source_app_key=source,
+                actor_type=actor,
+                status="failed",
+                required_permissions=required,
+                arguments_meta=meta,
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                error=str(exc),
+            )
+            raise tools.ToolError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
         except connector.VP3SchedulingConnectorError as exc:
             run_id = tools._record_run(
                 tool_key=tool_key,
@@ -245,6 +286,18 @@ def install() -> None:
                 error=str(exc),
             )
             raise tools.ToolError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
+        except Exception as exc:
+            run_id = tools._record_run(
+                tool_key=tool_key,
+                source_app_key=source,
+                actor_type=actor,
+                status="failed",
+                required_permissions=required,
+                arguments_meta=meta,
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                error="Internal VP3 scheduling tool failure.",
+            )
+            raise tools.ToolError(f"VP3 scheduling tool failed safely. Run {run_id} was recorded.", 500) from exc
 
         run_id = tools._record_run(
             tool_key=tool_key,
