@@ -131,6 +131,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-resume-scan-v
         payload = response.json()
         assert payload["version"] == "v0.55"
         assert payload["resumable_count"] == 1
+        assert payload["scan_limit"] == 250
+        assert payload["scan_truncated"] is False
         assert len(payload["items"]) == 1
         assert payload["suggested"]["conversation_id"] == resumable_conversation
         assert int(payload["suggested"]["plan_id"]) == resumable_plan_id
