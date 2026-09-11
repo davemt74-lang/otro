@@ -109,6 +109,13 @@
       script.async = false;
       document.head.appendChild(script);
     }
+    if (!document.querySelector('script[data-agent-team-planning-v052]')) {
+      const script = document.createElement('script');
+      script.src = '/assets/agent-team-planning.js';
+      script.dataset.agentTeamPlanningV052 = '1';
+      script.async = false;
+      document.head.appendChild(script);
+    }
   }
 
   function ensureSelector() {
