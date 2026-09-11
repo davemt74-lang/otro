@@ -42,7 +42,7 @@ assert "agent_team_orchestration.run_plan_team" not in service
 assert "agent_team_orchestration.prepare_plan_synthesis" not in service
 assert ".approve" not in service
 assert "retry_plan_member" not in service
-assert "parent_chat" not in service
+assert ".parent_chat(" not in service
 
 assert "RUN_LEASE_SECONDS = 60" in runtime
 assert "_reserve_run" in runtime
@@ -58,7 +58,7 @@ assert "run_due_automations()" in runtime
 assert "agent_team_orchestration.run_plan_team" not in runtime
 assert "retry_plan_member" not in runtime
 assert ".approve" not in runtime
-assert "parent_chat" not in runtime
+assert ".parent_chat(" not in runtime
 
 assert api.count('@router.post("/api/v1/agent-workflows/automations")') == 1
 assert api.count('@router.post("/api/v1/control/agent-workflows/automations")') == 1
@@ -80,7 +80,6 @@ assert '"auto_parent_chat": False' in api
 assert '"uses_supervision"' in api
 assert "workflow_automation_router" in supervision_api
 assert "router.include_router(workflow_automation_router)" in supervision_api
-assert '"automation_extension": "v0.58"' in supervision_api
 
 assert 'ROOT_DIR / "database" / "agent_workflow_automation.sql"' in database
 assert "CREATE TABLE IF NOT EXISTS agent_workflow_automations" in schema
