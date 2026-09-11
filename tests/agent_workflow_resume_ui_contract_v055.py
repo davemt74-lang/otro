@@ -28,10 +28,15 @@ assert "JOIN agent_team_plans p" in service
 assert "p.status IN ('proposed','approved')" in service
 assert "MAX(p.id) AS latest_plan_id" in service
 assert "ORDER BY latest_plan_id DESC" in service
-assert "MAX_SCAN_CONVERSATIONS" in service
+assert "LIMIT ?" in service
+assert "MAX_SCAN_CONVERSATIONS + 1" in service
+assert "truncated = len(rows) > MAX_SCAN_CONVERSATIONS" in service
+assert "rows[:MAX_SCAN_CONVERSATIONS]" in service
 assert "result_limit = _bounded_limit(limit)" in service
 assert "visible_items = items[:result_limit]" in service
 assert "resumable_count = len(items)" in service
+assert '"scan_limit": MAX_SCAN_CONVERSATIONS' in service
+assert '"scan_truncated": scan_truncated' in service
 assert "if exc.status_code in {403, 404}" in service
 assert "raise AgentWorkflowResumeError" in service
 assert "def _retryable_ids" in service
@@ -98,6 +103,8 @@ assert "Newer plain chat" in packaged
 
 assert "for index in range(60)" in scan_regression
 assert 'resume?limit=1' in scan_regression
+assert 'payload["scan_limit"] == 250' in scan_regression
+assert 'payload["scan_truncated"] is False' in scan_regression
 assert 'payload["suggested"]["conversation_id"] == resumable_conversation' in scan_regression
 assert 'payload["suggested"]["retryable_task_ids"] == [901]' in scan_regression
 
