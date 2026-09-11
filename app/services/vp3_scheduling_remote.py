@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Callable
 
 from . import pairing, remote_bridge, vp3_scheduling_connector
@@ -47,12 +48,14 @@ def install() -> None:
         if capabilities is not None and not isinstance(capabilities, list):
             raise remote_bridge.RemoteBridgeError("VP3 scheduling connector capabilities must be a list.")
 
+        pairing_token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
         try:
             configured = vp3_scheduling_connector.configure(
                 endpoint,
                 connector_token,
                 version,
                 list(capabilities or []),
+                pairing_token_hash=pairing_token_hash,
             )
         except vp3_scheduling_connector.VP3SchedulingConnectorError as exc:
             raise remote_bridge.RemoteBridgeError(str(exc)) from exc
