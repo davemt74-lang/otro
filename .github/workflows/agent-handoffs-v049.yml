@@ -11,6 +11,7 @@ on:
       - 'ui/agent-workflows.js'
       - 'ui/agent-workflows.css'
       - 'tests/agent_handoffs_v049.py'
+      - 'tests/agent_handoff_revocation_v049.py'
       - 'tests/agent_handoffs_ui_contract_v049.py'
       - 'tests/agent_workflows_v048.py'
       - 'tests/agent_routing_v047.py'
@@ -26,6 +27,7 @@ on:
       - 'ui/agent-workflows.js'
       - 'ui/agent-workflows.css'
       - 'tests/agent_handoffs_v049.py'
+      - 'tests/agent_handoff_revocation_v049.py'
       - 'tests/agent_handoffs_ui_contract_v049.py'
       - 'tests/agent_workflows_v048.py'
       - 'tests/agent_routing_v047.py'
@@ -52,11 +54,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Agent result handoff backend
-        run: python -m compileall app/bridge.py app/handoffs_api.py app/services/agent_handoffs.py app/services/agent_workflow_tool.py tests/agent_handoffs_v049.py tests/agent_handoffs_ui_contract_v049.py
+        run: python -m compileall app/bridge.py app/handoffs_api.py app/services/agent_handoffs.py app/services/agent_workflow_tool.py tests/agent_handoffs_v049.py tests/agent_handoff_revocation_v049.py tests/agent_handoffs_ui_contract_v049.py
       - name: Validate Agent workflow JavaScript
         run: node --check ui/agent-workflows.js
       - name: Agent Result Handoff regression
         run: python tests/agent_handoffs_v049.py
+      - name: Agent Result Handoff live-revocation regression
+        run: python tests/agent_handoff_revocation_v049.py
       - name: Agent Result Handoff UI API package contract
         run: python tests/agent_handoffs_ui_contract_v049.py
       - name: Retain v0.48 Agent Delegation and Multi-Agent Workflows regression
