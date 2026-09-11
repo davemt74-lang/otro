@@ -6,16 +6,17 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .services import agent_workflow_automation
+from .services import agent_workflow_automation_runtime
 from .services.pairing import authenticate
 
 
 @asynccontextmanager
 async def workflow_automation_lifespan(_):
-    agent_workflow_automation.scheduler.start()
+    agent_workflow_automation_runtime.scheduler.start()
     try:
         yield
     finally:
-        agent_workflow_automation.scheduler.stop()
+        agent_workflow_automation_runtime.scheduler.stop()
 
 
 router = APIRouter(lifespan=workflow_automation_lifespan)
@@ -94,7 +95,9 @@ def _capability() -> dict:
         "exact_activity_actions": True,
         "safe_activity_prefixes": list(agent_workflow_automation.SAFE_ACTIVITY_PREFIXES),
         "durable_claim": True,
+        "durable_checkpoint_before_supervision": True,
         "restart_resumable": True,
+        "stale_run_lease_seconds": agent_workflow_automation_runtime.RUN_LEASE_SECONDS,
         "canonical_revalidation_at_fire": True,
         "auto_approval": False,
         "auto_retry": False,
