@@ -12,6 +12,10 @@ ACTIONS = {"vp3.booking.create", "vp3.booking.reschedule", "vp3.booking.cancel"}
 
 def _normalize(action_key: str, arguments: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(arguments or {})
+    # Idempotency is a HomeServer recovery primitive, not a caller-controlled
+    # scheduling argument. Ignore any proposed value and bind a fresh stable key
+    # to this persisted approval request. Retries of the same request reuse it.
+    payload.pop("idempotency_key", None)
     definition = tools.TOOL_DEFINITIONS.get(action_key) or {}
     schema = definition.get("input_schema") or {}
     properties = set((schema.get("properties") or {}).keys())
@@ -47,12 +51,7 @@ def _normalize(action_key: str, arguments: dict[str, Any] | None) -> dict[str, A
         else:
             payload.pop("target_id", None)
 
-    key = str(payload.get("idempotency_key") or "").strip()
-    if not key:
-        key = "hs-action-" + uuid.uuid4().hex
-    if len(key) > 160:
-        raise approvals.ApprovalError("VP3 scheduling idempotency key is too long.")
-    payload["idempotency_key"] = key
+    payload["idempotency_key"] = "hs-action-" + uuid.uuid4().hex
     return payload
 
 
