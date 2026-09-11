@@ -7,6 +7,7 @@ from . import agent_workflow_continuation
 
 AGENT_WORKFLOW_RESUME_VERSION = "v0.55"
 MAX_RESUME_CONVERSATIONS = 50
+MAX_SCAN_CONVERSATIONS = 250
 MAX_TITLE_CHARS = 120
 
 
@@ -25,7 +26,7 @@ def _bounded_limit(value: int) -> int:
     return max(1, min(int(value), MAX_RESUME_CONVERSATIONS))
 
 
-def _candidate_conversations(source_app_key: str, limit: int) -> list[dict[str, Any]]:
+def _candidate_conversations(source_app_key: str) -> list[dict[str, Any]]:
     with db() as connection:
         rows = connection.execute(
             """
@@ -43,9 +44,21 @@ def _candidate_conversations(source_app_key: str, limit: int) -> list[dict[str, 
             ORDER BY c.updated_at DESC, c.created_at DESC, c.id DESC
             LIMIT ?
             """,
-            (source_app_key, _bounded_limit(limit)),
+            (source_app_key, MAX_SCAN_CONVERSATIONS),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _retryable_ids(values: Any) -> list[int]:
+    ids: list[int] = []
+    for raw in values or []:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0 and value not in ids:
+            ids.append(value)
+    return ids
 
 
 def _resume_item(row: dict[str, Any], continuation: dict[str, Any]) -> dict[str, Any] | None:
@@ -72,7 +85,7 @@ def _resume_item(row: dict[str, Any], continuation: dict[str, Any]) -> dict[str,
         },
         "requires_explicit_action": bool(current.get("requires_explicit_action")),
         "counts": dict(current.get("counts") or {}),
-        "retryable_task_ids": [int(value) for value in current.get("retryable_task_ids") or [] if int(value) > 0],
+        "retryable_task_ids": _retryable_ids(current.get("retryable_task_ids")),
         "resume_available": True,
     }
 
@@ -85,8 +98,13 @@ def resume_index(
     limit: int = MAX_RESUME_CONVERSATIONS,
 ) -> dict[str, Any]:
     source = _source(source_app_key)
+    result_limit = _bounded_limit(limit)
     items: list[dict[str, Any]] = []
-    for row in _candidate_conversations(source, limit):
+    # Candidate scanning is intentionally independent from the requested result
+    # count. Approved plans can remain in storage after their derived v0.53 state
+    # becomes terminal, so filtering only the first N candidates could hide an
+    # older still-resumable workflow behind newer completed threads.
+    for row in _candidate_conversations(source):
         try:
             continuation = agent_workflow_continuation.conversation_continuation(
                 source,
@@ -114,11 +132,13 @@ def resume_index(
         ),
         reverse=True,
     )
+    resumable_count = len(items)
+    visible_items = items[:result_limit]
     return {
         "version": AGENT_WORKFLOW_RESUME_VERSION,
-        "items": items,
-        "resumable_count": len(items),
-        "suggested": dict(items[0]) if items else None,
+        "items": visible_items,
+        "resumable_count": resumable_count,
+        "suggested": dict(visible_items[0]) if visible_items else None,
         "read_only": True,
         "auto_executes": False,
         "navigation_only": True,
