@@ -64,8 +64,12 @@ def _workflow_record(source: str, conversation_id: str, plan_id: int, connection
         SELECT p.id, p.source_app_key, p.conversation_id, p.parent_agent_id,
                p.objective, p.members_json, p.context_json, p.permission_snapshot_json,
                p.status, p.team_run_id, p.created_at, p.updated_at, p.decided_at,
+               c.agent_id AS conversation_agent_id, c.status AS conversation_status,
+               c.updated_at AS conversation_updated_at,
                r.updated_at AS team_run_updated_at, r.cancelled_at AS team_run_cancelled_at
         FROM agent_team_plans p
+        JOIN conversations c
+          ON c.id=p.conversation_id AND c.source_app_key=p.source_app_key
         LEFT JOIN agent_team_runs r
           ON r.id=p.team_run_id AND r.source_app_key=p.source_app_key
         WHERE p.id=? AND p.source_app_key=? AND p.conversation_id=?
@@ -107,6 +111,11 @@ def _workflow_record(source: str, conversation_id: str, plan_id: int, connection
             ).fetchall()
             handoffs = [dict(item) for item in handoff_rows]
     revision_material = {
+        "conversation": {
+            "agent_id": int(record["conversation_agent_id"]) if record.get("conversation_agent_id") is not None else None,
+            "status": str(record.get("conversation_status") or ""),
+            "updated_at": record.get("conversation_updated_at"),
+        },
         "plan": {
             "id": int(record["id"]),
             "parent_agent_id": record.get("parent_agent_id"),
@@ -216,28 +225,78 @@ def _unavailable_workers(source: str, orchestration: dict[str, Any], *, owner: b
     return sorted(set(unavailable)), sorted(set(missing_task_worker))
 
 
+def _live_app_permissions_tx(source: str, connection) -> tuple[int, set[str]]:
+    if not source.startswith("app:") or not source[4:].strip():
+        raise AgentWorkflowRehydrationError("Application identity is invalid.", 403)
+    app = connection.execute(
+        "SELECT id, status FROM paired_apps WHERE app_key=? LIMIT 1",
+        (source[4:].strip(),),
+    ).fetchone()
+    if app is None or str(app["status"]) != "active":
+        raise AgentWorkflowRehydrationError("Application authorization changed during recovery; retry.", 403)
+    rows = connection.execute(
+        "SELECT permission FROM app_permissions WHERE paired_app_id=? AND allowed=1",
+        (int(app["id"]),),
+    ).fetchall()
+    return int(app["id"]), {str(row["permission"]) for row in rows}
+
+
+def _agent_access_tx(agent_id: int, *, owner: bool, app_id: int | None, connection) -> bool:
+    row = connection.execute("SELECT id, is_primary FROM agents WHERE id=? LIMIT 1", (int(agent_id),)).fetchone()
+    if row is None:
+        return False
+    if owner or bool(row["is_primary"]):
+        return True
+    if app_id is None:
+        return False
+    grant = connection.execute(
+        "SELECT allowed FROM app_agent_grants WHERE paired_app_id=? AND agent_id=? LIMIT 1",
+        (int(app_id), int(agent_id)),
+    ).fetchone()
+    return bool(grant is not None and grant["allowed"])
+
+
 def _checkpoint(orchestration: dict[str, Any]) -> dict[str, Any]:
     next_action = orchestration.get("next_action") if isinstance(orchestration.get("next_action"), dict) else {}
     team = orchestration.get("team_run") if isinstance(orchestration.get("team_run"), dict) else None
-    counts = (team or {}).get("counts") if isinstance((team or {}).get("counts"), dict) else {}
     members: list[dict[str, Any]] = []
-    for item in (team or {}).get("members") or []:
-        handoff = item.get("handoff") if isinstance(item.get("handoff"), dict) else {}
-        member_status = str(item.get("status") or "queued")
-        members.append(
-            {
-                "task_id": int(item.get("id") or 0),
-                "position": int(item.get("position") or 0),
-                "worker_agent_id": int(item["worker_agent_id"]) if item.get("worker_agent_id") is not None else None,
-                "worker_agent_name": str(item.get("worker_agent_name") or "Agent")[:120],
-                "task": " ".join(str(item.get("task") or "").split())[:MAX_TASK_EXCERPT_CHARS],
-                "status": member_status,
-                "result_available": member_status == "completed",
-                "result_authorized": bool(item.get("result_authorized")),
-                "handoff_status": str(handoff.get("status") or "") or None,
-                "updated_at": item.get("updated_at"),
-            }
-        )
+    if team is not None:
+        for item in team.get("members") or []:
+            handoff = item.get("handoff") if isinstance(item.get("handoff"), dict) else {}
+            member_status = str(item.get("status") or "queued")
+            members.append(
+                {
+                    "task_id": int(item.get("id") or 0),
+                    "position": int(item.get("position") or 0),
+                    "worker_agent_id": int(item["worker_agent_id"]) if item.get("worker_agent_id") is not None else None,
+                    "worker_agent_name": str(item.get("worker_agent_name") or "Agent")[:120],
+                    "task": " ".join(str(item.get("task") or "").split())[:MAX_TASK_EXCERPT_CHARS],
+                    "status": member_status,
+                    "result_available": member_status == "completed",
+                    "result_authorized": bool(item.get("result_authorized")),
+                    "handoff_status": str(handoff.get("status") or "") or None,
+                    "updated_at": item.get("updated_at"),
+                }
+            )
+    else:
+        plan = orchestration.get("plan") if isinstance(orchestration.get("plan"), dict) else {}
+        for position, item in enumerate(plan.get("members") or [], start=1):
+            worker_id = item.get("worker_agent_id")
+            members.append(
+                {
+                    "task_id": None,
+                    "position": position,
+                    "worker_agent_id": int(worker_id) if worker_id is not None else None,
+                    "worker_agent_name": str(item.get("worker_agent_name") or "Agent")[:120],
+                    "task": " ".join(str(item.get("task") or "").split())[:MAX_TASK_EXCERPT_CHARS],
+                    "status": "planned",
+                    "result_available": False,
+                    "result_authorized": True,
+                    "handoff_status": None,
+                    "updated_at": plan.get("updated_at"),
+                }
+            )
+    counts = team.get("counts") if team is not None and isinstance(team.get("counts"), dict) else {}
     retryable: list[int] = []
     for value in (team or {}).get("retryable_task_ids") or []:
         try:
@@ -362,12 +421,27 @@ def rehydrate_workflow(
     )
     snapshot_json = json.dumps(checkpoint, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     drift_json = json.dumps(static_drift, sort_keys=True, separators=(",", ":"))
+    worker_ids = _worker_ids(orchestration)
+    expected_worker_access = {worker_id: worker_id not in unavailable_workers for worker_id in worker_ids}
+    parent_id = checkpoint["parent"].get("id")
 
     with db() as connection:
         connection.execute("BEGIN IMMEDIATE")
         now = _workflow_record(source, conversation, int(plan_id), connection)
         if str(now["revision_token"]) != str(before["revision_token"]):
             raise AgentWorkflowRehydrationError("Workflow changed during recovery; retry from the latest state.", 409)
+        app_id: int | None = None
+        if not owner:
+            app_id, live_permissions = _live_app_permissions_tx(source, connection)
+            if live_permissions != granted:
+                raise AgentWorkflowRehydrationError("Application permissions changed during recovery; retry from the latest state.", 409)
+        if parent_id is None or not _agent_access_tx(int(parent_id), owner=owner, app_id=app_id, connection=connection):
+            raise AgentWorkflowRehydrationError("Parent Agent access changed during recovery; retry from the latest state.", 409)
+        for worker_id, expected in expected_worker_access.items():
+            live = _agent_access_tx(worker_id, owner=owner, app_id=app_id, connection=connection)
+            if live != expected:
+                raise AgentWorkflowRehydrationError("Specialist Agent access changed during recovery; retry from the latest state.", 409)
+
         latest = connection.execute(
             """
             SELECT id, state_fingerprint
