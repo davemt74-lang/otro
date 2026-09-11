@@ -57,18 +57,20 @@ with tempfile.TemporaryDirectory(prefix="homeserver-vp3-scheduling-v059-") as da
         listed = client.get("/api/v1/tools", headers=headers)
         assert listed.status_code == 200, listed.text
         by_key = {item["key"]: item for item in listed.json()["items"]}
-        assert expected.issubset(by_key)
+        assert expected.isdisjoint(by_key)
         assert "vp3.connector.configure" not in by_key
-        assert all(by_key[key]["available"] is False for key in expected)
-        assert all(by_key[key].get("runtime_unavailable") is True for key in expected)
+        owner_catalog = client.get("/api/v1/control/tools")
+        assert owner_catalog.status_code == 200, owner_catalog.text
+        assert expected.isdisjoint({item["key"] for item in owner_catalog.json()["items"]})
+        owner_skills = client.get("/api/v1/control/skills")
+        assert owner_skills.status_code == 200, owner_skills.text
+        assert all(not str(item["key"]).startswith("vp3.") for item in owner_skills.json()["items"])
 
         owner_agent_tools = client.get("/api/v1/control/agent-tools")
         assert owner_agent_tools.status_code == 200, owner_agent_tools.text
         assert "homeserver_vp3_calendar_overview" not in owner_agent_tools.json()["available_tools"]
         assert "homeserver_vp3_schedule_availability" not in owner_agent_tools.json()["available_tools"]
 
-        # Cloud-changing proposals are rejected before an impossible pending
-        # approval can be persisted when the cloud connector is not configured.
         unavailable_proposal = client.post(
             "/api/v1/tools/vp3.booking.create/execute",
             headers=headers,
@@ -81,7 +83,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-vp3-scheduling-v059-") as da
                 }
             },
         )
-        assert unavailable_proposal.status_code == 409, unavailable_proposal.text
+        assert unavailable_proposal.status_code == 404, unavailable_proposal.text
         with db() as connection:
             assert connection.execute(
                 "SELECT COUNT(*) FROM action_requests WHERE action_key LIKE 'vp3.booking.%'"
@@ -127,9 +129,18 @@ with tempfile.TemporaryDirectory(prefix="homeserver-vp3-scheduling-v059-") as da
         listed_ready = client.get("/api/v1/tools", headers=headers)
         assert listed_ready.status_code == 200, listed_ready.text
         ready_by_key = {item["key"]: item for item in listed_ready.json()["items"]}
+        assert expected.issubset(ready_by_key)
         assert all(ready_by_key[key]["available"] is True for key in expected)
         assert ready_by_key["vp3.schedule.overview"]["mode"] == "read"
         assert ready_by_key["vp3.schedule.availability"]["mode"] == "read"
+        owner_catalog_ready = client.get("/api/v1/control/tools")
+        assert expected.issubset({item["key"] for item in owner_catalog_ready.json()["items"]})
+        owner_skills_ready = client.get("/api/v1/control/skills")
+        assert {
+            "vp3.calendar-review",
+            "vp3.find-time",
+            "vp3.booking-management",
+        }.issubset({item["key"] for item in owner_skills_ready.json()["items"]})
 
         owner_agent_tools = client.get("/api/v1/control/agent-tools")
         assert owner_agent_tools.status_code == 200, owner_agent_tools.text
