@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .action_policy_api import router as action_policy_router
+from .agent_routing_api import router as agent_routing_router
 from .agents_api import router as agents_router
 from .approvals_api import router as approvals_router
 from .backups_api import router as backups_router
@@ -59,6 +60,7 @@ install_local_file_action_agent_tools()
 install_local_file_action_registry()
 
 app.include_router(agents_router)
+app.include_router(agent_routing_router)
 app.include_router(delegation_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
@@ -112,6 +114,14 @@ def capabilities() -> dict:
             "multi_agent": True,
             "voice_profiles": "v0.45",
         },
+        "agent_routing": {
+            "version": "v0.47",
+            "owner_selectable": True,
+            "paired_app_scoped": True,
+            "primary_agent_implicit": True,
+            "conversation_bound": True,
+            "voice_profiles": "v0.45",
+        },
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -158,6 +168,7 @@ def capabilities() -> dict:
             "agent.context.sources",
             "agent.personas.v046",
             "agent.privacy.local_only",
+            "agent.routing.v047",
             "agent.tools.read",
             "app.collaboration.v1",
             "app.scopes.v1",

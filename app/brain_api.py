@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import agent_tools, brain, context_chat, context_engine, provider_secrets, providers
+from .services import agent_routing, agent_tools, brain, context_chat, context_engine, provider_secrets, providers
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -12,6 +12,7 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=32000)
     conversation_id: str | None = Field(default=None, max_length=64)
+    agent_id: int | None = Field(default=None, ge=1)
     include_memory: bool | None = None
     include_knowledge: bool | None = None
     include_contacts: bool | None = None
@@ -134,6 +135,10 @@ def _conversation_payload(
         limit=5,
         allowed_kinds=allowed_kinds,
     )
+    try:
+        result["routing"] = agent_routing.conversation_binding(source, conversation_id)
+    except agent_routing.AgentRoutingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return result
 
 
@@ -152,6 +157,7 @@ def _chat_or_http(
             source,
             payload.message,
             payload.conversation_id,
+            agent_id=payload.agent_id,
             include_memory=include_memory,
             include_knowledge=include_knowledge,
             include_contacts=include_contacts,
@@ -159,7 +165,7 @@ def _chat_or_http(
             tool_permissions=tool_permissions,
             owner_tools=owner_tools,
         )
-    except (brain.BrainError, context_engine.ContextError) as exc:
+    except (agent_routing.AgentRoutingError, brain.BrainError, context_engine.ContextError) as exc:
         status_code = getattr(exc, "status_code", 422)
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 

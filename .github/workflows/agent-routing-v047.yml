@@ -1,0 +1,91 @@
+name: Agent Selection and Persona Routing v0.47
+
+on:
+  pull_request:
+    paths:
+      - 'app/agent_routing_api.py'
+      - 'app/brain_api.py'
+      - 'app/delegation_api.py'
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'app/services/agent_routing.py'
+      - 'app/services/context_chat.py'
+      - 'app/services/delegation.py'
+      - 'database/agent_routing.sql'
+      - 'HomeServer.spec'
+      - 'ui/agent-routing.js'
+      - 'ui/agent-routing.css'
+      - 'ui/agent-voice-profile.js'
+      - 'tests/agent_routing_v047.py'
+      - 'tests/agent_routing_ui_contract_v047.py'
+      - 'tests/context_engine.py'
+      - 'tests/packaged_lifecycle.py'
+      - 'tests/multi_agent_personas_v046.py'
+      - 'tests/canonical_agent_context_v430.py'
+      - '.github/workflows/agent-routing-v047.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/agent_routing_api.py'
+      - 'app/brain_api.py'
+      - 'app/delegation_api.py'
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'app/services/agent_routing.py'
+      - 'app/services/context_chat.py'
+      - 'app/services/delegation.py'
+      - 'database/agent_routing.sql'
+      - 'HomeServer.spec'
+      - 'ui/agent-routing.js'
+      - 'ui/agent-routing.css'
+      - 'ui/agent-voice-profile.js'
+      - 'tests/agent_routing_v047.py'
+      - 'tests/agent_routing_ui_contract_v047.py'
+      - 'tests/context_engine.py'
+      - 'tests/packaged_lifecycle.py'
+      - 'tests/multi_agent_personas_v046.py'
+      - 'tests/canonical_agent_context_v430.py'
+      - '.github/workflows/agent-routing-v047.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  agent-routing:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Agent routing backend
+        run: python -m compileall app/agent_routing_api.py app/brain_api.py app/delegation_api.py app/bridge.py app/services/agent_routing.py app/services/context_chat.py app/services/delegation.py tests/agent_routing_v047.py tests/agent_routing_ui_contract_v047.py
+      - name: Validate Agent routing JavaScript
+        run: node --check ui/agent-routing.js
+      - name: Validate Agent Voice Profile loader JavaScript
+        run: node --check ui/agent-voice-profile.js
+      - name: Agent Selection and Persona Routing regression
+        run: python tests/agent_routing_v047.py
+      - name: Agent routing UI/API/package contract
+        run: python tests/agent_routing_ui_contract_v047.py
+      - name: Retain legacy Context Engine runtime regression
+        run: python tests/context_engine.py
+      - name: Retain v0.46 Multi-Agent Persona Management regression
+        run: python tests/multi_agent_personas_v046.py
+      - name: Retain v0.46 Multi-Agent Persona UI/API contract
+        run: python tests/multi_agent_personas_ui_contract_v046.py
+      - name: Retain canonical Agent context v4.30 contract
+        run: python tests/canonical_agent_context_v430.py
+      - name: Retain canonical Agent context runtime regression
+        run: python tests/canonical_context_runtime_v430.py
+      - name: Retain v0.45 Agent Voice Profiles regression
+        run: python tests/agent_voice_profiles_v045.py

@@ -6,6 +6,7 @@ from typing import Any
 
 from ..database import db
 from . import (
+    agent_routing,
     app_scopes,
     brain,
     canonical_context,
@@ -99,6 +100,7 @@ def _safe_run_metadata(
     tool_state: dict[str, Any],
     context: canonical_context.CanonicalContext,
     *,
+    agent: dict[str, Any],
     context_event_id: int | None = None,
 ) -> dict[str, Any]:
     return {
@@ -113,6 +115,9 @@ def _safe_run_metadata(
         "scope_enforced": True,
         "collaboration_version": context.collaboration.get("version"),
         "collaboration_sources": context.collaboration_sources,
+        "agent_id": int(agent["id"]),
+        "agent_name": str(agent.get("name") or "Agent"),
+        "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
     }
 
 
@@ -121,6 +126,7 @@ def chat(
     message: str,
     conversation_id: str | None = None,
     *,
+    agent_id: int | None = None,
     include_memory: bool = True,
     include_knowledge: bool = True,
     include_contacts: bool = False,
@@ -135,7 +141,8 @@ def chat(
         raise brain.BrainError("Message exceeds the 32,000 character limit.")
 
     granted_permissions = set(tool_permissions or set())
-    agent = brain._primary_agent()
+    agent = agent_routing.resolve_agent(source_app_key, agent_id, owner=owner_tools)
+    agent_routing.validate_conversation_agent(source_app_key, conversation_id, int(agent["id"]))
     conversation_id = brain._conversation_for_source(
         source_app_key, conversation_id, int(agent["id"]), text
     )
@@ -220,7 +227,7 @@ def chat(
         )
     except providers.ProviderError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
-        failed_metadata = _safe_run_metadata(tool_state, canonical)
+        failed_metadata = _safe_run_metadata(tool_state, canonical, agent=agent)
         with db() as connection:
             connection.execute(
                 """
@@ -244,6 +251,7 @@ def chat(
         raise brain.BrainError("Inference provider returned no final response text.", 503)
 
     context_event_id = context_engine.record_retrieval(conversation_id, source_app_key, bundle)
+    agent_summary = agent_routing.safe_summary(agent)
     metadata = {
         "provider": generated["provider"],
         "run_id": run_id,
@@ -257,8 +265,10 @@ def chat(
         "context_provenance": canonical.provenance,
         "context_budget": canonical.budget,
         "scope_enforced": not owner_tools,
+        "agent": agent_summary,
+        "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
     }
-    run_metadata = _safe_run_metadata(tool_state, canonical, context_event_id=context_event_id)
+    run_metadata = _safe_run_metadata(tool_state, canonical, agent=agent, context_event_id=context_event_id)
     run_metadata["scope_enforced"] = not owner_tools
 
     with db() as connection:
@@ -318,6 +328,9 @@ def chat(
                         "action_request_count": len(tool_state.get("action_request_ids") or []),
                         "duration_ms": duration_ms,
                         "scope_enforced": not owner_tools,
+                        "agent_id": int(agent["id"]),
+                        "agent_name": str(agent.get("name") or "Agent"),
+                        "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
                     },
                     separators=(",", ":"),
                 ),
@@ -345,6 +358,8 @@ def chat(
                 "context_chars": canonical.total_context_chars,
                 "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
                 "scope_enforced": not owner_tools,
+                "agent_id": int(agent["id"]),
+                "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
                 "context_source_counts": {
                     **bundle.counts,
                     "awareness_count": len(canonical.awareness_items),
@@ -367,6 +382,8 @@ def chat(
         "cloud_tokens_debited": 0,
         "usage": provider_usage,
         "run_id": run_id,
+        "agent": agent_summary,
+        "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
         "context": {
             **bundle.counts,
             "awareness_count": len(canonical.awareness_items),
