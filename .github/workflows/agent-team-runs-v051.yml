@@ -1,0 +1,93 @@
+name: Agent Team Runs v0.51
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/team_runs_api.py'
+      - 'app/services/agent_team_runs.py'
+      - 'app/services/agent_workflows.py'
+      - 'app/services/agent_workflow_timeline.py'
+      - 'app/services/agent_handoffs.py'
+      - 'database/agent_delegation_workflows.sql'
+      - 'ui/agent-routing.js'
+      - 'ui/agent-team-runs.js'
+      - 'ui/agent-team-runs.css'
+      - 'tests/agent_team_runs_v051.py'
+      - 'tests/agent_team_runs_ui_contract_v051.py'
+      - 'tests/packaged_lifecycle.py'
+      - 'tests/agent_workflow_timeline_v050.py'
+      - 'tests/agent_workflow_timeline_ui_contract_v050.py'
+      - 'tests/agent_handoffs_v049.py'
+      - 'tests/agent_handoff_revocation_v049.py'
+      - 'tests/agent_workflows_v048.py'
+      - 'tests/agent_routing_v047.py'
+      - '.github/workflows/agent-team-runs-v051.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/bridge.py'
+      - 'app/team_runs_api.py'
+      - 'app/services/agent_team_runs.py'
+      - 'app/services/agent_workflows.py'
+      - 'app/services/agent_workflow_timeline.py'
+      - 'app/services/agent_handoffs.py'
+      - 'database/agent_delegation_workflows.sql'
+      - 'ui/agent-routing.js'
+      - 'ui/agent-team-runs.js'
+      - 'ui/agent-team-runs.css'
+      - 'tests/agent_team_runs_v051.py'
+      - 'tests/agent_team_runs_ui_contract_v051.py'
+      - 'tests/packaged_lifecycle.py'
+      - 'tests/agent_workflow_timeline_v050.py'
+      - 'tests/agent_workflow_timeline_ui_contract_v050.py'
+      - 'tests/agent_handoffs_v049.py'
+      - 'tests/agent_handoff_revocation_v049.py'
+      - 'tests/agent_workflows_v048.py'
+      - 'tests/agent_routing_v047.py'
+      - '.github/workflows/agent-team-runs-v051.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  agent-team-runs:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Agent Team Run backend
+        run: python -m compileall app/bridge.py app/team_runs_api.py app/services/agent_team_runs.py tests/agent_team_runs_v051.py tests/agent_team_runs_ui_contract_v051.py
+      - name: Validate Agent Team Run JavaScript
+        run: node --check ui/agent-routing.js && node --check ui/agent-team-runs.js
+      - name: Agent Team Runs regression
+        run: python tests/agent_team_runs_v051.py
+      - name: Agent Team Runs UI API package contract
+        run: python tests/agent_team_runs_ui_contract_v051.py
+      - name: Retain v0.50 Workflow Timeline regression
+        run: python tests/agent_workflow_timeline_v050.py
+      - name: Retain v0.50 Workflow Timeline UI API contract
+        run: python tests/agent_workflow_timeline_ui_contract_v050.py
+      - name: Retain v0.49 Agent Result Handoff regression
+        run: python tests/agent_handoffs_v049.py
+      - name: Retain v0.49 live-revocation regression
+        run: python tests/agent_handoff_revocation_v049.py
+      - name: Retain v0.48 Agent Delegation and Multi-Agent Workflows regression
+        run: python tests/agent_workflows_v048.py
+      - name: Retain v0.47 Agent Selection and Persona Routing regression
+        run: python tests/agent_routing_v047.py
+      - name: Retain canonical Agent context v4.30 contract
+        run: python tests/canonical_agent_context_v430.py
+      - name: Retain canonical Agent context runtime regression
+        run: python tests/canonical_context_runtime_v430.py
