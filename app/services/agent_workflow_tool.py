@@ -142,6 +142,8 @@ def install() -> None:
                 str(conversation_id),
                 int(agent_id),
                 max_chars=handoff_limit,
+                owner=owner,
+                current_permissions=set(permissions or set()),
             )
         handoff_chars = int(pending.get("chars") or 0)
         canonical_limit = max(context_engine.MIN_CONTEXT_CHARS, requested - handoff_chars)
