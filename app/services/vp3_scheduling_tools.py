@@ -123,6 +123,7 @@ SKILLS = (
         ],
     },
 )
+SCHEDULING_SKILL_KEYS = {str(skill["key"]) for skill in SKILLS}
 
 
 def _connector_ready() -> bool:
@@ -203,7 +204,6 @@ def install() -> None:
     if getattr(tools, "_vp3_scheduling_v059_installed", False):
         return
 
-    base_skills = tuple(tools.SKILL_DEFINITIONS)
     for key, definition in DEFINITIONS.items():
         existing = tools.TOOL_DEFINITIONS.get(key)
         if existing not in (None, definition):
@@ -224,25 +224,10 @@ def install() -> None:
         return [item for item in items if item.get("key") not in SCHEDULING_KEYS]
 
     def list_skills(granted_permissions: set[str] | None = None, *, owner: bool = False) -> list[dict[str, Any]]:
+        items = original_list_skills(granted_permissions, owner=owner)
         if _connector_ready():
-            return original_list_skills(granted_permissions, owner=owner)
-        tool_items = {
-            item["key"]: item
-            for item in original_list_tools(granted_permissions, owner=owner)
-            if item.get("key") not in SCHEDULING_KEYS
-        }
-        skills: list[dict[str, Any]] = []
-        for skill in base_skills:
-            required: set[str] = set()
-            available = True
-            for tool_key in skill["tools"]:
-                item = tool_items[tool_key]
-                required.update(item["required_permissions"])
-                if not owner:
-                    required.add(tools.TOOL_EXECUTE_PERMISSION)
-                available = available and bool(item["available"])
-            skills.append({**skill, "required_permissions": sorted(required), "available": available})
-        return skills
+            return items
+        return [item for item in items if item.get("key") not in SCHEDULING_SKILL_KEYS]
 
     def set_tool_enabled(tool_key: str, enabled: bool) -> dict[str, Any]:
         if tool_key in SCHEDULING_KEYS and not _connector_ready():
