@@ -434,6 +434,7 @@ def prepare_synthesis(
         for item in ordered:
             task_id = int(item["id"])
             handoff = existing.get(task_id)
+            handoff_action: str | None = None
             if handoff is not None:
                 handoff_id = int(handoff["id"])
                 if str(handoff.get("status") or "") == "revoked":
@@ -445,6 +446,7 @@ def prepare_synthesis(
                         """,
                         (handoff_id, source),
                     )
+                    handoff_action = "agent.handoff.requeued"
             else:
                 cursor = connection.execute(
                     """
@@ -466,7 +468,31 @@ def prepare_synthesis(
                     ),
                 )
                 handoff_id = int(cursor.lastrowid)
+                handoff_action = "agent.handoff.queued"
             handoff_ids.append(handoff_id)
+            if handoff_action:
+                handoff_audit = {
+                    "version": agent_handoffs.HANDOFF_VERSION,
+                    "task_id": task_id,
+                    "conversation_id": str(conversation_id),
+                    "parent_agent_id": int(parent["id"]),
+                    "worker_agent_id": int(item["worker_agent_id"]) if item.get("worker_agent_id") is not None else None,
+                    "scope_rechecked": not owner,
+                    "prepared_via": AGENT_WORKFLOW_TIMELINE_VERSION,
+                }
+                connection.execute(
+                    """
+                    INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
+                    VALUES (?, ?, ?, 'agent_handoff', ?, ?)
+                    """,
+                    (
+                        _actor_type(source),
+                        source,
+                        handoff_action,
+                        str(handoff_id),
+                        json.dumps(handoff_audit, separators=(",", ":")),
+                    ),
+                )
 
         audit = {
             "version": AGENT_WORKFLOW_TIMELINE_VERSION,
