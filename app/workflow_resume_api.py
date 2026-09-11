@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
 from .services import agent_workflow_resume
 from .services.pairing import authenticate
+from .workflow_rehydration_api import router as workflow_rehydration_router
 
 router = APIRouter()
 
@@ -63,3 +64,9 @@ def control_workflow_resume(
     limit: int = Query(default=50, ge=1, le=50),
 ) -> dict:
     return _resume_index("owner", owner=True, permissions=set(), limit=limit)
+
+
+# v0.55 remains GET-only discovery/navigation. The v0.56 child router adds
+# explicit checkpoint rehydration on separate URLs without changing v0.55's
+# method or execution contract.
+router.include_router(workflow_rehydration_router)

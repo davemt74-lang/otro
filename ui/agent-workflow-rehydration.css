@@ -1,0 +1,36 @@
+.workflow-rehydration {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 18px 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border, #d9dde5);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .92);
+}
+
+.workflow-rehydration.hidden { display: none; }
+.workflow-rehydration.has-conflict { border-style: dashed; }
+.workflow-rehydration-copy { min-width: 0; }
+.workflow-rehydration-copy .eyebrow { margin: 0 0 4px; }
+.workflow-rehydration-copy > p:not(.eyebrow) { margin: 6px 0; }
+.workflow-rehydration-copy small { display: block; line-height: 1.45; opacity: .76; }
+.workflow-rehydration-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.workflow-rehydration-title span { font-size: .85rem; opacity: .68; }
+.workflow-rehydration-state {
+  flex: 0 0 auto;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: .74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.workflow-rehydration-state.ready { opacity: .72; }
+.workflow-rehydration-state.conflict { font-weight: 800; }
+
+@media (max-width: 720px) {
+  .workflow-rehydration { flex-direction: column; margin-inline: 10px; }
+  .workflow-rehydration-state { align-self: flex-start; }
+}
