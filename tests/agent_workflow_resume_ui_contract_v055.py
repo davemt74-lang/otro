@@ -16,15 +16,23 @@ ui = text("ui/agent-workflow-resume.js")
 css = text("ui/agent-workflow-resume.css")
 loader = text("ui/agent-workflow-continuation.js")
 packaged = text("tests/packaged_workflow_resume_v055.py")
+scan_regression = text("tests/agent_workflow_resume_scan_v055.py")
 workflow = text(".github/workflows/agent-workflow-resume-v055.yml")
 
 assert 'AGENT_WORKFLOW_RESUME_VERSION = "v0.55"' in service
+assert "MAX_RESUME_CONVERSATIONS = 50" in service
+assert "MAX_SCAN_CONVERSATIONS = 250" in service
 assert "agent_workflow_continuation.conversation_continuation" in service
 assert "c.status='active'" in service
 assert "EXISTS (" in service
 assert "p.status IN ('proposed','approved')" in service
+assert "MAX_SCAN_CONVERSATIONS" in service
+assert "result_limit = _bounded_limit(limit)" in service
+assert "visible_items = items[:result_limit]" in service
+assert "resumable_count = len(items)" in service
 assert "if exc.status_code in {403, 404}" in service
 assert "raise AgentWorkflowResumeError" in service
+assert "def _retryable_ids" in service
 assert "items.sort(" in service
 assert 'int(item.get("plan_id") or 0)' in service
 assert '"read_only": True' in service
@@ -86,9 +94,15 @@ assert "/api/v1/control/system/restart" in packaged
 assert "old_session.get(\"/api/v1/control/system\").status_code == 401" in packaged
 assert "Newer plain chat" in packaged
 
+assert "for index in range(60)" in scan_regression
+assert 'resume?limit=1' in scan_regression
+assert 'payload["suggested"]["conversation_id"] == resumable_conversation' in scan_regression
+assert 'payload["suggested"]["retryable_task_ids"] == [901]' in scan_regression
+
 assert "workflow-resume:" in workflow
 assert "packaged-resume:" in workflow
 assert "python tests/agent_workflow_resume_v055.py" in workflow
+assert "python tests/agent_workflow_resume_scan_v055.py" in workflow
 assert "python tests/agent_workflow_resume_ui_contract_v055.py" in workflow
 assert "python tests/packaged_workflow_resume_v055.py" in workflow
 assert "pyinstaller HomeServer.spec --clean --noconfirm" in workflow
