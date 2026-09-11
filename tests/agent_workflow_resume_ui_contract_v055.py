@@ -15,7 +15,8 @@ bridge = text("app/bridge.py")
 ui = text("ui/agent-workflow-resume.js")
 css = text("ui/agent-workflow-resume.css")
 loader = text("ui/agent-workflow-continuation.js")
-packaged = text("tests/packaged_lifecycle.py")
+packaged = text("tests/packaged_workflow_resume_v055.py")
+workflow = text(".github/workflows/agent-workflow-resume-v055.yml")
 
 assert 'AGENT_WORKFLOW_RESUME_VERSION = "v0.55"' in service
 assert "agent_workflow_continuation.conversation_continuation" in service
@@ -78,8 +79,18 @@ assert "/assets/agent-workflow-resume.js" in loader
 assert "data-agent-workflow-resume-v055" in loader
 assert "ensureResumeExtension" in loader
 
-assert "verify_workflow_resume" in packaged
-assert '"version"] == "v0.55"' in packaged
-assert "/api/v1/control/agent-workflows/resume" in packaged
+assert "verify_resume" in packaged
+assert 'payload["version"] == "v0.55"' in packaged
+assert "/api/v1/control/agent-workflows/resume?limit=50" in packaged
+assert "/api/v1/control/system/restart" in packaged
+assert "old_session.get(\"/api/v1/control/system\").status_code == 401" in packaged
+assert "Newer plain chat" in packaged
+
+assert "workflow-resume:" in workflow
+assert "packaged-resume:" in workflow
+assert "python tests/agent_workflow_resume_v055.py" in workflow
+assert "python tests/agent_workflow_resume_ui_contract_v055.py" in workflow
+assert "python tests/packaged_workflow_resume_v055.py" in workflow
+assert "pyinstaller HomeServer.spec --clean --noconfirm" in workflow
 
 print("HomeServer v0.55 Workflow Resume & Recovery UI/API contract passed")
