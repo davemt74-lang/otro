@@ -3,10 +3,23 @@
 
   const VERSION = 'v0.48';
   const HANDOFF_VERSION = 'v0.49';
+  const TIMELINE_VERSION = 'v0.50';
   const API = '/api/v1/control/agent-workflows';
   const byId = id => document.getElementById(id);
   const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const state = {policy: null, workers: [], tasks: [], handoffs: [], open: false, busy: false, handoffBusy: null};
+  const state = {
+    policy: null,
+    workers: [],
+    tasks: [],
+    handoffs: [],
+    timeline: [],
+    chatMessages: [],
+    open: false,
+    busy: false,
+    handoffBusy: null,
+    synthesisBusy: false,
+    synthesisSelection: new Set(),
+  };
 
   async function requestJson(path, options = {}) {
     const response = await fetch(path, {
@@ -88,9 +101,12 @@
           <label class="check-inline"><input id="agentWorkflowModelEnabled" type="checkbox"> Let Agents delegate tasks automatically</label>
           <label>Worker context<select id="agentWorkflowContext"><option value="8000">8k</option><option value="12000">12k</option><option value="16000">16k</option><option value="20000">20k</option><option value="24000">24k</option></select></label>
           <button class="button secondary" id="agentWorkflowSavePolicy" type="button">Save policy</button>
-          <small>One-hop only in v0.48. ${HANDOFF_VERSION} handoffs are explicit, bounded and consumed once.</small>
+          <small>One-hop only in v0.48. ${HANDOFF_VERSION} handoffs are explicit, bounded and consumed once. ${TIMELINE_VERSION} can prepare an exact 2–4-result synthesis set.</small>
         </div>
-        <div class="agent-workflow-history-head"><strong>Delegation activity</strong><button class="text-button" id="agentWorkflowRefresh" type="button">Refresh</button></div>
+        <div class="agent-workflow-history-head">
+          <div><strong>Delegation activity</strong><span id="agentWorkflowSynthesisCount" class="agent-synthesis-count"></span></div>
+          <div class="agent-workflow-history-actions"><button class="button secondary" id="agentWorkflowSynthesize" type="button">Synthesize selected</button><button class="text-button" id="agentWorkflowRefresh" type="button">Refresh</button></div>
+        </div>
         <div id="agentWorkflowTasks" class="agent-workflow-tasks"><div class="muted">No delegation tasks yet.</div></div>`;
       panel.insertBefore(workspace, messages);
     }
@@ -104,6 +120,11 @@
 
   function handoffForTask(taskId) {
     return state.handoffs.find(item => Number(item.task_id) === Number(taskId)) || null;
+  }
+
+  function synthesisEligible(item) {
+    const handoff = handoffForTask(item.id);
+    return Boolean(item.result && item.status === 'completed' && item.conversation_id && handoff?.status !== 'consumed');
   }
 
   function handoffMarkup(item) {
@@ -124,11 +145,22 @@
     return `<div class="agent-handoff-row"><span class="agent-handoff-state">${HANDOFF_VERSION} · one-shot result handoff</span><button class="button secondary agent-handoff-button" type="button" data-queue-handoff="${Number(item.id)}" ${state.handoffBusy ? 'disabled' : ''}>Use in parent chat</button></div>`;
   }
 
+  function synthesisMarkup(item) {
+    if (!synthesisEligible(item)) return '';
+    const checked = state.synthesisSelection.has(Number(item.id)) ? 'checked' : '';
+    return `<label class="agent-synthesis-select"><input type="checkbox" data-synthesis-task="${Number(item.id)}" ${checked} ${state.synthesisBusy ? 'disabled' : ''}><span>Include in parent synthesis</span></label>`;
+  }
+
   function render() {
     if (!ensureUi()) return;
     const parent = parentAgent();
     const parentNode = byId('agentWorkflowParent');
     if (parentNode) parentNode.textContent = parent ? `Parent: ${parent.name}` : 'Choose an Agent';
+
+    const eligibleIds = new Set(state.tasks.filter(synthesisEligible).map(item => Number(item.id)));
+    for (const taskId of [...state.synthesisSelection]) {
+      if (!eligibleIds.has(Number(taskId))) state.synthesisSelection.delete(Number(taskId));
+    }
 
     const worker = byId('agentWorkflowWorker');
     if (worker) {
@@ -153,6 +185,15 @@
       run.textContent = state.busy ? 'Specialist working…' : 'Run specialist';
     }
 
+    const selectedCount = state.synthesisSelection.size;
+    const synth = byId('agentWorkflowSynthesize');
+    const synthCount = byId('agentWorkflowSynthesisCount');
+    if (synth) {
+      synth.disabled = state.synthesisBusy || selectedCount < 2 || selectedCount > 4 || !activeConversationId();
+      synth.textContent = state.synthesisBusy ? 'Preparing synthesis…' : 'Synthesize selected';
+    }
+    if (synthCount) synthCount.textContent = selectedCount ? ` · ${selectedCount} selected` : '';
+
     const list = byId('agentWorkflowTasks');
     if (!list) return;
     if (!state.tasks.length) {
@@ -165,9 +206,69 @@
         <p>${esc(item.task)}</p>
         ${item.result ? `<div class="agent-workflow-result"><span>Result</span>${esc(item.result)}</div>` : ''}
         ${item.error ? `<div class="agent-workflow-error">${esc(item.error)}</div>` : ''}
+        ${synthesisMarkup(item)}
         ${handoffMarkup(item)}
         <small>Parent: ${esc(item.parent_agent_name || 'Agent')}${item.model ? ` · ${esc(item.model)}` : ''}</small>
       </article>`).join('');
+  }
+
+  function timelineLabel(event) {
+    const labels = {
+      delegation_queued: 'Delegated',
+      delegation_started: 'Specialist working',
+      delegation_completed: 'Specialist completed',
+      delegation_failed: 'Specialist failed',
+      delegation_cancelled: 'Delegation cancelled',
+      handoff_queued: 'Result queued for parent',
+      handoff_revoked: 'Result handoff cancelled',
+      handoff_consumed: 'Result used by parent',
+      synthesis_prepared: 'Synthesis prepared',
+      parent_synthesis: 'Parent synthesis completed',
+    };
+    return labels[event.event_type] || 'Workflow event';
+  }
+
+  function timelineEventNode(event) {
+    const article = document.createElement('article');
+    article.className = `agent-workflow-inline-event event-${String(event.event_type || '').replace(/[^a-z0-9_-]/gi, '')}`;
+    article.dataset.workflowTimeline = TIMELINE_VERSION;
+    const names = event.event_type === 'parent_synthesis'
+      ? (event.metadata?.worker_names || []).join(', ')
+      : (event.worker_agent_name || '');
+    const detail = event.event_type === 'synthesis_prepared'
+      ? `${Number(event.metadata?.count || 0)} specialist results prepared for the parent Agent.`
+      : event.event_type === 'parent_synthesis'
+        ? `${Number(event.metadata?.count || 0)} specialist results were consumed in parent run ${Number(event.run_id || 0)}.`
+        : event.task || '';
+    const result = event.result ? `<div class="agent-workflow-inline-result">${esc(event.result)}</div>` : '';
+    const redacted = event.metadata?.result_redacted ? '<small>Result hidden because current access no longer authorizes it.</small>' : '';
+    article.innerHTML = `<div class="agent-workflow-inline-head"><strong>${esc(timelineLabel(event))}</strong><span>${esc(names)}</span></div>${detail ? `<p>${esc(detail)}</p>` : ''}${result}${redacted}`;
+    return article;
+  }
+
+  function renderTimeline() {
+    const node = byId('chatMessages');
+    if (!node) return;
+    node.querySelectorAll('.agent-workflow-inline-event').forEach(item => item.remove());
+    if (!state.timeline.length || !activeConversationId()) return;
+    const empty = node.querySelector('.chat-empty');
+    if (empty) empty.remove();
+
+    const messageNodes = [...node.querySelectorAll(':scope > .chat-message')];
+    const messageTimes = state.chatMessages.map(item => Date.parse(item.created_at || '') || 0);
+    const canInterleave = messageNodes.length === state.chatMessages.length;
+    for (const event of state.timeline) {
+      const card = timelineEventNode(event);
+      if (!canInterleave) {
+        node.appendChild(card);
+        continue;
+      }
+      const eventTime = Date.parse(event.sort_at || '') || 0;
+      const beforeIndex = messageTimes.findIndex(value => value > eventTime);
+      if (beforeIndex >= 0 && messageNodes[beforeIndex]) node.insertBefore(card, messageNodes[beforeIndex]);
+      else node.appendChild(card);
+    }
+    node.scrollTop = node.scrollHeight;
   }
 
   async function loadPolicy() {
@@ -198,14 +299,37 @@
     state.handoffs = Array.isArray(payload.items) ? payload.items : [];
   }
 
+  async function loadTimeline() {
+    const conversationId = activeConversationId();
+    if (!conversationId) {
+      state.timeline = [];
+      state.chatMessages = [];
+      return;
+    }
+    const [timeline, conversation] = await Promise.all([
+      requestJson(`${API}/timeline?conversation_id=${encodeURIComponent(conversationId)}&limit=200`),
+      requestJson(`/api/v1/control/conversations/${encodeURIComponent(conversationId)}`),
+    ]);
+    if (activeConversationId() !== conversationId) return;
+    state.timeline = Array.isArray(timeline.items) ? timeline.items : [];
+    state.chatMessages = Array.isArray(conversation.messages) ? conversation.messages : [];
+  }
+
   async function refresh() {
     if (!ensureUi()) return;
     try {
-      await Promise.all([loadPolicy(), loadWorkers(), loadTasks(), loadHandoffs()]);
+      await Promise.all([loadPolicy(), loadWorkers(), loadTasks(), loadHandoffs(), loadTimeline()]);
       render();
+      renderTimeline();
     } catch (error) {
       flash(error.message, true);
     }
+  }
+
+  async function refreshWorkflowState() {
+    await Promise.all([loadTasks(), loadHandoffs(), loadTimeline()]);
+    render();
+    renderTimeline();
   }
 
   async function runDelegation(event) {
@@ -238,10 +362,11 @@
       state.tasks = [completed, ...state.tasks.filter(item => Number(item.id) !== Number(completed.id))];
       const input = byId('agentWorkflowTask');
       if (input) input.value = '';
+      await refreshWorkflowState();
       flash(`${completed.worker_agent_name} completed the delegated task.`);
     } catch (error) {
       flash(error.message, true);
-      await loadTasks().catch(() => null);
+      await refreshWorkflowState().catch(() => null);
     } finally {
       state.busy = false;
       render();
@@ -255,6 +380,8 @@
     try {
       const handoff = await requestJson(`${API}/delegations/${encodeURIComponent(taskId)}/handoff`, {method: 'POST'});
       state.handoffs = [handoff, ...state.handoffs.filter(item => Number(item.id) !== Number(handoff.id))];
+      await loadTimeline();
+      renderTimeline();
       flash(`${handoff.worker_agent_name}'s result will be provided to the parent Agent on the next message.`);
     } catch (error) {
       flash(error.message, true);
@@ -272,12 +399,44 @@
     try {
       const handoff = await requestJson(`${API}/handoffs/${encodeURIComponent(handoffId)}/revoke`, {method: 'POST'});
       state.handoffs = [handoff, ...state.handoffs.filter(item => Number(item.id) !== Number(handoff.id))];
+      await loadTimeline();
+      renderTimeline();
       flash('Specialist result handoff cancelled.');
     } catch (error) {
       flash(error.message, true);
       await loadHandoffs().catch(() => null);
     } finally {
       state.handoffBusy = null;
+      render();
+    }
+  }
+
+  async function prepareSynthesis() {
+    if (state.synthesisBusy) return;
+    const conversationId = activeConversationId();
+    const taskIds = [...state.synthesisSelection].map(Number).filter(value => value > 0);
+    if (!conversationId || taskIds.length < 2 || taskIds.length > 4) return;
+    state.synthesisBusy = true;
+    render();
+    try {
+      const prepared = await requestJson(`${API}/synthesis`, {
+        method: 'POST',
+        body: JSON.stringify({conversation_id: conversationId, task_ids: taskIds}),
+      });
+      state.synthesisSelection.clear();
+      await Promise.all([loadHandoffs(), loadTimeline()]);
+      render();
+      renderTimeline();
+      const input = byId('chatInput');
+      if (input) {
+        input.focus();
+        input.placeholder = 'Ask the parent Agent to synthesize the prepared specialist results…';
+      }
+      flash(`${Number(prepared.count || taskIds.length)} specialist results are ready for the parent Agent's next message.`);
+    } catch (error) {
+      flash(error.message, true);
+    } finally {
+      state.synthesisBusy = false;
       render();
     }
   }
@@ -318,9 +477,31 @@
       revokeHandoff(Number(revoke.dataset.revokeHandoff));
       return;
     }
+    if (event.target.closest('#agentWorkflowSynthesize')) {
+      prepareSynthesis();
+      return;
+    }
     if (event.target.closest('#agentWorkflowRefresh')) refresh();
     if (event.target.closest('#agentWorkflowSavePolicy')) savePolicy();
-    if (event.target.closest('[data-view="chat"], [data-go="chat"]') && state.open) setTimeout(refresh, 0);
+    if (event.target.closest('[data-view="chat"], [data-go="chat"]')) setTimeout(() => loadTimeline().then(renderTimeline).catch(() => null), 0);
+  });
+
+  document.addEventListener('change', event => {
+    const checkbox = event.target.closest('[data-synthesis-task]');
+    if (!checkbox) return;
+    const taskId = Number(checkbox.dataset.synthesisTask || 0);
+    if (!taskId) return;
+    if (checkbox.checked) {
+      if (state.synthesisSelection.size >= 4) {
+        checkbox.checked = false;
+        flash('A parent synthesis can include at most four specialist results.', true);
+        return;
+      }
+      state.synthesisSelection.add(taskId);
+    } else {
+      state.synthesisSelection.delete(taskId);
+    }
+    render();
   });
 
   document.addEventListener('submit', event => {
@@ -328,13 +509,26 @@
   });
 
   window.addEventListener('homeserver:chat-agent-changed', () => {
+    state.synthesisSelection.clear();
+    loadTimeline().then(renderTimeline).catch(() => null);
     if (state.open) refresh();
   });
 
-  const chatObserver = new MutationObserver(() => {
-    if (!state.open) return;
+  const chatObserver = new MutationObserver(mutations => {
+    const changedOnlyTimeline = mutations.every(mutation => {
+      const nodes = [...mutation.addedNodes, ...mutation.removedNodes].filter(node => node.nodeType === 1);
+      return nodes.length && nodes.every(node => node.classList?.contains('agent-workflow-inline-event'));
+    });
+    if (changedOnlyTimeline) return;
     clearTimeout(chatObserver._refreshTimer);
-    chatObserver._refreshTimer = setTimeout(() => Promise.all([loadTasks(), loadHandoffs()]).then(render).catch(() => null), 120);
+    chatObserver._refreshTimer = setTimeout(async () => {
+      await loadTimeline().catch(() => null);
+      renderTimeline();
+      if (state.open) {
+        await Promise.all([loadTasks(), loadHandoffs()]).catch(() => null);
+        render();
+      }
+    }, 120);
   });
 
   function boot() {
@@ -342,9 +536,16 @@
     ensureUi();
     const messages = byId('chatMessages');
     if (messages) chatObserver.observe(messages, {childList: true, subtree: true});
+    if (activeConversationId()) loadTimeline().then(renderTimeline).catch(() => null);
   }
 
-  window.HomeServerAgentWorkflows = Object.freeze({version: VERSION, handoffVersion: HANDOFF_VERSION, refresh});
+  window.HomeServerAgentWorkflows = Object.freeze({
+    version: VERSION,
+    handoffVersion: HANDOFF_VERSION,
+    timelineVersion: TIMELINE_VERSION,
+    refresh,
+    renderTimeline,
+  });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
 })();
