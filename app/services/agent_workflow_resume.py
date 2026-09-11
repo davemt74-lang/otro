@@ -30,18 +30,16 @@ def _candidate_conversations(source_app_key: str) -> list[dict[str, Any]]:
     with db() as connection:
         rows = connection.execute(
             """
-            SELECT c.id, c.title, c.updated_at
+            SELECT c.id, c.title, c.updated_at, MAX(p.id) AS latest_plan_id
             FROM conversations c
+            JOIN agent_team_plans p
+              ON p.source_app_key=c.source_app_key
+             AND p.conversation_id=c.id
+             AND p.status IN ('proposed','approved')
             WHERE c.source_app_key=?
               AND c.status='active'
-              AND EXISTS (
-                  SELECT 1
-                  FROM agent_team_plans p
-                  WHERE p.source_app_key=c.source_app_key
-                    AND p.conversation_id=c.id
-                    AND p.status IN ('proposed','approved')
-              )
-            ORDER BY c.updated_at DESC, c.created_at DESC, c.id DESC
+            GROUP BY c.id, c.title, c.updated_at
+            ORDER BY latest_plan_id DESC, c.id DESC
             LIMIT ?
             """,
             (source_app_key, MAX_SCAN_CONVERSATIONS),
@@ -103,7 +101,9 @@ def resume_index(
     # Candidate scanning is intentionally independent from the requested result
     # count. Approved plans can remain in storage after their derived v0.53 state
     # becomes terminal, so filtering only the first N candidates could hide an
-    # older still-resumable workflow behind newer completed threads.
+    # older still-resumable workflow behind newer completed threads. Candidates
+    # are ranked by Plan id rather than conversation activity because creating a
+    # v0.52 Team Plan does not mutate conversations.updated_at.
     for row in _candidate_conversations(source):
         try:
             continuation = agent_workflow_continuation.conversation_continuation(
