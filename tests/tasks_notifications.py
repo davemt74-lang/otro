@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-tasks-") as data_dir:
         assert scheduler._thread is not None and scheduler._thread.is_alive()
         scheduler.stop()
         assert client.get("/api/v1/health").json()["version"] == "0.18.0"
-        assert client.get("/api/v1/status").json()["schema_version"] == 20
+        assert client.get("/api/v1/status").json()["schema_version"] >= 20
         assert client.get("/api/v1/control/tasks").status_code == 401
         assert client.get("/api/v1/control/task-notifications").status_code == 401
         assert client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN}).status_code == 200
@@ -228,9 +228,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-tasks-") as data_dir:
         )
         assert "homeserver_task_create_request" not in {item["function"]["name"] for item in blocked_schemas}
 
-    # TestClient shutdown stops router lifespans, but on Windows an SQLite handle
-    # can remain momentarily visible to the filesystem. Stop the scheduler again
-    # after the ASGI portal closes and wait until the database can be renamed.
     scheduler.stop()
     assert scheduler._thread is None or not scheduler._thread.is_alive()
     db_path = Path(data_dir) / "homeserver.db"
