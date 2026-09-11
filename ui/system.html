@@ -27,6 +27,19 @@
       <div class="diagnostic-grid" id="diagnosticGrid"><div class="diagnostic-card"><span>Loading diagnostics…</span></div></div>
     </section>
 
+    <section class="system-section" id="commercePaymentsSection">
+      <div class="section-intro split"><div><p class="eyebrow">COMMERCE PAYMENTS · v0.60</p><h2>Optional local payment authority</h2><p>VP3 Cloud can process commerce without HomeServer. Configure Stripe here only when you want this HomeServer to hold the merchant Stripe credentials and execute selected VP3 commerce payments locally.</p></div><span class="setup-state" id="stripePaymentState">Checking…</span></div>
+      <div class="runtime-panel commerce-payment-panel">
+        <div class="commerce-payment-copy"><strong>Stripe</strong><p class="muted">Secrets stay in HomeServer's protected local credential store. VP3 receives normalized checkout, payment, webhook and refund results—not these credentials or card data.</p><p class="muted" id="stripePaymentDetails"></p></div>
+        <div class="commerce-payment-fields">
+          <label><span>Stripe secret key</span><input id="stripeSecretKey" type="password" maxlength="512" autocomplete="off" placeholder="sk_live_… or sk_test_…"></label>
+          <label><span>Webhook signing secret</span><input id="stripeWebhookSecret" type="password" maxlength="512" autocomplete="off" placeholder="whsec_…"></label>
+        </div>
+        <div class="runtime-actions commerce-payment-actions"><button class="button primary" id="saveStripePayments" type="button">Save Stripe</button><button class="button secondary" id="verifyStripePayments" type="button">Verify account</button><button class="text-button danger" id="clearStripePayments" type="button">Remove local Stripe</button></div>
+        <p class="muted commerce-payment-note">Local HomeServer Stripe currently rejects offers that require a VP3 platform fee. Those offers must use a compatible cloud payment authority until local platform-fee routing is explicitly supported. A payment attempt never silently switches authority after checkout begins.</p>
+      </div>
+    </section>
+
     <section class="system-section">
       <div class="section-intro"><div><p class="eyebrow">WINDOWS</p><h2>Runtime controls</h2><p>These controls operate the installed local application only. They are not part of the VP3 pairing permission catalog.</p></div></div>
       <div class="runtime-panel">
