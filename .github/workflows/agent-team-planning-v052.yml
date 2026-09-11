@@ -17,6 +17,7 @@ on:
       - 'ui/agent-team-planning.css'
       - 'ui/agent-team-runs.js'
       - 'tests/agent_team_planning_v052.py'
+      - 'tests/agent_team_planning_privacy_v052.py'
       - 'tests/agent_team_planning_ui_contract_v052.py'
       - 'tests/agent_team_runs_v051.py'
       - 'tests/packaged_lifecycle.py'
@@ -38,6 +39,7 @@ on:
       - 'ui/agent-team-planning.css'
       - 'ui/agent-team-runs.js'
       - 'tests/agent_team_planning_v052.py'
+      - 'tests/agent_team_planning_privacy_v052.py'
       - 'tests/agent_team_planning_ui_contract_v052.py'
       - 'tests/agent_team_runs_v051.py'
       - 'tests/packaged_lifecycle.py'
@@ -64,11 +66,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Agent Team Planning backend
-        run: python -m compileall app/bridge.py app/team_planning_api.py app/services/agent_team_planning.py tests/agent_team_planning_v052.py tests/agent_team_planning_ui_contract_v052.py
+        run: python -m compileall app/bridge.py app/team_planning_api.py app/services/agent_team_planning.py tests/agent_team_planning_v052.py tests/agent_team_planning_privacy_v052.py tests/agent_team_planning_ui_contract_v052.py
       - name: Validate Agent Team Planning JavaScript
         run: node --check ui/agent-routing.js && node --check ui/agent-team-planning.js && node --check ui/agent-team-runs.js
       - name: Agent Team Planning regression
         run: python tests/agent_team_planning_v052.py
+      - name: Agent Team Planning approval privacy-race regression
+        run: python tests/agent_team_planning_privacy_v052.py
       - name: Agent Team Planning UI API package contract
         run: python tests/agent_team_planning_ui_contract_v052.py
       - name: Retain v0.51 Agent Team Runs regression
