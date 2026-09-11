@@ -24,8 +24,10 @@ assert "MAX_RESUME_CONVERSATIONS = 50" in service
 assert "MAX_SCAN_CONVERSATIONS = 250" in service
 assert "agent_workflow_continuation.conversation_continuation" in service
 assert "c.status='active'" in service
-assert "EXISTS (" in service
+assert "JOIN agent_team_plans p" in service
 assert "p.status IN ('proposed','approved')" in service
+assert "MAX(p.id) AS latest_plan_id" in service
+assert "ORDER BY latest_plan_id DESC" in service
 assert "MAX_SCAN_CONVERSATIONS" in service
 assert "result_limit = _bounded_limit(limit)" in service
 assert "visible_items = items[:result_limit]" in service
