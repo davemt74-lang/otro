@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator
 
-from . import agent_routing, agent_tools, context_chat
+from . import agent_routing, agent_tools, brain, context_chat
 
 _CURRENT_PARENT_AGENT_ID: ContextVar[int | None] = ContextVar("agent_workflow_parent_agent_id", default=None)
 _CURRENT_CONVERSATION_ID: ContextVar[str | None] = ContextVar("agent_workflow_conversation_id", default=None)
@@ -40,8 +40,26 @@ def install() -> None:
     _INSTALLED = True
 
     original_chat = context_chat.chat
+    original_conversation_for_source = brain._conversation_for_source
     original_schemas = agent_tools.model_tool_schemas
     original_execute = agent_tools.execute_model_tool
+
+    def workflow_conversation_for_source(
+        source_app_key: str,
+        conversation_id: str | None,
+        agent_id: int,
+        title_seed: str,
+    ) -> str:
+        resolved = original_conversation_for_source(
+            source_app_key,
+            conversation_id,
+            agent_id,
+            title_seed,
+        )
+        parent_agent_id = current_parent_agent_id()
+        if parent_agent_id is not None and int(parent_agent_id) == int(agent_id):
+            _CURRENT_CONVERSATION_ID.set(str(resolved))
+        return resolved
 
     def scoped_chat(
         source_app_key: str,
@@ -148,6 +166,7 @@ def install() -> None:
         except agent_workflows.AgentWorkflowError as exc:
             raise agent_tools.AgentToolError(str(exc)) from exc
 
+    brain._conversation_for_source = workflow_conversation_for_source
     context_chat.chat = scoped_chat
     agent_tools.model_tool_schemas = workflow_schemas
     agent_tools.execute_model_tool = workflow_execute
