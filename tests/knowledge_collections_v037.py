@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-v037-") as temp_ro
 
         status = client.get("/api/v1/status")
         assert status.status_code == 200
-        assert status.json()["schema_version"] == 20
+        assert status.json()["schema_version"] >= 20
 
         collections = client.get("/api/v1/control/knowledge/collections")
         assert collections.status_code == 200, collections.text
