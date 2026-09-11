@@ -32,13 +32,21 @@ def _safe_counts(item: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def _retryable_ids(item: dict[str, Any]) -> list[int]:
+    values = (item.get("team_run") or {}).get("retryable_task_ids") or []
+    ids: list[int] = []
+    for value in values:
+        try:
+            task_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if task_id > 0 and task_id not in ids:
+            ids.append(task_id)
+    return ids
+
+
 def _safe_item(item: dict[str, Any]) -> dict[str, Any]:
     next_action = item.get("next_action") if isinstance(item.get("next_action"), dict) else {}
-    retry_ids = [
-        int(value)
-        for value in ((item.get("team_run") or {}).get("retryable_task_ids") or [])
-        if int(value) > 0
-    ]
     return {
         "plan_id": int(item["plan_id"]),
         "team_run_id": int(item["team_run_id"]) if item.get("team_run_id") is not None else None,
@@ -53,7 +61,7 @@ def _safe_item(item: dict[str, Any]) -> dict[str, Any]:
         },
         "requires_explicit_action": bool(item.get("requires_explicit_action")),
         "counts": _safe_counts(item),
-        "retryable_task_ids": retry_ids,
+        "retryable_task_ids": _retryable_ids(item),
     }
 
 
@@ -70,10 +78,21 @@ def conversation_continuation(
         raise AgentWorkflowContinuationError("Conversation id is required.")
     try:
         binding = agent_routing.conversation_binding(source, conversation)
+        if not binding.get("available") or not binding.get("agent"):
+            raise AgentWorkflowContinuationError(
+                "This conversation's parent Agent is no longer available.",
+                409,
+            )
+        parent_id = int(binding["agent"]["id"])
+        # conversation_binding provides source isolation. Re-resolving the Agent
+        # and validating the conversation adds live grant + active-status checks,
+        # so a revoked secondary persona or archived thread fails closed.
+        parent = agent_routing.resolve_agent(source, parent_id, owner=owner)
+        agent_routing.validate_conversation_agent(source, conversation, int(parent["id"]))
+    except AgentWorkflowContinuationError:
+        raise
     except agent_routing.AgentRoutingError as exc:
         raise AgentWorkflowContinuationError(str(exc), exc.status_code) from exc
-    if not binding.get("available") or not binding.get("agent"):
-        raise AgentWorkflowContinuationError("This conversation's parent Agent is no longer available.", 409)
 
     try:
         payload = agent_team_orchestration.list_orchestrations(
@@ -90,20 +109,18 @@ def conversation_continuation(
     safe_items = [_safe_item(item) for item in items]
     active = [item for item in safe_items if str(item.get("status") or "") not in TERMINAL_STATUSES]
     terminal = [item for item in safe_items if str(item.get("status") or "") in TERMINAL_STATUSES]
-    current = active[0] if active else None
-    latest_terminal = terminal[0] if terminal else None
 
     return {
         "version": AGENT_WORKFLOW_CONTINUATION_VERSION,
         "conversation_id": conversation,
         "parent": {
-            "id": int(binding["agent"]["id"]),
-            "name": str(binding["agent"].get("name") or "Agent")[:120],
+            "id": int(parent["id"]),
+            "name": str(parent.get("name") or "Agent")[:120],
         },
         "active_count": len(active),
         "workflow_count": len(safe_items),
-        "current": current,
-        "latest_terminal": latest_terminal,
+        "current": active[0] if active else None,
+        "latest_terminal": terminal[0] if terminal else None,
         "read_only": True,
         "auto_executes": False,
         "actions_via": agent_team_orchestration.AGENT_TEAM_ORCHESTRATION_VERSION,
