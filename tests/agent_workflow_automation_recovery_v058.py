@@ -189,7 +189,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-automation-re
     def in_progress_supervision(*args, **kwargs):
         return {
             "version": "v0.57",
-            "supervision_id": 999,
+            "supervision_id": None,
             "status": "running",
             "in_progress": True,
             "actions_executed": 0,
