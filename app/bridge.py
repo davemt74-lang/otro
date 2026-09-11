@@ -40,6 +40,7 @@ from .system_api import router as system_router
 from .tasks_api import router as tasks_router
 from .tools_api import router as tools_router
 from .usage_api import router as usage_router
+from .workflow_timeline_api import router as workflow_timeline_router
 
 
 class PairStatusRequest(BaseModel):
@@ -64,6 +65,7 @@ app.include_router(agents_router)
 app.include_router(agent_routing_router)
 app.include_router(delegation_router)
 app.include_router(handoffs_router)
+app.include_router(workflow_timeline_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(action_policy_router)
@@ -142,6 +144,15 @@ def capabilities() -> dict:
             "context_budgeted": True,
             "requires_agent_workflows": "v0.48",
         },
+        "agent_workflow_timeline": {
+            "version": "v0.50",
+            "conversation_timeline": True,
+            "batch_synthesis": True,
+            "max_synthesis_results": 4,
+            "atomic_prepare": True,
+            "paired_app_scoped": True,
+            "requires_agent_handoffs": "v0.49",
+        },
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -185,6 +196,8 @@ def capabilities() -> dict:
             "agent.workflows.v048",
             "agent.workflows.model_delegate",
             "agent.handoffs.v049",
+            "agent.workflows.timeline.v050",
+            "agent.workflows.synthesis.v050",
             "agent.context",
             "agent.context.awareness",
             "agent.context.budget",
