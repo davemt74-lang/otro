@@ -57,7 +57,6 @@ DEFINITIONS = {
                 "guest_email": {"type": "string", "maxLength": 254},
                 "guest_timezone": {"type": "string", "maxLength": 100},
                 "routing_answer": {"type": "string", "maxLength": 500},
-                "idempotency_key": {"type": "string", "maxLength": 160},
             },
             "required": ["kind", "target_id", "start_at_utc", "guest_name"],
             "additionalProperties": False,
@@ -74,7 +73,6 @@ DEFINITIONS = {
             "properties": {
                 "booking_id": {"type": "integer", "minimum": 1},
                 "start_at_utc": {"type": "string", "minLength": 16, "maxLength": 40},
-                "idempotency_key": {"type": "string", "maxLength": 160},
             },
             "required": ["booking_id", "start_at_utc"],
             "additionalProperties": False,
@@ -92,7 +90,6 @@ DEFINITIONS = {
                 "kind": {"type": "string", "enum": ["personal", "team"]},
                 "booking_id": {"type": "integer", "minimum": 1},
                 "target_id": {"type": "integer", "minimum": 1},
-                "idempotency_key": {"type": "string", "maxLength": 160},
             },
             "required": ["kind", "booking_id"],
             "additionalProperties": False,
@@ -126,6 +123,13 @@ SKILLS = (
         ],
     },
 )
+
+
+def _connector_ready() -> bool:
+    try:
+        return bool(connector.status().get("configured"))
+    except Exception:
+        return False
 
 
 def _positive_int(value: Any, name: str) -> int:
@@ -207,6 +211,26 @@ def install() -> None:
         if not any(item.get("key") == skill["key"] for item in tools.SKILL_DEFINITIONS):
             tools.SKILL_DEFINITIONS = (*tools.SKILL_DEFINITIONS, skill)
 
+    original_list_tools = tools.list_tools
+
+    def list_tools(granted_permissions: set[str] | None = None, *, owner: bool = False) -> list[dict[str, Any]]:
+        items = original_list_tools(granted_permissions, owner=owner)
+        ready = _connector_ready()
+        if ready:
+            return items
+        result: list[dict[str, Any]] = []
+        for item in items:
+            if item.get("key") in SCHEDULING_KEYS:
+                current = dict(item)
+                current["available"] = False
+                current["runtime_unavailable"] = True
+                current["runtime_reason"] = "VP3 scheduling connector is not configured."
+                result.append(current)
+            else:
+                result.append(item)
+        return result
+
+    tools.list_tools = list_tools
     original_meta = tools._safe_argument_metadata
 
     def safe_meta(key: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -246,6 +270,8 @@ def install() -> None:
                 granted_permissions,
                 owner=owner,
             )
+        if not _connector_ready():
+            raise tools.ToolError("VP3 scheduling connector is not configured.", 409)
         tool = tools._tool_definition(tool_key)
         source = source_app_key.strip() or ("owner" if owner else "app:unknown")
         actor = "owner" if owner else "app"
