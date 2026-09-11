@@ -14,6 +14,7 @@ on:
       - 'ui/system.css'
       - 'tests/vp3_commerce_payments_v060.py'
       - 'tests/vp3_commerce_payments_v060_static.py'
+      - 'tests/vp3_commerce_payments_v060_audit.py'
       - 'tests/packaged_commerce_payments_v060.py'
       - '.github/workflows/vp3-commerce-payments-v060.yml'
   push:
@@ -30,6 +31,7 @@ on:
       - 'ui/system.css'
       - 'tests/vp3_commerce_payments_v060.py'
       - 'tests/vp3_commerce_payments_v060_static.py'
+      - 'tests/vp3_commerce_payments_v060_audit.py'
       - 'tests/packaged_commerce_payments_v060.py'
       - '.github/workflows/vp3-commerce-payments-v060.yml'
 
@@ -51,11 +53,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile commerce payment integration
-        run: python -m compileall app/payments_api.py app/system_api.py app/services/pairing.py app/services/stripe_payment_secrets.py app/services/stripe_commerce_payments.py app/services/vp3_commerce_remote.py tests/vp3_commerce_payments_v060.py tests/vp3_commerce_payments_v060_static.py tests/packaged_commerce_payments_v060.py
+        run: python -m compileall app/payments_api.py app/system_api.py app/services/pairing.py app/services/stripe_payment_secrets.py app/services/stripe_commerce_payments.py app/services/vp3_commerce_remote.py tests/vp3_commerce_payments_v060.py tests/vp3_commerce_payments_v060_static.py tests/vp3_commerce_payments_v060_audit.py tests/packaged_commerce_payments_v060.py
       - name: Validate System UI JavaScript
         run: node --check ui/system.js
       - name: VP3 commerce payment static safety
         run: python tests/vp3_commerce_payments_v060_static.py
+      - name: VP3 commerce payment audit privacy
+        run: python tests/vp3_commerce_payments_v060_audit.py
       - name: VP3 commerce payment regression
         run: python tests/vp3_commerce_payments_v060.py
       - name: Retain pairing and Connected Apps regression
