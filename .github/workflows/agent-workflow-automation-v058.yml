@@ -9,13 +9,15 @@ on:
       - 'app/workflow_supervision_api.py'
       - 'app/workflow_automation_api.py'
       - 'app/services/agent_workflow_automation.py'
+      - 'app/services/agent_workflow_automation_runtime.py'
       - 'app/services/agent_workflow_supervision.py'
       - 'app/services/agent_workflow_rehydration.py'
-      - 'database/migrations/022_agent_workflow_automation.sql'
+      - 'database/agent_workflow_automation.sql'
       - 'ui/agent-workflow-supervision.js'
       - 'ui/agent-workflow-automation.js'
       - 'ui/agent-workflow-automation.css'
       - 'tests/agent_workflow_automation_v058.py'
+      - 'tests/agent_workflow_automation_recovery_v058.py'
       - 'tests/agent_workflow_automation_lifespan_v058.py'
       - 'tests/agent_workflow_automation_schema_v058.py'
       - 'tests/agent_workflow_automation_ui_contract_v058.py'
@@ -30,13 +32,15 @@ on:
       - 'app/workflow_supervision_api.py'
       - 'app/workflow_automation_api.py'
       - 'app/services/agent_workflow_automation.py'
+      - 'app/services/agent_workflow_automation_runtime.py'
       - 'app/services/agent_workflow_supervision.py'
       - 'app/services/agent_workflow_rehydration.py'
-      - 'database/migrations/022_agent_workflow_automation.sql'
+      - 'database/agent_workflow_automation.sql'
       - 'ui/agent-workflow-supervision.js'
       - 'ui/agent-workflow-automation.js'
       - 'ui/agent-workflow-automation.css'
       - 'tests/agent_workflow_automation_v058.py'
+      - 'tests/agent_workflow_automation_recovery_v058.py'
       - 'tests/agent_workflow_automation_lifespan_v058.py'
       - 'tests/agent_workflow_automation_schema_v058.py'
       - 'tests/agent_workflow_automation_ui_contract_v058.py'
@@ -64,14 +68,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Workflow Automation backend
-        run: python -m compileall app/workflow_automation_api.py app/workflow_supervision_api.py app/services/agent_workflow_automation.py tests/agent_workflow_automation_v058.py tests/agent_workflow_automation_lifespan_v058.py tests/agent_workflow_automation_schema_v058.py tests/agent_workflow_automation_ui_contract_v058.py
+        run: python -m compileall app/workflow_automation_api.py app/workflow_supervision_api.py app/services/agent_workflow_automation.py app/services/agent_workflow_automation_runtime.py tests/agent_workflow_automation_v058.py tests/agent_workflow_automation_recovery_v058.py tests/agent_workflow_automation_lifespan_v058.py tests/agent_workflow_automation_schema_v058.py tests/agent_workflow_automation_ui_contract_v058.py
       - name: Validate Workflow Automation JavaScript
         run: node --check ui/agent-workflow-automation.js && node --check ui/agent-workflow-supervision.js && node --check ui/agent-workflow-rehydration.js
       - name: Workflow Automation regression
         run: python tests/agent_workflow_automation_v058.py
+      - name: Workflow Automation crash-window recovery
+        run: python tests/agent_workflow_automation_recovery_v058.py
       - name: Workflow Automation API/lifespan
         run: python tests/agent_workflow_automation_lifespan_v058.py
-      - name: Workflow Automation schema upgrade/idempotency
+      - name: Workflow Automation feature-schema upgrade/idempotency
         run: python tests/agent_workflow_automation_schema_v058.py
       - name: Workflow Automation UI API contract
         run: python tests/agent_workflow_automation_ui_contract_v058.py
