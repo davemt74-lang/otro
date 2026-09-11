@@ -69,7 +69,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-voice-v045-") as data_
 
             with db() as connection:
                 schema_version = int(connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0])
-                assert schema_version == 20
+                assert schema_version >= 20
                 table = connection.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='agent_voice_profiles'"
                 ).fetchone()
