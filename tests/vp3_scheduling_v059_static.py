@@ -15,7 +15,7 @@ for key in ("vp3.booking.create", "vp3.booking.reschedule", "vp3.booking.cancel"
     assert key in policy
 assert "APPROVAL_ONLY_WRITE_TOOLS" in policy
 assert 'payload.pop("idempotency_key", None)' in approvals
-assert '"hs-action-" + uuid.uuid4().hex' in approvals
+assert 'payload["idempotency_key"] = "hs-action-" + uuid.uuid4().hex' in approvals
 assert "http://example.com" not in connector
 assert 'parsed.scheme != "https"' in connector
 assert "follow_redirects=False" in connector
