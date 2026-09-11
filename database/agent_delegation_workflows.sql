@@ -12,7 +12,7 @@ VALUES (1, 0, 12000);
 CREATE TABLE IF NOT EXISTS agent_delegation_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_app_key TEXT NOT NULL,
-    parent_agent_id INTEGER NOT NULL,
+    parent_agent_id INTEGER,
     worker_agent_id INTEGER,
     parent_agent_name TEXT NOT NULL,
     worker_agent_name TEXT NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS agent_delegation_tasks (
     started_at TEXT,
     completed_at TEXT,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (parent_agent_id) REFERENCES agents(id) ON DELETE RESTRICT,
+    FOREIGN KEY (parent_agent_id) REFERENCES agents(id) ON DELETE SET NULL,
     FOREIGN KEY (worker_agent_id) REFERENCES agents(id) ON DELETE SET NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL,
     FOREIGN KEY (agent_run_id) REFERENCES agent_runs(id) ON DELETE SET NULL
