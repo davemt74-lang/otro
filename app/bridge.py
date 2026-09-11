@@ -38,6 +38,7 @@ from .services.local_files_remote import install as install_local_files_remote_o
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .tasks_api import router as tasks_router
+from .team_planning_api import router as team_planning_router
 from .team_runs_api import router as team_runs_router
 from .tools_api import router as tools_router
 from .usage_api import router as usage_router
@@ -68,6 +69,7 @@ app.include_router(delegation_router)
 app.include_router(handoffs_router)
 app.include_router(workflow_timeline_router)
 app.include_router(team_runs_router)
+app.include_router(team_planning_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(action_policy_router)
@@ -167,6 +169,20 @@ def capabilities() -> dict:
             "paired_app_scoped": True,
             "requires_workflow_timeline": "v0.50",
         },
+        "agent_team_planning": {
+            "version": "v0.52",
+            "min_members": 2,
+            "max_members": 4,
+            "proposal_only": True,
+            "editable_before_approval": True,
+            "explicit_approval": True,
+            "atomic_approval": True,
+            "auto_execute": False,
+            "privacy_routed": True,
+            "paired_app_scoped": True,
+            "nested_delegation": False,
+            "requires_team_runs": "v0.51",
+        },
         "action_policy": {
             "version": "v0.35",
             "operation": "tools.list",
@@ -214,6 +230,8 @@ def capabilities() -> dict:
             "agent.workflows.synthesis.v050",
             "agent.workflows.team_runs.v051",
             "agent.workflows.team_retry.v051",
+            "agent.workflows.team_planning.v052",
+            "agent.workflows.team_approval.v052",
             "agent.context",
             "agent.context.awareness",
             "agent.context.budget",
