@@ -47,7 +47,12 @@ def client_handoffs(
 @router.post("/api/v1/agent-workflows/delegations/{task_id}/handoff")
 def client_queue_handoff(task_id: int, identity: dict = Depends(_require_chat)) -> dict:
     try:
-        return agent_handoffs.queue_task_result(task_id, _app_source(identity), owner=False)
+        return agent_handoffs.queue_task_result(
+            task_id,
+            _app_source(identity),
+            owner=False,
+            current_permissions=set(identity["permissions"]),
+        )
     except (agent_handoffs.AgentHandoffError, agent_routing.AgentRoutingError) as exc:
         raise _http_error(exc) from exc
 
