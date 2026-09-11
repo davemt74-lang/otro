@@ -23,6 +23,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
     from app.services.tasks import scheduler  # noqa: E402
 
     provider_calls: list[dict] = []
+    phase = {"worker": "manual"}
+    worker_id = 0
 
     def fake_inference_status() -> dict:
         return {
@@ -40,14 +42,44 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
     def _tool_names(tools) -> list[str]:
         return [str((item.get("function") or {}).get("name") or "") for item in (tools or [])]
 
+    def _worker_assertions(system: str) -> None:
+        assert "bounded specialist worker" in system
+        assert "PARENT MEMORY MUST NOT BECOME WORKER MEMORY" not in system
+        if phase["worker"] in {"manual", "model"}:
+            assert "WORKER SPECIALIST MEMORY" in system
+        elif phase["worker"] == "scoped":
+            assert "WORKER SPECIALIST MEMORY" not in system
+
+    def fake_generate(messages, model_override=None):
+        system = str(messages[0].get("content") or "") if messages else ""
+        provider_calls.append({"system": system, "tools": [], "model": model_override})
+        if "bounded specialist worker" in system:
+            _worker_assertions(system)
+            result = {
+                "manual": "MANUAL WORKER RESULT",
+                "scoped": "SCOPED WRAPPER RESULT",
+                "model": "SPECIALIST RESULT FROM WORKER",
+            }[phase["worker"]]
+            return {
+                "content": result,
+                "provider": "openai",
+                "model": model_override or "default-cloud-model",
+                "usage": {"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+            }
+        return {
+            "content": "FINAL WITHOUT TOOLS",
+            "provider": "openai",
+            "model": model_override or "default-cloud-model",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+        }
+
     def fake_generate_step(messages, *, tools, model_override=None):
         system = str(messages[0].get("content") or "") if messages else ""
         names = _tool_names(tools)
         provider_calls.append({"system": system, "tools": names, "model": model_override})
 
-        # Worker inference must never receive the delegation tool. Complete the
-        # specialist task directly and return to the parent.
         if "bounded specialist worker" in system:
+            _worker_assertions(system)
             assert agent_workflows.MODEL_DELEGATE_TOOL_NAME not in names
             return {
                 "content": "SPECIALIST RESULT FROM WORKER",
@@ -57,8 +89,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
                 "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
             }
 
-        # First parent turn requests one delegation. The second parent turn sees
-        # the tool result and produces the final answer.
         has_tool_result = any(item.get("role") == "tool" for item in messages)
         if not has_tool_result:
             assert agent_workflows.MODEL_DELEGATE_TOOL_NAME in names
@@ -88,17 +118,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
             "usage": {"prompt_tokens": 18, "completion_tokens": 5, "total_tokens": 23},
         }
 
-    def fake_generate(messages, model_override=None):
-        return {
-            "content": "FINAL WITHOUT TOOLS",
-            "provider": "openai",
-            "model": model_override or "default-cloud-model",
-            "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
-        }
-
     providers.inference_status = fake_inference_status
-    providers.generate_step = fake_generate_step
     providers.generate = fake_generate
+    providers.generate_step = fake_generate_step
 
     with TestClient(app) as client:
         scheduler.stop()
@@ -154,8 +176,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
         )
         assert same_agent.status_code == 409
 
-        # Create a real parent conversation so the durable delegation ledger can
-        # be filtered by its canonical conversation id.
         agent_workflows.save_policy(False, 12000)
         agent_tools.save_policy(False, 3, False)
         parent_chat = client.post(
@@ -186,25 +206,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
         assert queued_task["worker_agent_id"] == worker_id
         assert queued_task["conversation_id"] == conversation_id
 
-        # For explicit owner execution use a direct final worker response rather
-        # than invoking the model delegation tool path.
-        def manual_worker_step(messages, *, tools, model_override=None):
-            system = str(messages[0].get("content") or "")
-            names = _tool_names(tools)
-            provider_calls.append({"system": system, "tools": names, "model": model_override})
-            assert "bounded specialist worker" in system
-            assert agent_workflows.MODEL_DELEGATE_TOOL_NAME not in names
-            assert "WORKER SPECIALIST MEMORY" in system
-            assert "PARENT MEMORY MUST NOT BECOME WORKER MEMORY" not in system
-            return {
-                "content": "MANUAL WORKER RESULT",
-                "provider": "openai",
-                "model": model_override or "default-cloud-model",
-                "tool_calls": [],
-                "usage": {"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
-            }
-
-        providers.generate_step = manual_worker_step
+        phase["worker"] = "manual"
         completed = client.post(f"/api/v1/control/agent-workflows/delegations/{queued_task['id']}/run")
         assert completed.status_code == 200, completed.text
         completed_task = completed.json()
@@ -212,6 +214,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
         assert completed_task["result"] == "MANUAL WORKER RESULT"
         assert completed_task["model"] == "worker-specialist-model"
         assert completed_task["agent_run_id"]
+        assert completed_task["metadata"]["created_via"] == "owner_api"
 
         repeated = client.post(f"/api/v1/control/agent-workflows/delegations/{queued_task['id']}/run")
         assert repeated.status_code == 409
@@ -222,8 +225,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
         assert filtered.status_code == 200
         assert [item["id"] for item in filtered.json()["items"]] == [queued_task["id"]]
 
-        # Historical delegation must not block secondary Agent deletion. A queued
-        # task safely detaches and becomes non-runnable if its worker is deleted.
         disposable_task = client.post(
             "/api/v1/control/agent-workflows/delegations",
             json={
@@ -243,8 +244,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
             f"/api/v1/control/agent-workflows/delegations/{disposable_task_id}/run"
         ).status_code == 409
 
-        # Paired wrappers may delegate only to Agents explicitly granted through
-        # v0.47. The task permission snapshot can only shrink at run time.
         app_key = "v048-wrapper"
         app_token = "v048-test-token-with-sufficient-length"
         token_hash = hashlib.sha256(app_token.encode("utf-8")).hexdigest()
@@ -293,27 +292,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
         wrapper_task_id = wrapper_task.json()["id"]
         assert "memory.read" in wrapper_task.json()["permissions"]
 
-        # Remove memory.read after queueing. Execution must use the intersection
-        # of current permissions and the creation snapshot, never the broader old set.
         with db() as connection:
             connection.execute(
                 "UPDATE app_permissions SET allowed=0, updated_at=CURRENT_TIMESTAMP WHERE paired_app_id=? AND permission='memory.read'",
                 (app_id,),
             )
 
-        def scoped_worker_step(messages, *, tools, model_override=None):
-            system = str(messages[0].get("content") or "")
-            assert "WORKER SPECIALIST MEMORY" not in system
-            assert agent_workflows.MODEL_DELEGATE_TOOL_NAME not in _tool_names(tools)
-            return {
-                "content": "SCOPED WRAPPER RESULT",
-                "provider": "openai",
-                "model": model_override or "default-cloud-model",
-                "tool_calls": [],
-                "usage": {"prompt_tokens": 9, "completion_tokens": 3, "total_tokens": 12},
-            }
-
-        providers.generate_step = scoped_worker_step
+        phase["worker"] = "scoped"
         scoped_run = client.post(
             f"/api/v1/agent-workflows/delegations/{wrapper_task_id}/run",
             headers=headers,
@@ -321,7 +306,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
         assert scoped_run.status_code == 200, scoped_run.text
         assert scoped_run.json()["result"] == "SCOPED WRAPPER RESULT"
 
-        # A second wrapper cannot inspect the first wrapper's task ids.
         other_token = "v048-other-token-with-sufficient-length"
         with db() as connection:
             cursor = connection.execute(
@@ -338,8 +322,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
             headers={"Authorization": f"Bearer {other_token}"},
         ).status_code == 404
 
-        # Revoking a worker grant after queueing blocks execution until the owner
-        # explicitly restores that exact Agent grant.
         revocable = client.post(
             "/api/v1/agent-workflows/delegations",
             headers=headers,
@@ -364,15 +346,17 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflows-v048-") as d
             f"/api/v1/agent-workflows/delegations/{revocable_id}", headers=headers
         ).json()["status"] == "queued"
 
-        # Model-driven owner delegation: enable both the bounded Agent Tool policy
-        # and v0.48 delegation policy. Parent receives the worker result as a tool
-        # result, while worker inference cannot see the delegation tool itself.
+        assert client.put(
+            f"/api/v1/control/connected-apps/{app_id}/agents/{worker_id}",
+            json={"allowed": True},
+        ).status_code == 200
+
         assert client.put(
             "/api/v1/control/agent-workflows/policy",
             json={"enabled": True, "max_context_chars": 12000},
         ).status_code == 200
         agent_tools.save_policy(True, 3, False)
-        providers.generate_step = fake_generate_step
+        phase["worker"] = "model"
         model_chat = client.post(
             "/api/v1/control/chat",
             json={"message": "Ask the Research Agent to analyze this.", "agent_id": primary_id},
