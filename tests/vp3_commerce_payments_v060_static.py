@@ -91,7 +91,8 @@ assert "platform fee" in html.lower()
 assert "/api/v1/control/payments" in js
 assert "secret_key" in js and "webhook_secret" in js
 assert "sk_live_" not in js and "sk_test_" not in js and "whsec_" not in js
-assert "sk_live_" not in html and "sk_test_" not in html and "whsec_" not in html
+assert 'value="sk_live_' not in html and 'value="sk_test_' not in html and 'value="whsec_' not in html
+assert 'placeholder="sk_live_… or sk_test_…"' in html and 'placeholder="whsec_…"' in html
 
 for old_path in ("app/services/stripe_appointment_payments.py", "app/services/vp3_payment_remote.py"):
     assert not (ROOT / old_path).exists(), f"Appointment-specific payment module must not remain: {old_path}"
