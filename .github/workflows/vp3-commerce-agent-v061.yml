@@ -1,0 +1,64 @@
+name: VP3 Paired Agent Commerce v0.61
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/commerce/commerce-agent-v1/**'
+      - 'app/tools_api.py'
+      - 'app/services/pairing.py'
+      - 'app/services/vp3_commerce_agent_connector.py'
+      - 'app/services/vp3_commerce_agent_remote.py'
+      - 'app/services/vp3_commerce_agent_tools.py'
+      - 'app/services/vp3_commerce_agent_approvals.py'
+      - 'app/services/vp3_commerce_agent_agent.py'
+      - 'tests/vp3_commerce_agent_v061.py'
+      - '.github/workflows/vp3-commerce-agent-v061.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/commerce/commerce-agent-v1/**'
+      - 'app/tools_api.py'
+      - 'app/services/pairing.py'
+      - 'app/services/vp3_commerce_agent_connector.py'
+      - 'app/services/vp3_commerce_agent_remote.py'
+      - 'app/services/vp3_commerce_agent_tools.py'
+      - 'app/services/vp3_commerce_agent_approvals.py'
+      - 'app/services/vp3_commerce_agent_agent.py'
+      - 'tests/vp3_commerce_agent_v061.py'
+      - '.github/workflows/vp3-commerce-agent-v061.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  paired-agent-commerce:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Agent Commerce integration
+        run: python -m compileall app/tools_api.py app/services/pairing.py app/services/vp3_commerce_agent_connector.py app/services/vp3_commerce_agent_remote.py app/services/vp3_commerce_agent_tools.py app/services/vp3_commerce_agent_approvals.py app/services/vp3_commerce_agent_agent.py tests/vp3_commerce_agent_v061.py
+      - name: Agent Commerce contract and boundary regression
+        run: python tests/vp3_commerce_agent_v061.py
+      - name: Retain local payment authority
+        run: python tests/vp3_commerce_payments_v060.py
+      - name: Retain payment privacy audit
+        run: python tests/vp3_commerce_payments_v060_audit.py
+      - name: Retain scheduling connector
+        run: python tests/vp3_scheduling_v059.py
+      - name: Retain pairing and Connected Apps
+        run: python tests/connected_apps_v029.py
+      - name: Retain Remote Bridge
+        run: python tests/remote_bridge.py
+      - name: Retain canonical migrations
+        run: python tests/migrations.py
+      - name: Retain full API smoke
+        run: python tests/smoke.py
