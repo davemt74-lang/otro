@@ -9,6 +9,7 @@ from . import pairing, remote_bridge, stripe_commerce_payments, stripe_payment_s
 
 VERSION = "v0.60"
 CONTRACT = "commerce-payment-v1"
+CONTRACT_SHA256 = "1bc15e1965846ef32fcdddb758c4827e3a21b1bf3dfae4bc61cb5ea8591463ea"
 OPERATIONS = {
     "vp3.commerce.payments.status",
     "vp3.commerce.checkout.create",
@@ -43,13 +44,14 @@ def _audit(operation: str, body: dict, result: dict) -> None:
     }.get(operation)
     if not action:
         return
-    order_id = int(result.get("order_id") or body.get("order_id") or 0)
+    order_id = str(result.get("order_id") or body.get("order_id") or "").strip()[:190]
     metadata = {
         "provider": str(result.get("provider") or "stripe")[:32],
         "authority": "homeserver",
-        "amount_cents": int(result.get("amount_cents") or body.get("amount_cents") or 0),
+        "amount_minor": int(result.get("amount_minor") or body.get("amount_minor") or 0),
         "fulfillment_type": str(result.get("fulfillment_type") or body.get("fulfillment_type") or "")[:40],
         "contract": CONTRACT,
+        "contract_sha256": CONTRACT_SHA256,
     }
     with db() as connection:
         connection.execute(
@@ -57,7 +59,7 @@ def _audit(operation: str, body: dict, result: dict) -> None:
             INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
             VALUES ('app', 'vp3', ?, 'commerce_order', ?, ?)
             """,
-            (action, str(order_id) if order_id > 0 else "", json.dumps(metadata, separators=(",", ":"))),
+            (action, order_id, json.dumps(metadata, separators=(",", ":"))),
         )
 
 
@@ -76,6 +78,8 @@ def install() -> None:
             raise remote_bridge.RemoteBridgeError("VP3 commerce payment payload is too large.")
         try:
             if op == "vp3.commerce.payments.status":
+                if body:
+                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce payment status does not accept request fields.")
                 credential = stripe_payment_secrets.status()
                 account = stripe_commerce_payments.account_status() if credential["configured"] else None
                 ready = bool(
@@ -87,6 +91,7 @@ def install() -> None:
                 result = {
                     "version": VERSION,
                     "contract": CONTRACT,
+                    "contract_sha256": CONTRACT_SHA256,
                     "authority": "homeserver",
                     "providers": {"stripe": {**credential, "account": account, "ready": ready}},
                     "operations": sorted(OPERATIONS),
@@ -94,35 +99,36 @@ def install() -> None:
                 }
             elif op == "vp3.commerce.checkout.create":
                 allowed = {
-                    "order_id", "order_item_id", "fulfillment_type", "amount_cents", "platform_fee_cents",
+                    "order_id", "order_item_id", "fulfillment_type", "amount_minor", "platform_fee_minor",
                     "currency", "success_url", "cancel_url", "payer_email", "description", "idempotency_key",
                 }
-                if set(body) - allowed:
-                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce checkout quote contains unsupported fields.")
+                required = {"order_id", "fulfillment_type", "amount_minor", "platform_fee_minor", "currency", "success_url", "cancel_url", "idempotency_key"}
+                if set(body) - allowed or required - set(body):
+                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce checkout request does not match commerce-payment-v1.")
                 result = stripe_commerce_payments.create_checkout(body)
             elif op == "vp3.commerce.checkout.retrieve":
-                if set(body) - {"external_session_id"}:
-                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce checkout lookup contains unsupported fields.")
+                if set(body) != {"external_session_id"}:
+                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce checkout lookup does not match commerce-payment-v1.")
                 result = stripe_commerce_payments.retrieve_checkout(str(body.get("external_session_id") or ""))
             elif op == "vp3.commerce.refund":
-                allowed = {"external_payment_id", "amount_cents", "order_id", "idempotency_key"}
-                if set(body) - allowed:
-                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce refund request contains unsupported fields.")
+                required = {"external_payment_id", "amount_minor", "order_id", "idempotency_key"}
+                if set(body) != required:
+                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce refund request does not match commerce-payment-v1.")
                 result = stripe_commerce_payments.refund(
                     str(body.get("external_payment_id") or ""),
-                    int(body.get("amount_cents") or 0),
-                    int(body.get("order_id") or 0),
+                    int(body.get("amount_minor") or 0),
+                    str(body.get("order_id") or ""),
                     str(body.get("idempotency_key") or ""),
                 )
             else:
-                allowed = {"payload_b64", "stripe_signature"}
-                if set(body) - allowed:
-                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce webhook verification contains unsupported fields.")
+                required = {"provider", "payload_b64", "provider_signature"}
+                if set(body) != required or str(body.get("provider") or "").strip().lower() != "stripe":
+                    raise stripe_commerce_payments.StripeCommercePaymentError("Commerce webhook verification does not match commerce-payment-v1.")
                 try:
                     raw = base64.b64decode(str(body.get("payload_b64") or ""), validate=True)
                 except Exception as exc:
                     raise stripe_commerce_payments.StripeCommercePaymentError("Webhook payload encoding is invalid.") from exc
-                result = stripe_commerce_payments.verify_webhook(raw, str(body.get("stripe_signature") or ""))
+                result = stripe_commerce_payments.verify_webhook(raw, str(body.get("provider_signature") or ""))
         except (stripe_payment_secrets.StripePaymentSecretError, stripe_commerce_payments.StripeCommercePaymentError) as exc:
             raise remote_bridge.RemoteBridgeError(str(exc)) from exc
         _audit(op, body, result)
