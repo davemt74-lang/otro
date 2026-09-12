@@ -36,7 +36,7 @@ DEFINITIONS = {
     },
     "vp3.commerce.order.get": {
         "key":"vp3.commerce.order.get","name":"Get VP3 Commerce Order",
-        "description":"Read one owner-scoped canonical VP3 order and its safe item/fulfillment projection.",
+        "description":"Read one owner-scoped canonical VP3 Commerce order and its safe item/fulfillment projection.",
         "mode":"read","required_permissions":["commerce.read"],
         "input_schema":{"type":"object","properties":{"order_id":{"type":"string","pattern":"^[A-Za-z0-9._:-]{1,160}$"}},"required":["order_id"],"additionalProperties":False},
     },
@@ -113,7 +113,21 @@ def install() -> None:
         return items if _connector_ready() else [item for item in items if item.get("key") not in KEYS]
     def list_skills(granted_permissions:set[str]|None=None,*,owner:bool=False)->list[dict[str,Any]]:
         if _connector_ready(): return original_list_skills(granted_permissions,owner=owner)
-        return [item for item in original_list_skills(granted_permissions,owner=owner) if item.get("key") not in SKILL_KEYS]
+        tool_items={item["key"]:item for item in original_list_tools(granted_permissions,owner=owner)}
+        skills=[]
+        for skill in tools.SKILL_DEFINITIONS:
+            if skill.get("key") in SKILL_KEYS: continue
+            required=set();available=True
+            for tool_key in skill["tools"]:
+                item=tool_items.get(tool_key)
+                if item is None:
+                    available=False
+                    continue
+                required.update(item["required_permissions"])
+                if not owner: required.add(tools.TOOL_EXECUTE_PERMISSION)
+                available=available and bool(item["available"])
+            skills.append({**skill,"required_permissions":sorted(required),"available":available})
+        return skills
     def set_tool_enabled(tool_key:str,enabled:bool)->dict[str,Any]:
         if tool_key in KEYS and not _connector_ready(): raise tools.ToolError("VP3 Agent Commerce connector is not configured.",409)
         return original_set_tool_enabled(tool_key,enabled)
