@@ -47,6 +47,8 @@ assert '"mode":"write"' in tools.replace(" ", "")
 assert '"required_permissions":["commerce.fulfill"]' in tools.replace(" ", "")
 assert 'does not create an order' in tools.lower()
 assert 'move money' in tools.lower()
+assert 'tool_items={item["key"]:item for item in original_list_tools' in tools.replace(" ", ""), "offline Commerce skill filtering must compose from the prior tool registry"
+assert 'item=tool_items.get(tool_key)' in tools.replace(" ", ""), "offline connector filtering must not crash on another connector's skills"
 
 assert 'hs-commerce-action-' in approvals
 assert 'payload.pop("idempotency_key",None)' in approvals.replace(" ", "")
