@@ -36,7 +36,7 @@ DEFINITIONS = {
     },
     "vp3.commerce.order.get": {
         "key":"vp3.commerce.order.get","name":"Get VP3 Commerce Order",
-        "description":"Read one owner-scoped canonical VP3 Commerce order and its safe item/fulfillment projection.",
+        "description":"Read one owner-scoped canonical VP3 order and its safe item/fulfillment projection.",
         "mode":"read","required_permissions":["commerce.read"],
         "input_schema":{"type":"object","properties":{"order_id":{"type":"string","pattern":"^[A-Za-z0-9._:-]{1,160}$"}},"required":["order_id"],"additionalProperties":False},
     },
@@ -117,15 +117,17 @@ def install() -> None:
         skills=[]
         for skill in tools.SKILL_DEFINITIONS:
             if skill.get("key") in SKILL_KEYS: continue
-            required=set();available=True
+            required=set();available=True;complete=True
             for tool_key in skill["tools"]:
                 item=tool_items.get(tool_key)
                 if item is None:
-                    available=False
-                    continue
+                    complete=False
+                    break
                 required.update(item["required_permissions"])
                 if not owner: required.add(tools.TOOL_EXECUTE_PERMISSION)
                 available=available and bool(item["available"])
+            if not complete:
+                continue
             skills.append({**skill,"required_permissions":sorted(required),"available":available})
         return skills
     def set_tool_enabled(tool_key:str,enabled:bool)->dict[str,Any]:
