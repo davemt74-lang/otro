@@ -29,6 +29,7 @@ def _connector_ready()->bool:
 
 def install()->None:
     if getattr(agent_tools,"_vp3_commerce_agent_v061_installed",False):return
+    action_policy.APPROVAL_ONLY_WRITE_TOOLS.add("vp3.commerce.fulfillment.update")
     original_schemas:Callable[...,list[dict[str,Any]]]=agent_tools.model_tool_schemas
     def model_tool_schemas(granted_permissions:set[str]|None=None,*,owner:bool=False,allow_write_proposals:bool=False,source_app_key:str|None=None)->list[dict[str,Any]]:
         schemas=original_schemas(granted_permissions,owner=owner,allow_write_proposals=allow_write_proposals,source_app_key=source_app_key)
