@@ -3,6 +3,7 @@ name: VP3 Local Commerce Payments v0.60
 on:
   pull_request:
     paths:
+      - 'contracts/commerce/commerce-payment-v1/**'
       - 'app/payments_api.py'
       - 'app/system_api.py'
       - 'app/services/pairing.py'
@@ -20,6 +21,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'contracts/commerce/commerce-payment-v1/**'
       - 'app/payments_api.py'
       - 'app/system_api.py'
       - 'app/services/pairing.py'
