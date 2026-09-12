@@ -13,8 +13,9 @@ from . import stripe_payment_secrets
 
 VERSION = "v0.60"
 CONTRACT = "commerce-payment-v1"
+CONTRACT_SHA256 = "1bc15e1965846ef32fcdddb758c4827e3a21b1bf3dfae4bc61cb5ea8591463ea"
 STRIPE_API = "https://api.stripe.com/v1"
-MAX_AMOUNT_CENTS = 100_000_000
+MAX_AMOUNT_MINOR = 100_000_000
 ALLOWED_FULFILLMENT_TYPES = {
     "appointment", "physical", "local_pickup", "digital", "virtual", "event", "membership", "gift", "other"
 }
@@ -36,13 +37,7 @@ def _post(path: str, fields: list[tuple[str, str]], *, idempotency_key: str = ""
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
     try:
-        response = httpx.post(
-            STRIPE_API + path,
-            content=urlencode(fields),
-            headers=headers,
-            timeout=30.0,
-            follow_redirects=False,
-        )
+        response = httpx.post(STRIPE_API + path, content=urlencode(fields), headers=headers, timeout=30.0, follow_redirects=False)
     except httpx.HTTPError as exc:
         raise StripeCommercePaymentError("Stripe is unreachable.", 503) from exc
     try:
@@ -62,12 +57,7 @@ def _get_checkout(session_id: str) -> dict[str, Any]:
     if not session.startswith("cs_") or len(session) > 255:
         raise StripeCommercePaymentError("Stripe checkout session ID is invalid.")
     try:
-        response = httpx.get(
-            f"{STRIPE_API}/checkout/sessions/{session}",
-            headers={"Authorization": f"Bearer {stripe_payment_secrets.secret_key()}"},
-            timeout=30.0,
-            follow_redirects=False,
-        )
+        response = httpx.get(f"{STRIPE_API}/checkout/sessions/{session}", headers={"Authorization": f"Bearer {stripe_payment_secrets.secret_key()}"}, timeout=30.0, follow_redirects=False)
     except httpx.HTTPError as exc:
         raise StripeCommercePaymentError("Stripe is unreachable.", 503) from exc
     try:
@@ -82,12 +72,7 @@ def _get_checkout(session_id: str) -> dict[str, Any]:
 def account_status() -> dict[str, Any]:
     secret = stripe_payment_secrets.secret_key()
     try:
-        response = httpx.get(
-            STRIPE_API + "/account",
-            headers={"Authorization": f"Bearer {secret}"},
-            timeout=20.0,
-            follow_redirects=False,
-        )
+        response = httpx.get(STRIPE_API + "/account", headers={"Authorization": f"Bearer {secret}"}, timeout=20.0, follow_redirects=False)
         body = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         raise StripeCommercePaymentError("Stripe account verification failed.", 503) from exc
@@ -104,33 +89,71 @@ def account_status() -> dict[str, Any]:
     }
 
 
-def _commerce_metadata(source: dict[str, Any]) -> dict[str, str]:
-    order_id = int(source.get("order_id") or 0)
-    order_item_id = max(0, int(source.get("order_item_id") or 0))
-    fulfillment_type = str(source.get("fulfillment_type") or "other").strip().lower()
-    if order_id < 1:
+def _opaque_id(value: Any, *, required: bool) -> str:
+    result = str(value or "").strip()
+    if required and not result:
         raise StripeCommercePaymentError("Commerce order ID is required.")
+    if len(result) > 190:
+        raise StripeCommercePaymentError("Commerce ID is too long.")
+    return result
+
+
+def _commerce_metadata(source: dict[str, Any]) -> dict[str, str]:
+    order_id = _opaque_id(source.get("order_id"), required=True)
+    order_item_id = _opaque_id(source.get("order_item_id"), required=False)
+    fulfillment_type = str(source.get("fulfillment_type") or "other").strip().lower()
     if fulfillment_type not in ALLOWED_FULFILLMENT_TYPES:
         raise StripeCommercePaymentError("Commerce fulfillment type is not supported by this contract.")
     return {
-        "vp3_order_id": str(order_id),
-        "vp3_order_item_id": str(order_item_id),
+        "vp3_order_id": order_id,
+        "vp3_order_item_id": order_item_id,
         "vp3_fulfillment_type": fulfillment_type,
         "vp3_payment_authority": "homeserver",
     }
 
 
+def _checkout_state(provider_status: str) -> str:
+    status = str(provider_status or "").lower()
+    if status in {"complete", "completed"}:
+        return "complete"
+    if status in {"expired"}:
+        return "expired"
+    return "pending"
+
+
+def _payment_state(provider_status: str) -> str:
+    status = str(provider_status or "").lower()
+    if status in {"paid", "succeeded", "complete", "completed"}:
+        return "paid"
+    if status in {"failed"}:
+        return "failed"
+    if status in {"cancelled", "canceled"}:
+        return "cancelled"
+    return "pending"
+
+
+def _refund_state(provider_status: str) -> str:
+    status = str(provider_status or "").lower()
+    if status in {"succeeded", "refunded", "complete", "completed"}:
+        return "refunded"
+    if status in {"failed"}:
+        return "failed"
+    if status in {"cancelled", "canceled"}:
+        return "cancelled"
+    return "pending"
+
+
 def create_checkout(quote: dict[str, Any]) -> dict[str, Any]:
     metadata = _commerce_metadata(quote)
-    amount = int(quote.get("amount_cents") or 0)
+    amount = int(quote.get("amount_minor") or 0)
     currency = str(quote.get("currency") or "").strip().lower()
-    platform_fee = int(quote.get("platform_fee_cents") or 0)
+    platform_fee = int(quote.get("platform_fee_minor") or 0)
     success_url = str(quote.get("success_url") or "").strip()
     cancel_url = str(quote.get("cancel_url") or "").strip()
     payer_email = str(quote.get("payer_email") or "").strip()
     description = str(quote.get("description") or "VP3 purchase").strip()[:190] or "VP3 purchase"
     idem = str(quote.get("idempotency_key") or "").strip()
-    if amount < 1 or amount > MAX_AMOUNT_CENTS:
+    if amount < 1 or amount > MAX_AMOUNT_MINOR:
         raise StripeCommercePaymentError("Commerce quote amount is invalid.")
     if platform_fee != 0:
         raise StripeCommercePaymentError("HomeServer Stripe does not support VP3 platform fees yet; use a cloud payment authority for this offer.", 409)
@@ -141,11 +164,8 @@ def create_checkout(quote: dict[str, Any]) -> dict[str, Any]:
     if not idem or len(idem) > 160:
         raise StripeCommercePaymentError("Commerce checkout requires a stable idempotency key.")
     fields: list[tuple[str, str]] = [
-        ("mode", "payment"),
-        ("success_url", success_url),
-        ("cancel_url", cancel_url),
-        ("line_items[0][quantity]", "1"),
-        ("line_items[0][price_data][currency]", currency),
+        ("mode", "payment"), ("success_url", success_url), ("cancel_url", cancel_url),
+        ("line_items[0][quantity]", "1"), ("line_items[0][price_data][currency]", currency),
         ("line_items[0][price_data][unit_amount]", str(amount)),
         ("line_items[0][price_data][product_data][name]", description),
     ]
@@ -159,17 +179,13 @@ def create_checkout(quote: dict[str, Any]) -> dict[str, Any]:
     checkout_url = str(body.get("url") or "")
     if not session_id.startswith("cs_") or not checkout_url.startswith("https://"):
         raise StripeCommercePaymentError("Stripe did not return a usable checkout.", 502)
+    provider_status = str(body.get("status") or "open")
     return {
-        "contract": CONTRACT,
-        "provider": "stripe",
-        "authority": "homeserver",
-        "external_session_id": session_id,
-        "checkout_url": checkout_url,
-        "status": str(body.get("status") or "open"),
-        "amount_cents": int(body.get("amount_total") or amount),
-        "currency": str(body.get("currency") or currency).lower(),
-        "order_id": int(metadata["vp3_order_id"]),
-        "order_item_id": int(metadata["vp3_order_item_id"]),
+        "contract": CONTRACT, "contract_sha256": CONTRACT_SHA256, "provider": "stripe", "authority": "homeserver",
+        "external_session_id": session_id, "checkout_url": checkout_url,
+        "state": _checkout_state(provider_status), "provider_status": provider_status,
+        "amount_minor": int(body.get("amount_total") or amount), "currency": str(body.get("currency") or currency).lower(),
+        "order_id": metadata["vp3_order_id"], "order_item_id": metadata["vp3_order_item_id"],
         "fulfillment_type": metadata["vp3_fulfillment_type"],
     }
 
@@ -177,54 +193,38 @@ def create_checkout(quote: dict[str, Any]) -> dict[str, Any]:
 def retrieve_checkout(session_id: str) -> dict[str, Any]:
     body = _get_checkout(session_id)
     metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    provider_status = str(body.get("status") or "")
+    provider_payment_status = str(body.get("payment_status") or "")
     return {
-        "contract": CONTRACT,
-        "provider": "stripe",
-        "authority": "homeserver",
-        "external_session_id": str(body.get("id") or session_id),
-        "external_payment_id": str(body.get("payment_intent") or ""),
-        "status": str(body.get("status") or ""),
-        "payment_status": str(body.get("payment_status") or ""),
-        "amount_cents": int(body.get("amount_total") or 0),
-        "currency": str(body.get("currency") or "").lower(),
-        "order_id": int(metadata.get("vp3_order_id") or 0),
-        "order_item_id": int(metadata.get("vp3_order_item_id") or 0),
+        "contract": CONTRACT, "contract_sha256": CONTRACT_SHA256, "provider": "stripe", "authority": "homeserver",
+        "external_session_id": str(body.get("id") or session_id), "external_payment_id": str(body.get("payment_intent") or ""),
+        "state": _checkout_state(provider_status), "provider_status": provider_status,
+        "payment_state": _payment_state(provider_payment_status), "provider_payment_status": provider_payment_status,
+        "amount_minor": int(body.get("amount_total") or 0), "currency": str(body.get("currency") or "").lower(),
+        "order_id": str(metadata.get("vp3_order_id") or ""), "order_item_id": str(metadata.get("vp3_order_item_id") or ""),
         "fulfillment_type": str(metadata.get("vp3_fulfillment_type") or "other"),
     }
 
 
-def refund(payment_intent_id: str, amount_cents: int, order_id: int, idempotency_key: str) -> dict[str, Any]:
+def refund(payment_intent_id: str, amount_minor: int, order_id: str, idempotency_key: str) -> dict[str, Any]:
     payment = str(payment_intent_id or "").strip()
-    amount = int(amount_cents or 0)
-    order = int(order_id or 0)
+    amount = int(amount_minor or 0)
+    order = _opaque_id(order_id, required=True)
     idem = str(idempotency_key or "").strip()
-    if not payment.startswith("pi_") or len(payment) > 255 or amount < 1 or order < 1:
+    if not payment.startswith("pi_") or len(payment) > 255 or amount < 1:
         raise StripeCommercePaymentError("Stripe refund request is invalid.")
     if not idem or len(idem) > 160:
         raise StripeCommercePaymentError("Stripe refund requires a stable idempotency key.")
-    body = _post(
-        "/refunds",
-        [
-            ("payment_intent", payment),
-            ("amount", str(amount)),
-            ("metadata[vp3_order_id]", str(order)),
-            ("metadata[vp3_payment_authority]", "homeserver"),
-        ],
-        idempotency_key=idem,
-    )
+    body = _post("/refunds", [("payment_intent", payment), ("amount", str(amount)), ("metadata[vp3_order_id]", order), ("metadata[vp3_payment_authority]", "homeserver")], idempotency_key=idem)
     refund_id = str(body.get("id") or "")
     if not refund_id.startswith("re_"):
         raise StripeCommercePaymentError("Stripe did not return a refund ID.", 502)
+    provider_status = str(body.get("status") or "pending")
     return {
-        "contract": CONTRACT,
-        "provider": "stripe",
-        "authority": "homeserver",
-        "external_refund_id": refund_id,
-        "status": str(body.get("status") or "pending"),
-        "amount_cents": int(body.get("amount") or amount),
-        "currency": str(body.get("currency") or "").lower(),
-        "external_payment_id": payment,
-        "order_id": order,
+        "contract": CONTRACT, "contract_sha256": CONTRACT_SHA256, "provider": "stripe", "authority": "homeserver",
+        "external_refund_id": refund_id, "state": _refund_state(provider_status), "provider_status": provider_status,
+        "amount_minor": int(body.get("amount") or amount), "currency": str(body.get("currency") or "").lower(),
+        "external_payment_id": payment, "order_id": order,
     }
 
 
@@ -244,11 +244,7 @@ def verify_webhook(payload: bytes, signature_header: str) -> dict[str, Any]:
             signatures.append(value.lower())
     if timestamp < 1 or abs(int(time.time()) - timestamp) > 300 or not signatures:
         raise StripeCommercePaymentError("Stripe webhook signature is invalid.", 401)
-    expected = hmac.new(
-        stripe_payment_secrets.webhook_secret().encode(),
-        str(timestamp).encode() + b"." + payload,
-        hashlib.sha256,
-    ).hexdigest()
+    expected = hmac.new(stripe_payment_secrets.webhook_secret().encode(), str(timestamp).encode() + b"." + payload, hashlib.sha256).hexdigest()
     if not any(hmac.compare_digest(expected, candidate) for candidate in signatures):
         raise StripeCommercePaymentError("Stripe webhook signature verification failed.", 401)
     try:
@@ -261,19 +257,15 @@ def verify_webhook(payload: bytes, signature_header: str) -> dict[str, Any]:
     metadata = obj.get("metadata") if isinstance(obj, dict) and isinstance(obj.get("metadata"), dict) else {}
     if str(metadata.get("vp3_payment_authority") or "") != "homeserver":
         raise StripeCommercePaymentError("Stripe event is not bound to this HomeServer payment authority.", 409)
+    provider_payment_status = str(obj.get("payment_status") or "") if isinstance(obj, dict) else ""
     return {
-        "contract": CONTRACT,
-        "verified": True,
-        "provider": "stripe",
-        "authority": "homeserver",
-        "event_id": str(event.get("id") or ""),
-        "event_type": str(event.get("type") or ""),
+        "contract": CONTRACT, "contract_sha256": CONTRACT_SHA256, "verified": True, "provider": "stripe", "authority": "homeserver",
+        "event_id": str(event.get("id") or ""), "event_type": str(event.get("type") or ""),
         "object_id": str(obj.get("id") or "") if isinstance(obj, dict) else "",
-        "order_id": int(metadata.get("vp3_order_id") or 0),
-        "order_item_id": int(metadata.get("vp3_order_item_id") or 0),
+        "order_id": str(metadata.get("vp3_order_id") or ""), "order_item_id": str(metadata.get("vp3_order_item_id") or ""),
         "fulfillment_type": str(metadata.get("vp3_fulfillment_type") or "other"),
-        "payment_status": str(obj.get("payment_status") or "") if isinstance(obj, dict) else "",
-        "amount_cents": int(obj.get("amount_total") or 0) if isinstance(obj, dict) else 0,
+        "payment_state": _payment_state(provider_payment_status), "provider_payment_status": provider_payment_status,
+        "amount_minor": int(obj.get("amount_total") or 0) if isinstance(obj, dict) else 0,
         "currency": str(obj.get("currency") or "").lower() if isinstance(obj, dict) else "",
         "external_payment_id": str(obj.get("payment_intent") or "") if isinstance(obj, dict) else "",
     }
