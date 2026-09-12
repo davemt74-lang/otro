@@ -11,6 +11,10 @@ from .services import (
     approvals,
     local_file_actions_approvals,
     tools,
+    vp3_commerce_agent_agent,
+    vp3_commerce_agent_approvals,
+    vp3_commerce_agent_remote,
+    vp3_commerce_agent_tools,
     vp3_scheduling_agent,
     vp3_scheduling_approvals,
     vp3_scheduling_remote,
@@ -22,6 +26,10 @@ vp3_scheduling_tools.install()
 vp3_scheduling_approvals.install()
 vp3_scheduling_agent.install()
 vp3_scheduling_remote.install()
+vp3_commerce_agent_tools.install()
+vp3_commerce_agent_approvals.install()
+vp3_commerce_agent_agent.install()
+vp3_commerce_agent_remote.install()
 
 router = APIRouter()
 
@@ -62,6 +70,8 @@ def _approval_or_http(tool_key: str, source: str, arguments: dict[str, Any]) -> 
             return local_file_actions_approvals.create_file_delete_request(source, arguments, owner=False)
         if tool_key in vp3_scheduling_approvals.ACTIONS:
             return vp3_scheduling_approvals.create_request(source, tool_key, arguments, owner=False)
+        if tool_key in vp3_commerce_agent_approvals.ACTIONS:
+            return vp3_commerce_agent_approvals.create_request(source, tool_key, arguments, owner=False)
     except approvals.ApprovalError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     raise HTTPException(status_code=409, detail="This write tool does not support deferred approval yet.")
