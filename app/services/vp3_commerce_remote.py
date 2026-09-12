@@ -7,7 +7,6 @@ from typing import Callable
 from ..database import db
 from . import pairing, remote_bridge, stripe_commerce_payments, stripe_payment_secrets
 
-VERSION = "v0.60"
 CONTRACT = "commerce-payment-v1"
 CONTRACT_SHA256 = "1bc15e1965846ef32fcdddb758c4827e3a21b1bf3dfae4bc61cb5ea8591463ea"
 OPERATIONS = {
@@ -89,7 +88,6 @@ def install() -> None:
                     and account.get("charges_enabled")
                 )
                 result = {
-                    "version": VERSION,
                     "contract": CONTRACT,
                     "contract_sha256": CONTRACT_SHA256,
                     "authority": "homeserver",
