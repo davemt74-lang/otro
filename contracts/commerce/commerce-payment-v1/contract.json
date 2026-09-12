@@ -1,0 +1,210 @@
+{
+  "authorities": [
+    "cloud",
+    "homeserver"
+  ],
+  "authority_rules": {
+    "cloud_owns": [
+      "product",
+      "offer",
+      "order",
+      "order_item",
+      "payment_ledger",
+      "refund_ledger",
+      "fulfillment_linkage"
+    ],
+    "homeserver_may": [
+      "execute_provider_checkout",
+      "retrieve_provider_checkout",
+      "verify_provider_webhook",
+      "execute_provider_refund"
+    ],
+    "homeserver_must_not": [
+      "price",
+      "calculate_deposit",
+      "calculate_tax",
+      "calculate_discount",
+      "schedule",
+      "fulfill"
+    ],
+    "pin_on_attempt": true,
+    "silent_fallback": false
+  },
+  "canonical_owner": "vp3-cloud",
+  "compatibility": {
+    "additive_optional_fields_allowed": false,
+    "breaking_change_requires": "commerce-payment-v2",
+    "contract_digest_required": true
+  },
+  "contract": "commerce-payment-v1",
+  "fulfillment_types": [
+    "appointment",
+    "physical",
+    "local_pickup",
+    "digital",
+    "virtual",
+    "event",
+    "membership",
+    "gift",
+    "other"
+  ],
+  "normalized_states": {
+    "checkout": [
+      "pending",
+      "complete",
+      "expired"
+    ],
+    "payment": [
+      "pending",
+      "paid",
+      "failed",
+      "cancelled"
+    ],
+    "refund": [
+      "pending",
+      "refunded",
+      "failed",
+      "cancelled"
+    ]
+  },
+  "operations": {
+    "vp3.commerce.checkout.create": {
+      "request_optional": [
+        "order_item_id",
+        "payer_email",
+        "description"
+      ],
+      "request_required": [
+        "order_id",
+        "fulfillment_type",
+        "amount_minor",
+        "platform_fee_minor",
+        "currency",
+        "success_url",
+        "cancel_url",
+        "idempotency_key"
+      ],
+      "response_required": [
+        "contract",
+        "contract_sha256",
+        "provider",
+        "authority",
+        "external_session_id",
+        "checkout_url",
+        "state",
+        "provider_status",
+        "amount_minor",
+        "currency",
+        "order_id",
+        "order_item_id",
+        "fulfillment_type"
+      ]
+    },
+    "vp3.commerce.checkout.retrieve": {
+      "request_optional": [],
+      "request_required": [
+        "external_session_id"
+      ],
+      "response_required": [
+        "contract",
+        "contract_sha256",
+        "provider",
+        "authority",
+        "external_session_id",
+        "external_payment_id",
+        "state",
+        "provider_status",
+        "payment_state",
+        "provider_payment_status",
+        "amount_minor",
+        "currency",
+        "order_id",
+        "order_item_id",
+        "fulfillment_type"
+      ]
+    },
+    "vp3.commerce.payments.status": {
+      "request_optional": [],
+      "request_required": [],
+      "response_required": [
+        "contract",
+        "contract_sha256",
+        "authority",
+        "providers",
+        "operations",
+        "platform_fees_supported"
+      ]
+    },
+    "vp3.commerce.refund": {
+      "request_optional": [],
+      "request_required": [
+        "external_payment_id",
+        "amount_minor",
+        "order_id",
+        "idempotency_key"
+      ],
+      "response_required": [
+        "contract",
+        "contract_sha256",
+        "provider",
+        "authority",
+        "external_refund_id",
+        "state",
+        "provider_status",
+        "amount_minor",
+        "currency",
+        "external_payment_id",
+        "order_id"
+      ]
+    },
+    "vp3.commerce.webhook.verify": {
+      "request_optional": [],
+      "request_required": [
+        "provider",
+        "payload_b64",
+        "provider_signature"
+      ],
+      "response_required": [
+        "contract",
+        "contract_sha256",
+        "verified",
+        "provider",
+        "authority",
+        "event_id",
+        "event_type",
+        "object_id",
+        "order_id",
+        "order_item_id",
+        "fulfillment_type",
+        "payment_state",
+        "provider_payment_status",
+        "amount_minor",
+        "currency",
+        "external_payment_id"
+      ]
+    }
+  },
+  "permissions": {
+    "vp3.commerce.checkout.create": "payments.write",
+    "vp3.commerce.checkout.retrieve": "payments.read",
+    "vp3.commerce.payments.status": "payments.read",
+    "vp3.commerce.refund": "payments.refund",
+    "vp3.commerce.webhook.verify": "payments.write"
+  },
+  "schema_revision": 1,
+  "security": {
+    "live_pairing_grants_required": true,
+    "provider_credentials_cross_boundary": false,
+    "provider_webhooks_verified_at_authority": true,
+    "raw_card_data_cross_boundary": false,
+    "refund_requires_explicit_approval_upstream": true
+  },
+  "wire": {
+    "currency": "lowercase-iso-4217-alpha3",
+    "id_type": "opaque-string",
+    "idempotency": "required-for-money-moving-mutations",
+    "money_type": "integer-minor-unit",
+    "timestamps": "rfc3339-utc-when-present",
+    "unknown_fields": "reject"
+  }
+}

@@ -70,10 +70,33 @@ function renderDiagnostics(data) {
   if (bootstrap.warning) systemFlash(bootstrap.warning, true);
 }
 
+function renderPayments(data) {
+  const stripe = data?.providers?.stripe || {};
+  const state = byId('stripePaymentState');
+  state.textContent = stripe.configured ? 'Local Stripe configured' : 'Cloud payments remain available';
+  state.classList.toggle('complete', Boolean(stripe.configured));
+  const details = [];
+  if (stripe.configured) details.push(`Secret key ••••${stripe.secret_key_suffix || 'configured'}`);
+  if (stripe.webhook_configured) details.push(`Webhook ••••${stripe.webhook_secret_suffix || 'configured'}`);
+  details.push(`Protection: ${stripe.protection || 'local credential store'}`);
+  byId('stripePaymentDetails').textContent = details.join(' · ');
+  byId('verifyStripePayments').disabled = !stripe.configured;
+  byId('clearStripePayments').disabled = !stripe.configured && !stripe.webhook_configured;
+}
+
+async function refreshPayments() {
+  const data = await systemApi('/api/v1/control/payments');
+  renderPayments(data);
+}
+
 async function refreshSystem() {
-  const data = await systemApi('/api/v1/control/system');
-  renderSetup(data.setup || {});
-  renderDiagnostics(data.diagnostics || {});
+  const [system, payments] = await Promise.all([
+    systemApi('/api/v1/control/system'),
+    systemApi('/api/v1/control/payments'),
+  ]);
+  renderSetup(system.setup || {});
+  renderDiagnostics(system.diagnostics || {});
+  renderPayments(payments);
 }
 
 byId('completeSetup').addEventListener('click', async () => {
@@ -85,6 +108,42 @@ byId('completeSetup').addEventListener('click', async () => {
 });
 
 byId('refreshDiagnostics').addEventListener('click', () => refreshSystem().then(() => systemFlash('Diagnostics refreshed.')).catch(err => systemFlash(err.message, true)));
+
+byId('saveStripePayments').addEventListener('click', async () => {
+  const secretKey = byId('stripeSecretKey').value.trim();
+  const webhookSecret = byId('stripeWebhookSecret').value.trim();
+  if (!secretKey && !webhookSecret) return systemFlash('Enter a Stripe secret key or webhook signing secret.', true);
+  try {
+    const payload = {};
+    if (secretKey) payload.secret_key = secretKey;
+    if (webhookSecret) payload.webhook_secret = webhookSecret;
+    const result = await systemApi('/api/v1/control/payments/stripe', {method:'PUT', body:JSON.stringify(payload)});
+    byId('stripeSecretKey').value = '';
+    byId('stripeWebhookSecret').value = '';
+    renderPayments(result);
+    systemFlash('Local Stripe commerce credentials saved.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('verifyStripePayments').addEventListener('click', async () => {
+  try {
+    const result = await systemApi('/api/v1/control/payments/stripe/verify', {method:'POST'});
+    const account = result.account || {};
+    systemFlash(`Stripe verified${account.account_id ? ` · ${account.account_id}` : ''}${account.livemode ? ' · live mode' : ' · test mode'}.`);
+    await refreshPayments();
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('clearStripePayments').addEventListener('click', async () => {
+  if (!confirm('Remove the locally stored Stripe commerce credentials from this HomeServer? Existing cloud payment connections are not affected.')) return;
+  try {
+    const result = await systemApi('/api/v1/control/payments/stripe', {method:'DELETE'});
+    renderPayments(result);
+    byId('stripeSecretKey').value = '';
+    byId('stripeWebhookSecret').value = '';
+    systemFlash('Local Stripe commerce credentials removed.');
+  } catch (err) { systemFlash(err.message, true); }
+});
 
 byId('startupEnabled').addEventListener('change', async event => {
   const checkbox = event.target;
