@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from .services import knowledge_folder_mapping
 from .services.pairing import authenticate
+from .services.windows_integration import native_folder_picker_supported
 
 router = APIRouter()
 
@@ -44,6 +45,32 @@ def _require(permission: str):
 
 def _error(exc: knowledge_folder_mapping.KnowledgeFolderMappingError) -> HTTPException:
     return HTTPException(status_code=exc.status_code, detail=str(exc))
+
+
+@router.get("/api/v1/knowledge/capabilities-v062")
+def knowledge_mapping_capabilities() -> dict:
+    """Public, non-sensitive capability advertisement for paired clients."""
+    return {
+        "version": "v0.62",
+        "requires": {"knowledge_search": "v0.37"},
+        "permissions": ["knowledge.search", "knowledge.write"],
+        "operations": [
+            "knowledge.collections.list",
+            "knowledge.folders.list",
+            "knowledge.folder.map",
+            "knowledge.folder.unmap",
+            "knowledge.item.write",
+        ],
+        "native_folder_picker": {
+            "supported": native_folder_picker_supported(),
+            "runs_on_homeserver": True,
+            "caller_supplies_path": False,
+            "absolute_path_exposed": False,
+        },
+        "collection_scoped": True,
+        "knowledge_kind_scoped_writes": True,
+        "citation_safe_search": True,
+    }
 
 
 @router.get("/api/v1/knowledge/collections-v062")
