@@ -18,10 +18,15 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-v062-") as temp_ro
     root = Path(temp_root)
     data_dir = root / "data"
     meetings_dir = root / "meeting-notes"
+    private_dir = root / "private-notes"
     meetings_dir.mkdir(parents=True)
-    source_file = meetings_dir / "weekly.txt"
-    source_file.write_text(
+    private_dir.mkdir(parents=True)
+    (meetings_dir / "weekly.txt").write_text(
         "V062_FOLDER_SENTINEL synthetic weekly meeting notes for mapped-folder regression.",
+        encoding="utf-8",
+    )
+    (private_dir / "private.txt").write_text(
+        "V062_PRIVATE_FOLDER_SENTINEL synthetic private notes.",
         encoding="utf-8",
     )
 
@@ -43,6 +48,20 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-v062-") as temp_ro
                 json={"collection_key": key, "name": name, "description": f"Synthetic {name}"},
             )
             assert created.status_code == 200, created.text
+
+        # Seed a local owner-managed source in a collection that will later be
+        # outside the paired app's scope. The paired app must never be able to
+        # move this source into an allowed collection merely by selecting it.
+        private_source = client.post(
+            "/api/v1/control/knowledge/sources",
+            json={"path": str(private_dir), "label": "Private local files", "scan_interval_seconds": 60},
+        )
+        assert private_source.status_code == 200, private_source.text
+        private_source_id = int(private_source.json()["source"]["id"])
+        assert client.put(
+            f"/api/v1/control/knowledge/sources/{private_source_id}/collection",
+            json={"collection_key": "private"},
+        ).status_code == 200
 
         pair = client.post(
             "/api/v1/pairing/request",
@@ -88,21 +107,24 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-v062-") as temp_ro
         assert mapped_payload["mapping"]["collection_key"] == "meetings"
         assert mapped_payload["mapping"]["label"] == "Meeting notes"
         assert mapped_payload["mapping"]["indexed_files"] == 1
-        assert mapped_payload["privacy"] == {"local_path_exposed": False}
+        assert mapped_payload["privacy"] == {"absolute_path_exposed": False}
         mapping_id = mapped_payload["mapping"]["mapping_id"]
 
         serialized_mapping = json.dumps(mapped_payload, ensure_ascii=False)
         assert str(root.resolve()) not in serialized_mapping
         assert str(meetings_dir.resolve()) not in serialized_mapping
         assert "source_path" not in serialized_mapping
-        assert "path\"" not in serialized_mapping
 
         listed = client.get("/api/v1/knowledge/folder-mappings-v062", headers=auth)
         assert listed.status_code == 200, listed.text
         listed_payload = listed.json()
-        assert listed_payload["privacy"]["local_paths_exposed"] is False
-        assert listed_payload["items"][0]["mapping_id"] == mapping_id
-        assert str(meetings_dir.resolve()) not in json.dumps(listed_payload, ensure_ascii=False)
+        assert listed_payload["privacy"]["absolute_paths_exposed"] is False
+        assert listed_payload["privacy"]["full_documents_returned"] is False
+        assert any(item["mapping_id"] == mapping_id for item in listed_payload["items"])
+        serialized_list = json.dumps(listed_payload, ensure_ascii=False)
+        assert str(root.resolve()) not in serialized_list
+        assert str(meetings_dir.resolve()) not in serialized_list
+        assert str(private_dir.resolve()) not in serialized_list
 
         indexed = client.get(
             "/api/v1/knowledge/search-v037",
@@ -150,6 +172,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-v062-") as temp_ro
         restricted_collections = client.get("/api/v1/knowledge/collections-v062", headers=auth).json()
         assert [item["collection_key"] for item in restricted_collections["items"]] == ["meetings"]
         assert restricted_collections["scope"] == {"restricted": True, "collections": ["meetings"]}
+        restricted_mappings = client.get("/api/v1/knowledge/folder-mappings-v062", headers=auth).json()
+        assert [item["mapping_id"] for item in restricted_mappings["items"]] == [mapping_id]
 
         with patch("app.services.knowledge_folder_mapping.pick_local_folder") as denied_picker:
             denied_map = client.post(
@@ -159,6 +183,23 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-v062-") as temp_ro
             )
         assert denied_map.status_code == 403
         denied_picker.assert_not_called()
+
+        # Even when the target collection is allowed, re-selecting a source
+        # currently mapped to an inaccessible collection must fail closed.
+        with patch(
+            "app.services.knowledge_folder_mapping.pick_local_folder",
+            return_value=private_dir,
+        ):
+            denied_cross_scope_remap = client.post(
+                "/api/v1/knowledge/folder-mappings-v062",
+                json={"collection_key": "meetings", "label": "Should not move"},
+                headers=auth,
+            )
+        assert denied_cross_scope_remap.status_code == 403
+        private_scope_check = client.get(
+            "/api/v1/control/knowledge/sources", params={}
+        ).json()["items"]
+        assert any(int(item["id"]) == private_source_id for item in private_scope_check)
 
         denied_write = client.post(
             "/api/v1/knowledge/items-v062",
@@ -228,7 +269,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-knowledge-v062-") as temp_ro
         assert removed.status_code == 200, removed.text
         removed_payload = removed.json()
         assert removed_payload["deleted"] is True
-        assert removed_payload["privacy"] == {"local_path_exposed": False}
+        assert removed_payload["privacy"] == {"absolute_path_exposed": False}
         assert str(meetings_dir.resolve()) not in json.dumps(removed_payload, ensure_ascii=False)
 
         after_remove = client.get("/api/v1/knowledge/folder-mappings-v062", headers=auth)
