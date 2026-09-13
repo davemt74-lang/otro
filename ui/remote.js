@@ -46,7 +46,7 @@ function renderRemote(data) {
   remoteById('deviceId').textContent = identity.device_id || '—';
   remoteById('identityProtection').textContent = identity.protection || '—';
   remoteById('connectedState').textContent = runtime.connected ? 'Connected' : (settings.enabled ? 'Disconnected' : 'Disabled');
-  remoteById('pairingState').textContent = runtime.claimed ? (pendingVp3 ? 'Waiting for local approval' : 'Claimed by Cloud') : (runtime.connected && runtime.claim_code ? 'Ready for VP3 token' : 'Not paired');
+  remoteById('pairingState').textContent = runtime.claimed ? (pendingVp3 ? 'Waiting for local approval' : 'Claimed by Cloud') : (runtime.connected && runtime.pairing_ready ? 'Ready for VP3 token' : 'Not paired');
   remoteById('lastConnected').textContent = remoteFmt(runtime.last_connected_at);
 
   const status = remoteById('remoteStatus');
@@ -58,7 +58,7 @@ function renderRemote(data) {
     pairingStatus.textContent = 'VP3 account and device matched. Review the local permission request below and approve it to finish pairing.';
   } else if (runtime.claimed) {
     pairingStatus.textContent = 'This HomeServer is claimed by a Cloud connection. Manage its permissions in Connected Apps or disconnect it from VP3 Cloud before pairing another account.';
-  } else if (settings.enabled && runtime.connected && runtime.claim_code) {
+  } else if (settings.enabled && runtime.connected && runtime.pairing_ready) {
     pairingStatus.textContent = 'Secure relay device proof is ready. Paste the pairing token generated in your VP3 Cloud account.';
   } else if (settings.enabled && !runtime.connected) {
     pairingStatus.textContent = 'Remote Bridge is connecting to the secure relay.';
@@ -113,7 +113,7 @@ async function saveRemoteSettings(enabled) {
 async function waitForRelayProof() {
   for (let attempt = 0; attempt < 30; attempt++) {
     const current = await refreshRemote();
-    if (current.runtime?.connected && current.runtime?.claim_code) return current;
+    if (current.runtime?.connected && current.runtime?.pairing_ready) return current;
     if (current.runtime?.last_error) throw new Error(current.runtime.last_error);
     await remoteSleep(500);
   }
