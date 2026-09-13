@@ -58,12 +58,8 @@ jobs:
           app/services/knowledge_folder_mapping_remote.py
           app/services/windows_integration.py
       - name: Native picker platform contract
-        shell: python
-        run: |
-          import os
-          from app.services.windows_integration import native_folder_picker_supported
-          assert native_folder_picker_supported() is (os.name == "nt")
-          print("native picker platform contract passed")
+        run: >-
+          python -c "import os; from app.services.windows_integration import native_folder_picker_supported; assert native_folder_picker_supported() is (os.name == 'nt'); print('native picker platform contract passed')"
       - name: Capability advertisement contract
         run: python tests/knowledge_folder_mapping_v062_capabilities.py
       - name: Remote mapping routing contract
