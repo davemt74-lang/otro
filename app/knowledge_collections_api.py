@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from .knowledge_folder_mapping_api import router as knowledge_folder_mapping_router
 from .services import knowledge_collection_policy, knowledge_collections
 from .services.pairing import authenticate
 
@@ -150,3 +151,8 @@ def paired_collection_search(
     except knowledge_collections.KnowledgeCollectionError as exc:
         raise _error(exc) from exc
     return {**result, "app": identity["app_key"]}
+
+
+# v0.62 extends the paired knowledge contract without broadening owner-control
+# filesystem routes. The nested router authenticates paired apps independently.
+router.include_router(knowledge_folder_mapping_router)
