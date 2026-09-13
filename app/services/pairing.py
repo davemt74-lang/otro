@@ -98,85 +98,78 @@ def _expire_request(connection, request) -> bool:
     return True
 
 
-def approve_pairing(code: str) -> dict | None:
-    with db() as connection:
-        request = connection.execute(
-            "SELECT * FROM pairing_requests WHERE code_hash=? AND status='pending'",
-            (_hash(code),),
-        ).fetchone()
-        if request is None:
-            return None
-        if _expire_request(connection, request):
-            return None
+def _approve_request(connection, request) -> dict | None:
+    if _expire_request(connection, request):
+        return None
 
-        claim_hash = request["claim_hash"]
-        legacy_token: str | None = None
-        if claim_hash:
-            token_hash = claim_hash
-            delivery = "claim_token"
-        else:
-            legacy_token = secrets.token_urlsafe(48)
-            token_hash = _hash(legacy_token)
-            delivery = "legacy_token"
+    claim_hash = request["claim_hash"]
+    legacy_token: str | None = None
+    if claim_hash:
+        token_hash = claim_hash
+        delivery = "claim_token"
+    else:
+        legacy_token = secrets.token_urlsafe(48)
+        token_hash = _hash(legacy_token)
+        delivery = "legacy_token"
 
+    connection.execute(
+        """
+        INSERT INTO paired_apps(app_key, name, token_hash)
+        VALUES (?, ?, ?)
+        ON CONFLICT(app_key) DO UPDATE SET
+            name=excluded.name,
+            token_hash=excluded.token_hash,
+            status='active',
+            paired_at=CURRENT_TIMESTAMP,
+            last_seen_at=NULL
+        """,
+        (request["app_key"], request["app_name"], token_hash),
+    )
+    app = connection.execute(
+        "SELECT id FROM paired_apps WHERE app_key=?",
+        (request["app_key"],),
+    ).fetchone()
+    if app is None:
+        raise RuntimeError("Paired application record was not created")
+
+    connection.execute(
+        "INSERT OR IGNORE INTO app_capability_scopes(paired_app_id) VALUES (?)",
+        (app["id"],),
+    )
+    connection.execute(
+        "UPDATE app_permissions SET allowed=0, updated_at=CURRENT_TIMESTAMP WHERE paired_app_id=?",
+        (app["id"],),
+    )
+
+    permissions = json.loads(request["requested_permissions"])
+    for permission in permissions:
         connection.execute(
             """
-            INSERT INTO paired_apps(app_key, name, token_hash)
-            VALUES (?, ?, ?)
-            ON CONFLICT(app_key) DO UPDATE SET
-                name=excluded.name,
-                token_hash=excluded.token_hash,
-                status='active',
-                paired_at=CURRENT_TIMESTAMP,
-                last_seen_at=NULL
+            INSERT INTO app_permissions(paired_app_id, permission, allowed)
+            VALUES (?, ?, 1)
+            ON CONFLICT(paired_app_id, permission)
+            DO UPDATE SET allowed=1, updated_at=CURRENT_TIMESTAMP
             """,
-            (request["app_key"], request["app_name"], token_hash),
-        )
-        app = connection.execute(
-            "SELECT id FROM paired_apps WHERE app_key=?",
-            (request["app_key"],),
-        ).fetchone()
-        if app is None:
-            raise RuntimeError("Paired application record was not created")
-
-        connection.execute(
-            "INSERT OR IGNORE INTO app_capability_scopes(paired_app_id) VALUES (?)",
-            (app["id"],),
-        )
-        connection.execute(
-            "UPDATE app_permissions SET allowed=0, updated_at=CURRENT_TIMESTAMP WHERE paired_app_id=?",
-            (app["id"],),
+            (app["id"], permission),
         )
 
-        permissions = json.loads(request["requested_permissions"])
-        for permission in permissions:
-            connection.execute(
-                """
-                INSERT INTO app_permissions(paired_app_id, permission, allowed)
-                VALUES (?, ?, 1)
-                ON CONFLICT(paired_app_id, permission)
-                DO UPDATE SET allowed=1, updated_at=CURRENT_TIMESTAMP
-                """,
-                (app["id"], permission),
-            )
-
-        connection.execute(
-            "UPDATE pairing_requests SET status='approved' WHERE id=?",
-            (request["id"],),
-        )
-        connection.execute(
-            """
-            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES ('system', 'pairing', 'app.paired', 'app', ?, ?)
-            """,
-            (
-                request["app_key"],
-                json.dumps(
-                    {"delivery": delivery, "permissions": permissions},
-                    separators=(",", ":"),
-                ),
+    connection.execute(
+        "UPDATE pairing_requests SET status='approved' WHERE id=?",
+        (request["id"],),
+    )
+    connection.execute(
+        """
+        INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
+        VALUES ('system', 'pairing', 'app.paired', 'app', ?, ?)
+        """,
+        (
+            request["app_key"],
+            json.dumps(
+                {"delivery": delivery, "permissions": permissions},
+                separators=(",", ":"),
             ),
-        )
+        ),
+    )
 
     result = {
         "app_key": request["app_key"],
@@ -186,6 +179,31 @@ def approve_pairing(code: str) -> dict | None:
     if legacy_token is not None:
         result["token"] = legacy_token
     return result
+
+
+def approve_pairing(code: str) -> dict | None:
+    with db() as connection:
+        request = connection.execute(
+            "SELECT * FROM pairing_requests WHERE code_hash=? AND status='pending'",
+            (_hash(code),),
+        ).fetchone()
+        if request is None:
+            return None
+        return _approve_request(connection, request)
+
+
+def approve_pairing_request(request_id: str) -> dict | None:
+    candidate = str(request_id or "").strip()
+    if not candidate or len(candidate) > 128:
+        return None
+    with db() as connection:
+        request = connection.execute(
+            "SELECT * FROM pairing_requests WHERE request_id=? AND status='pending' LIMIT 1",
+            (candidate,),
+        ).fetchone()
+        if request is None:
+            return None
+        return _approve_request(connection, request)
 
 
 def pairing_status(request_id: str, claim_token: str) -> dict | None:
