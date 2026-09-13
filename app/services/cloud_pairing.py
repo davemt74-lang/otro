@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .remote_bridge import bridge_status
+from .remote_bridge import bridge_status, normalize_broker_url, save_bridge_settings
 
 
 class CloudPairingError(RuntimeError):
@@ -18,19 +18,34 @@ _PAIRING_TOKEN = re.compile(r"^VP3-(?:[A-F0-9]{8}-){7}[A-F0-9]{8}$")
 _DEVICE_ID = re.compile(r"^hs-[a-f0-9]{24}$")
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _DEFAULT_PAIRING_ENDPOINT = "https://vp3.me/api/homeserver-pair-v1210.php"
+_DEFAULT_BOOTSTRAP_ENDPOINT = "https://vp3.me/api/homeserver-relay-bootstrap-v1210.php"
+
+
+def _validated_cloud_endpoint(raw: str, label: str) -> str:
+    value = str(raw or "").strip()
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in {"https", "http"} or not host:
+        raise CloudPairingError(f"VP3 {label} endpoint is invalid.")
+    if parsed.scheme == "http" and host not in _LOOPBACK_HOSTS:
+        raise CloudPairingError(f"VP3 {label} endpoint must use HTTPS.")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise CloudPairingError(f"VP3 {label} endpoint cannot contain credentials, a query string, or a fragment.")
+    return value
 
 
 def vp3_pairing_endpoint() -> str:
-    raw = str(os.environ.get("HOMESERVER_VP3_PAIRING_URL") or _DEFAULT_PAIRING_ENDPOINT).strip()
-    parsed = urlparse(raw)
-    host = (parsed.hostname or "").lower()
-    if parsed.scheme not in {"https", "http"} or not host:
-        raise CloudPairingError("VP3 pairing endpoint is invalid.")
-    if parsed.scheme == "http" and host not in _LOOPBACK_HOSTS:
-        raise CloudPairingError("VP3 pairing endpoint must use HTTPS.")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise CloudPairingError("VP3 pairing endpoint cannot contain credentials, a query string, or a fragment.")
-    return raw
+    return _validated_cloud_endpoint(
+        str(os.environ.get("HOMESERVER_VP3_PAIRING_URL") or _DEFAULT_PAIRING_ENDPOINT),
+        "pairing",
+    )
+
+
+def vp3_bootstrap_endpoint() -> str:
+    return _validated_cloud_endpoint(
+        str(os.environ.get("HOMESERVER_VP3_BOOTSTRAP_URL") or _DEFAULT_BOOTSTRAP_ENDPOINT),
+        "relay bootstrap",
+    )
 
 
 def normalize_pairing_token(value: str) -> str:
@@ -38,6 +53,31 @@ def normalize_pairing_token(value: str) -> str:
     if not _PAIRING_TOKEN.fullmatch(token):
         raise CloudPairingError("Enter the VP3 pairing token generated in your Cloud account.")
     return token
+
+
+def bootstrap_vp3_remote_bridge() -> dict[str, Any]:
+    endpoint = vp3_bootstrap_endpoint()
+    try:
+        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
+            response = client.get(endpoint, headers={"Accept": "application/json"})
+    except httpx.HTTPError as exc:
+        raise CloudPairingError("VP3 Cloud could not provide the relay configuration.") from exc
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise CloudPairingError("VP3 Cloud returned an invalid relay bootstrap response.") from exc
+    if not isinstance(payload, dict) or response.status_code < 200 or response.status_code >= 300 or not payload.get("ok"):
+        raise CloudPairingError("VP3 Cloud relay bootstrap is unavailable.")
+    if str(payload.get("pairing_protocol") or "") != "account-token-v1":
+        raise CloudPairingError("VP3 Cloud returned an unsupported pairing protocol.")
+
+    try:
+        broker_url = normalize_broker_url(str(payload.get("relay_websocket_url") or ""))
+        settings = save_bridge_settings(True, broker_url)
+    except Exception as exc:
+        raise CloudPairingError("VP3 Cloud returned an invalid relay WebSocket endpoint.") from exc
+    return {"configured": True, "settings": settings}
 
 
 def redeem_vp3_pairing_token(pairing_token: str) -> dict[str, Any]:
