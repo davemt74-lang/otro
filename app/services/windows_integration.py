@@ -3,11 +3,13 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 
 _RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 _RUN_VALUE = "HomeServer"
+_FOLDER_PICKER_LOCK = threading.Lock()
 
 
 class WindowsIntegrationError(RuntimeError):
@@ -96,11 +98,14 @@ def pick_local_folder(title: str = "Select a folder for HomeServer Knowledge") -
     The picker executes only on the HomeServer machine. A paired cloud app can
     trigger this local owner interaction, but the selected absolute path never
     leaves HomeServer; callers receive only the safe knowledge-source mapping.
+    Only one picker may be open at once so a paired app cannot stack dialogs.
     """
     if os.name != "nt":
         raise WindowsIntegrationError(
             "Native folder mapping requires the HomeServer Windows desktop application."
         )
+    if not _FOLDER_PICKER_LOCK.acquire(blocking=False):
+        raise WindowsIntegrationError("A HomeServer folder picker is already open.")
 
     env = os.environ.copy()
     env["HOMESERVER_FOLDER_PICKER_TITLE"] = str(title or "Select a folder")[:200]
@@ -119,19 +124,22 @@ exit 3
 """.strip()
 
     try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=600,
-            check=False,
-            env=env,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise WindowsIntegrationError("The native folder picker could not be opened.") from exc
+        try:
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=600,
+                check=False,
+                env=env,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise WindowsIntegrationError("The native folder picker could not be opened.") from exc
+    finally:
+        _FOLDER_PICKER_LOCK.release()
 
     if result.returncode == 3:
         return None
