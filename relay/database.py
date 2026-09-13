@@ -301,6 +301,46 @@ def rotate_session(token: str) -> dict:
     return {"device_id": device_id, "relay_token": new_token}
 
 
+def release_session(token: str) -> dict:
+    candidate = str(token or "").strip()
+    if len(candidate) < 40 or len(candidate) > 512:
+        raise RelayAuthError("Invalid relay session.")
+    digest = _sha256(candidate)
+    now = _now()
+    claim_code = _new_claim_code()
+    claim_expires = now + timedelta(seconds=settings.claim_ttl_seconds)
+    with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            """
+            SELECT s.device_id
+            FROM relay_sessions s
+            JOIN relay_devices d ON d.device_id=s.device_id
+            WHERE s.token_hash=? AND s.revoked_at IS NULL AND d.claimed=1
+            LIMIT 1
+            """,
+            (digest,),
+        ).fetchone()
+        if row is None:
+            raise RelayAuthError("Invalid relay session.")
+        device_id = str(row["device_id"])
+        connection.execute(
+            "UPDATE relay_sessions SET revoked_at=? WHERE device_id=? AND revoked_at IS NULL",
+            (_iso(now), device_id),
+        )
+        updated = connection.execute(
+            """
+            UPDATE relay_devices
+            SET claimed=0, claim_code_hash=?, claim_expires_at=?, last_seen_at=?
+            WHERE device_id=? AND claimed=1
+            """,
+            (_claim_hash(claim_code), _iso(claim_expires), _iso(now), device_id),
+        )
+        if updated.rowcount != 1:
+            raise RelayAuthError("Invalid relay session.")
+    return {"device_id": device_id, "claim_code": claim_code}
+
+
 def record_event(
     event: str,
     status: str,
