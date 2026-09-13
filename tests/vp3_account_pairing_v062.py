@@ -9,6 +9,14 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+# Browser/control-plane contract: the relay claim remains process-private.
+remote_api_source = (ROOT_DIR / "app" / "remote_bridge_api.py").read_text(encoding="utf-8")
+remote_browser_source = (ROOT_DIR / "ui" / "remote.js").read_text(encoding="utf-8")
+assert 'runtime.pop("claim_code", None)' in remote_api_source
+assert 'runtime["pairing_ready"]' in remote_api_source
+assert "claim_code" not in remote_browser_source
+assert "pairing_ready" in remote_browser_source
+
 with tempfile.TemporaryDirectory(prefix="homeserver-vp3-pairing-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
