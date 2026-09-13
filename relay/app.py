@@ -24,6 +24,7 @@ from .database import (
     initialize_database,
     record_event,
     register_or_auth_device,
+    release_session,
     rotate_session,
 )
 
@@ -182,6 +183,19 @@ class ConnectionManager:
             {
                 "type": "hello.ok",
                 "claimed": True,
+                "connection_id": connection.connection_id,
+            }
+        )
+
+    async def notify_released(self, device_id: str, claim_code: str) -> None:
+        connection = await self.get(device_id)
+        if connection is None:
+            return
+        await connection.send_json(
+            {
+                "type": "hello.ok",
+                "claimed": False,
+                "claim_code": claim_code,
                 "connection_id": connection.connection_id,
             }
         )
@@ -406,6 +420,29 @@ async def rotate(request: Request, session: dict = Depends(_relay_session)) -> d
     return {
         "device_id": rotated["device_id"],
         "relay_token": rotated["relay_token"],
+    }
+
+
+@app.post("/v1/session/release")
+async def release(request: Request, session: dict = Depends(_relay_session)) -> dict:
+    current = _bearer(request.headers.get("authorization"))
+    try:
+        released = await asyncio.to_thread(release_session, current)
+    except RelayAuthError as exc:
+        raise HTTPException(status_code=401, detail="Relay session is invalid.") from exc
+    try:
+        await manager.notify_released(released["device_id"], released["claim_code"])
+    except Exception:
+        pass
+    await asyncio.to_thread(
+        record_event,
+        "client.session",
+        "released",
+        device_id=session["device_id"],
+    )
+    return {
+        "device_id": released["device_id"],
+        "released": True,
     }
 
 
