@@ -1,6 +1,7 @@
 const remoteById = id => document.getElementById(id);
 const remoteEsc = (value = '') => String(value).replace(/[&<>'\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));
 const remoteFmt = value => value ? new Date(value).toLocaleString() : 'Never';
+const remoteSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 let latestRemote = null;
 let pendingVp3 = null;
@@ -58,13 +59,13 @@ function renderRemote(data) {
   } else if (runtime.claimed) {
     pairingStatus.textContent = 'This HomeServer is claimed by a Cloud connection. Manage its permissions in Connected Apps or disconnect it from VP3 Cloud before pairing another account.';
   } else if (settings.enabled && runtime.connected && runtime.claim_code) {
-    pairingStatus.textContent = 'Relay device proof is ready. Paste the pairing token generated in your VP3 Cloud account.';
+    pairingStatus.textContent = 'Secure relay device proof is ready. Paste the pairing token generated in your VP3 Cloud account.';
   } else if (settings.enabled && !runtime.connected) {
-    pairingStatus.textContent = 'Remote Bridge is enabled but not connected. Check the relay URL and bridge activity below.';
+    pairingStatus.textContent = 'Remote Bridge is connecting to the secure relay.';
   } else if (settings.enabled) {
     pairingStatus.textContent = 'Connected to the relay. Waiting for private device proof…';
   } else {
-    pairingStatus.textContent = 'Enable Remote Bridge first, then paste the pairing token generated in VP3 Cloud.';
+    pairingStatus.textContent = 'Paste your VP3 pairing token. HomeServer will configure the official VP3 relay automatically.';
   }
 
   const pairButton = remoteById('pairVp3');
@@ -100,13 +101,23 @@ async function refreshRemote() {
 
 async function saveRemoteSettings(enabled) {
   const brokerUrl = remoteById('brokerUrl').value.trim();
-  if (!brokerUrl) throw new Error('Configure the VP3 relay WebSocket URL before enabling Remote Bridge.');
+  if (!brokerUrl) throw new Error('Enter a relay WebSocket URL for a custom relay, or use VP3 pairing to configure the official relay automatically.');
   const result = await remoteApi('/api/v1/control/remote-bridge', {
     method: 'PUT',
     body: JSON.stringify({enabled, broker_url: brokerUrl}),
   });
   renderRemote({...result.status, events: latestRemote?.events || []});
   return result;
+}
+
+async function waitForRelayProof() {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const current = await refreshRemote();
+    if (current.runtime?.connected && current.runtime?.claim_code) return current;
+    if (current.runtime?.last_error) throw new Error(current.runtime.last_error);
+    await remoteSleep(500);
+  }
+  throw new Error('HomeServer could not establish the secure VP3 relay connection. Check Bridge activity and try again.');
 }
 
 remoteById('vp3PairingForm').addEventListener('submit', async event => {
@@ -119,11 +130,16 @@ remoteById('vp3PairingForm').addEventListener('submit', async event => {
   try {
     const current = latestRemote || await refreshRemote();
     if (current.runtime?.claimed && !pendingVp3) throw new Error('This HomeServer is already claimed by a Cloud account.');
-    if (!current.settings?.enabled) await saveRemoteSettings(true);
-    await refreshRemote();
-    if (!latestRemote?.runtime?.connected || !latestRemote?.runtime?.claim_code) {
-      throw new Error('Remote Bridge is not ready yet. Confirm the relay connection and try again.');
+
+    if (!current.settings?.broker_url) {
+      remoteById('pairingStartStatus').textContent = 'Loading the official VP3 relay configuration…';
+      await remoteApi('/api/v1/control/remote-bridge/bootstrap-vp3', {method: 'POST'});
+    } else if (!current.settings?.enabled) {
+      await saveRemoteSettings(true);
     }
+
+    remoteById('pairingStartStatus').textContent = 'Connecting HomeServer to the secure VP3 relay…';
+    await waitForRelayProof();
     remoteById('pairingStartStatus').textContent = 'Validating the VP3 account token and binding this HomeServer…';
     await remoteApi('/api/v1/control/remote-bridge/pair-vp3', {
       method: 'POST',
