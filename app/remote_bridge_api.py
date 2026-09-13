@@ -37,6 +37,15 @@ class Vp3CloudApprovalRequest(BaseModel):
     pairing_id: int = Field(gt=0)
 
 
+def _control_bridge_status() -> dict:
+    status = bridge_status()
+    runtime = dict(status.get("runtime") or {})
+    runtime["pairing_ready"] = bool(runtime.get("claim_code")) and not bool(runtime.get("claimed"))
+    runtime.pop("claim_code", None)
+    status["runtime"] = runtime
+    return status
+
+
 @router.get("/remote", include_in_schema=False)
 def remote_bridge_workspace():
     page = UI_DIR / "remote.html"
@@ -48,7 +57,7 @@ def remote_bridge_workspace():
 @router.get("/api/v1/control/remote-bridge")
 def control_remote_bridge(limit: int = Query(default=80, ge=1, le=500)) -> dict:
     return {
-        **bridge_status(),
+        **_control_bridge_status(),
         "events": list_bridge_events(limit),
     }
 
@@ -62,7 +71,7 @@ def control_remote_bridge_update(payload: RemoteBridgeSettingsUpdate) -> dict:
     return {
         "updated": True,
         "settings": configured,
-        "status": bridge_status(),
+        "status": _control_bridge_status(),
     }
 
 
@@ -72,7 +81,7 @@ def control_remote_bridge_bootstrap_vp3() -> dict:
         result = bootstrap_vp3_remote_bridge()
     except CloudPairingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {**result, "status": bridge_status()}
+    return {**result, "status": _control_bridge_status()}
 
 
 @router.post("/api/v1/control/remote-bridge/pair-vp3")
