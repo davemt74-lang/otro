@@ -6,7 +6,11 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .services.cloud_pairing import CloudPairingError, redeem_vp3_pairing_token
+from .services.cloud_pairing import (
+    CloudPairingError,
+    bootstrap_vp3_remote_bridge,
+    redeem_vp3_pairing_token,
+)
 from .services.connected_apps_pairing import ConnectedAppsPairingError, approve_pending_pairing
 from .services.remote_bridge import (
     RemoteBridgeError,
@@ -60,6 +64,15 @@ def control_remote_bridge_update(payload: RemoteBridgeSettingsUpdate) -> dict:
         "settings": configured,
         "status": bridge_status(),
     }
+
+
+@router.post("/api/v1/control/remote-bridge/bootstrap-vp3")
+def control_remote_bridge_bootstrap_vp3() -> dict:
+    try:
+        result = bootstrap_vp3_remote_bridge()
+    except CloudPairingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {**result, "status": bridge_status()}
 
 
 @router.post("/api/v1/control/remote-bridge/pair-vp3")
