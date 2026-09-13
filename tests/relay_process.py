@@ -79,6 +79,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-relay-test-") as raw_data_di
     client = httpx.Client(timeout=12.0, trust_env=False)
     relay_token = ""
     rotated_token = ""
+    reclaimed_token = ""
     home_token = "synthetic_homeserver_app_token_" + "h" * 40
     device_secret = secrets.token_urlsafe(48)
     device_id = f"hs-{hashlib.sha256(device_secret.encode('utf-8')).hexdigest()[:24]}"
@@ -235,9 +236,37 @@ with tempfile.TemporaryDirectory(prefix="homeserver-relay-test-") as raw_data_di
             assert client.get(f"{base_url}/v1/session", headers=auth(relay_token)).status_code == 401
             assert client.get(f"{base_url}/v1/session", headers=auth(rotated_token)).status_code == 200
 
+            released = client.post(
+                f"{base_url}/v1/session/release",
+                headers=auth(rotated_token),
+            )
+            assert released.status_code == 200, released.text
+            assert released.json()["device_id"] == device_id
+            assert released.json()["released"] is True
+            assert "claim_code" not in released.json(), "Relay release leaked the fresh connection code to Cloud"
+            assert client.get(f"{base_url}/v1/session", headers=auth(rotated_token)).status_code == 401
+
+            released_update = json.loads(websocket.recv(timeout=5))
+            assert released_update["type"] == "hello.ok"
+            assert released_update["claimed"] is False
+            fresh_claim_code = str(released_update.get("claim_code") or "")
+            assert len(fresh_claim_code.replace("-", "")) == 12
+            assert fresh_claim_code != claim_code
+
+            reclaimed = client.post(
+                f"{base_url}/v1/claim",
+                json={"claim_code": fresh_claim_code},
+            )
+            assert reclaimed.status_code == 200, reclaimed.text
+            reclaimed_token = str(reclaimed.json()["relay_token"])
+            assert reclaimed_token not in {relay_token, rotated_token}
+            reclaimed_update = json.loads(websocket.recv(timeout=5))
+            assert reclaimed_update["type"] == "hello.ok"
+            assert reclaimed_update["claimed"] is True
+
         offline = client.post(
             f"{base_url}/v1/request",
-            headers=auth(rotated_token),
+            headers=auth(reclaimed_token),
             json={
                 "operation": "memory.read",
                 "payload": {},
@@ -305,10 +334,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-relay-test-") as raw_data_di
             "SELECT token_hash, revoked_at FROM relay_sessions WHERE device_id=? ORDER BY id",
             (device_id,),
         ).fetchall()
-        assert len(session_rows) == 2
+        assert len(session_rows) == 3
         assert session_rows[0]["revoked_at"] is not None
+        assert session_rows[1]["revoked_at"] is not None
+        assert session_rows[2]["revoked_at"] is None
         assert all(len(row["token_hash"]) == 64 for row in session_rows)
-        assert all(row["token_hash"] not in {relay_token, rotated_token} for row in session_rows)
+        assert all(row["token_hash"] not in {relay_token, rotated_token, reclaimed_token} for row in session_rows)
 
         audit = "\n".join(
             str(row[0] or "")
@@ -320,8 +351,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-relay-test-") as raw_data_di
         assert home_token not in audit
         assert relay_token not in audit
         assert rotated_token not in audit
+        assert reclaimed_token not in audit
         assert "memory.read" in audit
         assert "contacts.search" in audit
+        assert "client.session|released" in audit
     finally:
         connection.close()
 
