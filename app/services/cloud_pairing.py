@@ -15,6 +15,7 @@ class CloudPairingError(RuntimeError):
 
 
 _PAIRING_TOKEN = re.compile(r"^VP3-(?:[A-F0-9]{8}-){7}[A-F0-9]{8}$")
+_DEVICE_ID = re.compile(r"^hs-[a-f0-9]{24}$")
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _DEFAULT_PAIRING_ENDPOINT = "https://vp3.me/api/homeserver-pair-v1210.php"
 
@@ -54,9 +55,11 @@ def redeem_vp3_pairing_token(pairing_token: str) -> dict[str, Any]:
         raise CloudPairingError("This HomeServer is already claimed by a Cloud account. Remove the existing Cloud pairing before using a new token.")
 
     relay_claim = str(runtime.get("claim_code") or "").strip()
-    device_id = str(identity.get("device_id") or "").strip()
-    if not relay_claim or not device_id:
+    device_id = str(identity.get("device_id") or "").strip().lower()
+    if not relay_claim:
         raise CloudPairingError("HomeServer relay proof is not ready yet. Refresh Remote Bridge and try again.")
+    if not _DEVICE_ID.fullmatch(device_id):
+        raise CloudPairingError("HomeServer device identity is not ready for pairing.")
 
     endpoint = vp3_pairing_endpoint()
     try:
@@ -66,6 +69,7 @@ def redeem_vp3_pairing_token(pairing_token: str) -> dict[str, Any]:
                 json={
                     "pairing_token": token,
                     "relay_claim": relay_claim,
+                    "device_id": device_id,
                 },
                 headers={"Accept": "application/json"},
             )
@@ -82,7 +86,7 @@ def redeem_vp3_pairing_token(pairing_token: str) -> dict[str, Any]:
         detail = str(payload.get("error") or payload.get("detail") or "VP3 Cloud rejected the pairing request.").strip()
         raise CloudPairingError(detail[:300])
 
-    paired_device_id = str(payload.get("device_id") or "").strip()
+    paired_device_id = str(payload.get("device_id") or "").strip().lower()
     if paired_device_id != device_id:
         raise CloudPairingError("VP3 Cloud paired a different HomeServer device. The pairing was not accepted locally.")
 
@@ -92,5 +96,5 @@ def redeem_vp3_pairing_token(pairing_token: str) -> dict[str, Any]:
         "request_id": str(payload.get("request_id") or "")[:128],
         "expires_at": str(payload.get("expires_at") or "")[:80],
         "permissions": payload.get("permissions") if isinstance(payload.get("permissions"), list) else [],
-        "next_step": "Review and approve VP3 in HomeServer Connected Apps.",
+        "next_step": "Review and approve VP3 locally in HomeServer.",
     }
