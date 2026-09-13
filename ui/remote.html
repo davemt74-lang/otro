@@ -10,7 +10,7 @@
 <body class="remote-body">
   <main class="remote-shell">
     <header class="remote-header">
-      <div><a class="back-link" href="/">← HomeServer</a><p class="eyebrow">OUTBOUND PAIRING NODE</p><h1>Remote Bridge</h1><p>Connect HomeServer to VP3 Cloud through the configured secure relay without opening an inbound port on this PC.</p></div>
+      <div><a class="back-link" href="/">← HomeServer</a><p class="eyebrow">OUTBOUND PAIRING NODE</p><h1>Remote Bridge</h1><p>Pair this HomeServer with your VP3 Cloud account through the secure outbound relay. No inbound port is opened on this PC.</p></div>
       <span id="remoteStatus" class="remote-status">Disabled</span>
     </header>
 
@@ -21,11 +21,13 @@
     <section class="remote-grid">
       <article class="panel remote-card">
         <p class="eyebrow">PAIR WITH VP3 CLOUD</p>
-        <h2>Start Pairing</h2>
-        <p>Generate the first code here. Then paste it into VP3 Cloud → Settings → HomeServer.</p>
-        <button id="startPairing" class="button primary" type="button">Start Pairing</button>
-        <p id="pairingStartStatus" class="muted">Start Pairing enables the outbound bridge using the configured relay URL and waits for a one-time HomeServer connection code.</p>
-        <div id="claimPanel" class="claim-panel hidden"><span>HomeServer connection code</span><strong id="claimCode"></strong><small>Paste this code into VP3 Cloud. Cloud will then show a separate Approval code that you enter in HomeServer → Connected Apps.</small></div>
+        <h2>Enter your VP3 pairing token</h2>
+        <p>In your signed-in VP3 Cloud account, open Settings → HomeServer and choose <strong>Generate Pairing Token</strong>. Paste that one-time token here.</p>
+        <form id="vp3PairingForm">
+          <label>VP3 pairing token<input id="vp3PairingToken" type="text" placeholder="VP3-XXXXXXXX-…" maxlength="100" autocomplete="off" spellcheck="false" required></label>
+          <button id="pairVp3" class="button primary" type="submit">Pair with VP3 Cloud</button>
+        </form>
+        <p id="pairingStartStatus" class="muted">HomeServer uses its private relay identity as the device proof. You never need to copy a relay claim code.</p>
       </article>
 
       <article class="panel remote-card">
@@ -34,8 +36,8 @@
         <dl class="remote-details">
           <dt>Device ID</dt><dd id="deviceId">—</dd>
           <dt>Credential protection</dt><dd id="identityProtection">—</dd>
-          <dt>Connected</dt><dd id="connectedState">—</dd>
-          <dt>Pairing state</dt><dd id="pairingState">—</dd>
+          <dt>Relay</dt><dd id="connectedState">—</dd>
+          <dt>Cloud claim</dt><dd id="pairingState">—</dd>
           <dt>Last connection</dt><dd id="lastConnected">—</dd>
         </dl>
       </article>
