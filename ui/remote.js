@@ -3,6 +3,7 @@ const remoteEsc = (value = '') => String(value).replace(/[&<>'\"]/g, c => ({'&':
 const remoteFmt = value => value ? new Date(value).toLocaleString() : 'Never';
 
 let latestRemote = null;
+let pendingVp3 = null;
 
 async function remoteApi(path, options = {}) {
   const headers = {...(options.headers || {})};
@@ -22,6 +23,18 @@ function remoteFlash(message, error = false) {
   remoteFlash.timer = setTimeout(() => node.className = 'remote-flash', 4200);
 }
 
+function renderApproval() {
+  const panel = remoteById('vp3ApprovalPanel');
+  const permissions = remoteById('vp3RequestedPermissions');
+  if (!pendingVp3) {
+    panel.classList.add('hidden');
+    permissions.innerHTML = '';
+    return;
+  }
+  panel.classList.remove('hidden');
+  permissions.innerHTML = (pendingVp3.requested_permissions || []).map(permission => `<span>${remoteEsc(permission)}</span>`).join('') || '<span>No capabilities requested</span>';
+}
+
 function renderRemote(data) {
   latestRemote = data;
   const settings = data.settings || {};
@@ -32,7 +45,7 @@ function renderRemote(data) {
   remoteById('deviceId').textContent = identity.device_id || '—';
   remoteById('identityProtection').textContent = identity.protection || '—';
   remoteById('connectedState').textContent = runtime.connected ? 'Connected' : (settings.enabled ? 'Disconnected' : 'Disabled');
-  remoteById('pairingState').textContent = runtime.claimed ? 'Claimed by Cloud' : (runtime.connected && runtime.claim_code ? 'Ready for VP3 token' : 'Not paired');
+  remoteById('pairingState').textContent = runtime.claimed ? (pendingVp3 ? 'Waiting for local approval' : 'Claimed by Cloud') : (runtime.connected && runtime.claim_code ? 'Ready for VP3 token' : 'Not paired');
   remoteById('lastConnected').textContent = remoteFmt(runtime.last_connected_at);
 
   const status = remoteById('remoteStatus');
@@ -40,8 +53,10 @@ function renderRemote(data) {
   status.className = `remote-status${runtime.connected ? ' connected' : settings.enabled ? ' warning' : ''}`;
 
   const pairingStatus = remoteById('pairingStartStatus');
-  if (runtime.claimed) {
-    pairingStatus.textContent = 'This HomeServer is already claimed by a Cloud connection. Manage permissions in Connected Apps or disconnect it from VP3 Cloud before pairing another account.';
+  if (pendingVp3) {
+    pairingStatus.textContent = 'VP3 account and device matched. Review the local permission request below and approve it to finish pairing.';
+  } else if (runtime.claimed) {
+    pairingStatus.textContent = 'This HomeServer is claimed by a Cloud connection. Manage its permissions in Connected Apps or disconnect it from VP3 Cloud before pairing another account.';
   } else if (settings.enabled && runtime.connected && runtime.claim_code) {
     pairingStatus.textContent = 'Relay device proof is ready. Paste the pairing token generated in your VP3 Cloud account.';
   } else if (settings.enabled && !runtime.connected) {
@@ -53,7 +68,8 @@ function renderRemote(data) {
   }
 
   const pairButton = remoteById('pairVp3');
-  if (pairButton) pairButton.disabled = Boolean(runtime.claimed);
+  if (pairButton) pairButton.disabled = Boolean(runtime.claimed || pendingVp3);
+  renderApproval();
 
   const error = remoteById('remoteError');
   if (runtime.last_error) {
@@ -73,9 +89,13 @@ function renderRemote(data) {
 }
 
 async function refreshRemote() {
-  const data = await remoteApi('/api/v1/control/remote-bridge?limit=100');
-  renderRemote(data);
-  return data;
+  const [bridge, apps] = await Promise.all([
+    remoteApi('/api/v1/control/remote-bridge?limit=100'),
+    remoteApi('/api/v1/control/connected-apps').catch(() => ({pending: []})),
+  ]);
+  pendingVp3 = (apps.pending || []).find(item => String(item.app_key || '').toLowerCase() === 'vp3') || null;
+  renderRemote(bridge);
+  return bridge;
 }
 
 async function saveRemoteSettings(enabled) {
@@ -98,25 +118,45 @@ remoteById('vp3PairingForm').addEventListener('submit', async event => {
   button.disabled = true;
   try {
     const current = latestRemote || await refreshRemote();
-    if (current.runtime?.claimed) throw new Error('This HomeServer is already claimed by a Cloud account.');
+    if (current.runtime?.claimed && !pendingVp3) throw new Error('This HomeServer is already claimed by a Cloud account.');
     if (!current.settings?.enabled) await saveRemoteSettings(true);
     await refreshRemote();
     if (!latestRemote?.runtime?.connected || !latestRemote?.runtime?.claim_code) {
       throw new Error('Remote Bridge is not ready yet. Confirm the relay connection and try again.');
     }
     remoteById('pairingStartStatus').textContent = 'Validating the VP3 account token and binding this HomeServer…';
-    const result = await remoteApi('/api/v1/control/remote-bridge/pair-vp3', {
+    await remoteApi('/api/v1/control/remote-bridge/pair-vp3', {
       method: 'POST',
       body: JSON.stringify({pairing_token: token}),
     });
     input.value = '';
-    remoteById('pairingStartStatus').textContent = result.next_step || 'VP3 pairing request received. Review it in Connected Apps.';
-    remoteFlash('VP3 account matched. Review and approve the VP3 request in Connected Apps.');
     await refreshRemote();
+    if (!pendingVp3) throw new Error('VP3 was matched, but the local permission request is not visible yet. Refresh and try again.');
+    remoteFlash('VP3 account matched. Review the requested permissions and approve locally.');
   } catch (err) {
     remoteFlash(err.message, true);
   } finally {
-    button.disabled = Boolean(latestRemote?.runtime?.claimed);
+    button.disabled = Boolean(latestRemote?.runtime?.claimed || pendingVp3);
+  }
+});
+
+remoteById('approveVp3Pairing').addEventListener('click', async event => {
+  const button = event.currentTarget;
+  if (!pendingVp3?.id) return remoteFlash('No pending VP3 permission request was found.', true);
+  button.disabled = true;
+  try {
+    await remoteApi('/api/v1/control/remote-bridge/approve-vp3', {
+      method: 'POST',
+      body: JSON.stringify({pairing_id: Number(pendingVp3.id)}),
+    });
+    pendingVp3 = null;
+    renderApproval();
+    await refreshRemote();
+    remoteFlash('VP3 approved locally. VP3 Cloud will finish the connection automatically.');
+  } catch (err) {
+    remoteFlash(err.message, true);
+  } finally {
+    button.disabled = false;
   }
 });
 
