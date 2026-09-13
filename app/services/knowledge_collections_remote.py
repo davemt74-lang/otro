@@ -42,34 +42,39 @@ def _local_response(response: httpx.Response) -> dict:
 
 
 def install() -> None:
-    """Upgrade knowledge.search without widening the legacy dispatcher.
+    """Install the scoped search contract, then chain newer knowledge operations.
 
-    The v0.37 route applies collection scope and emits citation-safe snippets.
-    Every other operation continues through the original fail-closed dispatcher.
+    v0.37 owns the canonical citation-safe knowledge.search route. v0.62 layers
+    collection/folder mapping and collection-scoped writes on top of that same
+    fail-closed dispatcher so older paired clients remain compatible.
     """
-    if getattr(remote_bridge, "_knowledge_collections_v037_installed", False):
-        return
+    if not getattr(remote_bridge, "_knowledge_collections_v037_installed", False):
+        original: Callable[[str, dict | None, str | None], dict] = remote_bridge.dispatch_remote_request
 
-    original: Callable[[str, dict | None, str | None], dict] = remote_bridge.dispatch_remote_request
+        def extended(operation: str, payload: dict | None, bearer_token: str | None = None) -> dict:
+            op = str(operation or "").strip()
+            if op != "knowledge.search":
+                return original(operation, payload, bearer_token)
 
-    def extended(operation: str, payload: dict | None, bearer_token: str | None = None) -> dict:
-        op = str(operation or "").strip()
-        if op != "knowledge.search":
-            return original(operation, payload, bearer_token)
+            body = payload if isinstance(payload, dict) else {}
+            query = str(body.get("query") or "")[:240]
+            limit = _bounded_limit(body.get("limit"))
+            token = _token(bearer_token)
+            headers = {"Authorization": f"Bearer {token}"}
+            base_url = f"http://{settings.host}:{settings.port}"
+            with httpx.Client(base_url=base_url, timeout=30.0, trust_env=False) as client:
+                response = client.get(
+                    "/api/v1/knowledge/search-v037",
+                    params={"q": query, "limit": limit},
+                    headers=headers,
+                )
+                return _local_response(response)
 
-        body = payload if isinstance(payload, dict) else {}
-        query = str(body.get("query") or "")[:240]
-        limit = _bounded_limit(body.get("limit"))
-        token = _token(bearer_token)
-        headers = {"Authorization": f"Bearer {token}"}
-        base_url = f"http://{settings.host}:{settings.port}"
-        with httpx.Client(base_url=base_url, timeout=30.0, trust_env=False) as client:
-            response = client.get(
-                "/api/v1/knowledge/search-v037",
-                params={"q": query, "limit": limit},
-                headers=headers,
-            )
-            return _local_response(response)
+        remote_bridge.dispatch_remote_request = extended
+        remote_bridge._knowledge_collections_v037_installed = True
 
-    remote_bridge.dispatch_remote_request = extended
-    remote_bridge._knowledge_collections_v037_installed = True
+    # Imported lazily to avoid a module cycle while this v0.37 wrapper is being
+    # initialized. The v0.62 installer is itself idempotent.
+    from .knowledge_folder_mapping_remote import install as install_v062
+
+    install_v062()

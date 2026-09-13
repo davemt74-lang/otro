@@ -1,0 +1,74 @@
+name: HomeServer Knowledge Folder Mapping v0.62
+
+on:
+  pull_request:
+    paths:
+      - 'app/knowledge_collections_api.py'
+      - 'app/knowledge_folder_mapping_api.py'
+      - 'app/services/knowledge_collections.py'
+      - 'app/services/knowledge_collections_remote.py'
+      - 'app/services/knowledge_folder_mapping.py'
+      - 'app/services/knowledge_folder_mapping_remote.py'
+      - 'app/services/knowledge_sources.py'
+      - 'app/services/windows_integration.py'
+      - 'tests/knowledge_folder_mapping_v062.py'
+      - 'tests/knowledge_folder_mapping_v062_capabilities.py'
+      - 'tests/knowledge_folder_mapping_v062_remote_contract.py'
+      - '.github/workflows/knowledge-folder-mapping-v062.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/knowledge_collections_api.py'
+      - 'app/knowledge_folder_mapping_api.py'
+      - 'app/services/knowledge_collections.py'
+      - 'app/services/knowledge_collections_remote.py'
+      - 'app/services/knowledge_folder_mapping.py'
+      - 'app/services/knowledge_folder_mapping_remote.py'
+      - 'app/services/knowledge_sources.py'
+      - 'app/services/windows_integration.py'
+      - 'tests/knowledge_folder_mapping_v062.py'
+      - 'tests/knowledge_folder_mapping_v062_capabilities.py'
+      - 'tests/knowledge_folder_mapping_v062_remote_contract.py'
+      - '.github/workflows/knowledge-folder-mapping-v062.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  knowledge-folder-mapping:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile v0.62 modules
+        run: >-
+          python -m py_compile
+          app/knowledge_collections_api.py
+          app/knowledge_folder_mapping_api.py
+          app/services/knowledge_collections_remote.py
+          app/services/knowledge_folder_mapping.py
+          app/services/knowledge_folder_mapping_remote.py
+          app/services/windows_integration.py
+      - name: Native picker platform contract
+        run: >-
+          python -c "import os; from app.services.windows_integration import native_folder_picker_supported; assert native_folder_picker_supported() is (os.name == 'nt'); print('native picker platform contract passed')"
+      - name: Capability advertisement contract
+        run: python tests/knowledge_folder_mapping_v062_capabilities.py
+      - name: Remote mapping routing contract
+        run: python tests/knowledge_folder_mapping_v062_remote_contract.py
+      - name: Folder mapping + collection write regression
+        run: python tests/knowledge_folder_mapping_v062.py
+      - name: Existing knowledge collections regression
+        run: python tests/knowledge_collections_v037.py
+      - name: Existing watched-folder regression
+        run: python tests/knowledge_sources.py
+      - name: Existing source privacy regression
+        run: python tests/knowledge_source_retention_privacy.py
