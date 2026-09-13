@@ -11,6 +11,7 @@ from .services.connected_apps import (
     require_repair,
     update_collaboration_grant,
 )
+from .services.connected_apps_pairing import ConnectedAppsPairingError, approve_pending_pairing
 
 router = APIRouter()
 
@@ -62,6 +63,14 @@ def require_connected_app_repair(app_id: int) -> dict:
         return require_repair(app_id)
     except ConnectedAppError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/api/v1/control/connected-apps/pending/{request_id}/approve")
+def approve_connected_app_pairing(request_id: int) -> dict:
+    try:
+        return approve_pending_pairing(request_id)
+    except ConnectedAppsPairingError as exc:
+        raise HTTPException(status_code=409 if "no longer pending" in str(exc) else 404, detail=str(exc)) from exc
 
 
 @router.post("/api/v1/control/connected-apps/pending/{request_id}/deny")
