@@ -27,7 +27,7 @@
           <label>VP3 pairing token<input id="vp3PairingToken" type="text" placeholder="VP3-XXXXXXXX-…" maxlength="100" autocomplete="off" spellcheck="false" required></label>
           <button id="pairVp3" class="button primary" type="submit">Pair with VP3 Cloud</button>
         </form>
-        <p id="pairingStartStatus" class="muted">HomeServer uses its private relay identity as the device proof. You never need to copy a relay claim code.</p>
+        <p id="pairingStartStatus" class="muted">HomeServer uses its private relay identity as the device proof and automatically loads the official VP3 relay. You never need to copy a relay claim code or configure infrastructure.</p>
       </article>
 
       <article class="panel remote-card">
@@ -58,7 +58,7 @@
       <form id="remoteForm">
         <label>Broker WebSocket URL<input id="brokerUrl" type="url" placeholder="wss://…" autocomplete="off" spellcheck="false"></label>
         <label class="switch-line"><input id="bridgeEnabled" type="checkbox"><span>Enable outbound Remote Bridge</span></label>
-        <p class="muted">The production installer/build should provide the VP3 relay URL. Production relays must use <code>wss://</code>. Plain <code>ws://</code> is accepted only for a loopback development broker.</p>
+        <p class="muted">Normal VP3 pairing configures the official relay automatically. Change this only for a custom or development relay. Production relays must use <code>wss://</code>; plain <code>ws://</code> is accepted only for loopback development.</p>
         <button class="button secondary" type="submit">Save bridge settings</button>
       </form>
     </section>
