@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -90,7 +91,7 @@ def _mapping_rows() -> list[dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT ks.id, ks.label, ks.enabled, ks.recursive, ks.scan_interval_seconds,
-                   ks.status, ks.last_scan_completed_at, ks.last_error,
+                   ks.status, ks.last_scan_completed_at,
                    COALESCE(c.collection_key, 'general') AS collection_key,
                    COALESCE(c.name, 'General') AS collection_name,
                    (SELECT COUNT(*) FROM knowledge_source_files sf WHERE sf.source_id=ks.id) AS tracked_files,
@@ -133,9 +134,10 @@ def list_folder_mappings(identity: dict[str, Any]) -> dict[str, Any]:
     return {
         "items": items,
         "privacy": {
-            "local_paths_exposed": False,
+            "absolute_paths_exposed": False,
             "picker_runs_on_homeserver": True,
-            "indexed_content_stays_local": True,
+            "local_index": True,
+            "full_documents_returned": False,
         },
     }
 
@@ -176,13 +178,13 @@ def _log_app(identity: dict[str, Any], action: str, resource_key: str, metadata:
         connection.execute(
             """
             INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES ('app', ?, ?, 'knowledge', ?, json(?))
+            VALUES ('app', ?, ?, 'knowledge', ?, ?)
             """,
             (
                 str(identity.get("app_key") or "paired-app")[:160],
                 action[:120],
                 resource_key[:160],
-                __import__("json").dumps(metadata, separators=(",", ":")),
+                json.dumps(metadata, separators=(",", ":")),
             ),
         )
 
@@ -225,8 +227,18 @@ def create_folder_mapping(
                 excludes=excludes or [],
             )
             source_id = int(source["id"])
-        elif str(label or "").strip():
-            knowledge_sources.update_source(source_id, label=str(label).strip()[:200])
+        else:
+            # An existing source may be reused only when the paired app could
+            # already see its current collection. This prevents a scoped app
+            # from moving an inaccessible source into its own collection.
+            _row_for_mapping(identity, f"source-{source_id}")
+            knowledge_sources.update_source(
+                source_id,
+                label=str(label).strip()[:200] if str(label or "").strip() else None,
+                recursive=recursive,
+                scan_interval_seconds=scan_interval_seconds,
+                excludes=excludes or [],
+            )
 
         knowledge_collections.assign_source(source_id, str(collection["collection_key"]))
         scan_state = "completed"
@@ -237,6 +249,8 @@ def create_folder_mapping(
                 scan_state = "deferred"
             else:
                 scan_state = "error"
+    except KnowledgeFolderMappingError:
+        raise
     except (knowledge_sources.KnowledgeSourceError, knowledge_collections.KnowledgeCollectionError) as exc:
         status = int(getattr(exc, "status_code", 422))
         raise KnowledgeFolderMappingError(str(exc), status_code=status) from exc
@@ -254,7 +268,7 @@ def create_folder_mapping(
         "cancelled": False,
         "scan_state": scan_state,
         "mapping": mapping,
-        "privacy": {"local_path_exposed": False},
+        "privacy": {"absolute_path_exposed": False},
     }
 
 
@@ -275,7 +289,7 @@ def delete_folder_mapping(identity: dict[str, Any], mapping_id: str) -> dict[str
         "deleted": True,
         "mapping_id": safe["mapping_id"],
         "collection_key": safe["collection_key"],
-        "privacy": {"local_path_exposed": False},
+        "privacy": {"absolute_path_exposed": False},
     }
 
 
