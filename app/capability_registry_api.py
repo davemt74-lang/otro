@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 
+from .main import app
 from .services import meeting_transcription
 from .services.capability_registry import build_registry
 from .services.meeting_transcription_remote import install as install_meeting_transcription_remote
@@ -12,6 +15,23 @@ router = APIRouter()
 # Phase 18.6 is a first-class authenticated HomeServer remote capability. Install
 # the operation during application import so the relay and registry stay in sync.
 install_meeting_transcription_remote()
+
+# HomeServer uses FastAPI's custom lifespan API, so router on_event shutdown
+# handlers are not authoritative. Wrap the existing lifespan once and preserve
+# its startup/teardown behavior while guaranteeing meeting subscribers stop.
+if not getattr(app.state, "meeting_transcription_lifespan_v1860", False):
+    _base_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def _meeting_transcription_lifespan(application):
+        async with _base_lifespan(application):
+            try:
+                yield
+            finally:
+                meeting_transcription.stop_all()
+
+    app.router.lifespan_context = _meeting_transcription_lifespan
+    app.state.meeting_transcription_lifespan_v1860 = True
 
 
 def _current_app(authorization: str | None = Header(default=None)) -> dict:
@@ -29,9 +49,3 @@ def capability_registry(identity: dict = Depends(_current_app)) -> dict:
     registry = build_registry(identity)
     registry["meeting_transcription"] = meeting_transcription.status()
     return registry
-
-
-@router.on_event("shutdown")
-def shutdown_meeting_transcription() -> None:
-    """Stop local media subscribers before the HomeServer process exits."""
-    meeting_transcription.stop_all()
