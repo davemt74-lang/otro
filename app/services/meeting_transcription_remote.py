@@ -8,7 +8,23 @@ from .pairing import authenticate
 _INSTALLED = False
 
 
+def _claimed_cloud_ready() -> bool:
+    """The meeting operation is a VP3 Cloud relay capability, not a local app API."""
+    try:
+        status = remote_bridge.bridge_status()
+        settings = status.get("settings") if isinstance(status.get("settings"), dict) else {}
+        runtime = status.get("runtime") if isinstance(status.get("runtime"), dict) else {}
+        return bool(settings.get("enabled") and runtime.get("connected") and runtime.get("claimed"))
+    except Exception:
+        return False
+
+
 def _identity(bearer_token: str | None) -> dict[str, Any]:
+    if not _claimed_cloud_ready():
+        raise remote_bridge.RemoteBridgeError(
+            "VP3 Cloud must be the active claimed HomeServer relay before meeting transcription can run."
+        )
+
     token = str(bearer_token or "").strip()
     if len(token) < 20 or len(token) > 512:
         raise remote_bridge.RemoteBridgeError(
@@ -58,7 +74,11 @@ def install() -> None:
 
     def extended_operations(permissions: set[str], contacts_available: bool) -> list[str]:
         operations = list(original_operations(permissions, contacts_available))
-        if "agent.chat" in permissions and meeting_transcription.status().get("available"):
+        if (
+            "agent.chat" in permissions
+            and _claimed_cloud_ready()
+            and meeting_transcription.status().get("available")
+        ):
             operations.append(meeting_transcription.OPERATION)
         return sorted(set(operations))
 
