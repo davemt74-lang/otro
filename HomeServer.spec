@@ -1,13 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
-hiddenimports = collect_submodules('uvicorn')
+livekit_datas, livekit_binaries, livekit_hiddenimports = collect_all('livekit')
+hiddenimports = collect_submodules('uvicorn') + livekit_hiddenimports
 
 a = Analysis(
     ['desktop/launcher.py'],
     pathex=['.'],
-    binaries=[],
+    binaries=livekit_binaries,
     datas=[
         ('database/schema.sql', 'database'),
         ('database/knowledge_collections.sql', 'database'),
@@ -18,7 +19,7 @@ a = Analysis(
         ('database/agent_workflow_automation.sql', 'database'),
         ('database/migrations', 'database/migrations'),
         ('ui', 'ui'),
-    ],
+    ] + livekit_datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
