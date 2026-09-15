@@ -124,6 +124,10 @@ def _safe_livekit_url(value: Any) -> str:
         raise MeetingTranscriptionError("livekit.url requires wss:// except for loopback development.", 422)
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise MeetingTranscriptionError("livekit.url cannot contain credentials, query parameters, or a fragment.", 422)
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise MeetingTranscriptionError("livekit.url contains an invalid port.", 422) from exc
     return raw
 
 
@@ -131,7 +135,11 @@ def _origin(parsed: ParseResult) -> tuple[str, str, int]:
     scheme = str(parsed.scheme or "").lower()
     host = str(parsed.hostname or "").lower()
     default_port = 443 if scheme == "https" else 80
-    return scheme, host, int(parsed.port or default_port)
+    try:
+        port = int(parsed.port or default_port)
+    except ValueError as exc:
+        raise MeetingTranscriptionError("callback.url contains an invalid port.", 422) from exc
+    return scheme, host, port
 
 
 def _safe_callback_url(value: Any) -> str:
@@ -615,6 +623,12 @@ async def _run_job(job: _MeetingJob) -> None:
         def release_track(completed: asyncio.Task, *, track_sid: str = sid) -> None:
             stream_tasks.discard(completed)
             active_tracks.discard(track_sid)
+            if completed.cancelled():
+                return
+            error = completed.exception()
+            if error is not None and not job.stop_event.is_set():
+                _set_status(job, "failed", "audio_track_failed")
+                job.stop_event.set()
 
         task.add_done_callback(release_track)
 
