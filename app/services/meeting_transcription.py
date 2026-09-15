@@ -30,6 +30,7 @@ MAX_CALLBACK_ATTEMPTS = 3
 CALLBACK_TIMEOUT_SECONDS = 12.0
 MAX_ACTIVE_AUDIO_TRACKS = 32
 FINAL_DRAIN_SECONDS = 120.0
+STARTUP_WAIT_SECONDS = 18.0
 
 _PUBLIC_ID = re.compile(r"^[a-f0-9]{32}$")
 _IDEMPOTENCY = re.compile(r"^vp3-meeting-transcription:[a-f0-9]{32}$")
@@ -72,6 +73,7 @@ class _MeetingJob:
     transcription_failures: int = 0
     thread: threading.Thread | None = None
     stop_event: threading.Event = field(default_factory=threading.Event)
+    start_event: threading.Event = field(default_factory=threading.Event)
 
 
 def _rtc_module():
@@ -304,6 +306,8 @@ def _set_status(job: _MeetingJob, state: str, error: str | None = None) -> None:
         job.updated_at = time.time()
         if error is not None:
             job.last_error = error[:240]
+        if state in {"running", "failed", "stopped", "expired", "completed"}:
+            job.start_event.set()
 
 
 def _record_callback_failure(job: _MeetingJob) -> None:
@@ -312,6 +316,7 @@ def _record_callback_failure(job: _MeetingJob) -> None:
         job.updated_at = time.time()
         job.last_error = "callback_failed"
         job.status = "failed"
+        job.start_event.set()
         job.stop_event.set()
 
 
@@ -322,6 +327,7 @@ def _record_transcription_failure(job: _MeetingJob) -> None:
         if job.transcription_failures >= 3:
             job.last_error = "local_stt_failed"
             job.status = "failed"
+            job.start_event.set()
             job.stop_event.set()
 
 
@@ -329,6 +335,16 @@ def _record_transcription_success(job: _MeetingJob) -> None:
     with _JOBS_LOCK:
         job.transcription_failures = 0
         job.updated_at = time.time()
+
+
+def _await_startup(job: _MeetingJob, *, already_running: bool) -> dict[str, Any]:
+    if not job.start_event.wait(timeout=STARTUP_WAIT_SECONDS):
+        job.stop_event.set()
+        _set_status(job, "failed", "startup_timeout")
+        raise MeetingTranscriptionError("HomeServer meeting transcription startup timed out.", 503)
+    if job.status != "running":
+        raise MeetingTranscriptionError("HomeServer could not start local meeting transcription.", 503)
+    return _snapshot(job, status_override="already_running" if already_running else None)
 
 
 def start(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
@@ -342,6 +358,8 @@ def start(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
 
     clean = _validate_payload(payload)
     now = time.time()
+    existing_job: _MeetingJob | None = None
+    new_job: _MeetingJob | None = None
     with _JOBS_LOCK:
         _prune_jobs_locked(now)
         existing = _JOBS.get(clean["idempotency_key"])
@@ -351,32 +369,38 @@ def start(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
             if existing.thread is not None and existing.thread.is_alive() and existing.status in {
                 "starting", "connecting", "running"
             }:
-                return _snapshot(existing, status_override="already_running")
+                existing_job = existing
 
-        job = _MeetingJob(
-            idempotency_key=clean["idempotency_key"],
-            public_id=clean["public_id"],
-            room_name=clean["room_name"],
-            title=clean["title"],
-            app_key=str(identity.get("app_key") or "")[:80],
-            livekit_url=clean["livekit_url"],
-            livekit_identity=clean["livekit_identity"],
-            livekit_token=clean["livekit_token"],
-            callback_url=clean["callback_url"],
-            callback_token=clean["callback_token"],
-            callback_expires_at=clean["callback_expires_at"],
-            language=clean["language"],
-        )
-        thread = threading.Thread(
-            target=_job_thread,
-            args=(job,),
-            name=f"homeserver-meeting-stt-{job.public_id[:10]}",
-            daemon=True,
-        )
-        job.thread = thread
-        _JOBS[job.idempotency_key] = job
-        thread.start()
-        return _snapshot(job)
+        if existing_job is None:
+            new_job = _MeetingJob(
+                idempotency_key=clean["idempotency_key"],
+                public_id=clean["public_id"],
+                room_name=clean["room_name"],
+                title=clean["title"],
+                app_key=str(identity.get("app_key") or "")[:80],
+                livekit_url=clean["livekit_url"],
+                livekit_identity=clean["livekit_identity"],
+                livekit_token=clean["livekit_token"],
+                callback_url=clean["callback_url"],
+                callback_token=clean["callback_token"],
+                callback_expires_at=clean["callback_expires_at"],
+                language=clean["language"],
+            )
+            thread = threading.Thread(
+                target=_job_thread,
+                args=(new_job,),
+                name=f"homeserver-meeting-stt-{new_job.public_id[:10]}",
+                daemon=True,
+            )
+            new_job.thread = thread
+            _JOBS[new_job.idempotency_key] = new_job
+            thread.start()
+
+    if existing_job is not None:
+        return _await_startup(existing_job, already_running=True)
+    if new_job is None:
+        raise MeetingTranscriptionError("HomeServer could not create the meeting transcription worker.", 503)
+    return _await_startup(new_job, already_running=False)
 
 
 def _job_thread(job: _MeetingJob) -> None:
@@ -651,6 +675,12 @@ async def _run_job(job: _MeetingJob) -> None:
     try:
         options = rtc.RoomOptions(auto_subscribe=False, connect_timeout=15.0)
         await room.connect(job.livekit_url, job.livekit_token, options=options)
+        if job.stop_event.is_set():
+            try:
+                await room.disconnect()
+            except Exception:
+                pass
+            return
         _set_status(job, "running")
 
         for participant in room.remote_participants.values():
