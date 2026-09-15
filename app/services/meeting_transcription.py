@@ -12,11 +12,11 @@ import wave
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 import httpx
 
-from . import local_voice, voice_settings
+from . import cloud_pairing, local_voice, voice_settings
 
 RUNTIME_VERSION = "v18.6"
 CONTRACT = "vp3.meeting.transcription.v1"
@@ -28,6 +28,8 @@ MIN_SEGMENT_MS = 700
 SPEECH_RMS_THRESHOLD = 220
 MAX_CALLBACK_ATTEMPTS = 3
 CALLBACK_TIMEOUT_SECONDS = 12.0
+MAX_ACTIVE_AUDIO_TRACKS = 32
+FINAL_DRAIN_SECONDS = 120.0
 
 _PUBLIC_ID = re.compile(r"^[a-f0-9]{32}$")
 _IDEMPOTENCY = re.compile(r"^vp3-meeting-transcription:[a-f0-9]{32}$")
@@ -38,6 +40,7 @@ _LANGUAGE = re.compile(r"^[A-Za-z]{2,8}(?:[-_][A-Za-z0-9]{2,8}){0,3}$")
 
 _JOBS_LOCK = threading.RLock()
 _JOBS: dict[str, "_MeetingJob"] = {}
+_STT_SEMAPHORE = threading.BoundedSemaphore(value=1)
 
 
 class MeetingTranscriptionError(RuntimeError):
@@ -66,6 +69,7 @@ class _MeetingJob:
     started_monotonic: float = field(default_factory=time.monotonic)
     last_error: str | None = None
     callback_failures: int = 0
+    transcription_failures: int = 0
     thread: threading.Thread | None = None
     stop_event: threading.Event = field(default_factory=threading.Event)
 
@@ -123,6 +127,13 @@ def _safe_livekit_url(value: Any) -> str:
     return raw
 
 
+def _origin(parsed: ParseResult) -> tuple[str, str, int]:
+    scheme = str(parsed.scheme or "").lower()
+    host = str(parsed.hostname or "").lower()
+    default_port = 443 if scheme == "https" else 80
+    return scheme, host, int(parsed.port or default_port)
+
+
 def _safe_callback_url(value: Any) -> str:
     raw = str(value or "").strip()
     parsed = urlparse(raw)
@@ -134,8 +145,15 @@ def _safe_callback_url(value: Any) -> str:
         raise MeetingTranscriptionError("callback.url requires HTTPS except for loopback development.", 422)
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise MeetingTranscriptionError("callback.url cannot contain credentials, query parameters, or a fragment.", 422)
-    if not (parsed.path or "").endswith("/api/video-meeting-worker.php"):
+    if (parsed.path or "") != "/api/video-meeting-worker.php":
         raise MeetingTranscriptionError("callback.url must target the canonical VP3 meeting worker.", 422)
+
+    try:
+        trusted = urlparse(cloud_pairing.vp3_pairing_endpoint())
+    except Exception as exc:
+        raise MeetingTranscriptionError("VP3 Cloud pairing origin is not configured safely.", 503) from exc
+    if _origin(parsed) != _origin(trusted):
+        raise MeetingTranscriptionError("callback.url must use the paired VP3 Cloud origin.", 422)
     return raw
 
 
@@ -252,7 +270,7 @@ def _prune_jobs_locked(now: float) -> None:
     stale = [
         key
         for key, job in _JOBS.items()
-        if job.status in {"completed", "failed", "stopped"} and now - job.updated_at > 3600
+        if job.status in {"completed", "failed", "stopped", "expired"} and now - job.updated_at > 3600
     ]
     for key in stale[:100]:
         _JOBS.pop(key, None)
@@ -285,6 +303,24 @@ def _record_callback_failure(job: _MeetingJob) -> None:
         job.callback_failures += 1
         job.updated_at = time.time()
         job.last_error = "callback_failed"
+        job.status = "failed"
+        job.stop_event.set()
+
+
+def _record_transcription_failure(job: _MeetingJob) -> None:
+    with _JOBS_LOCK:
+        job.transcription_failures += 1
+        job.updated_at = time.time()
+        if job.transcription_failures >= 3:
+            job.last_error = "local_stt_failed"
+            job.status = "failed"
+            job.stop_event.set()
+
+
+def _record_transcription_success(job: _MeetingJob) -> None:
+    with _JOBS_LOCK:
+        job.transcription_failures = 0
+        job.updated_at = time.time()
 
 
 def start(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
@@ -341,8 +377,6 @@ def _job_thread(job: _MeetingJob) -> None:
     except Exception:
         _set_status(job, "failed", "runtime_failed")
     finally:
-        # Credentials are intentionally memory-only and are destroyed once the
-        # meeting worker exits. Status surfaces never expose them.
         job.livekit_token = ""
         job.callback_token = ""
         job.updated_at = time.time()
@@ -390,8 +424,20 @@ def _frame_pcm_and_rms(frame: Any) -> tuple[bytes, int]:
         return raw, int(math.sqrt(square_sum / len(samples)))
 
 
-def _source_key(job: _MeetingJob, participant_identity: str, track_sid: str, sequence: int) -> str:
-    material = f"{job.public_id}|{participant_identity}|{track_sid}|{sequence}".encode("utf-8")
+def _source_key(
+    job: _MeetingJob,
+    participant_identity: str,
+    track_sid: str,
+    sequence: int,
+    start_ms: int,
+    end_ms: int,
+    text: str,
+) -> str:
+    text_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    material = (
+        f"{job.public_id}|{participant_identity}|{track_sid}|{sequence}|"
+        f"{start_ms}|{end_ms}|{text_digest}"
+    ).encode("utf-8")
     return "hs-" + hashlib.sha256(material).hexdigest()[:40]
 
 
@@ -422,6 +468,16 @@ def _post_callback(job: _MeetingJob, body: dict[str, Any]) -> None:
     raise MeetingTranscriptionError("VP3 meeting transcript callback failed after bounded retries.", 502) from last_error
 
 
+def _transcribe_local(wav_bytes: bytes) -> dict[str, Any]:
+    acquired = _STT_SEMAPHORE.acquire(timeout=100.0)
+    if not acquired:
+        raise MeetingTranscriptionError("Local STT worker is busy.", 503)
+    try:
+        return local_voice.transcribe(wav_bytes)
+    finally:
+        _STT_SEMAPHORE.release()
+
+
 async def _transcribe_segment(
     job: _MeetingJob,
     pcm: bytes,
@@ -432,14 +488,16 @@ async def _transcribe_segment(
     start_ms: int,
     end_ms: int,
 ) -> None:
-    if not pcm or end_ms <= start_ms:
+    if not pcm or end_ms <= start_ms or job.stop_event.is_set():
         return
     try:
-        result = await asyncio.to_thread(local_voice.transcribe, _pcm_wav(pcm))
+        result = await asyncio.to_thread(_transcribe_local, _pcm_wav(pcm))
     except Exception:
+        _record_transcription_failure(job)
         return
+    _record_transcription_success(job)
     text = str(result.get("text") or "").strip()
-    if not text:
+    if not text or job.stop_event.is_set():
         return
     body = {
         "meeting": job.public_id,
@@ -451,7 +509,7 @@ async def _transcribe_segment(
         "text": text[:20_000],
         "confidence": None,
         "source": "homeserver",
-        "source_key": _source_key(job, participant_identity, track_sid, sequence),
+        "source_key": _source_key(job, participant_identity, track_sid, sequence, start_ms, end_ms, text),
         "is_final": True,
     }
     try:
@@ -474,7 +532,7 @@ async def _consume_track(job: _MeetingJob, rtc: Any, track: Any, publication: An
 
     async def flush(end_ms: int) -> None:
         nonlocal pcm, speech_seen, trailing_silence_ms, segment_start_ms, sequence
-        if speech_seen and pcm:
+        if speech_seen and pcm and not job.stop_event.is_set():
             duration_ms = int(len(pcm) / (SAMPLE_RATE * CHANNELS * SAMPLE_WIDTH) * 1000)
             if duration_ms >= MIN_SEGMENT_MS:
                 sequence += 1
@@ -501,7 +559,14 @@ async def _consume_track(job: _MeetingJob, rtc: Any, track: Any, publication: An
             raw, rms = _frame_pcm_and_rms(frame)
             if not raw:
                 continue
-            frame_ms = max(1, int(getattr(frame, "samples_per_channel", 0) * 1000 / max(1, getattr(frame, "sample_rate", SAMPLE_RATE))))
+            frame_ms = max(
+                1,
+                int(
+                    getattr(frame, "samples_per_channel", 0)
+                    * 1000
+                    / max(1, getattr(frame, "sample_rate", SAMPLE_RATE))
+                ),
+            )
             now_ms = max(0, int((time.monotonic() - job.started_monotonic) * 1000))
 
             if not speech_seen:
@@ -517,7 +582,8 @@ async def _consume_track(job: _MeetingJob, rtc: Any, track: Any, publication: An
                 await flush(now_ms)
     finally:
         end_ms = max(0, int((time.monotonic() - job.started_monotonic) * 1000))
-        await flush(end_ms)
+        if not job.stop_event.is_set():
+            await flush(end_ms)
         try:
             await stream.aclose()
         except Exception:
@@ -540,12 +606,17 @@ async def _run_job(job: _MeetingJob) -> None:
         if getattr(track, "kind", None) != rtc.TrackKind.KIND_AUDIO:
             return
         sid = str(getattr(publication, "sid", "") or getattr(track, "sid", "") or id(track))
-        if sid in active_tracks or len(active_tracks) >= 32:
+        if sid in active_tracks or len(active_tracks) >= MAX_ACTIVE_AUDIO_TRACKS:
             return
         active_tracks.add(sid)
         task = asyncio.create_task(_consume_track(job, rtc, track, publication, participant))
         stream_tasks.add(task)
-        task.add_done_callback(stream_tasks.discard)
+
+        def release_track(completed: asyncio.Task, *, track_sid: str = sid) -> None:
+            stream_tasks.discard(completed)
+            active_tracks.discard(track_sid)
+
+        task.add_done_callback(release_track)
 
     @room.on("track_published")
     def on_track_published(publication: Any, participant: Any) -> None:
@@ -565,8 +636,6 @@ async def _run_job(job: _MeetingJob) -> None:
 
     try:
         options = rtc.RoomOptions(auto_subscribe=False, connect_timeout=15.0)
-        # Do not externally cancel Room.connect: current LiveKit Python FFI
-        # requires its connection handshake to finish cleanly.
         await room.connect(job.livekit_url, job.livekit_token, options=options)
         _set_status(job, "running")
 
@@ -584,6 +653,7 @@ async def _run_job(job: _MeetingJob) -> None:
 
         while not disconnected.is_set() and not job.stop_event.is_set():
             if datetime.now(timezone.utc) >= job.callback_expires_at:
+                _set_status(job, "expired", "callback_expired")
                 job.stop_event.set()
                 break
             await asyncio.sleep(0.25)
@@ -595,12 +665,12 @@ async def _run_job(job: _MeetingJob) -> None:
                 pass
 
         if stream_tasks:
-            _, pending = await asyncio.wait(tuple(stream_tasks), timeout=120.0)
+            _, pending = await asyncio.wait(tuple(stream_tasks), timeout=FINAL_DRAIN_SECONDS)
             for task in pending:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
-        if job.status not in {"failed", "stopped"}:
+        if job.status not in {"failed", "stopped", "expired"}:
             _set_status(job, "completed")
     except Exception:
         _set_status(job, "failed", "livekit_runtime_failed")
@@ -611,10 +681,19 @@ async def _run_job(job: _MeetingJob) -> None:
             pass
 
 
-def stop_all() -> None:
+def stop_all(join_timeout: float = 8.0) -> None:
     with _JOBS_LOCK:
         jobs = list(_JOBS.values())
     for job in jobs:
         if job.thread is not None and job.thread.is_alive():
             job.stop_event.set()
-            _set_status(job, "stopped")
+            _set_status(job, "stopped", "homeserver_shutdown")
+    deadline = time.monotonic() + max(0.0, join_timeout)
+    for job in jobs:
+        thread = job.thread
+        if thread is None or not thread.is_alive():
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        thread.join(timeout=remaining)
