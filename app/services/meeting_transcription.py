@@ -31,7 +31,9 @@ CALLBACK_TIMEOUT_SECONDS = 12.0
 
 _PUBLIC_ID = re.compile(r"^[a-f0-9]{32}$")
 _IDEMPOTENCY = re.compile(r"^vp3-meeting-transcription:[a-f0-9]{32}$")
-_IDENTITY = re.compile(r"^[A-Za-z0-9._:@-]{1,128}$")
+_IDENTITY = re.compile(r"^vp3-homeserver-[a-f0-9]{24}$")
+_CALLBACK_TOKEN = re.compile(r"^v1850\.(\d{10})\.[a-f0-9]{64}$")
+_JWT = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
 _LANGUAGE = re.compile(r"^[A-Za-z]{2,8}(?:[-_][A-Za-z0-9]{2,8}){0,3}$")
 
 _JOBS_LOCK = threading.RLock()
@@ -193,6 +195,12 @@ def _validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         raise MeetingTranscriptionError("HomeServer requires an audio-only LiveKit subscription.", 422)
 
     callback_token = _require_string(callback.get("bearer_token"), "callback.bearer_token", minimum=20, maximum=512)
+    callback_match = _CALLBACK_TOKEN.fullmatch(callback_token)
+    if callback_match is None:
+        raise MeetingTranscriptionError("callback.bearer_token is not a scoped VP3 meeting capability.", 422)
+    callback_expires_at = _safe_expiry(callback.get("expires_at"))
+    if abs(int(callback_expires_at.timestamp()) - int(callback_match.group(1))) > 1:
+        raise MeetingTranscriptionError("callback capability expiry does not match callback.expires_at.", 422)
     if callback.get("final_only") is not True or str(callback.get("source") or "").lower() != "homeserver":
         raise MeetingTranscriptionError("HomeServer callbacks must be final-only and source-bound.", 422)
     if transcription.get("final_only") is not True:
@@ -216,6 +224,15 @@ def _validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
             409,
         )
 
+    livekit_token = _require_string(
+        livekit.get("participant_token"),
+        "livekit.participant_token",
+        minimum=40,
+        maximum=16_384,
+    )
+    if _JWT.fullmatch(livekit_token) is None:
+        raise MeetingTranscriptionError("livekit.participant_token must be a JWT.", 422)
+
     return {
         "idempotency_key": idempotency_key,
         "public_id": public_id,
@@ -223,10 +240,10 @@ def _validate_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "title": str(meeting.get("title") or "").strip()[:190],
         "livekit_url": _safe_livekit_url(livekit.get("url")),
         "livekit_identity": livekit_identity,
-        "livekit_token": _require_string(livekit.get("participant_token"), "livekit.participant_token", minimum=40, maximum=16_384),
+        "livekit_token": livekit_token,
         "callback_url": _safe_callback_url(callback.get("url")),
         "callback_token": callback_token,
-        "callback_expires_at": _safe_expiry(callback.get("expires_at")),
+        "callback_expires_at": callback_expires_at,
         "language": language,
     }
 
