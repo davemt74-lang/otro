@@ -36,7 +36,7 @@ def payload() -> dict:
             "subscribe_audio_only": True,
         },
         "callback": {
-            "url": "https://vp3.example/api/video-meeting-worker.php",
+            "url": "https://vp3.me/api/video-meeting-worker.php",
             "bearer_token": f"v1850.{expires_ts}." + ("c" * 64),
             "expires_at": expires.isoformat(),
             "final_only": True,
@@ -46,12 +46,22 @@ def payload() -> dict:
     }
 
 
+def assert_rejected(body: dict, status_code: int) -> None:
+    from app.services import meeting_transcription
+
+    try:
+        meeting_transcription._validate_payload(body)
+        raise AssertionError("invalid meeting transcription payload was accepted")
+    except meeting_transcription.MeetingTranscriptionError as exc:
+        assert exc.status_code == status_code, str(exc)
+
+
 with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
     from app.runtime import app  # noqa: E402
     from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
-    from app.services import meeting_transcription, remote_bridge  # noqa: E402
+    from app.services import meeting_transcription, meeting_transcription_remote, remote_bridge  # noqa: E402
     from app.services.tasks import scheduler  # noqa: E402
 
     original_status = meeting_transcription.status
@@ -59,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
     original_job_thread = meeting_transcription._job_thread
     original_transcribe = meeting_transcription.local_voice.transcribe
     original_post_callback = meeting_transcription._post_callback
+    original_claimed_cloud_ready = meeting_transcription_remote._claimed_cloud_ready
 
     runtime_ready = {
         "version": "v18.6",
@@ -75,6 +86,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
     }
 
     try:
+        meeting_transcription_remote._claimed_cloud_ready = lambda: True
         with TestClient(app) as client:
             scheduler.stop()
             owner = client.post(
@@ -83,8 +95,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
             )
             assert owner.status_code == 200, owner.text
 
-            # Capability is dynamic: an authenticated app must hold the existing
-            # agent compute authority and the local runtime must actually be ready.
+            # Capability discovery is paired-app scoped, requires the existing
+            # agent compute authority, and is only advertised while local STT is ready.
             meeting_transcription.status = lambda: dict(runtime_ready)
             request = client.post(
                 "/api/v1/pairing/request",
@@ -126,7 +138,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
             unavailable_registry = client.get("/api/v1/capability-registry", headers=headers)
             assert "meeting.transcription.stream" not in unavailable_registry.json()["operations"]
 
-            # Exact VP3 v18.5 contract validation.
+            meeting_transcription.status = lambda: dict(runtime_ready)
+            meeting_transcription_remote._claimed_cloud_ready = lambda: False
+            unclaimed_registry = client.get("/api/v1/capability-registry", headers=headers)
+            assert "meeting.transcription.stream" not in unclaimed_registry.json()["operations"]
+            meeting_transcription_remote._claimed_cloud_ready = lambda: True
+
+            # Exact VP3 v18.5 contract validation and callback destination binding.
             valid = payload()
             clean = meeting_transcription._validate_payload(valid)
             assert clean["public_id"] == "a" * 32
@@ -135,61 +153,37 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
 
             invalid = payload()
             invalid["contract"] = "vp3.meeting.transcription.v0"
-            try:
-                meeting_transcription._validate_payload(invalid)
-                raise AssertionError("unsupported contract was accepted")
-            except meeting_transcription.MeetingTranscriptionError as exc:
-                assert exc.status_code == 422
+            assert_rejected(invalid, 422)
 
             invalid = payload()
             invalid["livekit"]["subscribe_audio_only"] = False
-            try:
-                meeting_transcription._validate_payload(invalid)
-                raise AssertionError("non-audio-only subscription was accepted")
-            except meeting_transcription.MeetingTranscriptionError as exc:
-                assert exc.status_code == 422
+            assert_rejected(invalid, 422)
 
             invalid = payload()
-            invalid["callback"]["url"] = "http://vp3.example/api/video-meeting-worker.php"
-            try:
-                meeting_transcription._validate_payload(invalid)
-                raise AssertionError("insecure remote callback was accepted")
-            except meeting_transcription.MeetingTranscriptionError as exc:
-                assert exc.status_code == 422
+            invalid["callback"]["url"] = "http://vp3.me/api/video-meeting-worker.php"
+            assert_rejected(invalid, 422)
 
             invalid = payload()
-            invalid["callback"]["url"] = "https://vp3.example/not-the-worker"
-            try:
-                meeting_transcription._validate_payload(invalid)
-                raise AssertionError("non-canonical callback path was accepted")
-            except meeting_transcription.MeetingTranscriptionError as exc:
-                assert exc.status_code == 422
+            invalid["callback"]["url"] = "https://vp3.me/not-the-worker"
+            assert_rejected(invalid, 422)
+
+            invalid = payload()
+            invalid["callback"]["url"] = "https://attacker.example/api/video-meeting-worker.php"
+            assert_rejected(invalid, 422)
 
             invalid = payload()
             invalid["callback"]["bearer_token"] = "global-worker-secret-would-not-match"
-            try:
-                meeting_transcription._validate_payload(invalid)
-                raise AssertionError("unscoped callback credential was accepted")
-            except meeting_transcription.MeetingTranscriptionError as exc:
-                assert exc.status_code == 422
+            assert_rejected(invalid, 422)
 
             invalid = payload()
             invalid["livekit"]["participant_token"] = "not-a-jwt-" * 8
-            try:
-                meeting_transcription._validate_payload(invalid)
-                raise AssertionError("non-JWT LiveKit token was accepted")
-            except meeting_transcription.MeetingTranscriptionError as exc:
-                assert exc.status_code == 422
+            assert_rejected(invalid, 422)
 
             invalid = payload()
             invalid["transcription"]["language"] = "es"
-            try:
-                meeting_transcription._validate_payload(invalid)
-                raise AssertionError("unsupported active Whisper language was accepted")
-            except meeting_transcription.MeetingTranscriptionError as exc:
-                assert exc.status_code == 409
+            assert_rejected(invalid, 409)
 
-            # Local PCM helpers must emit valid 16-bit mono WAV for whisper.cpp.
+            # Local PCM helpers emit valid 16-bit mono WAV for the existing Whisper runtime.
             class Frame:
                 sample_rate = 16000
                 samples_per_channel = 8
@@ -211,8 +205,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
                 "local": True,
             }
             meeting_transcription._post_callback = lambda job, body: captured.append(body)
-            valid = payload()
-            clean = meeting_transcription._validate_payload(valid)
+            clean = meeting_transcription._validate_payload(payload())
             job = meeting_transcription._MeetingJob(
                 idempotency_key=clean["idempotency_key"],
                 public_id=clean["public_id"],
@@ -251,13 +244,40 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
             assert clean["livekit_token"] not in serialized
             assert clean["callback_token"] not in serialized
 
+            # An exhausted callback failure is fail-closed, and repeated local STT
+            # failures stop the worker instead of silently discarding a meeting.
+            failure_job = meeting_transcription._MeetingJob(**{
+                key: value for key, value in {
+                    "idempotency_key": clean["idempotency_key"],
+                    "public_id": clean["public_id"],
+                    "room_name": clean["room_name"],
+                    "title": clean["title"],
+                    "app_key": "vp3-meeting-test",
+                    "livekit_url": clean["livekit_url"],
+                    "livekit_identity": clean["livekit_identity"],
+                    "livekit_token": clean["livekit_token"],
+                    "callback_url": clean["callback_url"],
+                    "callback_token": clean["callback_token"],
+                    "callback_expires_at": clean["callback_expires_at"],
+                    "language": clean["language"],
+                }.items()
+            })
+            failure_job.status = "running"
+            meeting_transcription._record_callback_failure(failure_job)
+            assert failure_job.status == "failed" and failure_job.stop_event.is_set()
+            failure_job.stop_event.clear()
+            failure_job.status = "running"
+            failure_job.transcription_failures = 0
+            for _ in range(3):
+                meeting_transcription._record_transcription_failure(failure_job)
+            assert failure_job.status == "failed" and failure_job.stop_event.is_set()
+
             # Idempotency is active while a worker owns the meeting.
             meeting_transcription.local_voice.transcribe = original_transcribe
             meeting_transcription._post_callback = original_post_callback
-            meeting_transcription.status = lambda: dict(runtime_ready)
             release = threading.Event()
 
-            def hold_job(job):
+            def hold_job(active_job):
                 release.wait(2)
 
             meeting_transcription._job_thread = hold_job
@@ -280,8 +300,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
             active.thread.join(timeout=3)
             assert not active.thread.is_alive()
 
-            # Relay dispatch uses the paired bearer identity and returns the
-            # response envelope expected by the existing HomeServer bridge.
+            # Relay dispatch requires both the paired app credential and a live,
+            # claimed VP3 Cloud bridge.
             meeting_transcription._job_thread = original_job_thread
             captured_identity = {}
 
@@ -306,11 +326,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
             assert captured_identity["app_key"] == "vp3-meeting-test"
 
             try:
-                remote_bridge.dispatch_remote_request(
-                    "meeting.transcription.stream",
-                    payload(),
-                    None,
-                )
+                remote_bridge.dispatch_remote_request("meeting.transcription.stream", payload(), None)
                 raise AssertionError("meeting transcription accepted a missing pairing token")
             except remote_bridge.RemoteBridgeError:
                 pass
@@ -325,12 +341,55 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
             except remote_bridge.RemoteBridgeError:
                 pass
 
+            meeting_transcription_remote._claimed_cloud_ready = lambda: False
+            try:
+                remote_bridge.dispatch_remote_request(
+                    "meeting.transcription.stream",
+                    payload(),
+                    request["claim_token"],
+                )
+                raise AssertionError("meeting transcription accepted an unclaimed relay")
+            except remote_bridge.RemoteBridgeError:
+                pass
+            meeting_transcription_remote._claimed_cloud_ready = lambda: True
+
+            # HomeServer shutdown marks and stops active meeting workers.
+            meeting_transcription.start = original_start
+            shutdown_clean = meeting_transcription._validate_payload(payload())
+            shutdown_job = meeting_transcription._MeetingJob(
+                idempotency_key="vp3-meeting-transcription:" + ("d" * 32),
+                public_id="d" * 32,
+                room_name="vp3-meeting-shutdown",
+                title="Shutdown test",
+                app_key="vp3-meeting-test",
+                livekit_url=shutdown_clean["livekit_url"],
+                livekit_identity=shutdown_clean["livekit_identity"],
+                livekit_token=shutdown_clean["livekit_token"],
+                callback_url=shutdown_clean["callback_url"],
+                callback_token=shutdown_clean["callback_token"],
+                callback_expires_at=shutdown_clean["callback_expires_at"],
+                language=shutdown_clean["language"],
+                status="running",
+            )
+
+            def until_stopped():
+                shutdown_job.stop_event.wait(2)
+
+            shutdown_job.thread = threading.Thread(target=until_stopped, daemon=True)
+            shutdown_job.thread.start()
+            meeting_transcription._JOBS[shutdown_job.idempotency_key] = shutdown_job
+            meeting_transcription.stop_all(join_timeout=1.0)
+            assert shutdown_job.status == "stopped"
+            assert shutdown_job.stop_event.is_set()
+            assert not shutdown_job.thread.is_alive()
+
     finally:
         meeting_transcription.status = original_status
         meeting_transcription.start = original_start
         meeting_transcription._job_thread = original_job_thread
         meeting_transcription.local_voice.transcribe = original_transcribe
         meeting_transcription._post_callback = original_post_callback
+        meeting_transcription_remote._claimed_cloud_ready = original_claimed_cloud_ready
         meeting_transcription._JOBS.clear()
 
 print("HomeServer Phase 18.6 local meeting STT contract passed")
