@@ -29,3 +29,9 @@ def capability_registry(identity: dict = Depends(_current_app)) -> dict:
     registry = build_registry(identity)
     registry["meeting_transcription"] = meeting_transcription.status()
     return registry
+
+
+@router.on_event("shutdown")
+def shutdown_meeting_transcription() -> None:
+    """Stop local media subscribers before the HomeServer process exits."""
+    meeting_transcription.stop_all()
