@@ -13,12 +13,13 @@ if str(ROOT) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-automation-schema-v058-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
-    from app.database import db, initialize_database  # noqa: E402
+    from app.database import db, initialize_database, migration_files  # noqa: E402
 
     initialize_database()
+    expected_versions = [1] + [version for version, _ in migration_files() if version != 1]
     with db() as connection:
         versions_before = [int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
-        assert versions_before == list(range(1, 22))
+        assert versions_before == expected_versions
         automation_sql = str(connection.execute(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_workflow_automations'"
         ).fetchone()["sql"])

@@ -13,12 +13,13 @@ if str(ROOT) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-supervision-schema-v057-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
-    from app.database import db, initialize_database  # noqa: E402
+    from app.database import db, initialize_database, migration_files  # noqa: E402
 
     initialize_database()
+    expected_versions = [1] + [version for version, _ in migration_files() if version != 1]
     with db() as connection:
         versions_before = [row["version"] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_before == list(range(1, 22))
+        assert versions_before == expected_versions
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_workflow_supervisions)").fetchall()}
         assert {
             "source_app_key", "conversation_id", "plan_id", "team_run_id", "rehydration_id",
@@ -28,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-supervision-s
         }.issubset(columns)
         connection.execute("DROP TABLE agent_workflow_supervisions")
 
-    # Simulate an existing v0.56 data directory opening under v0.57. The
+    # Simulate an existing prior-version data directory opening under v0.57. The
     # idempotent feature schema must add the table without changing numbered
     # migration history or disturbing existing data.
     initialize_database()
@@ -45,7 +46,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-workflow-supervision-s
         assert "max_steps BETWEEN 1 AND 2" in table_sql
         assert "step_count BETWEEN 0 AND 2" in table_sql
 
-    # Re-running initialization is a no-op for the extension.
+    # Re-running initialization is a no-op for the extension and numbered
+    # migration history remains exactly the repository's canonical set.
     initialize_database()
     with db() as connection:
         assert connection.execute("SELECT COUNT(*) FROM agent_workflow_supervisions").fetchone()[0] == 0

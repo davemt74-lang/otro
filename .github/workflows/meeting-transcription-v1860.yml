@@ -1,0 +1,23 @@
+name: HomeServer Meeting STT v18.6
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile meeting transcription runtime
+        run: python -m py_compile app/services/meeting_transcription.py app/services/meeting_transcription_remote.py app/capability_registry_api.py tests/meeting_transcription_v1860.py
+      - name: Phase 18.6 meeting transcription contract
+        run: python tests/meeting_transcription_v1860.py
+      - name: Verify LiveKit runtime import
+        run: python -c "from livekit import rtc; assert rtc.Room is not None; print('LiveKit RTC import passed')"
