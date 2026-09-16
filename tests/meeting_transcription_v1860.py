@@ -272,12 +272,14 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
                 meeting_transcription._record_transcription_failure(failure_job)
             assert failure_job.status == "failed" and failure_job.stop_event.is_set()
 
-            # Idempotency is active while a worker owns the meeting.
+            # Idempotency is active only after the worker truthfully reports that
+            # the LiveKit subscriber has reached the running state.
             meeting_transcription.local_voice.transcribe = original_transcribe
             meeting_transcription._post_callback = original_post_callback
             release = threading.Event()
 
             def hold_job(active_job):
+                meeting_transcription._set_status(active_job, "running")
                 release.wait(2)
 
             meeting_transcription._job_thread = hold_job
@@ -290,7 +292,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
                 "app_key": "vp3-meeting-test",
                 "permissions": ["agent.chat"],
             })
-            assert first["started"] is True and first["status"] == "starting"
+            assert first["started"] is True and first["status"] == "running"
             assert second["started"] is False and second["status"] == "already_running"
             active = meeting_transcription._JOBS[first["idempotency_key"]]
             snapshot = json.dumps(meeting_transcription._snapshot(active))
@@ -299,6 +301,32 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
             release.set()
             active.thread.join(timeout=3)
             assert not active.thread.is_alive()
+
+            # A worker that never reaches running must fail closed rather than
+            # returning a false ready/active acknowledgement to VP3 Cloud.
+            original_startup_wait = meeting_transcription.STARTUP_WAIT_SECONDS
+            meeting_transcription.STARTUP_WAIT_SECONDS = 0.05
+            meeting_transcription._JOBS.clear()
+
+            def never_ready(active_job):
+                active_job.stop_event.wait(0.5)
+
+            meeting_transcription._job_thread = never_ready
+            try:
+                meeting_transcription.start(payload(), {
+                    "app_key": "vp3-meeting-test",
+                    "permissions": ["agent.chat"],
+                })
+                raise AssertionError("meeting transcription acknowledged a worker that never became ready")
+            except meeting_transcription.MeetingTranscriptionError as exc:
+                assert exc.status_code == 503
+            finally:
+                meeting_transcription.STARTUP_WAIT_SECONDS = original_startup_wait
+            failed_start = next(iter(meeting_transcription._JOBS.values()))
+            assert failed_start.status == "failed"
+            assert failed_start.stop_event.is_set()
+            failed_start.thread.join(timeout=1)
+            assert not failed_start.thread.is_alive()
 
             # Relay dispatch requires both the paired app credential and a live,
             # claimed VP3 Cloud bridge.
