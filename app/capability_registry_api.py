@@ -7,14 +7,17 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from .main import app
 from .services import meeting_transcription
 from .services.capability_registry import build_registry
+from .services.meeting_transcription_control import install as install_meeting_transcription_control
+from .services.meeting_transcription_control import runtime_status as meeting_transcription_runtime_status
 from .services.meeting_transcription_remote import install as install_meeting_transcription_remote
 from .services.pairing import authenticate
 
 router = APIRouter()
 
-# Phase 18.6 is a first-class authenticated HomeServer remote capability. Install
-# the operation during application import so the relay and registry stay in sync.
+# Phase 18.6 installs the concrete meeting transcription operation. Phase 18.8
+# layers status/stop control on top of that authenticated relay surface.
 install_meeting_transcription_remote()
+install_meeting_transcription_control()
 
 # HomeServer uses FastAPI's custom lifespan API, so router on_event shutdown
 # handlers are not authoritative. Wrap the existing lifespan once and preserve
@@ -47,5 +50,5 @@ def _current_app(authorization: str | None = Header(default=None)) -> dict:
 def capability_registry(identity: dict = Depends(_current_app)) -> dict:
     """Return only the capabilities visible to the authenticated paired app."""
     registry = build_registry(identity)
-    registry["meeting_transcription"] = meeting_transcription.status()
+    registry["meeting_transcription"] = meeting_transcription_runtime_status()
     return registry
