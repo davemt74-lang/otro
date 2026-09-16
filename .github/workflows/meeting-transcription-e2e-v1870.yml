@@ -1,0 +1,38 @@
+name: HomeServer Meeting E2E v18.7
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout HomeServer
+        uses: actions/checkout@v4
+      - name: Checkout pinned VP3 meeting contract
+        uses: actions/checkout@v4
+        with:
+          repository: davemt74-lang/software
+          ref: 30c660efbb16fe8996380016036b167cb0d15c5c
+          path: vp3-software
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+      - name: Install HomeServer dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Phase 18.7 contract
+        run: python -m py_compile tests/meeting_transcription_e2e_v1870.py
+      - name: Verify pinned VP3 checkout
+        run: test "$(git -C vp3-software rev-parse HEAD)" = "30c660efbb16fe8996380016036b167cb0d15c5c"
+      - name: Phase 18.7 VP3 HomeServer E2E contract
+        env:
+          VP3_SOFTWARE_DIR: ${{ github.workspace }}/vp3-software
+        run: python tests/meeting_transcription_e2e_v1870.py
