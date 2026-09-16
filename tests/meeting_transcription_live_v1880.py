@@ -72,7 +72,7 @@ async def _publish_wav(url: str, token: str, sample_rate: int, pcm: bytes, ready
         await room.local_participant.publish_track(track, options)
         await ready.wait()
 
-        samples_per_frame = max(1, sample_rate // 100)  # 10 ms
+        samples_per_frame = max(1, sample_rate // 100)
         bytes_per_frame = samples_per_frame * 2
         for offset in range(0, len(pcm), bytes_per_frame):
             chunk = pcm[offset : offset + bytes_per_frame]
@@ -82,7 +82,6 @@ async def _publish_wav(url: str, token: str, sample_rate: int, pcm: bytes, ready
             target[: len(chunk)] = chunk
             await source.capture_frame(frame)
 
-        # Give the production speech segmenter enough silence to finalize.
         silence = b"\x00" * bytes_per_frame
         for _ in range(140):
             frame = rtc.AudioFrame.create(sample_rate, 1, samples_per_frame)
@@ -101,7 +100,7 @@ async def main() -> None:
     payload_raw = os.getenv("VP3_MEETING_TRANSCRIPTION_PAYLOAD_JSON", "").strip()
     api_key = os.getenv("LIVEKIT_API_KEY", "").strip()
     api_secret = os.getenv("LIVEKIT_API_SECRET", "").strip()
-    wav_path = Path(os.getenv("VP3_MEETING_TEST_WAV", "").strip())
+    wav_path_raw = os.getenv("VP3_MEETING_TEST_WAV", "").strip()
     timeout_seconds = max(20, min(int(os.getenv("VP3_MEETING_LIVE_TIMEOUT", "120")), 300))
 
     missing = []
@@ -111,10 +110,12 @@ async def main() -> None:
         missing.append("LIVEKIT_API_KEY")
     if not api_secret:
         missing.append("LIVEKIT_API_SECRET")
-    if not str(wav_path):
+    if not wav_path_raw:
         missing.append("VP3_MEETING_TEST_WAV")
     if missing:
         raise RuntimeError("Missing Phase 18.8 live validation configuration: " + ", ".join(missing))
+
+    wav_path = Path(wav_path_raw)
     if not wav_path.is_file():
         raise RuntimeError("VP3_MEETING_TEST_WAV does not exist.")
 
