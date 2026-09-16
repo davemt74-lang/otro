@@ -131,13 +131,27 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1880-") as data_dir
             "synthetic-paired-app-token-for-v1880",
         )
         assert relayed_stop["status"] == 200 and relayed_stop["ok"] is True
-        assert relayed_stop["payload"]["stopped"] is True
+        assert relayed_stop["payload"]["stop_requested"] is True
+        assert relayed_stop["payload"]["stopped"] is False
+        assert relayed_stop["payload"]["status"] == "stopping"
         assert job.stop_event.is_set()
         assert job.status == "stopping"
 
         terminal = meeting_transcription_control.runtime_status()
         assert terminal["active_jobs"] == 1
         assert terminal["state_counts"]["stopping"] == 1
+
+        # Terminal jobs answer truthfully: no new stop is requested, and only a
+        # genuinely stopped worker is reported as stopped.
+        job.status = "completed"
+        completed_stop = meeting_transcription_control.stop_for({"meeting": public_id}, identity)
+        assert completed_stop["stop_requested"] is False
+        assert completed_stop["stopped"] is False
+        assert completed_stop["status"] == "completed"
+        job.status = "stopped"
+        stopped_again = meeting_transcription_control.stop_for({"meeting": public_id}, identity)
+        assert stopped_again["stop_requested"] is False
+        assert stopped_again["stopped"] is True
 
         invalid = remote_bridge.dispatch_remote_request(
             meeting_transcription_control.STATUS_OPERATION,
