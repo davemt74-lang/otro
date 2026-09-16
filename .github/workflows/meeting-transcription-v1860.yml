@@ -21,5 +21,5 @@ jobs:
         run: python tests/meeting_transcription_v1860.py
       - name: Phase 18.8 production control contract
         run: python tests/meeting_transcription_control_v1880.py
-      - name: Verify LiveKit runtime import
-        run: python -c "from livekit import rtc; assert rtc.Room is not None; print('LiveKit RTC import passed')"
+      - name: Verify LiveKit runtime import and publisher primitives
+        run: python -c "from livekit import rtc; source=rtc.AudioSource(sample_rate=16000,num_channels=1,queue_size_ms=100); frame=rtc.AudioFrame.create(16000,1,160); assert rtc.Room is not None and source is not None and len(frame.data)>0; print('LiveKit RTC production primitives passed')"
