@@ -154,6 +154,20 @@ def _chat_or_http(
     owner_tools: bool = False,
 ) -> dict:
     try:
+        if payload.read_only:
+            return context_chat.chat(
+                source,
+                payload.message,
+                payload.conversation_id,
+                agent_id=payload.agent_id,
+                include_memory=include_memory,
+                include_knowledge=include_knowledge,
+                include_contacts=include_contacts,
+                context_options=_chat_context_options(payload),
+                tool_permissions=tool_permissions,
+                owner_tools=owner_tools,
+                read_only=True,
+            )
         return context_chat.chat(
             source,
             payload.message,
@@ -165,7 +179,6 @@ def _chat_or_http(
             context_options=_chat_context_options(payload),
             tool_permissions=tool_permissions,
             owner_tools=owner_tools,
-            read_only=payload.read_only,
         )
     except (agent_routing.AgentRoutingError, brain.BrainError, context_engine.ContextError) as exc:
         status_code = getattr(exc, "status_code", 422)
