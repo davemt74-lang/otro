@@ -35,6 +35,11 @@ def _apply_context_options(conversation_id: str, options: dict[str, Any] | None)
     return context_engine.update_settings(conversation_id, **values)
 
 
+def _model_tool_permissions(read_only: bool, permissions: set[str]) -> set[str]:
+    """Keep private context authorization separate from model tool authorization."""
+    return set() if read_only else set(permissions)
+
+
 def _private_inference_route(inference: dict[str, Any]) -> tuple[str, str, str | None]:
     selected_provider = str(inference.get("selected_provider") or "")
     selected_model = str(inference.get("model") or "")
@@ -133,6 +138,7 @@ def chat(
     context_options: dict[str, Any] | None = None,
     tool_permissions: set[str] | None = None,
     owner_tools: bool = False,
+    read_only: bool = False,
 ) -> dict[str, Any]:
     text = message.strip()
     if not text:
@@ -185,6 +191,10 @@ def chat(
         {"role": "system", "content": canonical_context.system_prompt(agent, canonical)},
         *brain._history(conversation_id),
     ]
+    if read_only:
+        messages[0]["content"] += (
+            "\n\nThis chat turn is server-enforced read-only. Do not invoke, propose, or claim any tool, task, memory write, external action, approval request, or side effect. Respond using only the conversation and authorized context supplied to you."
+        )
     selected_model = (
         provider_model.strip()
         if provider_override == "ollama"
@@ -220,14 +230,16 @@ def chat(
             messages,
             source_app_key=source_app_key,
             selected_model=selected_model,
-            granted_permissions=canonical.model_tool_permissions,
-            owner=owner_tools,
+            granted_permissions=_model_tool_permissions(read_only, canonical.model_tool_permissions),
+            owner=bool(owner_tools and not read_only),
             state=tool_state,
             provider_key=provider_override,
         )
+        tool_state["read_only"] = bool(read_only)
     except providers.ProviderError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
         failed_metadata = _safe_run_metadata(tool_state, canonical, agent=agent)
+        failed_metadata["read_only"] = bool(read_only)
         with db() as connection:
             connection.execute(
                 """
@@ -265,11 +277,13 @@ def chat(
         "context_provenance": canonical.provenance,
         "context_budget": canonical.budget,
         "scope_enforced": not owner_tools,
+        "read_only": bool(read_only),
         "agent": agent_summary,
         "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
     }
     run_metadata = _safe_run_metadata(tool_state, canonical, agent=agent, context_event_id=context_event_id)
     run_metadata["scope_enforced"] = not owner_tools
+    run_metadata["read_only"] = bool(read_only)
 
     with db() as connection:
         connection.execute(
@@ -328,6 +342,7 @@ def chat(
                         "action_request_count": len(tool_state.get("action_request_ids") or []),
                         "duration_ms": duration_ms,
                         "scope_enforced": not owner_tools,
+                        "read_only": bool(read_only),
                         "agent_id": int(agent["id"]),
                         "agent_name": str(agent.get("name") or "Agent"),
                         "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
@@ -358,6 +373,7 @@ def chat(
                 "context_chars": canonical.total_context_chars,
                 "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
                 "scope_enforced": not owner_tools,
+                "read_only": bool(read_only),
                 "agent_id": int(agent["id"]),
                 "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
                 "context_source_counts": {
@@ -382,6 +398,7 @@ def chat(
         "cloud_tokens_debited": 0,
         "usage": provider_usage,
         "run_id": run_id,
+        "read_only": bool(read_only),
         "agent": agent_summary,
         "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
         "context": {
