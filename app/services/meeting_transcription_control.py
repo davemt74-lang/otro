@@ -128,18 +128,20 @@ def stop_for(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any
             "contract": meeting_transcription.CONTRACT,
             "meeting": public_id,
             "idempotency_key": key,
+            "stop_requested": False,
             "stopped": False,
         }
 
     with meeting_transcription._JOBS_LOCK:
         state = str(getattr(job, "status", "unknown") or "unknown")
-        if state not in _TERMINAL_STATES:
+        stop_requested = state not in _TERMINAL_STATES
+        if stop_requested:
             job.stop_event.set()
-            if state not in {"failed", "expired"}:
-                job.status = "stopping"
+            job.status = "stopping"
             job.updated_at = time.time()
         result = _safe_job_snapshot(job)
-    result["stopped"] = True
+    result["stop_requested"] = stop_requested
+    result["stopped"] = result["status"] == "stopped"
     return result
 
 
