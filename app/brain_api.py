@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     include_knowledge: bool | None = None
     include_contacts: bool | None = None
     cloud_allowed: bool | None = None
+    read_only: bool = False
     max_context_chars: int | None = Field(default=None, ge=2000, le=24000)
 
 
@@ -164,6 +165,7 @@ def _chat_or_http(
             context_options=_chat_context_options(payload),
             tool_permissions=tool_permissions,
             owner_tools=owner_tools,
+            read_only=payload.read_only,
         )
     except (agent_routing.AgentRoutingError, brain.BrainError, context_engine.ContextError) as exc:
         status_code = getattr(exc, "status_code", 422)
