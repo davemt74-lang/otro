@@ -1,0 +1,62 @@
+name: HomeServer Meeting Production Readiness v18.8
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: Run the real LiveKit + local Whisper + VP3 callback validation on a HomeServer runner
+        required: true
+        default: false
+        type: boolean
+      homeserver_data_dir:
+        description: Existing HomeServer data directory containing the configured local Whisper runtime/model
+        required: false
+        type: string
+
+jobs:
+  contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Phase 18.8 meeting production runtime
+        run: python -m py_compile app/services/meeting_transcription_control.py app/capability_registry_api.py tests/meeting_transcription_control_v1880.py tests/meeting_transcription_live_v1880.py
+      - name: Phase 18.8 production control contract
+        run: python tests/meeting_transcription_control_v1880.py
+      - name: Verify production modules import with LiveKit runtime
+        run: python -c "from livekit import rtc; from app.services import meeting_transcription_control; assert rtc.Room is not None; assert meeting_transcription_control.STATUS_OPERATION == 'meeting.transcription.status'; print('Phase 18.8 production imports passed')"
+
+  live-production-validation:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live }}
+    runs-on: [self-hosted, windows, homeserver]
+    timeout-minutes: 15
+    env:
+      HOMESERVER_DATA_DIR: ${{ inputs.homeserver_data_dir }}
+      VP3_MEETING_TRANSCRIPTION_PAYLOAD_JSON: ${{ secrets.VP3_MEETING_TRANSCRIPTION_PAYLOAD_JSON }}
+      LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+      LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+      VP3_MEETING_TEST_WAV: ${{ runner.temp }}\vp3-phase-18-8-live.wav
+      VP3_MEETING_LIVE_TIMEOUT: '180'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Generate synthetic spoken meeting audio
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName System.Speech
+          $speaker = New-Object System.Speech.Synthesis.SpeechSynthesizer
+          $speaker.SetOutputToWaveFile($env:VP3_MEETING_TEST_WAV)
+          $speaker.Speak('Phase eighteen point eight real LiveKit meeting validation from VP3 HomeServer.')
+          $speaker.Dispose()
+      - name: Run real LiveKit HomeServer VP3 validation
+        run: python tests/meeting_transcription_live_v1880.py
