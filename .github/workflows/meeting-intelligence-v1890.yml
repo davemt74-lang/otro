@@ -1,0 +1,23 @@
+name: HomeServer Meeting Intelligence v18.9
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  meeting-intelligence:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Phase 18.9 meeting intelligence runtime
+        run: python -m py_compile app/services/meeting_intelligence.py app/services/meeting_intelligence_remote.py app/capability_registry_api.py tests/meeting_intelligence_v1890.py
+      - name: Phase 18.9 private meeting intelligence contract
+        run: python tests/meeting_intelligence_v1890.py
+      - name: Verify local-only inference seam
+        run: python -c "from app.services import meeting_intelligence; import inspect; source=inspect.getsource(meeting_intelligence.analyze); assert 'providers.generate_ollama' in source and 'providers.generate(' not in source; print('Phase 18.9 local-only inference seam passed')"

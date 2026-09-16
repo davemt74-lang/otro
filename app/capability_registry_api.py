@@ -5,18 +5,20 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from .main import app
-from .services import meeting_transcription
+from .services import meeting_intelligence, meeting_transcription
 from .services.capability_registry import build_registry
+from .services.meeting_intelligence_remote import install as install_meeting_intelligence_remote
 from .services.meeting_transcription_control import install as install_meeting_transcription_control
 from .services.meeting_transcription_remote import install as install_meeting_transcription_remote
 from .services.pairing import authenticate
 
 router = APIRouter()
 
-# Phase 18.6 installs the concrete meeting transcription operation. Phase 18.8
-# layers status/stop control on top of that authenticated relay surface.
+# Phase 18.6 installs local meeting transcription, Phase 18.8 adds production
+# status/control, and Phase 18.9 adds private local meeting intelligence.
 install_meeting_transcription_remote()
 install_meeting_transcription_control()
+install_meeting_intelligence_remote()
 
 # HomeServer uses FastAPI's custom lifespan API, so router on_event shutdown
 # handlers are not authoritative. Wrap the existing lifespan once and preserve
@@ -49,8 +51,8 @@ def _current_app(authorization: str | None = Header(default=None)) -> dict:
 def capability_registry(identity: dict = Depends(_current_app)) -> dict:
     """Return only the capabilities visible to the authenticated paired app."""
     registry = build_registry(identity)
-    # The paired registry exposes capability readiness only. Per-job production
-    # state is available through the app-owned meeting.transcription.status
-    # operation so one paired wrapper cannot infer another wrapper's activity.
+    # Per-job transcription state remains app-owned through relay operations;
+    # registry entries expose readiness only and never tokens or private data.
     registry["meeting_transcription"] = meeting_transcription.status()
+    registry["meeting_intelligence"] = meeting_intelligence.status()
     return registry
