@@ -103,6 +103,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1880-") as data_dir
         assert runtime["status_operation"] == "meeting.transcription.status"
         assert runtime["stop_operation"] == "meeting.transcription.stop"
 
+        # Global job counts are intentionally internal-only. The paired registry
+        # advertises readiness while per-job state requires app-owned control ops.
+        registry_api = (ROOT_DIR / "app" / "capability_registry_api.py").read_text(encoding="utf-8")
+        assert 'registry["meeting_transcription"] = meeting_transcription.status()' in registry_api
+        assert "meeting_transcription_runtime_status" not in registry_api
+
         # Install the production relay adapter over the already-existing v18.6
         # meeting stream operation, then exercise the real remote dispatch seam.
         meeting_transcription_remote.install()
@@ -137,7 +143,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1880-") as data_dir
         assert terminal["active_jobs"] == 1  # stopping remains active until worker teardown
         assert terminal["state_counts"]["stopping"] == 1
 
-        # Invalid payloads still fail closed through the remote operation surface.
         invalid = remote_bridge.dispatch_remote_request(
             meeting_transcription_control.STATUS_OPERATION,
             {"meeting": "not-a-public-id"},
