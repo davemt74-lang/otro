@@ -1,0 +1,34 @@
+name: VP3 OS Hardware Adapters v0.20
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - vp3-os-v020-hardware-adapters
+
+permissions:
+  contents: read
+
+jobs:
+  hardware-adapters:
+    name: Hardware adapters · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile VP3 OS hardware adapter files
+        run: python -m py_compile app/services/vp3_os.py app/services/hardware_adapters.py app/vp3_os_api.py tests/vp3_os_v010.py tests/vp3_os_v020.py
+      - name: Verify v0.10 platform compatibility
+        run: python tests/vp3_os_v010.py
+      - name: Verify v0.20 hardware adapters
+        run: python tests/vp3_os_v020.py
