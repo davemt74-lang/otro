@@ -12,6 +12,8 @@ VP3 OS v0.10 adds the hardware-platform contract, normalized device profiles, pr
 
 VP3 OS v0.20 adds the first real hardware-adapter runtime: a bounded USB serial controller protocol, Agent button events, status-light control, ESP32-S3 reference firmware and power-sense verification for the physical microphone disconnect. See [docs/VP3_OS_HARDWARE_ADAPTERS_V020.md](docs/VP3_OS_HARDWARE_ADAPTERS_V020.md).
 
+VP3 OS v0.30 adds the **Physical Agent Runtime**: headless local microphone capture, push-to-talk and barge-in, local Whisper STT, the existing Agent Chat/Cognitive Runtime path, Agent voice profiles, local Piper TTS, speaker playback, and immediate privacy-switch interruption. See [docs/VP3_OS_PHYSICAL_AGENT_V030.md](docs/VP3_OS_PHYSICAL_AGENT_V030.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
