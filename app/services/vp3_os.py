@@ -178,9 +178,9 @@ def _compute_status() -> dict[str, Any]:
     }
 
 
-def manifest(*, include_hardware: bool = True) -> dict[str, Any]:
+def manifest(*, include_hardware: bool = True, include_device_id: bool = True) -> dict[str, Any]:
     profile = profile_definition()
-    identity = remote_identity_metadata()
+    identity = remote_identity_metadata() if include_device_id else {}
     hardware = hardware_inventory()
     privacy_switch = hardware["privacy_switch"]
     result: dict[str, Any] = {
@@ -188,7 +188,7 @@ def manifest(*, include_hardware: bool = True) -> dict[str, Any]:
         "platform": "VP3 OS",
         "platform_version": VP3_OS_PLATFORM_VERSION,
         "profile": profile,
-        "device_id": _text(identity.get("device_id"), 100),
+        "device_id": _text(identity.get("device_id"), 100) if include_device_id else "",
         "hardware_revision": _text(os.environ.get("VP3_OS_HARDWARE_REVISION"), 64),
         "firmware_version": _text(os.environ.get("VP3_OS_FIRMWARE_VERSION"), 64),
         "placement_modes": list(PLACEMENT_MODES),
@@ -205,16 +205,15 @@ def manifest(*, include_hardware: bool = True) -> dict[str, Any]:
     return result
 
 
-def capability_projection() -> dict[str, Any]:
-    """Sanitized platform metadata safe for paired-app capability discovery."""
-    data = manifest(include_hardware=False)
+def capability_projection(*, include_device_id: bool = True) -> dict[str, Any]:
+    """Sanitized platform metadata safe for capability discovery."""
+    data = manifest(include_hardware=False, include_device_id=include_device_id)
     compute = _compute_status()
-    return {
+    result = {
         "contract": data["contract"],
         "platform": data["platform"],
         "platform_version": data["platform_version"],
         "profile": data["profile"],
-        "device_id": data["device_id"],
         "hardware_revision": data["hardware_revision"],
         "firmware_version": data["firmware_version"],
         "placement_modes": data["placement_modes"],
@@ -225,6 +224,9 @@ def capability_projection() -> dict[str, Any]:
             "cloud_fallback_required": compute["cloud_fallback_required"],
         },
     }
+    if include_device_id:
+        result["device_id"] = data["device_id"]
+    return result
 
 
 def owner_status() -> dict[str, Any]:
