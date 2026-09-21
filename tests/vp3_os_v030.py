@@ -310,6 +310,23 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v030-") as data_dir:
             assert physical_agent.status()["turn_count"] == 2
             assert calls["chat"][1]["conversation_id"] == "physical-conversation-1"
 
+            # Barge-in: a press while the Agent is speaking stops playback
+            # and immediately starts a new microphone turn.
+            playing["value"] = True
+            physical_agent.runtime._set_state("speaking")
+            before_stops = len(calls["stop_playback"])
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 7, "event": "agent_button", "action": "press"}
+            )
+            assert physical_agent.status()["state"] == "listening"
+            assert capturing["value"] is True
+            assert len(calls["stop_playback"]) > before_stops
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 6, "event": "agent_button", "action": "hold"}
+            )
+            assert physical_agent.status()["state"] == "idle"
+            assert capturing["value"] is False
+
             # Privacy switch engagement cancels capture immediately and blocks a
             # new listen until the hardware state confirms privacy is released.
             hardware_adapters.manager.handle_message(
@@ -317,7 +334,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v030-") as data_dir:
             )
             assert capturing["value"] is True
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 6, "event": "privacy_switch", "action": "engaged"}
+                {"type": "event", "seq": 8, "event": "privacy_switch", "action": "engaged"}
             )
             assert capturing["value"] is False
             assert physical_agent.status()["state"] == "privacy"
@@ -334,16 +351,16 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v030-") as data_dir:
 
             # Release privacy, return to idle, and verify hold cancels.
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 7, "event": "privacy_switch", "action": "disengaged"}
+                {"type": "event", "seq": 9, "event": "privacy_switch", "action": "disengaged"}
             )
             hardware_adapters.manager.handle_message(controller_state(3, privacy=False, mic_powered=True))
             assert physical_agent.status()["state"] == "idle"
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 8, "event": "agent_button", "action": "press"}
+                {"type": "event", "seq": 10, "event": "agent_button", "action": "press"}
             )
             assert physical_agent.status()["state"] == "listening"
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 9, "event": "agent_button", "action": "hold"}
+                {"type": "event", "seq": 11, "event": "agent_button", "action": "hold"}
             )
             assert physical_agent.status()["state"] == "idle"
             assert capturing["value"] is False
