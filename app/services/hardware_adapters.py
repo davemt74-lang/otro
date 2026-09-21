@@ -195,6 +195,7 @@ class HardwareAdapterManager:
         self._last_seen_at: str | None = None
         self._connected_at: str | None = None
         self._last_seq = 0
+        self._last_state_seq = 0
         self._commands_sent = 0
         self._last_light_mode = "off"
         self._state = "stopped"
@@ -341,11 +342,24 @@ class HardwareAdapterManager:
                 self._connected_at = now
                 self._state = "connected"
                 self._last_error = ""
+                self._last_seq = 0
+                self._last_state_seq = 0
             return item
 
+        with self._lock:
+            handshaken = self._controller is not None
+        if not handshaken:
+            raise HardwareAdapterError("Hardware controller must complete the VP3 handshake first.")
+
         if item["type"] == "state":
+            with self._lock:
+                seq = int(item.get("seq") or 0)
+                if seq and seq <= self._last_state_seq:
+                    return {**item, "duplicate": True}
+                if seq:
+                    self._last_state_seq = seq
             self._apply_state(item)
-            return item
+            return {**item, "duplicate": False}
 
         if item["type"] == "event":
             with self._lock:
@@ -365,14 +379,33 @@ class HardwareAdapterManager:
         privacy = components.get("privacy_switch") if isinstance(components, dict) else None
         mic = components.get("microphone") if isinstance(components, dict) else None
 
+        with self._lock:
+            controller = dict(self._controller) if self._controller else {}
+        capabilities = {
+            str(value)
+            for value in controller.get("capabilities", [])
+            if isinstance(value, str)
+        }
         privacy_engaged = bool(privacy.get("engaged")) if isinstance(privacy, dict) else False
-        physical_disconnect = bool(privacy.get("physical_disconnect")) if isinstance(privacy, dict) else False
-        microphone_powered = privacy.get("microphone_powered") if isinstance(privacy, dict) else None
+        physical_disconnect = bool(
+            isinstance(privacy, dict)
+            and privacy.get("physical_disconnect")
+            and "mic_power_cut" in capabilities
+        )
+        power_sense_supported = "mic_power_sense" in capabilities
+        microphone_powered = (
+            privacy.get("microphone_powered")
+            if isinstance(privacy, dict) and power_sense_supported
+            else None
+        )
         privacy_fault = bool(
             isinstance(privacy, dict)
             and privacy_engaged
-            and physical_disconnect
-            and microphone_powered is not False
+            and (
+                not physical_disconnect
+                or not power_sense_supported
+                or microphone_powered is not False
+            )
         )
 
         for component, state in components.items():
@@ -418,6 +451,11 @@ class HardwareAdapterManager:
             with self._lock:
                 self._last_error = "Physical microphone disconnect verification failed."
                 self._state = "hardware_fault"
+        else:
+            with self._lock:
+                if self._controller is not None:
+                    self._state = "connected"
+                    self._last_error = ""
 
     def _send_wire(self, payload: dict[str, Any]) -> None:
         encoded = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
@@ -434,6 +472,12 @@ class HardwareAdapterManager:
         normalized = _bounded_text(mode, 32).lower()
         if normalized not in _LIGHT_MODES:
             raise HardwareAdapterError("Status light mode is invalid.")
+        with self._lock:
+            controller = dict(self._controller) if self._controller else None
+        if not controller:
+            raise HardwareAdapterError("Hardware controller is not connected.")
+        if "status_light" not in set(controller.get("capabilities", [])):
+            raise HardwareAdapterError("Hardware controller does not support status light control.")
         command_id = f"light-{int(time.time() * 1000)}"
         self._send_wire({
             "type": "command",
