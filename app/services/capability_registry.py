@@ -4,7 +4,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import app_scopes, local_apps, local_files, plugins, providers, tools
+from . import app_scopes, local_apps, local_files, plugins, providers, tools, vp3_os
 from .knowledge import SUPPORTED_EXTENSIONS
 from .remote_bridge import bridge_status
 
@@ -289,7 +289,7 @@ def _services(inference: dict[str, Any], local_app_inventory: list[dict[str, Any
 
 
 def _operations(permissions: set[str], contacts_available: bool) -> list[str]:
-    operations = ["capability.registry"]
+    operations = ["capability.registry", "vp3_os.status", "vp3_os.placement"]
     mapping = {
         "agent.chat": ["agent.chat", "inference.status", "conversations.list", "conversation.get"],
         "files.read": ["files.list", "files.read"],
@@ -326,6 +326,7 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
         "registry_version": REGISTRY_VERSION,
         "service": settings.app_name,
         "version": settings.version,
+        "vp3_os": vp3_os.capability_projection(),
         "app": {
             "key": str(identity.get("app_key") or "")[:80],
             "name": str(identity.get("name") or "")[:120],
