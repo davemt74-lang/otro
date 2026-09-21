@@ -3,7 +3,7 @@
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 livekit_datas, livekit_binaries, livekit_hiddenimports = collect_all('livekit')
-hiddenimports = collect_submodules('uvicorn') + livekit_hiddenimports + [
+hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + livekit_hiddenimports + [
     'app.services.meeting_intelligence',
     'app.services.meeting_intelligence_remote',
 ]
