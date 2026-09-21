@@ -474,6 +474,53 @@ class HardwareAdapterManager:
             }
 
 
+def public_capability() -> dict[str, Any]:
+    return {
+        "version": HARDWARE_ADAPTER_VERSION,
+        "protocol": HARDWARE_PROTOCOL,
+        "supported": True,
+        "owner_managed": True,
+    }
+
+
+def paired_status() -> dict[str, Any]:
+    raw = manager.status()
+    controller = raw.get("controller") if isinstance(raw.get("controller"), dict) else None
+    safe_controller = None
+    if controller:
+        safe_controller = {
+            "firmware": _bounded_text(controller.get("firmware"), 64),
+            "hardware_revision": _bounded_text(controller.get("hardware_revision"), 64),
+            "components": [
+                _bounded_text(item, 64)
+                for item in controller.get("components", [])
+                if _bounded_text(item, 64) in vp3_os.hardware_keys()
+            ][:32],
+            "capabilities": [
+                _bounded_text(item, 80)
+                for item in controller.get("capabilities", [])
+                if _bounded_text(item, 80)
+            ][:64],
+        }
+    privacy = vp3_os.manifest(include_hardware=False, include_device_id=False)["privacy"]
+    return {
+        "version": HARDWARE_ADAPTER_VERSION,
+        "protocol": HARDWARE_PROTOCOL,
+        "connected": bool(raw.get("connected")),
+        "state": _bounded_text(raw.get("state"), 40),
+        "controller": safe_controller,
+        "privacy": {
+            "privacy_switch_engaged": bool(privacy.get("privacy_switch_engaged")),
+            "physical_microphone_disconnect_reported": bool(
+                privacy.get("physical_microphone_disconnect_reported")
+            ),
+            "physical_microphone_disconnect_verified": bool(
+                privacy.get("physical_microphone_disconnect_verified")
+            ),
+        },
+    }
+
+
 manager = HardwareAdapterManager()
 
 
