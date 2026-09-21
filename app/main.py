@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import app_scopes
+from .services import app_scopes, hardware_adapters
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -31,7 +31,11 @@ UI_DIR = ROOT_DIR / "ui"
 async def lifespan(_: FastAPI):
     initialize_database()
     ensure_knowledge_index()
-    yield
+    hardware_adapters.start()
+    try:
+        yield
+    finally:
+        hardware_adapters.stop()
 
 
 app = FastAPI(title="HomeServer", version=settings.version, lifespan=lifespan)
