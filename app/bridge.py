@@ -117,7 +117,7 @@ def capabilities() -> dict:
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
         "capability_registry": {"version": "v0.33", "operation": "capability.registry", "authenticated": True},
-        "vp3_os": vp3_os.capability_projection(),
+        "vp3_os": vp3_os.capability_projection(include_device_id=False),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
