@@ -4,7 +4,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import app_scopes, hardware_adapters, local_apps, local_files, plugins, providers, tools, vp3_os
+from . import app_scopes, hardware_adapters, local_apps, local_files, physical_agent, plugins, providers, tools, vp3_os
 from .knowledge import SUPPORTED_EXTENSIONS
 from .remote_bridge import bridge_status
 
@@ -328,6 +328,7 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
         "version": settings.version,
         "vp3_os": vp3_os.capability_projection(),
         "vp3_os_hardware": hardware_adapters.paired_status(),
+        "vp3_os_physical_agent": physical_agent.paired_status(),
         "app": {
             "key": str(identity.get("app_key") or "")[:80],
             "name": str(identity.get("name") or "")[:120],
