@@ -10,6 +10,8 @@ This repository is also the canonical **VP3 OS** runtime for VP3 hardware. Offic
 
 VP3 OS v0.10 adds the hardware-platform contract, normalized device profiles, privacy-aware workload placement, sanitized cloud capability discovery and a driver-facing hardware reporting boundary. See [docs/VP3_OS_HARDWARE_PLATFORM_V010.md](docs/VP3_OS_HARDWARE_PLATFORM_V010.md).
 
+VP3 OS v0.20 adds the first real hardware-adapter runtime: a bounded USB serial controller protocol, Agent button events, status-light control, ESP32-S3 reference firmware and power-sense verification for the physical microphone disconnect. See [docs/VP3_OS_HARDWARE_ADAPTERS_V020.md](docs/VP3_OS_HARDWARE_ADAPTERS_V020.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
