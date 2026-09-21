@@ -217,6 +217,10 @@ class HardwareAdapterManager:
             self._stop.clear()
             if cfg.mode == "disabled":
                 self._state = "disabled"
+                self._controller = None
+                self._connected_at = None
+                self._last_error = ""
+                vp3_os.clear_reported_hardware()
                 return
             self._state = "starting"
             self._thread = threading.Thread(target=self._run_serial, name="vp3-hardware-adapter", daemon=True)
@@ -232,10 +236,13 @@ class HardwareAdapterManager:
         self._close_serial()
         with self._lock:
             self._thread = None
+            self._controller = None
+            self._connected_at = None
             if config().mode == "disabled":
                 self._state = "disabled"
             else:
                 self._state = "stopped"
+        vp3_os.clear_reported_hardware()
 
     def _serial_module(self):
         try:
