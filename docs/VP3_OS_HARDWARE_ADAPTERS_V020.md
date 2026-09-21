@@ -108,7 +108,7 @@ are capped at 8192 bytes.
 }
 ```
 
-VP3 OS rejects state and events until this handshake succeeds.
+VP3 OS rejects state and events until this handshake succeeds. A serial controller that does not complete the handshake within three seconds is disconnected and retried rather than being allowed to hold the hardware channel indefinitely.
 
 ### Controller state
 
@@ -145,7 +145,7 @@ VP3 OS rejects state and events until this handshake succeeds.
 }
 ```
 
-State sequence numbers are monotonic. VP3 OS ignores stale/duplicate state.
+State sequence numbers are monotonic. VP3 OS ignores stale/duplicate state. Each accepted state frame is treated as an authoritative snapshot for the components declared during the handshake; a declared component omitted from a later state is immediately marked unavailable so stale hardware readiness cannot survive a partial controller update.
 
 ### Agent button event
 
