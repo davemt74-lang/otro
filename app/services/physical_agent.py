@@ -372,6 +372,32 @@ class PhysicalAgentRuntime:
             }
 
 
+
+def public_capability() -> dict[str, Any]:
+    return {
+        "version": PHYSICAL_AGENT_VERSION,
+        "push_to_talk": True,
+        "barge_in": True,
+        "privacy_interrupt": True,
+        "local_stt": "whisper.cpp",
+        "local_tts": "piper",
+    }
+
+
+def paired_status() -> dict[str, Any]:
+    raw = runtime.status()
+    return {
+        "version": PHYSICAL_AGENT_VERSION,
+        "started": bool(raw.get("started")),
+        "state": str(raw.get("state") or "")[:40],
+        "turn_count": int(raw.get("turn_count") or 0),
+        "last_compute_source": str(raw.get("last_compute_source") or "")[:80],
+        "audio": {
+            "capturing": bool(raw.get("audio", {}).get("capturing")),
+            "playing": bool(raw.get("audio", {}).get("playing")),
+        },
+    }
+
 runtime = PhysicalAgentRuntime()
 
 
@@ -389,4 +415,18 @@ def status() -> dict[str, Any]:
 
 def reset_conversation() -> dict[str, Any]:
     runtime.reset_conversation()
+    return runtime.status()
+
+
+def begin_listening() -> dict[str, Any]:
+    return runtime.begin_listening()
+
+
+def finish_listening() -> dict[str, Any]:
+    return runtime.finish_listening()
+
+
+def cancel(reason: str = "owner_cancelled") -> dict[str, Any]:
+    runtime.cancel(reason)
+    runtime._set_state("privacy" if runtime._privacy_engaged() else "idle")
     return runtime.status()
