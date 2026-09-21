@@ -27,8 +27,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile VP3 OS physical agent files
-        run: python -m py_compile app/services/device_audio.py app/services/physical_agent.py app/services/hardware_adapters.py app/services/vp3_os.py app/vp3_os_api.py tests/vp3_os_v020.py tests/vp3_os_v030.py
+        run: python -m py_compile app/services/device_audio.py app/services/physical_agent.py app/services/hardware_adapters.py app/services/vp3_os.py app/vp3_os_api.py tests/device_audio_v030.py tests/vp3_os_v020.py tests/vp3_os_v030.py
       - name: Verify v0.20 hardware adapter compatibility
         run: python tests/vp3_os_v020.py
+      - name: Verify v0.30 device audio backend
+        run: python tests/device_audio_v030.py
       - name: Verify v0.30 physical agent runtime
         run: python tests/vp3_os_v030.py
