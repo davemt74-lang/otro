@@ -3,10 +3,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import app_scopes, vp3_os
+from .services import app_scopes, hardware_adapters, vp3_os
 from .services.pairing import authenticate
 
 router = APIRouter()
+
+
+class StatusLightUpdate(BaseModel):
+    mode: str = Field(min_length=2, max_length=32)
 
 
 class PlacementRequest(BaseModel):
@@ -46,7 +50,22 @@ def _plan(payload: PlacementRequest, *, scope_cloud_allowed: bool) -> dict:
 
 @router.get("/api/v1/control/vp3-os")
 def owner_vp3_os_status() -> dict:
-    return vp3_os.owner_status()
+    return {**vp3_os.owner_status(), "hardware_adapter": hardware_adapters.status()}
+
+
+@router.get("/api/v1/control/vp3-os/hardware/events")
+def owner_vp3_os_hardware_events(limit: int = 50) -> dict:
+    return {"items": hardware_adapters.recent_events(limit=limit)}
+
+
+@router.post("/api/v1/control/vp3-os/hardware/status-light")
+def owner_vp3_os_status_light(payload: StatusLightUpdate) -> dict:
+    try:
+        return hardware_adapters.set_status_light(payload.mode)
+    except hardware_adapters.HardwareAdapterError as exc:
+        message = str(exc)
+        status_code = 409 if "not connected" in message.lower() else 422
+        raise HTTPException(status_code=status_code, detail=message) from exc
 
 
 @router.post("/api/v1/control/vp3-os/placement")
@@ -61,6 +80,7 @@ def paired_vp3_os_status(identity: dict = Depends(_current_app)) -> dict:
     # HomeServer bridge identity, not a host serial/MAC/hostname.
     return {
         **vp3_os.capability_projection(),
+        "hardware_adapter": hardware_adapters.paired_status(),
         "app": str(identity.get("app_key") or "")[:80],
     }
 
