@@ -53,6 +53,15 @@ def _bounded_text(value: Any, limit: int) -> str:
     return str(value or "").strip()[:limit]
 
 
+def _safe_nonnegative_int(value: Any, default: int = 0) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 def _parse_hex_env(name: str) -> int | None:
     raw = str(os.environ.get(name) or "").strip().lower()
     if not raw:
@@ -97,8 +106,8 @@ def _safe_component_state(component: str, raw: Any) -> dict[str, Any]:
         power = item.get("microphone_powered")
         state["microphone_powered"] = bool(power) if power is not None else None
     elif component == "storage":
-        state["bytes_total"] = max(0, int(item.get("bytes_total") or 0))
-        state["bytes_free"] = max(0, int(item.get("bytes_free") or 0))
+        state["bytes_total"] = _safe_nonnegative_int(item.get("bytes_total"))
+        state["bytes_free"] = _safe_nonnegative_int(item.get("bytes_free"))
     elif component == "accelerator":
         state["kind"] = _bounded_text(item.get("kind"), 80)
     return state
@@ -151,7 +160,7 @@ def normalize_controller_message(message: Any) -> dict[str, Any]:
             components[component] = _safe_component_state(component, value)
         return {
             "type": "state",
-            "seq": max(0, int(message.get("seq") or 0)),
+            "seq": _safe_nonnegative_int(message.get("seq")),
             "components": components,
         }
 
@@ -166,7 +175,7 @@ def normalize_controller_message(message: Any) -> dict[str, Any]:
             raise HardwareAdapterError("Privacy switch action is invalid.")
         return {
             "type": "event",
-            "seq": max(0, int(message.get("seq") or 0)),
+            "seq": _safe_nonnegative_int(message.get("seq")),
             "event": event,
             "action": action,
         }
