@@ -25,7 +25,7 @@ from .local_apps_api import router as local_apps_router
 from .local_voice_api import router as local_voice_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
-from .services import providers, vp3_os
+from .services import hardware_adapters, providers, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -118,6 +118,7 @@ def capabilities() -> dict:
         "local_bridge": True,
         "capability_registry": {"version": "v0.33", "operation": "capability.registry", "authenticated": True},
         "vp3_os": vp3_os.capability_projection(include_device_id=False),
+        "vp3_os_hardware": hardware_adapters.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
@@ -326,6 +327,10 @@ def capabilities() -> dict:
             "awareness.read",
             "capability.registry.v1",
             "vp3.os.v010",
+            "vp3.os.v020",
+            "vp3.os.hardware_adapters.v1",
+            "vp3.os.serial_controller.v1",
+            "vp3.os.privacy_power_sense.v1",
             "vp3.os.hardware_profiles.v1",
             "vp3.os.placement.v1",
             "cognition.activity_mirror",
