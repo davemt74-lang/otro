@@ -144,6 +144,30 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v020-") as data_dir:
     assert duplicate_state["duplicate"] is True
     assert vp3_os.hardware_inventory()["privacy_switch"]["engaged"] is False
 
+    # State frames are authoritative snapshots. A component declared by the
+    # controller but omitted from a later state cannot remain stale/ready.
+    partial = manager.handle_message({
+        "type": "state",
+        "seq": 2,
+        "components": {
+            "privacy_switch": {
+                "present": True,
+                "ready": True,
+                "engaged": False,
+                "physical_disconnect": True,
+                "microphone_powered": True,
+            }
+        },
+    })
+    assert partial["duplicate"] is False
+    partial_inventory = vp3_os.hardware_inventory()
+    assert partial_inventory["microphone"]["present"] is False
+    assert partial_inventory["microphone"]["ready"] is False
+    assert partial_inventory["agent_button"]["present"] is False
+
+    # Restore the complete device snapshot for the remaining journey.
+    manager.handle_message(state(3, privacy=False, mic_powered=True))
+
     # Agent-button events are monotonic and duplicate-safe.
     button = manager.handle_message(
         {"type": "event", "seq": 10, "event": "agent_button", "action": "press"}
@@ -156,7 +180,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v020-") as data_dir:
     assert manager.events(limit=10)[-1]["action"] == "press"
 
     # Engaged + physical cut + post-switch rail OFF is the only verified state.
-    private_state = manager.handle_message(state(2, privacy=True, mic_powered=False))
+    private_state = manager.handle_message(state(4, privacy=True, mic_powered=False))
     assert private_state["duplicate"] is False
     private_manifest = vp3_os.manifest(
         include_hardware=True,
@@ -183,7 +207,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v020-") as data_dir:
     assert blocked_audio["raw_audio_cloud_allowed"] is False
 
     # If privacy is engaged but the post-switch rail remains powered, fail closed.
-    manager.handle_message(state(3, privacy=True, mic_powered=True))
+    manager.handle_message(state(5, privacy=True, mic_powered=True))
     assert manager.status()["state"] == "hardware_fault"
     assert "verification failed" in manager.status()["last_error"].lower()
     fault_manifest = vp3_os.manifest(
@@ -194,7 +218,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v020-") as data_dir:
     assert fault_manifest["hardware"]["microphone"]["ready"] is False
 
     # A later healthy state clears the fault.
-    manager.handle_message(state(4, privacy=False, mic_powered=True))
+    manager.handle_message(state(6, privacy=False, mic_powered=True))
     assert manager.status()["state"] == "connected"
     assert manager.status()["last_error"] == ""
 
