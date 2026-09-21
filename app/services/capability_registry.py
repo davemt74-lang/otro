@@ -289,7 +289,7 @@ def _services(inference: dict[str, Any], local_app_inventory: list[dict[str, Any
 
 
 def _operations(permissions: set[str], contacts_available: bool) -> list[str]:
-    operations = ["capability.registry", "vp3_os.status", "vp3_os.placement"]
+    operations = ["capability.registry", "vp3.os.status", "vp3.os.placement"]
     mapping = {
         "agent.chat": ["agent.chat", "inference.status", "conversations.list", "conversation.get"],
         "files.read": ["files.list", "files.read"],
