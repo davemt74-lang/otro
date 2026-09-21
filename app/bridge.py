@@ -25,7 +25,7 @@ from .local_apps_api import router as local_apps_router
 from .local_voice_api import router as local_voice_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
-from .services import providers
+from .services import providers, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -43,6 +43,7 @@ from .team_planning_api import router as team_planning_router
 from .team_runs_api import router as team_runs_router
 from .tools_api import router as tools_router
 from .usage_api import router as usage_router
+from .vp3_os_api import router as vp3_os_router
 from .workflow_continuation_api import router as workflow_continuation_router
 from .workflow_resume_api import router as workflow_resume_router
 from .workflow_timeline_api import router as workflow_timeline_router
@@ -95,6 +96,7 @@ app.include_router(connected_apps_router)
 app.include_router(local_apps_router)
 app.include_router(local_voice_router)
 app.include_router(capability_registry_router)
+app.include_router(vp3_os_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,6 +117,7 @@ def capabilities() -> dict:
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
         "capability_registry": {"version": "v0.33", "operation": "capability.registry", "authenticated": True},
+        "vp3_os": vp3_os.capability_projection(include_device_id=False),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
@@ -322,6 +325,9 @@ def capabilities() -> dict:
             "app.scopes.v1",
             "awareness.read",
             "capability.registry.v1",
+            "vp3.os.v010",
+            "vp3.os.hardware_profiles.v1",
+            "vp3.os.placement.v1",
             "cognition.activity_mirror",
             "cognition.event_bus",
             "cognition.jobs",

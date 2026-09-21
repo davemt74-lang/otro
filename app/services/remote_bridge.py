@@ -245,6 +245,10 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             return _local_response(client.get("/api/v1/capabilities"))
         if op == "capability.registry":
             return _local_response(client.get("/api/v1/capability-registry", headers=headers))
+        if op == "vp3.os.status":
+            return _local_response(client.get("/api/v1/vp3-os/status", headers=headers))
+        if op == "vp3.os.placement":
+            return _local_response(client.post("/api/v1/vp3-os/placement", json=body, headers=headers))
         if op == "pair.request":
             return _local_response(client.post("/api/v1/pairing/request", json=body))
         if op == "pair.status":

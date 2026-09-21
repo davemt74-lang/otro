@@ -1,0 +1,32 @@
+name: VP3 OS Hardware Platform v0.10
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - vp3-os-v010-hardware-platform
+
+permissions:
+  contents: read
+
+jobs:
+  hardware-platform:
+    name: Hardware platform · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile VP3 OS platform files
+        run: python -m py_compile app/services/vp3_os.py app/vp3_os_api.py tests/vp3_os_v010.py
+      - name: Verify unified VP3 OS hardware platform
+        run: python tests/vp3_os_v010.py
