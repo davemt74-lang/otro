@@ -140,6 +140,14 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v020-") as data_dir:
     assert inventory["privacy_switch"]["engaged"] is False
     assert inventory["privacy_switch"]["microphone_powered"] is True
 
+    # Controller reboot/re-handshake invalidates the previous device snapshot
+    # until fresh state arrives.
+    manager.handle_message(hello())
+    rehandshake_inventory = vp3_os.hardware_inventory()
+    assert rehandshake_inventory["microphone"]["present"] is False
+    assert rehandshake_inventory["status_light"]["ready"] is False
+    manager.handle_message(state(1, privacy=False, mic_powered=True))
+
     duplicate_state = manager.handle_message(state(1, privacy=True, mic_powered=False))
     assert duplicate_state["duplicate"] is True
     assert vp3_os.hardware_inventory()["privacy_switch"]["engaged"] is False
