@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import app_scopes, hardware_adapters, vp3_os
+from .services import app_scopes, device_audio, hardware_adapters, physical_agent, vp3_os
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -50,7 +50,12 @@ def _plan(payload: PlacementRequest, *, scope_cloud_allowed: bool) -> dict:
 
 @router.get("/api/v1/control/vp3-os")
 def owner_vp3_os_status() -> dict:
-    return {**vp3_os.owner_status(), "hardware_adapter": hardware_adapters.status()}
+    return {
+        **vp3_os.owner_status(),
+        "hardware_adapter": hardware_adapters.status(),
+        "physical_agent": physical_agent.status(),
+        "device_audio": device_audio.status(),
+    }
 
 
 @router.get("/api/v1/control/vp3-os/hardware/events")
@@ -68,6 +73,34 @@ def owner_vp3_os_status_light(payload: StatusLightUpdate) -> dict:
         raise HTTPException(status_code=status_code, detail=message) from exc
 
 
+@router.get("/api/v1/control/vp3-os/physical-agent")
+def owner_physical_agent_status() -> dict:
+    return physical_agent.status()
+
+
+@router.post("/api/v1/control/vp3-os/physical-agent/listen")
+def owner_physical_agent_listen() -> dict:
+    try:
+        return physical_agent.begin_listening()
+    except physical_agent.PhysicalAgentError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/api/v1/control/vp3-os/physical-agent/release")
+def owner_physical_agent_release() -> dict:
+    return physical_agent.finish_listening()
+
+
+@router.post("/api/v1/control/vp3-os/physical-agent/cancel")
+def owner_physical_agent_cancel() -> dict:
+    return physical_agent.cancel("owner_cancelled")
+
+
+@router.post("/api/v1/control/vp3-os/physical-agent/reset-conversation")
+def owner_physical_agent_reset_conversation() -> dict:
+    return physical_agent.reset_conversation()
+
+
 @router.post("/api/v1/control/vp3-os/placement")
 def owner_vp3_os_placement(payload: PlacementRequest) -> dict:
     return _plan(payload, scope_cloud_allowed=True)
@@ -81,6 +114,7 @@ def paired_vp3_os_status(identity: dict = Depends(_current_app)) -> dict:
     return {
         **vp3_os.capability_projection(),
         "hardware_adapter": hardware_adapters.paired_status(),
+        "physical_agent": physical_agent.paired_status(),
         "app": str(identity.get("app_key") or "")[:80],
     }
 

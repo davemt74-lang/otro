@@ -201,6 +201,7 @@ class HardwareAdapterManager:
         self._serial: Any = None
         self._controller: dict[str, Any] | None = None
         self._events: deque[dict[str, Any]] = deque(maxlen=MAX_EVENTS)
+        self._event_handlers: list[Any] = []
         self._last_error = ""
         self._last_seen_at: str | None = None
         self._connected_at: str | None = None
@@ -395,6 +396,14 @@ class HardwareAdapterManager:
                     self._last_seq = seq
                 event = {**item, "received_at": now}
                 self._events.append(event)
+                handlers = list(self._event_handlers)
+            for handler in handlers:
+                try:
+                    handler(dict(event))
+                except Exception:
+                    # Hardware input must remain available even if an optional
+                    # higher-level consumer fails. Consumers own their errors.
+                    pass
             return {**item, "duplicate": False}
 
         return item
@@ -523,6 +532,17 @@ class HardwareAdapterManager:
             self._last_light_mode = normalized
         return {"accepted": True, "command_id": command_id, "mode": normalized}
 
+    def add_event_handler(self, handler: Any) -> None:
+        if not callable(handler):
+            raise HardwareAdapterError("Hardware event handler must be callable.")
+        with self._lock:
+            if handler not in self._event_handlers:
+                self._event_handlers.append(handler)
+
+    def remove_event_handler(self, handler: Any) -> None:
+        with self._lock:
+            self._event_handlers = [item for item in self._event_handlers if item != handler]
+
     def events(self, *, limit: int = 50) -> list[dict[str, Any]]:
         bounded = max(1, min(int(limit), MAX_EVENTS))
         with self._lock:
@@ -619,3 +639,11 @@ def set_status_light(mode: str) -> dict[str, Any]:
 
 def recent_events(limit: int = 50) -> list[dict[str, Any]]:
     return manager.events(limit=limit)
+
+
+def add_event_handler(handler: Any) -> None:
+    manager.add_event_handler(handler)
+
+
+def remove_event_handler(handler: Any) -> None:
+    manager.remove_event_handler(handler)

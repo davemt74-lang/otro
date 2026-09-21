@@ -3,7 +3,8 @@
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 livekit_datas, livekit_binaries, livekit_hiddenimports = collect_all('livekit')
-hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + livekit_hiddenimports + [
+sounddevice_datas, sounddevice_binaries, sounddevice_hiddenimports = collect_all('sounddevice')
+hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + sounddevice_hiddenimports + livekit_hiddenimports + [
     'app.services.meeting_intelligence',
     'app.services.meeting_intelligence_remote',
 ]
@@ -11,7 +12,7 @@ hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + l
 a = Analysis(
     ['desktop/launcher.py'],
     pathex=['.'],
-    binaries=livekit_binaries,
+    binaries=livekit_binaries + sounddevice_binaries,
     datas=[
         ('database/schema.sql', 'database'),
         ('database/knowledge_collections.sql', 'database'),
@@ -22,7 +23,7 @@ a = Analysis(
         ('database/agent_workflow_automation.sql', 'database'),
         ('database/migrations', 'database/migrations'),
         ('ui', 'ui'),
-    ] + livekit_datas,
+    ] + livekit_datas + sounddevice_datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

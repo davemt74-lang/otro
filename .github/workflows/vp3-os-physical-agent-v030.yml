@@ -1,0 +1,36 @@
+name: VP3 OS Physical Agent v0.30
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - vp3-os-v030-physical-agent-runtime
+
+permissions:
+  contents: read
+
+jobs:
+  physical-agent:
+    name: Physical agent · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile VP3 OS physical agent files
+        run: python -m py_compile app/services/device_audio.py app/services/physical_agent.py app/services/hardware_adapters.py app/services/vp3_os.py app/vp3_os_api.py tests/device_audio_v030.py tests/vp3_os_v020.py tests/vp3_os_v030.py
+      - name: Verify v0.20 hardware adapter compatibility
+        run: python tests/vp3_os_v020.py
+      - name: Verify v0.30 device audio backend
+        run: python tests/device_audio_v030.py
+      - name: Verify v0.30 physical agent runtime
+        run: python tests/vp3_os_v030.py
