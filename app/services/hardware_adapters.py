@@ -359,6 +359,9 @@ class HardwareAdapterManager:
             self._last_seen_at = now
 
         if item["type"] == "hello":
+            # A controller reboot/re-handshake invalidates the prior device
+            # snapshot until a fresh state frame arrives.
+            vp3_os.clear_reported_hardware()
             with self._lock:
                 self._controller = dict(item)
                 self._connected_at = now
