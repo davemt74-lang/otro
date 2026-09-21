@@ -316,7 +316,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v030-") as data_dir:
             physical_agent.runtime._set_state("speaking")
             before_stops = len(calls["stop_playback"])
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 7, "event": "agent_button", "action": "press"}
+                {"type": "event", "seq": 5, "event": "agent_button", "action": "press"}
             )
             assert physical_agent.status()["state"] == "listening"
             assert capturing["value"] is True
@@ -330,7 +330,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v030-") as data_dir:
             # Privacy switch engagement cancels capture immediately and blocks a
             # new listen until the hardware state confirms privacy is released.
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 5, "event": "agent_button", "action": "press"}
+                {"type": "event", "seq": 7, "event": "agent_button", "action": "press"}
             )
             assert capturing["value"] is True
             hardware_adapters.manager.handle_message(
