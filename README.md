@@ -4,6 +4,12 @@ HomeServer is a local-first private capability server for personal AI agents and
 
 The Windows desktop runtime listens on `127.0.0.1:4377`, stores durable state in SQLite, and provides owner-controlled Agent Chat, context retrieval, shared cognition, knowledge, memory, contacts, tasks/reminders, notifications, skills/tools, approvals, application pairing, inference routing, token history, backup/restore, setup/diagnostics and an optional outbound Remote Bridge.
 
+## VP3 OS hardware platform
+
+This repository is also the canonical **VP3 OS** runtime for VP3 hardware. Official VP3 Node, Desk, Studio, Team Node and Pocket products run the same OTRO/HomeServer core; product differences are hardware profiles and adapters, not separate agent or cloud stacks. User-supplied hardware runs the same OS with the `custom` profile.
+
+VP3 OS v0.10 adds the hardware-platform contract, normalized device profiles, privacy-aware workload placement, sanitized cloud capability discovery and a driver-facing hardware reporting boundary. See [docs/VP3_OS_HARDWARE_PLATFORM_V010.md](docs/VP3_OS_HARDWARE_PLATFORM_V010.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
