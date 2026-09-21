@@ -541,7 +541,7 @@ class HardwareAdapterManager:
 
     def remove_event_handler(self, handler: Any) -> None:
         with self._lock:
-            self._event_handlers = [item for item in self._event_handlers if item is not handler]
+            self._event_handlers = [item for item in self._event_handlers if item != handler]
 
     def events(self, *, limit: int = 50) -> list[dict[str, Any]]:
         bounded = max(1, min(int(limit), MAX_EVENTS))
