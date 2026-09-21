@@ -8,6 +8,7 @@ from . import providers
 from .remote_identity import remote_identity_metadata
 
 VP3_OS_PLATFORM_VERSION = "v0.10"
+VP3_OS_VERSION = "v0.20"
 VP3_OS_CONTRACT = "vp3-os-hardware-platform-v010-20260921"
 PLACEMENT_MODES = ("LOCAL", "LOCAL_ONLY", "CLOUD", "HYBRID", "DEFER")
 
@@ -84,6 +85,10 @@ def _text(value: Any, limit: int = 120) -> str:
     return str(value or "").strip()[: max(1, limit)]
 
 
+def hardware_keys() -> tuple[str, ...]:
+    return _HARDWARE_KEYS
+
+
 def configured_profile() -> str:
     requested = _text(os.environ.get("VP3_OS_HARDWARE_PROFILE") or "custom", 64).lower()
     return requested if requested in _PROFILE_DEFINITIONS else "custom"
@@ -117,9 +122,12 @@ def report_hardware_state(component: str, *, present: bool, ready: bool, metadat
     safe_metadata: dict[str, Any] = {}
     raw = metadata if isinstance(metadata, dict) else {}
     if key == "privacy_switch":
+        safe_metadata["engaged"] = bool(raw.get("engaged"))
         safe_metadata["physical_disconnect"] = bool(raw.get("physical_disconnect"))
         powered = raw.get("microphone_powered")
         safe_metadata["microphone_powered"] = bool(powered) if powered is not None else None
+    elif key == "agent_button":
+        safe_metadata["pressed"] = bool(raw.get("pressed"))
     elif key == "storage":
         safe_metadata["bytes_total"] = max(0, int(raw.get("bytes_total") or 0))
         safe_metadata["bytes_free"] = max(0, int(raw.get("bytes_free") or 0))
@@ -151,8 +159,11 @@ def hardware_inventory() -> dict[str, dict[str, Any]]:
             "ready": bool(item.get("ready")),
         }
         if key == "privacy_switch":
+            inventory[key]["engaged"] = bool(item.get("engaged"))
             inventory[key]["physical_disconnect"] = bool(item.get("physical_disconnect"))
             inventory[key]["microphone_powered"] = item.get("microphone_powered")
+        elif key == "agent_button":
+            inventory[key]["pressed"] = bool(item.get("pressed"))
         elif key == "storage":
             inventory[key]["bytes_total"] = max(0, int(item.get("bytes_total") or 0))
             inventory[key]["bytes_free"] = max(0, int(item.get("bytes_free") or 0))
@@ -186,6 +197,7 @@ def manifest(*, include_hardware: bool = True, include_device_id: bool = True) -
     result: dict[str, Any] = {
         "contract": VP3_OS_CONTRACT,
         "platform": "VP3 OS",
+        "os_version": VP3_OS_VERSION,
         "platform_version": VP3_OS_PLATFORM_VERSION,
         "profile": profile,
         "device_id": _text(identity.get("device_id"), 100) if include_device_id else "",
@@ -195,8 +207,16 @@ def manifest(*, include_hardware: bool = True, include_device_id: bool = True) -
         "privacy": {
             "raw_audio_cloud_default": False,
             "microphone_requires_local_authorization": True,
+            "privacy_switch_engaged": bool(privacy_switch.get("engaged")),
+            "microphone_power_state_known": privacy_switch.get("microphone_powered") is not None,
             "physical_microphone_disconnect_reported": bool(
                 privacy_switch.get("present") and privacy_switch.get("physical_disconnect")
+            ),
+            "physical_microphone_disconnect_verified": bool(
+                privacy_switch.get("present")
+                and privacy_switch.get("engaged")
+                and privacy_switch.get("physical_disconnect")
+                and privacy_switch.get("microphone_powered") is False
             ),
         },
     }
@@ -212,6 +232,7 @@ def capability_projection(*, include_device_id: bool = True) -> dict[str, Any]:
     result = {
         "contract": data["contract"],
         "platform": data["platform"],
+        "os_version": data["os_version"],
         "platform_version": data["platform_version"],
         "profile": data["profile"],
         "hardware_revision": data["hardware_revision"],
