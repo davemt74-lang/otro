@@ -249,6 +249,22 @@ def update_settings(
 def decommission_local() -> dict[str, Any]:
     current = get_settings()
     with db() as connection:
+        controller = current.get("controller_app_key")
+        if controller:
+            app = connection.execute(
+                "SELECT id FROM paired_apps WHERE app_key=? LIMIT 1",
+                (controller,),
+            ).fetchone()
+            if app is not None:
+                connection.execute(
+                    """
+                    UPDATE app_permissions
+                    SET allowed=0,updated_at=CURRENT_TIMESTAMP
+                    WHERE paired_app_id=?
+                      AND permission IN ('fleet.read','fleet.manage','fleet.telemetry')
+                    """,
+                    (int(app["id"]),),
+                )
         connection.execute(
             """
             UPDATE vp3_fleet_settings
@@ -628,6 +644,24 @@ def _rollout_counts(rollout_id: int) -> dict[str, int]:
     return counts
 
 
+def _eligible_device_count(channel: str, rollout_ring: str) -> int:
+    ring_order = {"pilot": 0, "staged": 1, "broad": 2}
+    ceiling = ring_order[rollout_ring]
+    with db() as connection:
+        rows = connection.execute(
+            """
+            SELECT rollout_ring FROM vp3_fleet_inventory
+            WHERE release_channel=?
+            """,
+            (channel,),
+        ).fetchall()
+    return sum(
+        1
+        for row in rows
+        if ring_order.get(str(row["rollout_ring"]), 99) <= ceiling
+    )
+
+
 def get_rollout(rollout_id: int) -> dict[str, Any]:
     with db() as connection:
         row = connection.execute(
@@ -644,6 +678,10 @@ def get_rollout(rollout_id: int) -> dict[str, Any]:
     item["id"] = int(item["id"])
     item["failure_threshold"] = int(item["failure_threshold"])
     item["counts"] = _rollout_counts(int(rollout_id))
+    item["eligible_devices"] = _eligible_device_count(
+        item["channel"],
+        item["rollout_ring"],
+    )
     return item
 
 
