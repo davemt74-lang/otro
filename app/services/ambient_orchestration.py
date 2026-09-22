@@ -620,6 +620,22 @@ def _transition(
     return get_session(session_id, refresh=False)
 
 
+def _open_session_for_mode(mode_id: int) -> dict[str, Any] | None:
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT id FROM orchestration_mode_sessions
+            WHERE mode_id=?
+              AND state IN ('suggested','requested','active','suspended')
+            ORDER BY id DESC LIMIT 1
+            """,
+            (int(mode_id),),
+        ).fetchone()
+    if row is None:
+        return None
+    return get_session(int(row["id"]), refresh=False)
+
+
 def _create_session(
     mode: dict[str, Any],
     *,
@@ -989,58 +1005,51 @@ def suggest_mode(
     reason: str = "",
     context_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    mode = get_mode(mode_key)
-    if not mode["enabled"]:
-        raise OrchestrationError("Room Mode is disabled.", 409)
-    if not mode["routine_enabled"]:
-        raise OrchestrationError(
-            "Room Mode routine is disabled.", 409
-        )
-    settings = get_settings()
-    cutoff = _iso(
-        _now()
-        - timedelta(
-            seconds=int(settings["suggestion_cooldown_seconds"])
-        )
-    )
-    with db() as connection:
-        existing = connection.execute(
-            """
-            SELECT id,state FROM orchestration_mode_sessions
-            WHERE mode_id=?
-              AND state IN ('suggested','requested','active','suspended')
-            ORDER BY id DESC LIMIT 1
-            """,
-            (int(mode["id"]),),
-        ).fetchone()
+    with _LOCK:
+        mode = get_mode(mode_key)
+        if not mode["enabled"]:
+            raise OrchestrationError("Room Mode is disabled.", 409)
+        if not mode["routine_enabled"]:
+            raise OrchestrationError(
+                "Room Mode routine is disabled.", 409
+            )
+        existing = _open_session_for_mode(int(mode["id"]))
         if existing is not None:
-            return get_session(int(existing["id"]))
-        recent = connection.execute(
-            """
-            SELECT id FROM orchestration_mode_sessions
-            WHERE mode_id=?
-              AND julianday(started_at)>=julianday(?)
-            ORDER BY id DESC LIMIT 1
-            """,
-            (int(mode["id"]), cutoff),
-        ).fetchone()
+            return existing
+
+        settings = get_settings()
+        cutoff = _iso(
+            _now()
+            - timedelta(
+                seconds=int(settings["suggestion_cooldown_seconds"])
+            )
+        )
+        with db() as connection:
+            recent = connection.execute(
+                """
+                SELECT id FROM orchestration_mode_sessions
+                WHERE mode_id=?
+                  AND julianday(started_at)>=julianday(?)
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(mode["id"]), cutoff),
+            ).fetchone()
         if recent is not None:
             return get_session(int(recent["id"]))
 
-    session = _create_session(
-        mode,
-        state="suggested",
-        source_kind=source_kind,
-        reason=reason or "Ambient context matched this Room Mode.",
-        context_snapshot=context_snapshot or _context_snapshot(),
-    )
-    _emit_mode_event(
-        "orchestration.mode_suggested",
-        session,
-        f"Room Mode suggestion: {mode['name']}. Owner activation is required.",
-    )
-    return session
-
+        session = _create_session(
+            mode,
+            state="suggested",
+            source_kind=source_kind,
+            reason=reason or "Ambient context matched this Room Mode.",
+            context_snapshot=context_snapshot or _context_snapshot(),
+        )
+        _emit_mode_event(
+            "orchestration.mode_suggested",
+            session,
+            f"Room Mode suggestion: {mode['name']}. Owner activation is required.",
+        )
+        return session
 
 def evaluate_mode_suggestions() -> list[dict[str, Any]]:
     settings = get_settings()
@@ -1227,14 +1236,29 @@ def activate_mode(
     reason: str = "",
     supersede_conflicts: bool = False,
 ) -> dict[str, Any]:
-    refresh_open_sessions()
-    mode = get_mode(mode_key)
-    return _activate(
-        mode,
-        source_kind=source_kind,
-        reason=reason,
-        supersede_conflicts=supersede_conflicts,
-    )
+    with _LOCK:
+        refresh_open_sessions()
+        mode = get_mode(mode_key)
+        existing = _open_session_for_mode(int(mode["id"]))
+        if existing is not None:
+            if existing["state"] == "suggested":
+                return _activate(
+                    mode,
+                    source_kind=source_kind,
+                    reason=reason or "Owner activated the suggested Room Mode.",
+                    supersede_conflicts=supersede_conflicts,
+                    suggested_session_id=int(existing["id"]),
+                )
+            raise OrchestrationError(
+                f"Room Mode already has an open {existing['state']} session.",
+                409,
+            )
+        return _activate(
+            mode,
+            source_kind=source_kind,
+            reason=reason,
+            supersede_conflicts=supersede_conflicts,
+        )
 
 
 def accept_suggestion(
@@ -1242,19 +1266,20 @@ def accept_suggestion(
     *,
     supersede_conflicts: bool = False,
 ) -> dict[str, Any]:
-    session = get_session(session_id, refresh=False)
-    if session["state"] != "suggested":
-        raise OrchestrationError(
-            "Only a suggested Room Mode can be accepted.", 409
+    with _LOCK:
+        session = get_session(session_id, refresh=False)
+        if session["state"] != "suggested":
+            raise OrchestrationError(
+                "Only a suggested Room Mode can be accepted.", 409
+            )
+        mode = get_mode(str(session["mode_key"]))
+        return _activate(
+            mode,
+            source_kind="owner",
+            reason="Owner accepted ambient Room Mode suggestion.",
+            supersede_conflicts=supersede_conflicts,
+            suggested_session_id=int(session_id),
         )
-    mode = get_mode(str(session["mode_key"]))
-    return _activate(
-        mode,
-        source_kind="owner",
-        reason="Owner accepted ambient Room Mode suggestion.",
-        supersede_conflicts=supersede_conflicts,
-        suggested_session_id=int(session_id),
-    )
 
 
 def dismiss_suggestion(session_id: int) -> dict[str, Any]:
