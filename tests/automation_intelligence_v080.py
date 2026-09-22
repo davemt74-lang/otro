@@ -221,11 +221,31 @@ with db() as connection:
         "SELECT COUNT(*) FROM automation_device_actions"
     ).fetchone()[0] == 9
 
-other = next(
+remaining = [
     item
     for item in automation_intelligence.list_proposals("proposed", 20)
     if int(item["id"]) != int(sequence["id"])
+]
+assert len(remaining) >= 2
+
+collision = remaining[0]
+collision_routine = collision["draft_routine"]
+local_automation.upsert_routine(
+    collision_routine["routine_key"],
+    "Owner-created collision guard",
+    enabled=False,
+    approval_mode="ask_every_time",
+    steps=collision_routine["steps"],
 )
+try:
+    automation_intelligence.materialize_proposal(int(collision["id"]))
+except automation_intelligence.AutomationIntelligenceError as exc:
+    assert exc.status_code == 409
+    assert "refusing to overwrite" in str(exc)
+else:
+    raise AssertionError("Learned draft overwrote an existing owner routine")
+
+other = remaining[1]
 suppressed = automation_intelligence.dismiss_proposal(
     int(other["id"]),
     note="Do not suggest this again yet.",
