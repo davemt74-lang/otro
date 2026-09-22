@@ -15,11 +15,24 @@ os.environ["VP3_OS_HARDWARE_ADAPTER"] = "disabled"
 os.environ["VP3_OS_HARDWARE_PROFILE"] = "custom"
 
 from app.database import db, initialize_database  # noqa: E402
-from app.services import hardware_experience, vp3_os  # noqa: E402
+from app.services import hardware_adapters, hardware_experience, vp3_os  # noqa: E402
 
 initialize_database()
 
 assert vp3_os.VP3_OS_VERSION == "v1.3"
+normalized_dial = hardware_adapters.normalize_controller_message(
+    {"type": "event", "seq": 7, "event": "control_dial", "action": "clockwise"}
+)
+assert normalized_dial["event"] == "control_dial"
+assert normalized_dial["action"] == "clockwise"
+try:
+    hardware_adapters.normalize_controller_message(
+        {"type": "event", "seq": 8, "event": "control_dial", "action": "spin"}
+    )
+except hardware_adapters.HardwareAdapterError:
+    pass
+else:
+    raise AssertionError("Invalid control-dial action was accepted")
 defaults = hardware_experience.get_settings()
 assert defaults["enabled"] is True
 assert defaults["brightness_percent"] == 70
