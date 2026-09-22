@@ -277,6 +277,31 @@ active_focus = ambient_orchestration.refresh_session(
 )
 assert active_focus["state"] == "active"
 
+with db() as connection:
+    request_count_before_duplicate = connection.execute(
+        "SELECT COUNT(*) FROM action_requests"
+    ).fetchone()[0]
+try:
+    ambient_orchestration.activate_mode("focus")
+except ambient_orchestration.OrchestrationError as exc:
+    assert exc.status_code == 409
+    assert "open active session" in str(exc)
+else:
+    raise AssertionError("Room Mode created a duplicate open session")
+with db() as connection:
+    assert connection.execute(
+        "SELECT COUNT(*) FROM action_requests"
+    ).fetchone()[0] == request_count_before_duplicate
+    assert connection.execute(
+        """
+        SELECT COUNT(*) FROM orchestration_mode_sessions
+        WHERE mode_id=? AND state IN (
+            'suggested','requested','active','suspended'
+        )
+        """,
+        (int(focus["id"]),),
+    ).fetchone()[0] == 1
+
 lower_sim = ambient_orchestration.simulate_mode("quiet")
 assert len(lower_sim["conflicts"]) == 1
 assert lower_sim["can_supersede"] is False
