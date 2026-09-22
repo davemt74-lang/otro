@@ -95,9 +95,9 @@ v0.60 can govern commands for:
 - outlet
 - fan
 - thermostat
-- scene
-
 Discovery is also allowed for:
+
+- scene
 
 - sensor
 - camera
@@ -109,7 +109,9 @@ Discovery is also allowed for:
 
 Those additional categories are **discovery-only** in v0.60. Even if a provider
 or caller tries to mark them controllable, the registry stores them as
-non-controllable.
+non-controllable. Scenes are intentionally included here because provider-defined
+scenes are opaque composites that could indirectly operate a lock, garage or
+security device.
 
 This phase therefore does not unlock doors, open garages, arm/disarm security,
 operate cameras or run arbitrary appliances.
@@ -133,10 +135,6 @@ Thermostats:
 
 - `set_temperature` from 50°F to 90°F
 - `set_mode`: off / heat / cool / auto
-
-Scenes:
-
-- `activate`
 
 Provider-specific arbitrary command names are not passed through.
 
