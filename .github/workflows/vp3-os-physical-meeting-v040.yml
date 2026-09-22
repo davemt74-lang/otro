@@ -37,12 +37,15 @@ jobs:
           app/services/brain.py
           app/services/context_chat.py
           app/services/approvals.py
+          app/services/agent_workflow_tool.py
           app/services/device_audio.py
           app/services/physical_agent.py
           app/services/physical_meeting.py
           app/services/meeting_intelligence.py
           app/services/meeting_cards.py
           app/services/vp3_os.py
+          app/main.py
+          app/bridge.py
           app/vp3_os_api.py
           tests/inference_cancellation_v040.py
           tests/device_audio_v040.py
