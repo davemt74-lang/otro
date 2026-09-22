@@ -2,6 +2,8 @@
 
 VP3 OS v1.3 makes the shared VP3 OS runtime behave like a purpose-built product across VP3 Node, Desk, Studio, Team Node, Pocket, and custom hardware without splitting the platform into separate product codebases.
 
+One VP3 OS serves the full hardware family; product differences are expressed as profiles and experience capabilities rather than forks.
+
 ## Architecture
 
 VP3 OS core remains authoritative for Agent, Meeting, Ambient, Automation, Updates, Fleet, privacy, and approval boundaries.
