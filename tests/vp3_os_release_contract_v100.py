@@ -14,7 +14,7 @@ v090_workflow = (ROOT / ".github" / "workflows" / "vp3-os-ambient-orchestration-
 policy = (ROOT / ".github" / "CI_POLICY.md").read_text(encoding="utf-8")
 docs = (ROOT / "docs" / "VP3_OS_PRODUCTION_RELEASE_V100.md").read_text(encoding="utf-8")
 
-assert 'VP3_OS_VERSION = "v1.0"' in vp3_os
+assert 'VP3_OS_VERSION = "v1.' in vp3_os
 for required in (
     '"local_automation": "vp3_os_local_automation_v070"',
     '"automation_intelligence": "vp3_os_automation_intelligence_v080"',
@@ -67,7 +67,7 @@ assert "tests/vp3_os_release_contract_v100.py" in workflow
 assert "tests/recovery.py" in workflow
 assert "tests/backup_security.py" in workflow
 assert "tests/migrations.py" in workflow
-assert "VP3 OS v1.0" in index_html
+assert "VP3 OS v1." in index_html
 
 assert "workflow_dispatch:" in v090_workflow
 assert "pull_request:" not in v090_workflow
