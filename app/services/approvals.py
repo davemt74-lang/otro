@@ -10,6 +10,9 @@ from ..database import db
 from . import room_device_automation, tools
 
 
+LOCAL_OWNER_ONLY_ACTIONS = {"devices.command"}
+
+
 class ApprovalError(RuntimeError):
     def __init__(self, message: str, status_code: int = 422):
         super().__init__(message)
