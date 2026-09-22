@@ -36,7 +36,7 @@ MAX_SEGMENT_MS = 30_000
 MAX_SEGMENTS = 500
 MAX_PENDING_SEGMENTS = 16
 TRANSCRIBER_JOIN_SECONDS = 45.0
-DOUBLE_PRESS_SECONDS = 0.55
+MEETING_START_HOLD_SECONDS = 2.0
 
 _START_COMMANDS = {
     "start meeting",
@@ -130,7 +130,8 @@ class PhysicalMeetingRuntime:
         self._last_card: dict[str, Any] | None = None
         self._last_meeting: dict[str, Any] | None = None
         self._dropped_segments = 0
-        self._last_button_press_monotonic = 0.0
+        self._button_pressed_at_monotonic = 0.0
+        self._button_hold_seen = False
 
     def start_runtime(self) -> None:
         with self._lock:
@@ -216,25 +217,37 @@ class PhysicalMeetingRuntime:
                     self.request_end("button_hold")
                 return
 
+            if action == "press" and state in {"idle", "error"}:
+                with self._lock:
+                    self._button_pressed_at_monotonic = time.monotonic()
+                    self._button_hold_seen = False
+                return
+
             if action == "hold":
-                # Preserve v0.30 semantics: a long hold cancels the current
-                # push-to-talk Agent turn. The ESP32 emits press before hold,
-                # so using hold as meeting-start would be ambiguous.
+                # The reference ESP32 emits hold after ~900 ms. Physical Agent
+                # keeps its v0.30 behavior and cancels PTT at that point. Meeting
+                # start requires the user to KEEP holding until release passes
+                # the longer v0.40 threshold.
                 with self._lock:
-                    self._last_button_press_monotonic = 0.0
+                    if self._button_pressed_at_monotonic:
+                        self._button_hold_seen = True
                 return
 
-            if action != "press" or state not in {"idle", "error"}:
-                return
-
-            now = time.monotonic()
-            with self._lock:
-                previous = self._last_button_press_monotonic
-                self._last_button_press_monotonic = now
-            if previous and (now - previous) <= DOUBLE_PRESS_SECONDS:
+            if action == "release":
+                now = time.monotonic()
                 with self._lock:
-                    self._last_button_press_monotonic = 0.0
-                self.start_meeting(trigger="button_double_press")
+                    pressed_at = self._button_pressed_at_monotonic
+                    hold_seen = self._button_hold_seen
+                    self._button_pressed_at_monotonic = 0.0
+                    self._button_hold_seen = False
+                duration = (now - pressed_at) if pressed_at else 0.0
+                if (
+                    state in {"idle", "error"}
+                    and hold_seen
+                    and duration >= MEETING_START_HOLD_SECONDS
+                ):
+                    self.start_meeting(trigger="button_extended_hold")
+                return
 
     def start_meeting(self, title: str = "", *, trigger: str = "owner") -> dict[str, Any]:
         if not self._started:
@@ -278,7 +291,8 @@ class PhysicalMeetingRuntime:
             self._stop_event = threading.Event()
             self._intelligence_token = None
             self._dropped_segments = 0
-            self._last_button_press_monotonic = 0.0
+            self._button_pressed_at_monotonic = 0.0
+            self._button_hold_seen = False
             meeting_queue = self._queue
 
         transcriber = threading.Thread(
@@ -650,7 +664,8 @@ class PhysicalMeetingRuntime:
             self._trailing_silence_ms = 0
             self._segment_start_ms = 0
             self._sequence = 0
-            self._last_button_press_monotonic = 0.0
+            self._button_pressed_at_monotonic = 0.0
+            self._button_hold_seen = False
             self._queue = None
             self._transcriber_thread = None
             self._intelligence_token = None
@@ -743,7 +758,7 @@ def public_capability() -> dict[str, Any]:
     return {
         "version": PHYSICAL_MEETING_VERSION,
         "explicit_start_stop": True,
-        "button_double_press_start": True,
+        "button_extended_hold_start": True,
         "button_hold_end": True,
         "local_streaming_stt": "whisper.cpp",
         "meeting_intelligence": "homeserver_local",
