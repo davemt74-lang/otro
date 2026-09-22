@@ -71,6 +71,75 @@ function renderDiagnostics(data) {
 }
 
 
+
+function experienceList(values) {
+  return (values || []).length ? (values || []).join(', ') : 'none';
+}
+
+function experienceEventCard(item) {
+  return '<article class="fleet-card"><div><strong>' +
+    escSystem(item.event_type || 'event') + '</strong><span>' +
+    escSystem(item.action || '—') + ' · ' + escSystem(item.outcome || 'observed') +
+    '</span><small>' + escSystem(item.created_at || '') + '</small></div></article>';
+}
+
+function experienceDisplayCard(item) {
+  return '<article class="fleet-card"><div><strong>' +
+    escSystem(item.title || item.card_key) + '</strong><span>' +
+    escSystem(item.card_type) + ' · priority ' + escSystem(item.priority) +
+    '</span><small>' + escSystem(item.subtitle || item.state || '') +
+    '</small></div><button class="text-button danger" data-experience-dismiss-card="' +
+    escSystem(item.card_key) + '" type="button">Dismiss</button></article>';
+}
+
+function renderHardwareExperience(data) {
+  const experience = data.experience || {};
+  const profile = experience.profile || {};
+  const settings = data.settings || {};
+  const runtime = data.runtime || {};
+  const visual = data.visual || {};
+  const degraded = data.degraded || {};
+  const certification = data.latest_certification || null;
+
+  const state = byId('hardwareExperienceState');
+  state.textContent = degraded.degraded ? 'Degraded' : (runtime.started ? 'Experience active' : 'Experience stopped');
+  state.classList.toggle('complete', Boolean(runtime.started && !degraded.degraded));
+
+  byId('hardwareExperienceEnabled').checked = settings.enabled !== false;
+  byId('experienceBrightness').value = settings.brightness_percent ?? 70;
+  byId('experienceVolume').value = settings.volume_percent ?? 65;
+  byId('experienceLedIntensity').value = settings.led_intensity_percent ?? 70;
+  byId('experienceScreenTimeout').value = settings.screen_timeout_seconds ?? 300;
+  byId('experienceWakeBehavior').value = settings.wake_behavior || 'presence';
+  byId('experienceAgentButton').value = settings.agent_button_action || 'push_to_talk';
+  byId('experienceHoldAction').value = settings.hold_action || 'cancel';
+  byId('experienceDisplayDetail').value = settings.display_detail || 'standard';
+  byId('experienceQuietVisuals').checked = Boolean(settings.quiet_visuals);
+
+  byId('hardwareExperienceSummary').innerHTML = [
+    diagnosticCard('Product experience', !degraded.degraded, [['Profile', profile.label || profile.key || 'custom'], ['Experience', experience.experience || 'generic'], ['Certification', certification ? certification.result : 'not run']]),
+    diagnosticCard('Visual state', visual.state !== 'error', [['State', visual.state || 'idle'], ['Reason', visual.reason || 'idle'], ['Light mode', visual.light_mode || 'off']]),
+    diagnosticCard('Hardware degradation', degraded.degraded ? false : true, [['Missing', experienceList(degraded.missing_hardware)], ['Not ready', experienceList(degraded.not_ready_hardware)], ['Screen awake', runtime.screen_awake ? 'yes' : 'no']]),
+  ].join('');
+
+  const cards = data.cards || [];
+  byId('hardwareExperienceCards').innerHTML = cards.length
+    ? cards.map(experienceDisplayCard).join('')
+    : '<div class="muted">No active display cards.</div>';
+}
+
+async function refreshHardwareExperience() {
+  const [experience, events] = await Promise.all([
+    systemApi('/api/v1/control/vp3-os/hardware-experience'),
+    systemApi('/api/v1/control/vp3-os/hardware-experience/events?limit=12'),
+  ]);
+  renderHardwareExperience(experience);
+  const items = events.items || [];
+  byId('hardwareExperienceEvents').innerHTML = items.length
+    ? items.map(experienceEventCard).join('')
+    : '<div class="muted">No physical events recorded.</div>';
+}
+
 function rolloutStatusLabel(value) {
   return String(value || 'unknown').replaceAll('_', ' ');
 }
@@ -249,19 +318,65 @@ async function refreshPayments() {
 }
 
 async function refreshSystem() {
-  const [system, payments, rollout, fleet] = await Promise.all([
+  const [system, payments, rollout, fleet, experience] = await Promise.all([
     systemApi('/api/v1/control/system'),
     systemApi('/api/v1/control/payments'),
     systemApi('/api/v1/control/vp3-os/rollout'),
     systemApi('/api/v1/control/vp3-os/fleet'),
+    systemApi('/api/v1/control/vp3-os/hardware-experience'),
   ]);
   renderSetup(system.setup || {});
   renderDiagnostics(system.diagnostics || {});
   renderPayments(payments);
   renderRollout(rollout);
   renderFleet(fleet);
+  renderHardwareExperience(experience);
 }
 
+
+
+byId('saveHardwareExperience').addEventListener('click', async () => {
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/hardware-experience/settings', {
+      method:'PUT',
+      body:JSON.stringify({
+        enabled:byId('hardwareExperienceEnabled').checked,
+        brightness_percent:Number(byId('experienceBrightness').value || 0),
+        volume_percent:Number(byId('experienceVolume').value || 0),
+        led_intensity_percent:Number(byId('experienceLedIntensity').value || 0),
+        screen_timeout_seconds:Number(byId('experienceScreenTimeout').value || 300),
+        wake_behavior:byId('experienceWakeBehavior').value,
+        agent_button_action:byId('experienceAgentButton').value,
+        hold_action:byId('experienceHoldAction').value,
+        display_detail:byId('experienceDisplayDetail').value,
+        quiet_visuals:byId('experienceQuietVisuals').checked,
+      }),
+    });
+    await refreshHardwareExperience();
+    systemFlash('Hardware experience saved · ' + result.settings.wake_behavior + ' wake.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('certifyHardwareExperience').addEventListener('click', async () => {
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/hardware-experience/certifications', {method:'POST'});
+    await refreshHardwareExperience();
+    systemFlash('Product experience certification ' + result.result + '.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('hardwareExperienceCards').addEventListener('click', async event => {
+  const button = event.target.closest('[data-experience-dismiss-card]');
+  if (!button) return;
+  try {
+    await systemApi('/api/v1/control/vp3-os/hardware-experience/cards/' + encodeURIComponent(button.dataset.experienceDismissCard) + '/state', {
+      method:'PUT',
+      body:JSON.stringify({state:'dismissed'}),
+    });
+    await refreshHardwareExperience();
+    systemFlash('Display card dismissed.');
+  } catch (err) { systemFlash(err.message, true); }
+});
 
 byId('saveRolloutSettings').addEventListener('click', async () => {
   try {
