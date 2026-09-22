@@ -1,66 +1,6 @@
 name: VP3 OS Fleet Management v1.2
 
 on:
-  pull_request:
-    paths:
-      - "app/services/vp3_os.py"
-      - "app/services/release_readiness.py"
-      - "app/services/device_rollout.py"
-      - "app/services/fleet_management.py"
-      - "app/fleet_api.py"
-      - "app/services/pairing.py"
-      - "app/services/remote_bridge.py"
-      - "app/bridge.py"
-      - "database/migrations/**"
-      - "ui/system.html"
-      - "ui/system.js"
-      - "ui/system.css"
-      - "ui/index.html"
-      - "tests/vp3_os_release_*"
-      - "tests/vp3_os_rollout_*"
-      - "tests/vp3_os_fleet_*"
-      - "tests/remote_bridge.py"
-      - "tests/migrations.py"
-      - "tests/backups.py"
-      - "tests/backup_security.py"
-      - "tests/system_reliability.py"
-      - "tests/installer_contract.py"
-      - "docs/VP3_OS_*"
-      - ".github/CI_POLICY.md"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/vp3-os-fleet-management-v120.yml"
-      - ".github/workflows/vp3-os-controlled-rollout-v110.yml"
-  push:
-    branches:
-      - main
-    paths:
-      - "app/services/vp3_os.py"
-      - "app/services/release_readiness.py"
-      - "app/services/device_rollout.py"
-      - "app/services/fleet_management.py"
-      - "app/fleet_api.py"
-      - "app/services/pairing.py"
-      - "app/services/remote_bridge.py"
-      - "app/bridge.py"
-      - "database/migrations/**"
-      - "ui/system.html"
-      - "ui/system.js"
-      - "ui/system.css"
-      - "ui/index.html"
-      - "tests/vp3_os_release_*"
-      - "tests/vp3_os_rollout_*"
-      - "tests/vp3_os_fleet_*"
-      - "tests/remote_bridge.py"
-      - "tests/migrations.py"
-      - "tests/backups.py"
-      - "tests/backup_security.py"
-      - "tests/system_reliability.py"
-      - "tests/installer_contract.py"
-      - "docs/VP3_OS_*"
-      - ".github/CI_POLICY.md"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/vp3-os-fleet-management-v120.yml"
-      - ".github/workflows/vp3-os-controlled-rollout-v110.yml"
   workflow_dispatch:
 
 concurrency:
