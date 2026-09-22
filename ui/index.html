@@ -220,11 +220,11 @@
             <h2>Rooms & Devices</h2>
             <p>Discover and organize local devices. Physical changes always create an approval request before any provider driver can execute them.</p>
           </div>
-          <span class="automation-version">VP3 OS v0.70</span>
+          <span class="automation-version">VP3 OS v0.80</span>
         </div>
         <div class="automation-guardrail">
           <strong>Physical action boundary:</strong>
-          Rules, Agent, Ambient, and paired applications may read permitted device state or propose commands. v0.70 routines create suggestions or approval requests only; they never auto-execute a physical command.
+          VP3 may learn repeated local behavior and draft automations, but learned drafts start disabled. Rules, Agent, Ambient, and paired applications never bypass local owner approval for physical commands.
         </div>
 
         <div class="automation-stats">
@@ -233,6 +233,30 @@
           <article><span>Controllable</span><strong id="automationControllableCount">0</strong></article>
           <article><span>Suggestions</span><strong id="automationSuggestionCount">0</strong></article>
         </div>
+
+        <section class="panel automation-intelligence-panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">AUTOMATION INTELLIGENCE</p><h3>Learned opportunities</h3></div>
+            <button class="button secondary" id="automationIntelligenceScan" type="button">Scan now</button>
+          </div>
+          <p class="automation-intelligence-copy">VP3 learns only from completed non-automation device actions. It can suggest and create disabled drafts; it cannot silently activate or execute them.</p>
+          <div class="automation-intelligence-stats">
+            <article><span>Patterns</span><strong id="automationPatternCount">0</strong></article>
+            <article><span>Proposed</span><strong id="automationProposalCount">0</strong></article>
+            <article><span>Drafts</span><strong id="automationDraftCount">0</strong></article>
+            <article><span>Active</span><strong id="automationActiveCount">0</strong></article>
+          </div>
+          <form id="automationIntelligenceSettingsForm" class="automation-intelligence-settings">
+            <label class="check-inline"><input id="automationIntelligenceEnabled" type="checkbox" checked> Enable local pattern learning</label>
+            <label>Lookback days<input id="automationIntelligenceLookback" type="number" min="7" max="90" value="21"></label>
+            <label>Minimum repeats<input id="automationIntelligenceMinOccurrences" type="number" min="3" max="20" value="4"></label>
+            <label>Time bucket<select id="automationIntelligenceBucket"><option value="15">15 min</option><option value="30" selected>30 min</option><option value="60">60 min</option><option value="120">120 min</option></select></label>
+            <label>Scan interval<input id="automationIntelligenceInterval" type="number" min="300" max="86400" value="3600"></label>
+            <label>Suppression days<input id="automationIntelligenceSuppression" type="number" min="1" max="365" value="30"></label>
+            <button class="button secondary" type="submit">Save learning settings</button>
+          </form>
+          <div id="automationIntelligenceProposals" class="automation-intelligence-proposals"><div class="empty-state">No learned opportunities yet.</div></div>
+        </section>
 
         <div class="automation-rules-grid">
           <section class="panel">
