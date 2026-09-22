@@ -348,9 +348,19 @@ class AmbientAgentRuntime:
             return
 
         if event_type == "presence_sensor":
+            presence = "present" if action == "present" else "absent"
             with self._lock:
-                self._presence = "present" if action == "present" else "absent"
+                self._presence = presence
                 self._last_presence_at = _now_iso()
+            try:
+                automation_intelligence.record_context_event(
+                    "presence",
+                    presence,
+                    source_kind="ambient",
+                    metadata={"source": "presence_sensor"},
+                )
+            except Exception:
+                pass
             self._sync_state()
             return
 
