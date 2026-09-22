@@ -397,6 +397,31 @@ class HardwareAdapterManager:
 
         if item["type"] == "event":
             with self._lock:
+                controller = dict(self._controller) if self._controller else {}
+            controller_capabilities = {
+                str(value)
+                for value in controller.get("capabilities", [])
+                if isinstance(value, str)
+            }
+            ambient_capability = {
+                "presence_sensor": "presence_sensor",
+                "wake_word": "wake_word",
+                "voice_activity": "voice_activity",
+            }.get(str(item.get("event") or ""))
+            if ambient_capability and ambient_capability not in controller_capabilities:
+                raise HardwareAdapterError(
+                    f"Hardware controller did not advertise {ambient_capability} capability."
+                )
+
+            if item.get("event") == "presence_sensor":
+                vp3_os.report_hardware_state(
+                    "presence_sensor",
+                    present=True,
+                    ready=True,
+                    metadata={"occupied": item.get("action") == "present"},
+                )
+
+            with self._lock:
                 seq = int(item.get("seq") or 0)
                 if seq and seq <= self._last_seq:
                     return {**item, "duplicate": True}
