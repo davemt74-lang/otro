@@ -280,6 +280,7 @@ def install() -> None:
         granted_permissions: set[str] | None = None,
         *,
         owner: bool = False,
+        approval_request_id: str | None = None,
     ) -> dict[str, Any]:
         if tool_key not in DEFINITIONS:
             return original_execute(
@@ -288,6 +289,7 @@ def install() -> None:
                 arguments,
                 granted_permissions,
                 owner=owner,
+                approval_request_id=approval_request_id,
             )
         if not _connector_ready():
             raise tools.ToolError("VP3 scheduling connector is not configured.", 409)
