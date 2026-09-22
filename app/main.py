@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, hardware_adapters, local_automation, physical_agent, physical_meeting
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, hardware_adapters, local_automation, physical_agent, physical_meeting
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -31,6 +31,7 @@ UI_DIR = ROOT_DIR / "ui"
 async def lifespan(_: FastAPI):
     initialize_database()
     ensure_knowledge_index()
+    device_rollout.reconcile_update_results()
     hardware_adapters.start()
     physical_agent.start()
     physical_meeting.start_runtime()
