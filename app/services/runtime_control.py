@@ -20,7 +20,7 @@ def runtime_control_available() -> bool:
 
 
 def request_runtime_command(command: str) -> bool:
-    if command not in {"restart", "shutdown"}:
+    if command not in {"restart", "shutdown", "apply_update"}:
         return False
     with _LOCK:
         handler = _HANDLER
