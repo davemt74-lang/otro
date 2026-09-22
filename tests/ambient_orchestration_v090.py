@@ -158,6 +158,21 @@ assert meeting["priority"] == 80
 assert emergency["priority"] == 90
 
 try:
+    local_automation.upsert_routine(
+        "focus-routine",
+        "Mutated Focus Routine",
+        approval_mode="ask_every_time",
+        steps=[
+            {"device_key": "desk-light", "command": "off", "arguments": {}},
+        ],
+    )
+except local_automation.LocalAutomationError as exc:
+    assert exc.status_code == 409
+    assert "bound to Room Mode" in str(exc)
+else:
+    raise AssertionError("Routine bound to Room Mode was edited in place")
+
+try:
     ambient_orchestration.upsert_mode(
         "bad-scope",
         "Bad Scope",
