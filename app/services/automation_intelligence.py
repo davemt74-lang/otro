@@ -618,13 +618,18 @@ def _upsert_candidate(
         if _proposal_suppressed(existing, now):
             return None
 
+        pattern_status = (
+            "materialized"
+            if existing and existing["status"] in {"materialized", "active"}
+            else "active"
+        )
         connection.execute(
             """
             INSERT INTO automation_learning_patterns(
                 pattern_key,pattern_kind,signature_json,time_bucket,
                 weekdays_json,evidence_count,confidence,first_seen_at,
                 last_seen_at,evidence_json,status
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,'active')
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(pattern_key) DO UPDATE SET
                 weekdays_json=excluded.weekdays_json,
                 evidence_count=excluded.evidence_count,
@@ -632,6 +637,7 @@ def _upsert_candidate(
                 first_seen_at=excluded.first_seen_at,
                 last_seen_at=excluded.last_seen_at,
                 evidence_json=excluded.evidence_json,
+                status=excluded.status,
                 updated_at=CURRENT_TIMESTAMP
             """,
             (
@@ -645,6 +651,7 @@ def _upsert_candidate(
                 candidate["first_seen_at"],
                 candidate["last_seen_at"],
                 _encoded(candidate["evidence"]),
+                pattern_status,
             ),
         )
         pattern_id = int(
@@ -736,7 +743,7 @@ def scan_patterns() -> dict[str, Any]:
     proposals: list[dict[str, Any]] = []
     for candidate in candidates:
         proposal = _upsert_candidate(candidate, settings)
-        if proposal is not None:
+        if proposal is not None and proposal["status"] == "proposed":
             proposals.append(proposal)
         if len(proposals) >= int(settings["max_proposals_per_scan"]):
             break
