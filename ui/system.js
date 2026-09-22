@@ -158,6 +158,97 @@ async function refreshSystem() {
   renderRollout(rollout);
 }
 
+
+byId('saveRolloutSettings').addEventListener('click', async () => {
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/rollout/settings', {
+      method:'PUT',
+      body:JSON.stringify({
+        release_channel:byId('rolloutChannel').value,
+        rollout_ring:byId('rolloutRing').value,
+        watchdog_enabled:byId('rolloutWatchdog').checked,
+      }),
+    });
+    await refreshRollout();
+    systemFlash('Rollout policy saved · ' + result.settings.release_channel + ' / ' + result.settings.rollout_ring + '.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('certifyHardware').addEventListener('click', async () => {
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/certifications', {method:'POST'});
+    await refreshRollout();
+    systemFlash('Hardware certification ' + rolloutStatusLabel(result.result) + '.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('stageRolloutPackage').addEventListener('click', async () => {
+  const file = byId('rolloutPackage').files && byId('rolloutPackage').files[0];
+  if (!file) return systemFlash('Choose a VP3 OS release ZIP first.', true);
+  const form = new FormData();
+  form.append('package', file);
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/updates/stage', {method:'POST', body:form});
+    byId('rolloutPackage').value = '';
+    await refreshRollout();
+    systemFlash(result.version + ' validated and staged.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('rolloutPackages').addEventListener('click', async event => {
+  const approve = event.target.closest('[data-rollout-approve]');
+  const apply = event.target.closest('[data-rollout-apply]');
+  const discard = event.target.closest('[data-rollout-discard]');
+  try {
+    if (approve) {
+      const id = approve.dataset.rolloutApprove;
+      await systemApi('/api/v1/control/vp3-os/updates/' + id + '/approve', {method:'POST'});
+      await refreshRollout();
+      return systemFlash('Update approved and pre-update backup created.');
+    }
+    if (apply) {
+      const id = apply.dataset.rolloutApply;
+      if (!confirm('Apply this verified VP3 OS update now? HomeServer will shut down, install, restart, and restore the previous executable if health validation fails.')) return;
+      systemFlash('Controlled update requested. HomeServer will close and restart.');
+      await systemApi('/api/v1/control/vp3-os/updates/' + id + '/apply', {method:'POST'});
+      return;
+    }
+    if (discard) {
+      const id = discard.dataset.rolloutDiscard;
+      await systemApi('/api/v1/control/vp3-os/updates/' + id + '/discard', {method:'POST'});
+      await refreshRollout();
+      return systemFlash('Staged update discarded.');
+    }
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('downloadSupportBundle').addEventListener('click', async () => {
+  try {
+    const response = await fetch('/api/v1/control/vp3-os/support-bundle', {method:'POST'});
+    if (!response.ok) {
+      let detail = 'Request failed (' + response.status + ')';
+      try {
+        const payload = await response.json();
+        detail = payload.detail || detail;
+      } catch (_) {}
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const name = match && match[1] ? match[1] : 'vp3-support.zip';
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    systemFlash('Sanitized support bundle created.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
 byId('completeSetup').addEventListener('click', async () => {
   try {
     const result = await systemApi('/api/v1/control/system/setup', {method:'POST', body:JSON.stringify({complete:true})});
