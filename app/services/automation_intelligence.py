@@ -956,42 +956,27 @@ def materialize_proposal(proposal_id: int) -> dict[str, Any]:
     routine = proposal["draft_routine"]
     rule = proposal["draft_rule"]
 
-    for kind, key, getter in (
-        ("routine", str(routine["routine_key"]), local_automation.get_routine),
-        ("rule", str(rule["rule_key"]), local_automation.get_rule),
-    ):
-        try:
-            getter(key)
-        except local_automation.LocalAutomationError as exc:
-            if exc.status_code == 404:
-                continue
-            raise AutomationIntelligenceError(str(exc), exc.status_code) from exc
-        raise AutomationIntelligenceError(
-            f"Learned draft {kind} key already exists; refusing to overwrite it.",
-            409,
+    try:
+        created = local_automation.create_disabled_draft_pair(
+            routine_key=str(routine["routine_key"]),
+            routine_name=str(routine["name"]),
+            routine_description=str(routine.get("description") or ""),
+            steps=list(routine["steps"]),
+            rule_key=str(rule["rule_key"]),
+            rule_name=str(rule["name"]),
+            rule_description=str(rule.get("description") or ""),
+            trigger_kind=str(rule["trigger_kind"]),
+            trigger=dict(rule.get("trigger") or {}),
+            conditions=list(rule.get("conditions") or []),
+            cooldown_seconds=int(rule.get("cooldown_seconds", 3600)),
         )
+    except local_automation.LocalAutomationError as exc:
+        raise AutomationIntelligenceError(
+            str(exc), exc.status_code
+        ) from exc
 
-    created_routine = local_automation.upsert_routine(
-        routine["routine_key"],
-        routine["name"],
-        description=routine.get("description", ""),
-        enabled=False,
-        approval_mode="ask_every_time",
-        steps=routine["steps"],
-    )
-    created_rule = local_automation.upsert_rule(
-        rule["rule_key"],
-        rule["name"],
-        routine_key=created_routine["routine_key"],
-        trigger_kind=rule["trigger_kind"],
-        trigger=rule["trigger"],
-        conditions=rule.get("conditions", []),
-        description=rule.get("description", ""),
-        enabled=False,
-        cooldown_seconds=int(
-            rule.get("cooldown_seconds", 3600)
-        ),
-    )
+    created_routine = created["routine"]
+    created_rule = created["rule"]
     with db() as connection:
         connection.execute(
             """
@@ -1018,7 +1003,6 @@ def materialize_proposal(proposal_id: int) -> dict[str, Any]:
         )
     _feedback(proposal_id, "materialized")
     return get_proposal(proposal_id)
-
 
 def enable_materialized_proposal(
     proposal_id: int,
