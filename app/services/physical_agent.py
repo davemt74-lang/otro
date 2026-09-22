@@ -387,8 +387,11 @@ class PhysicalAgentRuntime:
             self._external_mode = normalized
         if normalized:
             self.cancel(f"external_mode:{normalized}")
-        if self._started:
-            self._set_state("idle" if not self._privacy_engaged() else "privacy")
+            if self._started:
+                self._set_state("idle" if not self._privacy_engaged() else "privacy")
+        # Clearing an external mode deliberately preserves the current Agent
+        # state. Hardware privacy events are authoritative and may arrive just
+        # before the controller's state snapshot.
 
     def external_mode(self) -> str:
         with self._lock:
