@@ -378,6 +378,20 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v050-ambient-") as data_dir:
             assert reg["version"] == "v0.50"
             assert "presence" not in reg
 
+            # Hardware event sequence ordering is authoritative. A stale
+            # presence frame must be rejected before it can roll normalized
+            # room occupancy backward.
+            accepted_absent = hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 50, "event": "presence_sensor", "action": "absent"}
+            )
+            assert accepted_absent["duplicate"] is False
+            assert vp3_os.hardware_inventory()["presence_sensor"]["occupied"] is False
+            stale_present = hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 49, "event": "presence_sensor", "action": "present"}
+            )
+            assert stale_present["duplicate"] is True
+            assert vp3_os.hardware_inventory()["presence_sensor"]["occupied"] is False
+
             # Disable clears local presence tracking and stops ambient actions.
             disabled = client.put(
                 "/api/v1/control/vp3-os/ambient/settings",
