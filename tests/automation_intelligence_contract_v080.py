@@ -48,12 +48,12 @@ for forbidden in (
 
 for required in (
     "a.source_app_key NOT LIKE 'automation:%'",
-    "enabled=False",
     "materialize_proposal",
     "enable_materialized_proposal",
     "physical_actions_without_owner_approval",
     'privacy_scope="private"',
     "memory_candidate=False",
+    "create_disabled_draft_pair",
 ):
     assert required in service, required
 
@@ -64,6 +64,10 @@ assert "def set_rule_enabled" in local_automation
 assert "def create_disabled_draft_pair" in local_automation
 assert "refusing to overwrite it" in local_automation
 assert "create_disabled_draft_pair" in service
+assert "VALUES (?,?,?,0,'ask_every_time')" in local_automation
+assert "VALUES (?,?,?,0,?,?,?,?,?,?)" in local_automation
+assert '"rule_enabled": False' in local_automation
+assert '"routine_enabled": False' in local_automation
 
 for forbidden in (
     "execute_command(",
