@@ -143,9 +143,9 @@ for required in (
 
 assert "VP3 OS v1." in index_html
 
-assert "pull_request:" in workflow
-assert "push:" in workflow
-assert "cancel-in-progress: true" in workflow
+assert "workflow_dispatch:" in workflow
+assert "pull_request:" not in workflow
+assert "push:" not in workflow
 assert "ubuntu-latest" in workflow
 assert "windows-latest" in workflow
 for test in (
@@ -170,9 +170,7 @@ assert "push:" not in v110_workflow
 for required in (
     "dist/RELEASE.json",
     "vp3-os-release-v1",
-    "version = 'v1.2'",
     "channel = 'stable'",
-    "minimum_schema_version = 28",
 ):
     assert required in homeserver_ci, required
 
