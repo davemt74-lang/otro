@@ -230,7 +230,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v050-ambient-") as data_dir:
             )
             assert settings.status_code == 200, settings.text
             assert settings.json()["settings"]["enabled"] is True
-            assert settings.json()["status"]["presence"] == "unknown"
+            assert settings.json()["status"]["presence"] == "absent"
 
             # Presence is owner-local ambient state.
             hardware_adapters.manager.handle_message(
