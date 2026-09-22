@@ -41,9 +41,6 @@
     if (device.category === 'thermostat') {
       return `<div class="automation-command-bar"><input type="number" min="50" max="90" step="0.5" value="72" data-temperature="${key}" aria-label="Temperature Fahrenheit"><button class="button secondary" data-device-request="${key}" data-command="set_temperature">Request temperature</button><button class="button secondary" data-device-request="${key}" data-command="set_mode" data-mode="off">Request off mode</button></div>`;
     }
-    if (device.category === 'scene') {
-      return `<div class="automation-command-bar"><button class="button secondary" data-device-request="${key}" data-command="activate">Request activation</button></div>`;
-    }
     return '<div class="automation-locked">No v0.60 command mapping for this category.</div>';
   }
 
