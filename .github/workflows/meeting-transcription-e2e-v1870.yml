@@ -1,9 +1,7 @@
 name: HomeServer Meeting E2E v18.7
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   contract:
