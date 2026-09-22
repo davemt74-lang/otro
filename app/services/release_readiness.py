@@ -144,7 +144,7 @@ def _owner_security_check() -> dict[str, Any]:
 def _backup_check() -> dict[str, Any]:
     try:
         items = list_backups()
-        pending = pending_restore_info()
+        pending = pending_restore_info() or {}
     except Exception as exc:
         return _check(
             "backup_recovery",
