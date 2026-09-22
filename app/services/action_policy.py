@@ -14,6 +14,7 @@ VALID_MODES = {READ_ONLY, SAFE_AUTOMATIC, APPROVAL_REQUIRED, SENSITIVE_HIGH_IMPA
 APPROVAL_ONLY_WRITE_TOOLS = {
     "files.update",
     "files.delete",
+    "devices.command",
     "vp3.booking.create",
     "vp3.booking.reschedule",
     "vp3.booking.cancel",
