@@ -1055,14 +1055,14 @@ def evaluate_mode_suggestions() -> list[dict[str, Any]]:
         if not _trigger_matches(trigger, context):
             continue
         try:
-            output.append(
-                suggest_mode(
-                    mode["mode_key"],
-                    source_kind="ambient",
-                    reason="Ambient context matched the configured Room Mode trigger.",
-                    context_snapshot=context,
-                )
+            session = suggest_mode(
+                mode["mode_key"],
+                source_kind="ambient",
+                reason="Ambient context matched the configured Room Mode trigger.",
+                context_snapshot=context,
             )
+            if session["state"] == "suggested":
+                output.append(session)
         except OrchestrationError:
             continue
     return output
