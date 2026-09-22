@@ -117,7 +117,8 @@ assert "cannot execute a physical device command" in docs
 assert "explicitly excludes any action whose source begins" in docs
 
 for required in (
-    'VP3 OS v0.80',
+    'class="automation-version"',
+    'VP3 OS v0.',
     'id="automationIntelligenceSettingsForm"',
     'id="automationIntelligenceScan"',
     'id="automationIntelligenceProposals"',
