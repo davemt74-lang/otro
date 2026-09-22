@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import app_scopes, device_audio, hardware_adapters, physical_agent, vp3_os
+from .services import app_scopes, device_audio, hardware_adapters, physical_agent, physical_meeting, vp3_os
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -11,6 +11,10 @@ router = APIRouter()
 
 class StatusLightUpdate(BaseModel):
     mode: str = Field(min_length=2, max_length=32)
+
+
+class PhysicalMeetingStart(BaseModel):
+    title: str = Field(default="", max_length=240)
 
 
 class PlacementRequest(BaseModel):
@@ -54,6 +58,7 @@ def owner_vp3_os_status() -> dict:
         **vp3_os.owner_status(),
         "hardware_adapter": hardware_adapters.status(),
         "physical_agent": physical_agent.status(),
+        "physical_meeting": physical_meeting.status(),
         "device_audio": device_audio.status(),
     }
 
@@ -101,6 +106,29 @@ def owner_physical_agent_reset_conversation() -> dict:
     return physical_agent.reset_conversation()
 
 
+@router.get("/api/v1/control/vp3-os/physical-meeting")
+def owner_physical_meeting_status() -> dict:
+    return physical_meeting.status()
+
+
+@router.post("/api/v1/control/vp3-os/physical-meeting/start")
+def owner_physical_meeting_start(payload: PhysicalMeetingStart) -> dict:
+    try:
+        return physical_meeting.start_meeting(payload.title, trigger="owner")
+    except physical_meeting.PhysicalMeetingError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/api/v1/control/vp3-os/physical-meeting/end")
+def owner_physical_meeting_end() -> dict:
+    return physical_meeting.end_meeting("owner")
+
+
+@router.post("/api/v1/control/vp3-os/physical-meeting/interrupt")
+def owner_physical_meeting_interrupt() -> dict:
+    return physical_meeting.interrupt("owner_interrupted")
+
+
 @router.post("/api/v1/control/vp3-os/placement")
 def owner_vp3_os_placement(payload: PlacementRequest) -> dict:
     return _plan(payload, scope_cloud_allowed=True)
@@ -115,6 +143,7 @@ def paired_vp3_os_status(identity: dict = Depends(_current_app)) -> dict:
         **vp3_os.capability_projection(),
         "hardware_adapter": hardware_adapters.paired_status(),
         "physical_agent": physical_agent.paired_status(),
+        "physical_meeting": physical_meeting.paired_status(),
         "app": str(identity.get("app_key") or "")[:80],
     }
 
