@@ -7,6 +7,10 @@ service = (ROOT / "app" / "services" / "local_automation.py").read_text(encoding
 api = (ROOT / "app" / "local_automation_api.py").read_text(encoding="utf-8")
 migration = (ROOT / "database" / "migrations" / "024_local_automation_rules.sql").read_text(encoding="utf-8")
 docs = (ROOT / "docs" / "VP3_OS_LOCAL_AUTOMATION_V070.md").read_text(encoding="utf-8")
+index_html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+automation_js = (ROOT / "ui" / "room-device-automation.js").read_text(encoding="utf-8")
+main_py = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+bridge_py = (ROOT / "app" / "bridge.py").read_text(encoding="utf-8")
 
 for required in (
     "suggest_only",
@@ -41,5 +45,33 @@ for table in (
     assert table in migration, table
 
 assert "There is no automatic physical execution mode in v0.70." in docs
+
+for required in (
+    'id="automationRoutineForm"',
+    'id="automationRuleForm"',
+    'id="automationRuntimeForm"',
+    'VP3 OS v0.70',
+):
+    assert required in index_html, required
+
+for required in (
+    "/automation/routines/",
+    "/automation/rules/",
+    "/automation/rules-runtime/settings",
+    "approval request(s) created",
+):
+    assert required in automation_js, required
+
+# Lifespan owns the deterministic local scheduler.
+assert "local_automation.start()" in main_py
+assert "local_automation.stop()" in main_py
+
+# Public capability discovery advertises v0.70 and its approval boundary.
+for required in (
+    '"vp3_os_local_automation": local_automation.public_capability()',
+    '"vp3.os.v070"',
+    '"vp3.os.rules.require_owner_approval"',
+):
+    assert required in bridge_py, required
 
 print("VP3 OS v0.70 local automation governance contract passed")
