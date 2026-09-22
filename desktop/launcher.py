@@ -49,6 +49,8 @@ from desktop.update_runtime import spawn_pending_update  # noqa: E402
 
 EXIT_ALREADY_RUNNING = 23
 EXIT_SERVER_NOT_READY = 24
+WATCHDOG_FAILURE_WINDOW_SECONDS = 300
+WATCHDOG_STABLE_RESET_SECONDS = 60
 
 
 def _icon() -> Image.Image:
@@ -126,6 +128,70 @@ def _select_runtime_app():
         return build_recovery_app(reason), True, reason
 
 
+def _watchdog_state_path() -> Path:
+    settings.runtime_dir.mkdir(parents=True, exist_ok=True)
+    return settings.runtime_dir / "watchdog-state.json"
+
+
+def _read_watchdog_state() -> dict:
+    path = _watchdog_state_path()
+    if not path.is_file():
+        return {"count": 0, "first_failure_at": 0.0}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"count": 0, "first_failure_at": 0.0}
+    if not isinstance(payload, dict):
+        return {"count": 0, "first_failure_at": 0.0}
+    try:
+        count = max(0, int(payload.get("count") or 0))
+        first = max(0.0, float(payload.get("first_failure_at") or 0.0))
+    except (TypeError, ValueError):
+        return {"count": 0, "first_failure_at": 0.0}
+    return {"count": count, "first_failure_at": first}
+
+
+def _write_watchdog_state(count: int, first_failure_at: float) -> None:
+    path = _watchdog_state_path()
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "count": max(0, int(count)),
+                "first_failure_at": max(0.0, float(first_failure_at)),
+                "updated_at": time.time(),
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def _reset_watchdog_state() -> None:
+    try:
+        _watchdog_state_path().unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _register_watchdog_failure(max_failures: int) -> bool:
+    now = time.time()
+    state = _read_watchdog_state()
+    first = float(state["first_failure_at"])
+    count = int(state["count"])
+    if first <= 0 or now - first > WATCHDOG_FAILURE_WINDOW_SECONDS:
+        first = now
+        count = 0
+    count += 1
+    try:
+        _write_watchdog_state(count, first)
+    except OSError:
+        # Fail closed on restart-loop prevention if the state cannot be stored.
+        return False
+    return count < max(1, int(max_failures))
+
+
 def _restart_command() -> list[str]:
     args = [arg for arg in sys.argv[1:] if arg != "--restart-child"]
     if getattr(sys, "frozen", False):
@@ -163,6 +229,9 @@ class RuntimeController:
         self._stop_scheduled = False
         self._watchdog_stop = threading.Event()
         self._watchdog_thread: threading.Thread | None = None
+        self._watchdog_started_at = 0.0
+        self._watchdog_state_reset = False
+        self._watchdog_max_failures = 3
 
     def _run_server(self) -> None:
         self.server.run()
@@ -175,6 +244,14 @@ class RuntimeController:
         while not self._watchdog_stop.wait(1.0):
             thread = self.thread
             if thread is None or thread.is_alive():
+                if (
+                    not self._watchdog_state_reset
+                    and self._watchdog_started_at > 0
+                    and time.monotonic() - self._watchdog_started_at
+                    >= WATCHDOG_STABLE_RESET_SECONDS
+                ):
+                    _reset_watchdog_state()
+                    self._watchdog_state_reset = True
                 continue
             with self._command_lock:
                 intentional = (
@@ -184,7 +261,9 @@ class RuntimeController:
                 )
                 if intentional:
                     return
-                self.restart_requested = True
+                self.restart_requested = _register_watchdog_failure(
+                    self._watchdog_max_failures
+                )
                 self._stop_scheduled = True
             if self.tray is not None:
                 try:
@@ -196,12 +275,20 @@ class RuntimeController:
     def start_watchdog(self) -> None:
         try:
             from app.services.device_rollout import get_settings
-            enabled = bool(get_settings().get("watchdog_enabled"))
+            rollout = get_settings()
+            enabled = bool(rollout.get("watchdog_enabled"))
+            self._watchdog_max_failures = max(
+                1,
+                int(rollout.get("max_failed_starts") or 3),
+            )
         except Exception:
             enabled = True
+            self._watchdog_max_failures = 3
         if not enabled:
             return
         self._watchdog_stop.clear()
+        self._watchdog_started_at = time.monotonic()
+        self._watchdog_state_reset = False
         self._watchdog_thread = threading.Thread(
             target=self._watchdog_loop,
             name="homeserver-runtime-watchdog",
