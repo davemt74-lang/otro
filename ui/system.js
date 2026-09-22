@@ -147,13 +147,15 @@ async function refreshPayments() {
 }
 
 async function refreshSystem() {
-  const [system, payments] = await Promise.all([
+  const [system, payments, rollout] = await Promise.all([
     systemApi('/api/v1/control/system'),
     systemApi('/api/v1/control/payments'),
+    systemApi('/api/v1/control/vp3-os/rollout'),
   ]);
   renderSetup(system.setup || {});
   renderDiagnostics(system.diagnostics || {});
   renderPayments(payments);
+  renderRollout(rollout);
 }
 
 byId('completeSetup').addEventListener('click', async () => {
