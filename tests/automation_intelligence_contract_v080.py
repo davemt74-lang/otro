@@ -41,6 +41,8 @@ for forbidden in (
     "approve_request(",
     "run_routine(",
     "evaluate_rule(",
+    "upsert_routine(",
+    "upsert_rule(",
 ):
     assert forbidden not in service, forbidden
 
@@ -59,6 +61,9 @@ for required in (
 # controls; the intelligence layer never bypasses the rule engine.
 assert "def set_routine_enabled" in local_automation
 assert "def set_rule_enabled" in local_automation
+assert "def create_disabled_draft_pair" in local_automation
+assert "refusing to overwrite it" in local_automation
+assert "create_disabled_draft_pair" in service
 
 for forbidden in (
     "execute_command(",
