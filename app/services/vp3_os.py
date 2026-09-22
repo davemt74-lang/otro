@@ -76,6 +76,7 @@ _HARDWARE_KEYS = (
     "storage",
     "accelerator",
     "presence_sensor",
+    "control_dial",
 )
 
 _STATE_LOCK = threading.Lock()
