@@ -1,0 +1,57 @@
+name: VP3 OS Local Automation v0.70
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - vp3-os-v070-local-automation-rules
+
+permissions:
+  contents: read
+
+jobs:
+  local-automation:
+    name: Local automation · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile v0.70 runtime
+        run: >-
+          python -m py_compile
+          app/services/local_automation.py
+          app/services/room_device_automation.py
+          app/services/approvals.py
+          app/local_automation_api.py
+          app/room_device_api.py
+          app/main.py
+          app/bridge.py
+          tests/local_automation_v070.py
+          tests/local_automation_ui_contract_v070.py
+          tests/room_device_automation_v060.py
+          tests/room_device_automation_ui_contract_v060.py
+      - name: Validate automation JavaScript
+        run: node --check ui/room-device-automation.js
+      - name: Verify v0.60 room-device runtime
+        run: python tests/room_device_automation_v060.py
+      - name: Verify v0.60 governance contract
+        run: python tests/room_device_automation_ui_contract_v060.py
+      - name: Verify v0.70 local automation runtime
+        run: python tests/local_automation_v070.py
+      - name: Verify v0.70 governance contract
+        run: python tests/local_automation_ui_contract_v070.py
+      - name: Verify migrations
+        run: python tests/migrations.py
