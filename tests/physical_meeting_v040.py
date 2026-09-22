@@ -92,6 +92,8 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
     from app.services.tasks import scheduler  # noqa: E402
 
     audio = device_audio.device_audio
+    original_start_capture = audio.start_capture
+    original_stop_capture = audio.stop_capture
     original_start_stream = audio.start_stream_capture
     original_stop_stream = audio.stop_stream_capture
     original_cancel_capture = audio.cancel_capture
@@ -103,9 +105,22 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
     original_emit = cognitive_runtime.emit_event
 
     capture = {"active": False, "callback": None}
+    ptt = {"active": False}
     transcript_calls: list[int] = []
     intelligence_calls: list[dict] = []
     cognitive_events: list[dict] = []
+
+    def fake_start_capture():
+        assert not ptt["active"]
+        ptt["active"] = True
+
+    def fake_stop_capture():
+        assert ptt["active"]
+        ptt["active"] = False
+        # The Physical Agent worker only needs a distinguishable in-memory
+        # payload here; fake_transcribe handles it without consuming a meeting
+        # transcript fixture.
+        return b"RIFFPTT"
 
     def fake_start_stream(callback):
         assert not capture["active"]
@@ -118,6 +133,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
         capture["callback"] = None
 
     def fake_cancel_capture():
+        ptt["active"] = False
         capture["active"] = False
         capture["callback"] = None
 
@@ -126,8 +142,8 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
 
     def fake_audio_state():
         return {
-            "capturing": capture["active"],
-            "capture_mode": "stream" if capture["active"] else "idle",
+            "capturing": bool(capture["active"] or ptt["active"]),
+            "capture_mode": "stream" if capture["active"] else ("turn" if ptt["active"] else "idle"),
             "playing": False,
             "captured_bytes": 0,
         }
@@ -146,6 +162,13 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
 
     def fake_transcribe(payload: bytes):
         assert payload[:4] == b"RIFF"
+        if payload == b"RIFFPTT":
+            return {
+                "text": "",
+                "provider": "whisper.cpp",
+                "local": True,
+                "model": "tiny.en-q8_0",
+            }
         index = len(transcript_calls)
         transcript_calls.append(len(payload))
         text = transcripts[index] if index < len(transcripts) else "Additional meeting note."
@@ -185,6 +208,8 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
         cognitive_events.append(kwargs)
         return {"duplicate": False, "event": {"id": len(cognitive_events)}}
 
+    audio.start_capture = fake_start_capture
+    audio.stop_capture = fake_stop_capture
     audio.start_stream_capture = fake_start_stream
     audio.stop_stream_capture = fake_stop_stream
     audio.cancel_capture = fake_cancel_capture
@@ -226,9 +251,38 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             assert initial.status_code == 200
             assert initial.json()["state"] == "idle"
 
-            # Long hold starts explicit physical meeting mode.
+            # Preserve v0.30: press begins push-to-talk and hold cancels
+            # that turn. It must never start meeting mode.
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 1, "event": "agent_button", "action": "hold"}
+                {"type": "event", "seq": 1, "event": "agent_button", "action": "press"}
+            )
+            assert physical_agent.status()["state"] == "listening"
+            assert ptt["active"] is True
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 2, "event": "agent_button", "action": "hold"}
+            )
+            assert physical_agent.status()["state"] == "idle"
+            assert physical_meeting.status()["state"] == "idle"
+            assert ptt["active"] is False
+            assert capture["active"] is False
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 3, "event": "agent_button", "action": "release"}
+            )
+
+            # The real ESP32 emits press/release pairs. A second press within
+            # the bounded gesture window starts meeting mode and cancels any
+            # short push-to-talk turn created by the first click.
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 4, "event": "agent_button", "action": "press"}
+            )
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 5, "event": "agent_button", "action": "release"}
+            )
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 6, "event": "agent_button", "action": "press"}
+            )
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 7, "event": "agent_button", "action": "release"}
             )
             active = wait_for(
                 lambda: (
@@ -286,10 +340,16 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             ):
                 assert forbidden not in paired_text
 
-            # Long hold ends and finalizes through existing local Meeting
-            # Intelligence, then creates a structured Agent Chat Meeting Card.
+            # The ESP32 emits press before hold. During meeting mode the
+            # Physical Agent ignores both; the meeting runtime ends on hold.
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 2, "event": "agent_button", "action": "hold"}
+                {"type": "event", "seq": 8, "event": "agent_button", "action": "press"}
+            )
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 9, "event": "agent_button", "action": "hold"}
+            )
+            hardware_adapters.manager.handle_message(
+                {"type": "event", "seq": 10, "event": "agent_button", "action": "release"}
             )
             completed = wait_for(
                 lambda: (
@@ -355,7 +415,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             analyzer_count = len(intelligence_calls)
 
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 3, "event": "privacy_switch", "action": "engaged"}
+                {"type": "event", "seq": 11, "event": "privacy_switch", "action": "engaged"}
             )
             hardware_adapters.manager.handle_message(
                 controller_state(2, privacy=True, mic_powered=False)
@@ -390,7 +450,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             # Restore physical privacy state, then prove exact on-device voice
             # commands can start and stop meeting mode without an LLM.
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 4, "event": "privacy_switch", "action": "disengaged"}
+                {"type": "event", "seq": 12, "event": "privacy_switch", "action": "disengaged"}
             )
             hardware_adapters.manager.handle_message(
                 controller_state(3, privacy=False, mic_powered=True)
@@ -426,6 +486,8 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             assert "transcript_preview" not in reg
             assert "meeting_id" not in reg
     finally:
+        audio.start_capture = original_start_capture
+        audio.stop_capture = original_stop_capture
         audio.start_stream_capture = original_start_stream
         audio.stop_stream_capture = original_stop_stream
         audio.cancel_capture = original_cancel_capture
