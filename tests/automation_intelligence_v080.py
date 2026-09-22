@@ -260,6 +260,30 @@ with db() as connection:
         """
     ).fetchone()[0]
     assert cognitive >= 1
+    context_count = connection.execute(
+        "SELECT COUNT(*) FROM automation_context_events"
+    ).fetchone()[0]
+
+automation_intelligence.update_settings(
+    enabled=False,
+    scan_interval_seconds=3600,
+    lookback_days=21,
+    min_occurrences=4,
+    time_bucket_minutes=30,
+    max_proposals_per_scan=12,
+    suppression_days=30,
+)
+not_recorded = automation_intelligence.record_context_event(
+    "presence",
+    "absent",
+    source_kind="ambient",
+)
+assert not_recorded["recorded"] is False
+with db() as connection:
+    assert connection.execute(
+        "SELECT COUNT(*) FROM automation_context_events"
+    ).fetchone()[0] == context_count
+assert automation_intelligence.scan_patterns()["enabled"] is False
 
 tmp.cleanup()
 print("VP3 OS v0.80 automation intelligence runtime passed")
