@@ -150,6 +150,7 @@
     $('automationIntelligenceBucket').value = String(settings.time_bucket_minutes ?? 30);
     $('automationIntelligenceInterval').value = settings.scan_interval_seconds ?? 3600;
     $('automationIntelligenceSuppression').value = settings.suppression_days ?? 30;
+    $('automationIntelligenceMaxProposals').value = settings.max_proposals_per_scan ?? 12;
 
     $('automationIntelligenceProposals').innerHTML = proposals.length ? proposals.map(item => {
       const simulation = item.simulation || {};
@@ -311,7 +312,7 @@
           lookback_days:Number($('automationIntelligenceLookback').value || 21),
           min_occurrences:Number($('automationIntelligenceMinOccurrences').value || 4),
           time_bucket_minutes:Number($('automationIntelligenceBucket').value || 30),
-          max_proposals_per_scan:12,
+          max_proposals_per_scan:Number($('automationIntelligenceMaxProposals').value || 12),
           suppression_days:Number($('automationIntelligenceSuppression').value || 30),
         }),
       });
