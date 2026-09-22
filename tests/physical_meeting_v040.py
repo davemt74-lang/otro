@@ -373,6 +373,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             assert interrupted["status"] == "interrupted"
             assert interrupted["reason"] == "privacy_engaged"
             assert capture["active"] is False
+            assert physical_agent.status()["state"] == "privacy"
             assert len(intelligence_calls) == analyzer_count
             assert physical_meeting.status()["state"] == "privacy"
 
