@@ -166,10 +166,24 @@ assert status["runtime"]["screen_awake"] is False
 hardware_experience.handle_hardware_event(
     {"event": "agent_button", "action": "press", "seq": 3}
 )
+before_volume = hardware_experience.get_settings()["volume_percent"]
+hardware_experience.handle_hardware_event(
+    {"event": "control_dial", "action": "clockwise", "seq": 4}
+)
+assert hardware_experience.get_settings()["volume_percent"] == min(100, before_volume + 5)
+hardware_experience.handle_hardware_event(
+    {"event": "control_dial", "action": "counterclockwise", "seq": 5}
+)
+assert hardware_experience.get_settings()["volume_percent"] == before_volume
 events = hardware_experience.recent_events(10)
 assert any(
     item["event_type"] == "agent_button"
     and item["outcome"] == "delegated_to_physical_runtimes"
+    for item in events
+)
+assert any(
+    item["event_type"] == "control_dial"
+    and item["outcome"] in {"volume_up", "volume_down"}
     for item in events
 )
 
