@@ -37,9 +37,7 @@ for required in (
     '"v11_updater_reused": True',
     '"rollout_auto_pause_on_failures": True',
     'required_permissions = {"fleet.read", "fleet.manage", "fleet.telemetry"}',
-    '"fleet.read","fleet.manage","fleet.telemetry"',
     "device_rollout.approve_package",
-    'status="pending_owner"',
     'status = "pending_owner" if matching is not None else "unavailable"',
     "counts[\"failures\"] >= int(rollout[\"failure_threshold\"])",
 ):
