@@ -18,6 +18,13 @@ migration = (
 docs = (
     ROOT / "docs" / "VP3_OS_AMBIENT_ORCHESTRATION_V090.md"
 ).read_text(encoding="utf-8")
+index_html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+automation_js = (
+    ROOT / "ui" / "room-device-automation.js"
+).read_text(encoding="utf-8")
+automation_css = (
+    ROOT / "ui" / "room-device-automation.css"
+).read_text(encoding="utf-8")
 
 for forbidden in (
     "execute_command(",
@@ -85,5 +92,29 @@ for table in (
 assert "Ambient context never activates a mode automatically." in docs
 assert "strictly higher priority" in docs
 assert "never silently reverses physical device state" in docs
+
+for required in (
+    'VP3 OS v0.90',
+    'id="orchestrationModeForm"',
+    'id="orchestrationSettingsForm"',
+    'id="orchestrationEvaluate"',
+    'id="orchestrationModes"',
+    'id="orchestrationSessions"',
+):
+    assert required in index_html, required
+
+for required in (
+    "/api/v1/control/vp3-os/orchestration",
+    "data-mode-simulate",
+    "data-mode-activate",
+    "data-mode-supersede",
+    "data-mode-session-accept",
+    "data-mode-session-suspend",
+    "0 unapproved physical actions",
+):
+    assert required in automation_js, required
+
+assert "execute_command(" not in automation_js
+assert "orchestration-card" in automation_css
 
 print("VP3 OS v0.90 orchestration governance contract passed")
