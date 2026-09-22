@@ -333,6 +333,9 @@ Each paired application receives its own token and explicit permissions. Current
 - `contacts.read`
 - `events.read`
 - `events.write`
+- `fleet.read`
+- `fleet.manage`
+- `fleet.telemetry`
 - `knowledge.search`
 - `memory.read`
 - `memory.write`
