@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import stat
 import tempfile
 import zipfile
@@ -16,6 +17,7 @@ from typing import Any, BinaryIO
 from ..config import settings
 from ..database import db, migration_files
 from . import backups, hardware_adapters, release_readiness, system_state, vp3_os
+from .runtime_control import request_runtime_command, runtime_control_available
 
 ROLLOUT_VERSION = "v1.1"
 PACKAGE_FORMAT = "vp3-os-release-v1"
@@ -556,6 +558,123 @@ def approve_package(package_id: int) -> dict[str, Any]:
     return get_package(package_id)
 
 
+
+def _package_archive_path(package: dict[str, Any]) -> Path:
+    path = _updates_root() / f"{package['package_sha256']}.zip"
+    if not path.is_file():
+        raise RolloutError("The staged release package is no longer available.", 410)
+    return path
+
+
+def _pending_update_path() -> Path:
+    return _updates_root() / "pending-update.json"
+
+
+def request_apply(package_id: int) -> dict[str, Any]:
+    package = get_package(package_id)
+    if package["status"] != "approved":
+        raise RolloutError("Only an approved update can be applied.", 409)
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        raise RolloutError(
+            "Applying an update requires the installed Windows HomeServer application.",
+            422,
+        )
+    if not runtime_control_available():
+        raise RolloutError("Runtime update control is unavailable in this launch mode.", 503)
+
+    archive_path = _package_archive_path(package)
+    apply_dir = _updates_root() / f"apply-{int(package_id)}"
+    if apply_dir.exists():
+        shutil.rmtree(apply_dir, ignore_errors=True)
+    apply_dir.mkdir(parents=True, exist_ok=True)
+    installer_path = apply_dir / "HomeServerSetup.exe"
+    rollback_exe = apply_dir / "HomeServer.rollback.exe"
+
+    with zipfile.ZipFile(archive_path, "r") as archive:
+        with archive.open("HomeServerSetup.exe", "r") as source, installer_path.open("wb") as output:
+            shutil.copyfileobj(source, output, length=1024 * 1024)
+    installer_hash = hashlib.sha256(installer_path.read_bytes()).hexdigest()
+    if installer_hash != package["installer_sha256"]:
+        shutil.rmtree(apply_dir, ignore_errors=True)
+        raise RolloutError("Staged installer failed revalidation before apply.")
+
+    current_exe = Path(sys.executable).resolve()
+    try:
+        shutil.copy2(current_exe, rollback_exe)
+    except OSError as exc:
+        shutil.rmtree(apply_dir, ignore_errors=True)
+        raise RolloutError("Could not create the binary rollback point.") from exc
+
+    pending = {
+        "format": "vp3-os-pending-update-v1",
+        "package_id": int(package_id),
+        "version": package["version"],
+        "installer_path": str(installer_path),
+        "installer_sha256": package["installer_sha256"],
+        "rollback_exe": str(rollback_exe),
+        "target_exe": str(current_exe),
+        "install_dir": str(current_exe.parent),
+        "rollback_backup_name": package["rollback_backup_name"],
+        "requested_at": _iso_now(),
+    }
+    pending_path = _pending_update_path()
+    temporary = pending_path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(pending, indent=2, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, pending_path)
+
+    with db() as connection:
+        connection.execute(
+            """
+            UPDATE vp3_rollout_packages
+            SET status='applying',updated_at=CURRENT_TIMESTAMP
+            WHERE id=? AND status='approved'
+            """,
+            (int(package_id),),
+        )
+    _event(
+        "update.apply_requested",
+        f"VP3 OS {package['version']} controlled update apply requested.",
+        metadata={"package_id": int(package_id)},
+    )
+    if not request_runtime_command("apply_update"):
+        pending_path.unlink(missing_ok=True)
+        with db() as connection:
+            connection.execute(
+                """
+                UPDATE vp3_rollout_packages
+                SET status='approved',updated_at=CURRENT_TIMESTAMP
+                WHERE id=? AND status='applying'
+                """,
+                (int(package_id),),
+            )
+        raise RolloutError("Runtime rejected the controlled update request.", 503)
+    return {
+        **get_package(package_id),
+        "shutdown_requested": True,
+        "binary_rollback_ready": True,
+        "data_rollback_backup_ready": bool(package["rollback_backup_name"]),
+    }
+
+
+def pending_update_status() -> dict[str, Any] | None:
+    path = _pending_update_path()
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"valid": False}
+    if not isinstance(payload, dict):
+        return {"valid": False}
+    return {
+        "valid": payload.get("format") == "vp3-os-pending-update-v1",
+        "package_id": payload.get("package_id"),
+        "version": payload.get("version"),
+        "requested_at": payload.get("requested_at"),
+        "rollback_backup_name": payload.get("rollback_backup_name"),
+    }
+
+
 def discard_package(package_id: int) -> dict[str, Any]:
     package = get_package(package_id)
     if package["status"] in {"applying", "applied"}:
@@ -699,6 +818,7 @@ def overview() -> dict[str, Any]:
         "latest_certification": certifications[0] if certifications else None,
         "certifications": certifications,
         "packages": packages,
+        "pending_update": pending_update_status(),
         "events": list_events(30),
         "governance": {
             "automatic_apply": False,
