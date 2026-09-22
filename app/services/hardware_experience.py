@@ -68,9 +68,9 @@ _PROFILE_EXPERIENCES: dict[str, dict[str, Any]] = {
             "meeting_controls",
         ],
         "display_modes": ["agent", "meeting", "notification", "room_mode", "timer", "system", "update"],
-        "controls": ["agent_button", "privacy_switch"],
+        "controls": ["agent_button", "privacy_switch", "control_dial"],
         "required": ["agent_button", "status_light", "microphone", "speaker", "privacy_switch", "display"],
-        "optional": ["presence_sensor", "accelerator"],
+        "optional": ["presence_sensor", "accelerator", "control_dial"],
     },
     "vp3_studio": {
         "experience": "creator_console",
@@ -84,9 +84,9 @@ _PROFILE_EXPERIENCES: dict[str, dict[str, Any]] = {
             "recording_state",
         ],
         "display_modes": ["meeting", "system", "update"],
-        "controls": ["agent_button", "privacy_switch"],
+        "controls": ["agent_button", "privacy_switch", "control_dial"],
         "required": ["agent_button", "status_light", "microphone", "speaker", "privacy_switch", "audio_io"],
-        "optional": ["display", "presence_sensor", "accelerator"],
+        "optional": ["display", "presence_sensor", "accelerator", "control_dial"],
     },
     "vp3_team_node": {
         "experience": "shared_room",
@@ -114,9 +114,9 @@ _PROFILE_EXPERIENCES: dict[str, dict[str, Any]] = {
             "ambient_presence",
         ],
         "display_modes": ["agent", "notification", "timer", "system", "update"],
-        "controls": ["agent_button", "privacy_switch"],
+        "controls": ["agent_button", "privacy_switch", "control_dial"],
         "required": ["agent_button", "status_light", "microphone", "speaker", "privacy_switch", "display", "battery"],
-        "optional": ["presence_sensor", "accelerator"],
+        "optional": ["presence_sensor", "accelerator", "control_dial"],
     },
 }
 
@@ -608,6 +608,21 @@ def handle_hardware_event(event: dict[str, Any]) -> None:
     elif event_type == "agent_button":
         handled = True
         outcome = "delegated_to_physical_runtimes"
+    elif event_type == "control_dial":
+        experience = profile_experience()
+        if "control_dial" in experience["controls"]:
+            settings = get_settings()
+            if action == "clockwise":
+                update_settings(volume_percent=min(100, int(settings["volume_percent"]) + 5))
+                handled = True
+                outcome = "volume_up"
+            elif action == "counterclockwise":
+                update_settings(volume_percent=max(0, int(settings["volume_percent"]) - 5))
+                handled = True
+                outcome = "volume_down"
+            elif action == "press":
+                handled = True
+                outcome = "dial_press"
     elif event_type in {"wake_word", "voice_activity"}:
         handled = True
         outcome = "delegated_to_ambient_agent"
