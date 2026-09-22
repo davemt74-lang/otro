@@ -352,6 +352,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v060-room-device-") as data_dir:
                         "devices.read",
                         "devices.control",
                         "tools.execute",
+                        "approvals.review",
                     ],
                 },
             ).json()
@@ -411,6 +412,15 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v060-room-device-") as data_dir:
             app_visible_text = app_visible.text
             assert "arguments" not in app_visible.json()["request"]
             assert "PRIVATE_DEVICE_META" not in app_visible_text
+
+            # Generic approval federation cannot release physical actions.
+            federated_approve = client.post(
+                f"/api/v1/action-requests/{app_request_id}/approve",
+                headers=headers,
+            )
+            assert federated_approve.status_code == 403
+            assert "local homeserver owner approval" in federated_approve.json()["detail"].lower()
+            assert len(driver_calls) == 1
 
             app_approved = client.post(
                 f"/api/v1/control/action-requests/{app_request_id}/approve"
