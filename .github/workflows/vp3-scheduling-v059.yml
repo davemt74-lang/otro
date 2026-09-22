@@ -1,37 +1,7 @@
 name: VP3 Scheduling Tools v0.59
 
 on:
-  pull_request:
-    paths:
-      - 'app/tools_api.py'
-      - 'app/services/action_policy.py'
-      - 'app/services/pairing.py'
-      - 'app/services/vp3_scheduling_connector.py'
-      - 'app/services/vp3_scheduling_tools.py'
-      - 'app/services/vp3_scheduling_approvals.py'
-      - 'app/services/vp3_scheduling_agent.py'
-      - 'app/services/vp3_scheduling_remote.py'
-      - 'database/migrations/022_vp3_scheduling_approvals.sql'
-      - 'tests/migrations.py'
-      - 'tests/vp3_scheduling_v059.py'
-      - 'tests/vp3_scheduling_v059_static.py'
-      - '.github/workflows/vp3-scheduling-v059.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/tools_api.py'
-      - 'app/services/action_policy.py'
-      - 'app/services/pairing.py'
-      - 'app/services/vp3_scheduling_connector.py'
-      - 'app/services/vp3_scheduling_tools.py'
-      - 'app/services/vp3_scheduling_approvals.py'
-      - 'app/services/vp3_scheduling_agent.py'
-      - 'app/services/vp3_scheduling_remote.py'
-      - 'database/migrations/022_vp3_scheduling_approvals.sql'
-      - 'tests/migrations.py'
-      - 'tests/vp3_scheduling_v059.py'
-      - 'tests/vp3_scheduling_v059_static.py'
-      - '.github/workflows/vp3-scheduling-v059.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -1,11 +1,7 @@
 name: VP3 OS Physical Meeting v0.40
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - vp3-os-v040-physical-meeting-runtime
+  workflow_dispatch:
 
 permissions:
   contents: read

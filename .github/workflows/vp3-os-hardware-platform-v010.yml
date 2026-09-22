@@ -1,11 +1,7 @@
 name: VP3 OS Hardware Platform v0.10
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - vp3-os-v010-hardware-platform
+  workflow_dispatch:
 
 permissions:
   contents: read

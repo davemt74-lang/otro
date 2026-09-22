@@ -1,41 +1,7 @@
 name: VP3 Local Commerce Payments v0.60
 
 on:
-  pull_request:
-    paths:
-      - 'contracts/commerce/commerce-payment-v1/**'
-      - 'app/payments_api.py'
-      - 'app/system_api.py'
-      - 'app/services/pairing.py'
-      - 'app/services/stripe_payment_secrets.py'
-      - 'app/services/stripe_commerce_payments.py'
-      - 'app/services/vp3_commerce_remote.py'
-      - 'ui/system.html'
-      - 'ui/system.js'
-      - 'ui/system.css'
-      - 'tests/vp3_commerce_payments_v060.py'
-      - 'tests/vp3_commerce_payments_v060_static.py'
-      - 'tests/vp3_commerce_payments_v060_audit.py'
-      - 'tests/packaged_commerce_payments_v060.py'
-      - '.github/workflows/vp3-commerce-payments-v060.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'contracts/commerce/commerce-payment-v1/**'
-      - 'app/payments_api.py'
-      - 'app/system_api.py'
-      - 'app/services/pairing.py'
-      - 'app/services/stripe_payment_secrets.py'
-      - 'app/services/stripe_commerce_payments.py'
-      - 'app/services/vp3_commerce_remote.py'
-      - 'ui/system.html'
-      - 'ui/system.js'
-      - 'ui/system.css'
-      - 'tests/vp3_commerce_payments_v060.py'
-      - 'tests/vp3_commerce_payments_v060_static.py'
-      - 'tests/vp3_commerce_payments_v060_audit.py'
-      - 'tests/packaged_commerce_payments_v060.py'
-      - '.github/workflows/vp3-commerce-payments-v060.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

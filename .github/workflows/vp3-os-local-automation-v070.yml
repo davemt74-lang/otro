@@ -1,11 +1,7 @@
 name: VP3 OS Local Automation v0.70
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - vp3-os-v070-local-automation-rules
+  workflow_dispatch:
 
 permissions:
   contents: read
