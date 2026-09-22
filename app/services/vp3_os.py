@@ -8,7 +8,7 @@ from . import providers
 from .remote_identity import remote_identity_metadata
 
 VP3_OS_PLATFORM_VERSION = "v0.10"
-VP3_OS_VERSION = "v0.40"
+VP3_OS_VERSION = "v0.50"
 VP3_OS_CONTRACT = "vp3-os-hardware-platform-v010-20260921"
 PLACEMENT_MODES = ("LOCAL", "LOCAL_ONLY", "CLOUD", "HYBRID", "DEFER")
 
@@ -75,6 +75,7 @@ _HARDWARE_KEYS = (
     "camera",
     "storage",
     "accelerator",
+    "presence_sensor",
 )
 
 _STATE_LOCK = threading.Lock()
@@ -133,6 +134,8 @@ def report_hardware_state(component: str, *, present: bool, ready: bool, metadat
         safe_metadata["bytes_free"] = max(0, int(raw.get("bytes_free") or 0))
     elif key == "accelerator":
         safe_metadata["kind"] = _text(raw.get("kind"), 80)
+    elif key == "presence_sensor":
+        safe_metadata["occupied"] = bool(raw.get("occupied"))
 
     with _STATE_LOCK:
         _REPORTED_HARDWARE[key] = {
@@ -169,6 +172,8 @@ def hardware_inventory() -> dict[str, dict[str, Any]]:
             inventory[key]["bytes_free"] = max(0, int(item.get("bytes_free") or 0))
         elif key == "accelerator":
             inventory[key]["kind"] = _text(item.get("kind"), 80)
+        elif key == "presence_sensor":
+            inventory[key]["occupied"] = bool(item.get("occupied"))
     return inventory
 
 
@@ -263,6 +268,7 @@ def owner_status() -> dict[str, Any]:
             "hardware_io": "vp3_os_hardware_adapters_v020",
             "physical_agent": "vp3_os_physical_agent_v030",
             "physical_meeting": "vp3_os_physical_meeting_v040",
+            "ambient_agent": "vp3_os_ambient_agent_v050",
         },
     }
 
