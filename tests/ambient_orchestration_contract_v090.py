@@ -35,6 +35,7 @@ for forbidden in (
 
 for required in (
     "local_automation.run_routine",
+    "physical_meeting.status",
     "approvals.cancel_pending_requests",
     "physical_actions_without_owner_approval",
     "supersede_conflicts",
