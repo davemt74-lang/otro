@@ -41,12 +41,12 @@ Room Mode routines must use the v0.70 ask_every_time approval mode.
 
 v0.90 supports deterministic local suggestion conditions:
 
-- coarse presence: present / absent
+- live Ambient Agent coarse presence: present / absent
 - physical meeting: active / inactive
 - weekday
 - UTC time window
 
-All configured conditions must match before a suggestion is surfaced.
+All configured conditions must match before a suggestion is surfaced. Presence orchestration reads the live Ambient Agent state and does not depend on v0.80 learning being enabled; the v0.80 presence ledger is retained only as bounded historical context.
 
 Context creates a suggestion only. The owner must accept it before any approval requests are created.
 
