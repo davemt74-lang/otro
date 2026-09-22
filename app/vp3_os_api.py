@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import app_scopes, device_audio, hardware_adapters, physical_agent, physical_meeting, vp3_os
+from .services import ambient_agent, app_scopes, device_audio, hardware_adapters, physical_agent, physical_meeting, vp3_os
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -15,6 +15,18 @@ class StatusLightUpdate(BaseModel):
 
 class PhysicalMeetingStart(BaseModel):
     title: str = Field(default="", max_length=240)
+
+
+class AmbientSettingsUpdate(BaseModel):
+    enabled: bool = False
+    wake_enabled: bool = True
+    proactive_voice: bool = True
+    presence_policy: str = Field(default="sensor_required", max_length=40)
+    announcement_levels: list[str] = Field(default_factory=lambda: ["warning"], max_length=8)
+    announcement_detail: str = Field(default="title_only", max_length=40)
+    cooldown_seconds: int = Field(default=30, ge=5, le=3600)
+    wake_timeout_seconds: int = Field(default=20, ge=5, le=120)
+    max_announcements_per_hour: int = Field(default=6, ge=1, le=60)
 
 
 class PlacementRequest(BaseModel):
@@ -59,6 +71,7 @@ def owner_vp3_os_status() -> dict:
         "hardware_adapter": hardware_adapters.status(),
         "physical_agent": physical_agent.status(),
         "physical_meeting": physical_meeting.status(),
+        "ambient_agent": ambient_agent.status(),
         "device_audio": device_audio.status(),
     }
 
@@ -129,6 +142,24 @@ def owner_physical_meeting_interrupt() -> dict:
     return physical_meeting.interrupt("owner_interrupted")
 
 
+@router.get("/api/v1/control/vp3-os/ambient")
+def owner_ambient_status() -> dict:
+    return ambient_agent.status()
+
+
+@router.put("/api/v1/control/vp3-os/ambient/settings")
+def owner_ambient_settings(payload: AmbientSettingsUpdate) -> dict:
+    return ambient_agent.update_settings(payload.model_dump())
+
+
+@router.post("/api/v1/control/vp3-os/ambient/announce-test")
+def owner_ambient_announce_test() -> dict:
+    try:
+        return ambient_agent.announce_test()
+    except ambient_agent.AmbientAgentError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.post("/api/v1/control/vp3-os/placement")
 def owner_vp3_os_placement(payload: PlacementRequest) -> dict:
     return _plan(payload, scope_cloud_allowed=True)
@@ -144,6 +175,7 @@ def paired_vp3_os_status(identity: dict = Depends(_current_app)) -> dict:
         "hardware_adapter": hardware_adapters.paired_status(),
         "physical_agent": physical_agent.paired_status(),
         "physical_meeting": physical_meeting.paired_status(),
+        "ambient_agent": ambient_agent.paired_status(),
         "app": str(identity.get("app_key") or "")[:80],
     }
 
