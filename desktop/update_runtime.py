@@ -47,12 +47,42 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _record_launch_failure(payload: dict | None, reason: str) -> None:
+    if not isinstance(payload, dict):
+        return
+    try:
+        package_id = int(payload.get("package_id"))
+    except (TypeError, ValueError):
+        return
+    if package_id < 1:
+        return
+    apply_dir = _updates_root() / f"apply-{package_id}"
+    try:
+        apply_dir.mkdir(parents=True, exist_ok=True)
+        result_path = apply_dir / "update-result.json"
+        temporary = result_path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "reason": str(reason or "update_helper_launch_failed")[:500],
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        os.replace(temporary, result_path)
+    except OSError:
+        pass
+
+
 def spawn_pending_update() -> bool:
     if os.name != "nt" or not getattr(sys, "frozen", False):
         return False
 
     payload = _read_pending()
     if not payload or payload.get("format") != _PENDING_FORMAT:
+        _record_launch_failure(payload, "pending_update_manifest_invalid")
         return False
 
     root = _updates_root()
@@ -63,12 +93,16 @@ def spawn_pending_update() -> bool:
     expected_sha = str(payload.get("installer_sha256") or "").lower()
 
     if not _is_within(installer, root) or not _is_within(rollback, root):
+        _record_launch_failure(payload, "update_helper_path_validation_failed")
         return False
     if target != Path(sys.executable).resolve() or install_dir != target.parent:
+        _record_launch_failure(payload, "update_target_validation_failed")
         return False
     if not installer.is_file() or not rollback.is_file():
+        _record_launch_failure(payload, "update_helper_file_missing")
         return False
     if len(expected_sha) != 64 or _sha256(installer) != expected_sha:
+        _record_launch_failure(payload, "installer_revalidation_failed")
         return False
 
     apply_dir = installer.parent
@@ -147,8 +181,8 @@ $healthy = $false
 for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Milliseconds 500
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
-        if ($response.StatusCode -eq 200) {
+        $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
+        if ($response.ok -eq $true -and $response.recovery -ne $true) {
             $healthy = $true
             break
         }
@@ -202,5 +236,6 @@ try {
             creationflags=creationflags,
         )
     except OSError:
+        _record_launch_failure(payload, "update_helper_process_launch_failed")
         return False
     return True
