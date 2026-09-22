@@ -4,7 +4,7 @@ const bytes = value => { const n=Number(value||0); if(n<1024)return `${n} B`; if
 
 async function systemApi(path, options = {}) {
   const headers = {...(options.headers || {})};
-  if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   const response = await fetch(path, {...options, headers});
   let payload = {};
   try { payload = await response.json(); } catch (_) {}
