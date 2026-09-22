@@ -195,6 +195,39 @@ def update_settings(
         raise FleetError("Rollout failure threshold must be between 1 and 100.")
     if next_enabled and not controller:
         raise FleetError("Fleet enrollment requires a controller app key.")
+    if next_enabled:
+        with db() as connection:
+            app = connection.execute(
+                """
+                SELECT id FROM paired_apps
+                WHERE app_key=? AND status='active'
+                LIMIT 1
+                """,
+                (controller,),
+            ).fetchone()
+            if app is None:
+                raise FleetError(
+                    "Fleet controller must be an active paired application.",
+                    409,
+                )
+            permissions = {
+                row["permission"]
+                for row in connection.execute(
+                    """
+                    SELECT permission FROM app_permissions
+                    WHERE paired_app_id=? AND allowed=1
+                    """,
+                    (int(app["id"]),),
+                ).fetchall()
+            }
+        required_permissions = {"fleet.read", "fleet.manage", "fleet.telemetry"}
+        missing_permissions = sorted(required_permissions - permissions)
+        if missing_permissions:
+            raise FleetError(
+                "Fleet controller is missing permissions: "
+                + ", ".join(missing_permissions),
+                409,
+            )
 
     diagnostic = (
         current["remote_diagnostics"]
