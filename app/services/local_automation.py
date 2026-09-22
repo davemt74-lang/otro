@@ -134,6 +134,36 @@ def _validate_step(step: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _assert_routine_not_bound_to_room_mode(routine_key: str) -> None:
+    key = _key(routine_key, "routine_key")
+    with db() as connection:
+        table = connection.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='orchestration_modes'
+            """
+        ).fetchone()
+        if table is None:
+            return
+        bound = connection.execute(
+            """
+            SELECT m.mode_key
+            FROM orchestration_modes m
+            JOIN automation_routines r ON r.id=m.routine_id
+            WHERE r.routine_key=?
+            LIMIT 1
+            """,
+            (key,),
+        ).fetchone()
+    if bound is not None:
+        raise LocalAutomationError(
+            "Routine is bound to Room Mode "
+            f"{bound['mode_key']} and cannot be edited in place. "
+            "Create a new routine and rebind the mode instead.",
+            409,
+        )
+
+
 def upsert_routine(
     routine_key: str,
     name: str,
@@ -144,6 +174,7 @@ def upsert_routine(
     steps: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     key = _key(routine_key, "routine_key")
+    _assert_routine_not_bound_to_room_mode(key)
     safe_name = _text(name, 160, required=True, label="routine name")
     mode = str(approval_mode or "").strip().lower()
     if mode not in _ALLOWED_APPROVAL_MODES:
