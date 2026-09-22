@@ -585,8 +585,17 @@ def generate_step(
     key = provider["provider_key"]
     if key == "ollama":
         # Keep all routed Ollama traffic on the same public seam used by the
-        # existing Agent Brain regressions and downstream integrations.
-        return generate_ollama_step(messages, tools=tools, model_override=model, cancellation_token=cancellation_token)
+        # existing Agent Brain regressions and downstream integrations. The
+        # cancellation keyword is opt-in so historical monkeypatches retain
+        # their original callable signature.
+        if cancellation_token is None:
+            return generate_ollama_step(messages, tools=tools, model_override=model)
+        return generate_ollama_step(
+            messages,
+            tools=tools,
+            model_override=model,
+            cancellation_token=cancellation_token,
+        )
     if key == "anthropic":
         return _generate_anthropic_step(provider, model, messages, tools, cancellation_token)
     if key in {"openai", "openrouter"}:
@@ -603,8 +612,21 @@ def generate(
     provider, model = _selected_provider(model_override)
     if provider["provider_key"] == "ollama":
         # Preserve the long-standing non-tool Ollama seam as well.
-        return generate_ollama(messages, model_override=model, cancellation_token=cancellation_token)
-    generated = generate_step(messages, model_override=model, cancellation_token=cancellation_token)
+        if cancellation_token is None:
+            return generate_ollama(messages, model_override=model)
+        return generate_ollama(
+            messages,
+            model_override=model,
+            cancellation_token=cancellation_token,
+        )
+    if cancellation_token is None:
+        generated = generate_step(messages, model_override=model)
+    else:
+        generated = generate_step(
+            messages,
+            model_override=model,
+            cancellation_token=cancellation_token,
+        )
     if not generated["content"]:
         raise ProviderError("Inference provider returned no final response text.")
     return generated
@@ -632,11 +654,17 @@ def generate_ollama(
     *,
     cancellation_token: CancellationToken | None = None,
 ) -> dict:
-    generated = generate_ollama_step(
-        messages,
-        model_override=model_override,
-        cancellation_token=cancellation_token,
-    )
+    if cancellation_token is None:
+        generated = generate_ollama_step(
+            messages,
+            model_override=model_override,
+        )
+    else:
+        generated = generate_ollama_step(
+            messages,
+            model_override=model_override,
+            cancellation_token=cancellation_token,
+        )
     if not generated["content"]:
         raise ProviderError("Ollama returned no final response text.")
     return generated
