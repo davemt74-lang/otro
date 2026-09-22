@@ -224,31 +224,31 @@ def _governance_check() -> dict[str, Any]:
     orchestration = ambient_orchestration.public_capability()
 
     invariants = {
-        "device_commands_require_owner_approval": bool(
-            room.get("physical_device_commands_require_owner_approval")
-            or room.get("device_commands_require_owner_approval")
-            or room.get("approval_required")
+        "v060_governed_device_actions": room.get("governed_device_actions") is True,
+        "v060_ambient_direct_execution": room.get("ambient_direct_execution") is True,
+        "v070_device_commands_require_owner_approval": (
+            local.get("device_commands_still_require_owner_approval") is True
         ),
-        "automation_requires_owner_approval": bool(
-            local.get("physical_actions_require_owner_approval")
-            or local.get("rules_require_owner_approval")
-            or local.get("device_commands_require_v060_owner_approval")
+        "v070_direct_physical_execution": local.get("direct_physical_execution") is True,
+        "v080_explicit_owner_enable_required": (
+            intelligence.get("explicit_owner_enable_required") is True
         ),
-        "learned_automation_auto_enable": bool(
-            intelligence.get("drafts_disabled_by_default") is False
-        ),
-        "ambient_auto_activation": bool(
-            orchestration.get("ambient_auto_activation")
-        ),
-        "direct_physical_execution": bool(
-            orchestration.get("direct_physical_execution")
+        "v080_direct_physical_execution": intelligence.get("direct_physical_execution") is True,
+        "v090_ambient_auto_activation": orchestration.get("ambient_auto_activation") is True,
+        "v090_direct_physical_execution": orchestration.get("direct_physical_execution") is True,
+        "v090_device_commands_require_v060_owner_approval": (
+            orchestration.get("device_commands_require_v060_owner_approval") is True
         ),
     }
 
-    # Older capability dictionaries use different positive labels. The
-    # release gate treats the canonical v0.90 safety properties as mandatory.
     safe = (
-        orchestration.get("ambient_auto_activation") is False
+        room.get("governed_device_actions") is True
+        and room.get("ambient_direct_execution") is False
+        and local.get("device_commands_still_require_owner_approval") is True
+        and local.get("direct_physical_execution") is False
+        and intelligence.get("explicit_owner_enable_required") is True
+        and intelligence.get("direct_physical_execution") is False
+        and orchestration.get("ambient_auto_activation") is False
         and orchestration.get("direct_physical_execution") is False
         and orchestration.get("device_commands_require_v060_owner_approval") is True
     )
