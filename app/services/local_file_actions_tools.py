@@ -114,6 +114,7 @@ def install() -> None:
         granted_permissions: set[str] | None = None,
         *,
         owner: bool = False,
+        approval_request_id: str | None = None,
     ) -> dict[str, Any]:
         if tool_key not in FILE_ACTION_KEYS:
             return original_execute(
@@ -122,6 +123,7 @@ def install() -> None:
                 arguments,
                 granted_permissions,
                 owner=owner,
+                approval_request_id=approval_request_id,
             )
 
         tool = tools._tool_definition(tool_key)
