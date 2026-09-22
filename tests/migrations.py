@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 28))
+        assert versions == list(range(1, 29))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -89,6 +89,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "vp3_hardware_certifications",
             "vp3_rollout_packages",
             "vp3_rollout_events",
+            "vp3_fleet_settings",
+            "vp3_fleet_inventory",
+            "vp3_fleet_rollouts",
+            "vp3_fleet_rollout_outcomes",
+            "vp3_fleet_update_requests",
+            "vp3_fleet_events",
         ):
             assert migrated.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -315,6 +321,29 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM vp3_hardware_certifications").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM vp3_rollout_packages").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM vp3_rollout_events").fetchone()[0] == 0
+        fleet_settings = migrated.execute(
+            """
+            SELECT enabled,controller_app_key,remote_diagnostics,
+                   remote_update_requests,remote_support_summary,
+                   telemetry_interval_seconds,stale_after_seconds,
+                   rollout_failure_threshold
+            FROM vp3_fleet_settings WHERE id=1
+            """
+        ).fetchone()
+        assert fleet_settings is not None
+        assert fleet_settings["enabled"] == 0
+        assert fleet_settings["controller_app_key"] is None
+        assert fleet_settings["remote_diagnostics"] == 0
+        assert fleet_settings["remote_update_requests"] == 0
+        assert fleet_settings["remote_support_summary"] == 0
+        assert fleet_settings["telemetry_interval_seconds"] == 300
+        assert fleet_settings["stale_after_seconds"] == 900
+        assert fleet_settings["rollout_failure_threshold"] == 2
+        assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_inventory").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_rollouts").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_rollout_outcomes").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_update_requests").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_events").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM tool_runs").fetchone()[0] == 0
         agent_policy = migrated.execute(
             "SELECT enabled, max_calls, allow_write_proposals FROM agent_tool_policy WHERE id=1"
@@ -385,7 +414,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 28))
+        assert versions_again == list(range(1, 29))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
@@ -407,6 +436,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated_again.execute("SELECT COUNT(*) FROM vp3_hardware_certifications").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM vp3_rollout_packages").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM vp3_rollout_events").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_settings").fetchone()[0] == 1
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_inventory").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_rollouts").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_rollout_outcomes").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_update_requests").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_events").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 2
         assert migrated_again.execute(
             "SELECT COUNT(*) FROM action_requests WHERE id='legacy-memory-request' AND action_key='memory.write'"
