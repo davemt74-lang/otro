@@ -63,6 +63,15 @@ def review_request_for_app(app_key: str, request_id: str, decision: str) -> dict
     if existing is None:
         raise approvals.ApprovalError("Action request not found.", 404)
 
+    if (
+        normalized == "approve"
+        and str(existing.get("action_key") or "") in approvals.LOCAL_OWNER_ONLY_ACTIONS
+    ):
+        raise approvals.ApprovalError(
+            "This physical action requires local HomeServer owner approval.",
+            403,
+        )
+
     if normalized == "approve":
         approvals.approve_request(request_id)
     else:

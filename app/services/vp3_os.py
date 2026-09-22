@@ -8,7 +8,7 @@ from . import providers
 from .remote_identity import remote_identity_metadata
 
 VP3_OS_PLATFORM_VERSION = "v0.10"
-VP3_OS_VERSION = "v0.50"
+VP3_OS_VERSION = "v0.60"
 VP3_OS_CONTRACT = "vp3-os-hardware-platform-v010-20260921"
 PLACEMENT_MODES = ("LOCAL", "LOCAL_ONLY", "CLOUD", "HYBRID", "DEFER")
 
@@ -269,6 +269,7 @@ def owner_status() -> dict[str, Any]:
             "physical_agent": "vp3_os_physical_agent_v030",
             "physical_meeting": "vp3_os_physical_meeting_v040",
             "ambient_agent": "vp3_os_ambient_agent_v050",
+            "room_device_automation": "vp3_os_room_device_automation_v060",
         },
     }
 

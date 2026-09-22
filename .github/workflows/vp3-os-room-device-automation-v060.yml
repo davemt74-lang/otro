@@ -1,0 +1,79 @@
+name: VP3 OS Room & Device Automation v0.60
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - vp3-os-v060-room-device-automation
+
+permissions:
+  contents: read
+
+jobs:
+  room-device-automation:
+    name: Room-device automation · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile VP3 OS v0.60 runtime
+        run: >-
+          python -m py_compile
+          app/services/vp3_os.py
+          app/services/room_device_automation.py
+          app/services/action_policy.py
+          app/services/app_scopes.py
+          app/services/pairing.py
+          app/services/tools.py
+          app/services/agent_tools.py
+          app/services/approvals.py
+          app/services/approval_federation.py
+          app/services/capability_registry.py
+          app/room_device_api.py
+          app/tools_api.py
+          app/bridge.py
+          tests/vp3_os_v020.py
+          tests/vp3_os_v030.py
+          tests/device_audio_v040.py
+          tests/physical_meeting_v040.py
+          tests/ambient_agent_v050.py
+          tests/action_policy_v035.py
+          tests/action_approvals.py
+          tests/approval_federation_v031.py
+          tests/room_device_automation_v060.py
+          tests/room_device_automation_ui_contract_v060.py
+      - name: Validate room-device JavaScript
+        run: node --check ui/room-device-automation.js
+      - name: Verify v0.20 hardware adapter compatibility
+        run: python tests/vp3_os_v020.py
+      - name: Verify v0.30 Physical Agent compatibility
+        run: python tests/vp3_os_v030.py
+      - name: Verify v0.40 streaming device audio compatibility
+        run: python tests/device_audio_v040.py
+      - name: Verify v0.40 Physical Meeting compatibility
+        run: python tests/physical_meeting_v040.py
+      - name: Verify v0.50 Ambient Agent compatibility
+        run: python tests/ambient_agent_v050.py
+      - name: Verify existing action policy compatibility
+        run: python tests/action_policy_v035.py
+      - name: Verify existing approvals compatibility
+        run: python tests/action_approvals.py
+      - name: Verify approval federation compatibility
+        run: python tests/approval_federation_v031.py
+      - name: Verify v0.60 room-device automation
+        run: python tests/room_device_automation_v060.py
+      - name: Verify v0.60 governance/UI contract
+        run: python tests/room_device_automation_ui_contract_v060.py

@@ -142,6 +142,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert agent_tools.json()["policy"]["allow_write_proposals"] is False
         assert set(agent_tools.json()["available_tools"]) == {
             "homeserver_contacts_search",
+            "homeserver_devices_list",
             "homeserver_file_read",
             "homeserver_files_list",
             "homeserver_knowledge_search",
@@ -155,6 +156,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert owner_tools.status_code == 200
         assert [item["key"] for item in owner_tools.json()["items"]] == [
             "contacts.search",
+            "devices.command",
+            "devices.list",
             "files.delete",
             "files.list",
             "files.read",
@@ -174,6 +177,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "local.files",
             "relationship.context",
             "memory.manager",
+            "room.automation",
             "task.manager",
             "local.file-management",
         ]

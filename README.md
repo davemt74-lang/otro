@@ -18,6 +18,8 @@ VP3 OS v0.40 adds the **Physical Meeting Runtime** and true physical-turn infere
 
 VP3 OS v0.50 adds the **Ambient Agent Runtime**: opt-in local presence/wake/VAD coordination, proactive local Agent Voice for existing notifications, bounded wake handoff into the existing Physical Agent, and explicit guarantees against passive ambient microphone capture, ambient transcription, ambient memory, or paired-app room occupancy. See [docs/VP3_OS_AMBIENT_AGENT_V050.md](docs/VP3_OS_AMBIENT_AGENT_V050.md).
 
+VP3 OS v0.60 adds the **Room & Device Automation Runtime**: a provider-neutral local room/device registry, normalized safe device capabilities and state, Agent/paired-app device reads, approval-only physical device commands, provider-driver readiness, bounded automation suggestions, and a Rooms & Devices Control Center. Ambient never executes physical actions directly, and lock/garage/security/camera/appliance categories remain discovery-only. See [docs/VP3_OS_ROOM_DEVICE_AUTOMATION_V060.md](docs/VP3_OS_ROOM_DEVICE_AUTOMATION_V060.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`

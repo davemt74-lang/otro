@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     connection.commit()
     connection.close()
 
-    # Build an authentic schema-10 database first so migrations 11 through 22
+    # Build an authentic schema-10 database first so migrations 11 through 23
     # are tested as upgrades rather than only as a fresh install.
     for version, path in migration_files():
         if version >= 11:
@@ -62,7 +62,33 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 23))
+        assert versions == list(range(1, 24))
+        for automation_table in (
+            "automation_rooms",
+            "automation_providers",
+            "automation_devices",
+            "automation_device_actions",
+            "automation_suggestions",
+        ):
+            assert migrated.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (automation_table,),
+            ).fetchone() is not None
+        migrated.execute(
+            """
+            INSERT INTO action_requests(
+                id, action_key, source_app_key, actor_type, status,
+                arguments_json, arguments_meta_json, expires_at
+            ) VALUES (
+                'v060-device-request', 'devices.command', 'owner', 'owner', 'pending',
+                '{"device_key":"migration-test","command":"on","arguments":{}}',
+                '{"command":"on"}', '2099-01-01T00:00:00+00:00'
+            )
+            """
+        )
+        assert migrated.execute(
+            "SELECT action_key FROM action_requests WHERE id='v060-device-request'"
+        ).fetchone()["action_key"] == "devices.command"
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
@@ -195,6 +221,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         policies = migrated.execute("SELECT tool_key, enabled FROM tool_policies ORDER BY tool_key").fetchall()
         assert [(row["tool_key"], row["enabled"]) for row in policies] == [
             ("contacts.search", 1),
+            ("devices.command", 1),
+            ("devices.list", 1),
             ("files.delete", 1),
             ("files.update", 1),
             ("knowledge.search", 1),
@@ -254,7 +282,16 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ).fetchone()[0] == 1
             migrated.execute("DELETE FROM action_requests WHERE id=?", (request_id,))
 
-        assert migrated.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1
+        remaining_requests = {
+            row["id"]: row["action_key"]
+            for row in migrated.execute(
+                "SELECT id, action_key FROM action_requests ORDER BY id"
+            ).fetchall()
+        }
+        assert remaining_requests == {
+            "legacy-memory-request": "memory.write",
+            "v060-device-request": "devices.command",
+        }
         assert migrated.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
 
@@ -265,16 +302,19 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 23))
+        assert versions_again == list(range(1, 24))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 9
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 11
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
-        assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1
+        assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 2
         assert migrated_again.execute(
             "SELECT COUNT(*) FROM action_requests WHERE id='legacy-memory-request' AND action_key='memory.write'"
+        ).fetchone()[0] == 1
+        assert migrated_again.execute(
+            "SELECT COUNT(*) FROM action_requests WHERE id='v060-device-request' AND action_key='devices.command'"
         ).fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0

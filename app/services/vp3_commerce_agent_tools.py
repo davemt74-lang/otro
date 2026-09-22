@@ -140,8 +140,8 @@ def install() -> None:
         return original_meta(key,args)
     tools._safe_argument_metadata=safe_meta
     original_execute=tools.execute_tool
-    def execute_tool(source_app_key:str,tool_key:str,arguments:dict[str,Any]|None,granted_permissions:set[str]|None=None,*,owner:bool=False)->dict[str,Any]:
-        if tool_key not in DEFINITIONS:return original_execute(source_app_key,tool_key,arguments,granted_permissions,owner=owner)
+    def execute_tool(source_app_key:str,tool_key:str,arguments:dict[str,Any]|None,granted_permissions:set[str]|None=None,*,owner:bool=False,approval_request_id:str|None=None)->dict[str,Any]:
+        if tool_key not in DEFINITIONS:return original_execute(source_app_key,tool_key,arguments,granted_permissions,owner=owner,approval_request_id=approval_request_id)
         if not _connector_ready():raise tools.ToolError("VP3 Agent Commerce connector is not configured.",409)
         tool=tools._tool_definition(tool_key);source=source_app_key.strip() or ("owner" if owner else "app:unknown");actor="owner" if owner else "app";granted=set(granted_permissions or set());required=[] if owner else sorted({tools.TOOL_EXECUTE_PERMISSION,*tool["required_permissions"]});payload=dict(arguments or {});missing=tools._missing_permissions(tool,granted,owner)
         if missing:raise tools.ToolError(f"Missing tool permissions: {', '.join(missing)}.",403)

@@ -25,7 +25,8 @@ from .local_apps_api import router as local_apps_router
 from .local_voice_api import router as local_voice_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
-from .services import ambient_agent, hardware_adapters, physical_agent, physical_meeting, providers, vp3_os
+from .room_device_api import router as room_device_router
+from .services import ambient_agent, hardware_adapters, physical_agent, physical_meeting, providers, room_device_automation, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -97,6 +98,7 @@ app.include_router(local_apps_router)
 app.include_router(local_voice_router)
 app.include_router(capability_registry_router)
 app.include_router(vp3_os_router)
+app.include_router(room_device_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -122,6 +124,7 @@ def capabilities() -> dict:
         "vp3_os_physical_agent": physical_agent.public_capability(),
         "vp3_os_physical_meeting": physical_meeting.public_capability(),
         "vp3_os_ambient_agent": ambient_agent.public_capability(),
+        "vp3_os_room_device_automation": room_device_automation.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
@@ -334,6 +337,11 @@ def capabilities() -> dict:
             "vp3.os.v030",
             "vp3.os.v040",
             "vp3.os.v050",
+            "vp3.os.v060",
+            "vp3.os.room_device_registry.v1",
+            "vp3.os.device_actions.v1",
+            "vp3.os.device_suggestions.v1",
+            "vp3.os.device_actions.approval_required",
             "vp3.os.ambient_agent.v1",
             "vp3.os.presence_events.v1",
             "vp3.os.wake_word_events.v1",
@@ -356,6 +364,8 @@ def capabilities() -> dict:
             "cognition.memory_candidates",
             "cognition.multi_app_awareness",
             "contacts.read",
+            "devices.read",
+            "devices.control",
             "conversations",
             "events.read",
             "events.write",
