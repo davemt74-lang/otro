@@ -32,6 +32,7 @@ async def lifespan(_: FastAPI):
     initialize_database()
     ensure_knowledge_index()
     device_rollout.reconcile_update_results()
+    device_rollout.start()
     hardware_adapters.start()
     physical_agent.start()
     physical_meeting.start_runtime()
@@ -49,6 +50,7 @@ async def lifespan(_: FastAPI):
         physical_meeting.stop_runtime()
         physical_agent.stop()
         hardware_adapters.stop()
+        device_rollout.stop()
 
 
 app = FastAPI(title="HomeServer", version=settings.version, lifespan=lifespan)
