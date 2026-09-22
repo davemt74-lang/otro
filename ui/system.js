@@ -70,6 +70,63 @@ function renderDiagnostics(data) {
   if (bootstrap.warning) systemFlash(bootstrap.warning, true);
 }
 
+
+function rolloutStatusLabel(value) {
+  return String(value || 'unknown').replaceAll('_', ' ');
+}
+
+function rolloutPackageCard(item) {
+  const actions = [];
+  if (item.status === 'staged') {
+    actions.push('<button class="button secondary" data-rollout-approve="' + item.id + '" type="button">Approve + backup</button>');
+  }
+  if (item.status === 'approved') {
+    actions.push('<button class="button primary" data-rollout-apply="' + item.id + '" type="button">Apply update</button>');
+  }
+  if (!['applying','applied'].includes(item.status)) {
+    actions.push('<button class="text-button danger" data-rollout-discard="' + item.id + '" type="button">Discard</button>');
+  }
+  return '<article class="rollout-package"><div><strong>' +
+    escSystem(item.version) + '</strong><span>' + escSystem(item.channel) + ' · ' +
+    escSystem(rolloutStatusLabel(item.status)) + '</span><small>SHA-256 ' +
+    escSystem((item.package_sha256 || '').slice(0,16)) + '…</small></div><div class="runtime-actions">' +
+    actions.join('') + '</div></article>';
+}
+
+function renderRollout(data) {
+  const settings = data.settings || {};
+  const commissioning = data.commissioning || {};
+  const profile = commissioning.profile || {};
+  const hardware = commissioning.hardware || {};
+  const state = commissioning.state || 'unknown';
+  const stateNode = byId('commissioningState');
+  stateNode.textContent = state === 'ready' ? 'Commissioned' : rolloutStatusLabel(state);
+  stateNode.classList.toggle('complete', state === 'ready');
+
+  byId('rolloutChannel').value = settings.release_channel || 'stable';
+  byId('rolloutRing').value = settings.rollout_ring || 'pilot';
+  byId('rolloutWatchdog').checked = settings.watchdog_enabled !== false;
+
+  const missing = hardware.missing_hardware || [];
+  const notReady = hardware.not_ready_hardware || [];
+  const cert = data.latest_certification || null;
+  byId('rolloutSummary').innerHTML = [
+    diagnosticCard('VP3 OS', state === 'ready', [['Version', data.vp3_os_version || '—'], ['Profile', profile.label || profile.key || 'custom'], ['Commissioning', rolloutStatusLabel(state)]]),
+    diagnosticCard('Hardware', hardware.result === 'passed' ? true : (hardware.result === 'failed' ? false : null), [['Certification', cert ? rolloutStatusLabel(cert.result) : 'not run'], ['Missing', missing.length ? missing.join(', ') : 'none'], ['Not ready', notReady.length ? notReady.join(', ') : 'none']]),
+    diagnosticCard('Rollout', true, [['Channel', settings.release_channel || 'stable'], ['Ring', settings.rollout_ring || 'pilot'], ['Automatic apply', settings.automatic_apply ? 'enabled' : 'disabled']]),
+  ].join('');
+
+  const packages = data.packages || [];
+  byId('rolloutPackages').innerHTML = packages.length
+    ? packages.map(rolloutPackageCard).join('')
+    : '<div class="muted">No staged updates.</div>';
+}
+
+async function refreshRollout() {
+  const data = await systemApi('/api/v1/control/vp3-os/rollout');
+  renderRollout(data);
+}
+
 function renderPayments(data) {
   const stripe = data?.providers?.stripe || {};
   const state = byId('stripePaymentState');
