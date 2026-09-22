@@ -1,49 +1,7 @@
 name: Agent Workflow Rehydration v0.56
 
 on:
-  pull_request:
-    paths:
-      - 'app/bridge.py'
-      - 'app/workflow_resume_api.py'
-      - 'app/workflow_rehydration_api.py'
-      - 'app/services/agent_workflow_rehydration.py'
-      - 'app/services/agent_workflow_resume.py'
-      - 'app/services/agent_workflow_continuation.py'
-      - 'app/services/agent_team_orchestration.py'
-      - 'app/services/agent_team_runs.py'
-      - 'database/migrations/021_agent_workflow_rehydration.sql'
-      - 'ui/agent-workflow-continuation.js'
-      - 'ui/agent-workflow-resume.js'
-      - 'ui/agent-workflow-rehydration.js'
-      - 'ui/agent-workflow-rehydration.css'
-      - 'tests/agent_workflow_rehydration_v056.py'
-      - 'tests/agent_workflow_rehydration_edges_v056.py'
-      - 'tests/agent_workflow_rehydration_capability_v056.py'
-      - 'tests/agent_workflow_rehydration_ui_contract_v056.py'
-      - 'tests/packaged_workflow_rehydration_v056.py'
-      - '.github/workflows/agent-workflow-rehydration-v056.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/bridge.py'
-      - 'app/workflow_resume_api.py'
-      - 'app/workflow_rehydration_api.py'
-      - 'app/services/agent_workflow_rehydration.py'
-      - 'app/services/agent_workflow_resume.py'
-      - 'app/services/agent_workflow_continuation.py'
-      - 'app/services/agent_team_orchestration.py'
-      - 'app/services/agent_team_runs.py'
-      - 'database/migrations/021_agent_workflow_rehydration.sql'
-      - 'ui/agent-workflow-continuation.js'
-      - 'ui/agent-workflow-resume.js'
-      - 'ui/agent-workflow-rehydration.js'
-      - 'ui/agent-workflow-rehydration.css'
-      - 'tests/agent_workflow_rehydration_v056.py'
-      - 'tests/agent_workflow_rehydration_edges_v056.py'
-      - 'tests/agent_workflow_rehydration_capability_v056.py'
-      - 'tests/agent_workflow_rehydration_ui_contract_v056.py'
-      - 'tests/packaged_workflow_rehydration_v056.py'
-      - '.github/workflows/agent-workflow-rehydration-v056.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

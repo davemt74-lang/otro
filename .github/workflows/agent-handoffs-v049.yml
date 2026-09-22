@@ -1,37 +1,7 @@
 name: Agent Result Handoff v0.49
 
 on:
-  pull_request:
-    paths:
-      - 'app/bridge.py'
-      - 'app/handoffs_api.py'
-      - 'app/services/agent_handoffs.py'
-      - 'app/services/agent_workflow_tool.py'
-      - 'database/agent_delegation_workflows.sql'
-      - 'ui/agent-workflows.js'
-      - 'ui/agent-workflows.css'
-      - 'tests/agent_handoffs_v049.py'
-      - 'tests/agent_handoff_revocation_v049.py'
-      - 'tests/agent_handoffs_ui_contract_v049.py'
-      - 'tests/agent_workflows_v048.py'
-      - 'tests/agent_routing_v047.py'
-      - '.github/workflows/agent-handoffs-v049.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/bridge.py'
-      - 'app/handoffs_api.py'
-      - 'app/services/agent_handoffs.py'
-      - 'app/services/agent_workflow_tool.py'
-      - 'database/agent_delegation_workflows.sql'
-      - 'ui/agent-workflows.js'
-      - 'ui/agent-workflows.css'
-      - 'tests/agent_handoffs_v049.py'
-      - 'tests/agent_handoff_revocation_v049.py'
-      - 'tests/agent_handoffs_ui_contract_v049.py'
-      - 'tests/agent_workflows_v048.py'
-      - 'tests/agent_routing_v047.py'
-      - '.github/workflows/agent-handoffs-v049.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

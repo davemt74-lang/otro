@@ -1,51 +1,7 @@
 name: Agent Workflow Automation v0.58
 
 on:
-  pull_request:
-    paths:
-      - 'HomeServer.spec'
-      - 'app/database.py'
-      - 'app/workflow_rehydration_api.py'
-      - 'app/workflow_supervision_api.py'
-      - 'app/workflow_automation_api.py'
-      - 'app/services/agent_workflow_automation.py'
-      - 'app/services/agent_workflow_automation_runtime.py'
-      - 'app/services/agent_workflow_supervision.py'
-      - 'app/services/agent_workflow_rehydration.py'
-      - 'database/agent_workflow_automation.sql'
-      - 'ui/agent-workflow-supervision.js'
-      - 'ui/agent-workflow-automation.js'
-      - 'ui/agent-workflow-automation.css'
-      - 'tests/agent_workflow_automation_v058.py'
-      - 'tests/agent_workflow_automation_recovery_v058.py'
-      - 'tests/agent_workflow_automation_lifespan_v058.py'
-      - 'tests/agent_workflow_automation_schema_v058.py'
-      - 'tests/agent_workflow_automation_ui_contract_v058.py'
-      - 'tests/packaged_workflow_automation_v058.py'
-      - '.github/workflows/agent-workflow-automation-v058.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'HomeServer.spec'
-      - 'app/database.py'
-      - 'app/workflow_rehydration_api.py'
-      - 'app/workflow_supervision_api.py'
-      - 'app/workflow_automation_api.py'
-      - 'app/services/agent_workflow_automation.py'
-      - 'app/services/agent_workflow_automation_runtime.py'
-      - 'app/services/agent_workflow_supervision.py'
-      - 'app/services/agent_workflow_rehydration.py'
-      - 'database/agent_workflow_automation.sql'
-      - 'ui/agent-workflow-supervision.js'
-      - 'ui/agent-workflow-automation.js'
-      - 'ui/agent-workflow-automation.css'
-      - 'tests/agent_workflow_automation_v058.py'
-      - 'tests/agent_workflow_automation_recovery_v058.py'
-      - 'tests/agent_workflow_automation_lifespan_v058.py'
-      - 'tests/agent_workflow_automation_schema_v058.py'
-      - 'tests/agent_workflow_automation_ui_contract_v058.py'
-      - 'tests/packaged_workflow_automation_v058.py'
-      - '.github/workflows/agent-workflow-automation-v058.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

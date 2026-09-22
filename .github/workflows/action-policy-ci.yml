@@ -1,11 +1,7 @@
 name: Action Execution Policy
 
 on:
-  push:
-    branches:
-      - main
-      - section-6-agent-permissions-v035-**
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

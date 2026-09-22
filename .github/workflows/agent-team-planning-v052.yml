@@ -1,49 +1,7 @@
 name: Agent Team Planning v0.52
 
 on:
-  pull_request:
-    paths:
-      - 'app/bridge.py'
-      - 'app/team_planning_api.py'
-      - 'app/team_runs_api.py'
-      - 'app/services/agent_team_planning.py'
-      - 'app/services/agent_team_runs.py'
-      - 'app/services/agent_workflows.py'
-      - 'app/services/context_chat.py'
-      - 'app/services/providers.py'
-      - 'database/agent_delegation_workflows.sql'
-      - 'ui/agent-routing.js'
-      - 'ui/agent-team-planning.js'
-      - 'ui/agent-team-planning.css'
-      - 'ui/agent-team-runs.js'
-      - 'tests/agent_team_planning_v052.py'
-      - 'tests/agent_team_planning_privacy_v052.py'
-      - 'tests/agent_team_planning_ui_contract_v052.py'
-      - 'tests/agent_team_runs_v051.py'
-      - 'tests/packaged_lifecycle.py'
-      - '.github/workflows/agent-team-planning-v052.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/bridge.py'
-      - 'app/team_planning_api.py'
-      - 'app/team_runs_api.py'
-      - 'app/services/agent_team_planning.py'
-      - 'app/services/agent_team_runs.py'
-      - 'app/services/agent_workflows.py'
-      - 'app/services/context_chat.py'
-      - 'app/services/providers.py'
-      - 'database/agent_delegation_workflows.sql'
-      - 'ui/agent-routing.js'
-      - 'ui/agent-team-planning.js'
-      - 'ui/agent-team-planning.css'
-      - 'ui/agent-team-runs.js'
-      - 'tests/agent_team_planning_v052.py'
-      - 'tests/agent_team_planning_privacy_v052.py'
-      - 'tests/agent_team_planning_ui_contract_v052.py'
-      - 'tests/agent_team_runs_v051.py'
-      - 'tests/packaged_lifecycle.py'
-      - '.github/workflows/agent-team-planning-v052.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
