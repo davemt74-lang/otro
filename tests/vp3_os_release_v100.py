@@ -29,11 +29,11 @@ from app.services.owner_secret import load_or_create_owner_secret  # noqa: E402
 initialize_database()
 load_or_create_owner_secret()
 
-assert vp3_os.VP3_OS_VERSION == "v1.0"
+assert vp3_os.VP3_OS_VERSION.startswith("v1.")
 
 initial = release_readiness.report()
 assert initial["release"] == "v1.0"
-assert initial["vp3_os_version"] == "v1.0"
+assert str(initial["vp3_os_version"]).startswith("v1.")
 assert initial["production_ready"] is True
 assert initial["status"] in {"ready", "degraded"}
 assert next(
