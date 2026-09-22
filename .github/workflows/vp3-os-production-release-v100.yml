@@ -18,6 +18,7 @@ on:
       - "app/bridge.py"
       - "app/system_api.py"
       - "app/services/system_state.py"
+      - "ui/index.html"
       - "desktop/**"
       - "installer/**"
       - "database/migrations/**"
@@ -124,6 +125,7 @@ jobs:
           app/main.py
           app/bridge.py
           tests/vp3_os_release_v100.py
+          tests/vp3_os_release_api_v100.py
           tests/vp3_os_soak_v100.py
           tests/vp3_os_release_contract_v100.py
       - name: Verify v0.10 platform contract
@@ -158,6 +160,8 @@ jobs:
         run: python tests/ambient_orchestration_contract_v090.py
       - name: Verify v1.0 production release journey
         run: python tests/vp3_os_release_v100.py
+      - name: Verify v1.0 release readiness API
+        run: python tests/vp3_os_release_api_v100.py
       - name: Verify v1.0 bounded soak
         run: python tests/vp3_os_soak_v100.py
       - name: Verify v1.0 release contract
