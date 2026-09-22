@@ -1,0 +1,89 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+service = (
+    ROOT / "app" / "services" / "ambient_orchestration.py"
+).read_text(encoding="utf-8")
+api = (
+    ROOT / "app" / "ambient_orchestration_api.py"
+).read_text(encoding="utf-8")
+main_py = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+bridge_py = (ROOT / "app" / "bridge.py").read_text(encoding="utf-8")
+migration = (
+    ROOT / "database" / "migrations" / "026_ambient_orchestration.sql"
+).read_text(encoding="utf-8")
+docs = (
+    ROOT / "docs" / "VP3_OS_AMBIENT_ORCHESTRATION_V090.md"
+).read_text(encoding="utf-8")
+
+for forbidden in (
+    "execute_command(",
+    "approve_request(",
+    "create_device_command_request(",
+):
+    assert forbidden not in service, forbidden
+
+for required in (
+    "local_automation.run_routine",
+    "approvals.cancel_pending_requests",
+    "physical_actions_without_owner_approval",
+    "supersede_conflicts",
+    "Manual device change suspended the Room Mode.",
+    'privacy_scope="private"',
+    "memory_candidate=False",
+    "ambient_auto_activation",
+):
+    assert required in service, required
+
+assert '"ambient_auto_activation": False' in service
+assert '"direct_physical_execution": False' in service
+assert '"device_commands_require_v060_owner_approval": True' in service
+
+for forbidden in (
+    "execute_command(",
+    "approve_request(",
+    "create_device_command_request(",
+):
+    assert forbidden not in api, forbidden
+
+for required in (
+    "/simulate",
+    "/activate",
+    "/accept",
+    "/dismiss",
+    "/suspend",
+    "/end",
+    "/refresh",
+    "/conflicts",
+):
+    assert required in api, required
+
+assert "ambient_orchestration.start()" in main_py
+assert "ambient_orchestration.stop()" in main_py
+
+for required in (
+    '"vp3_os_ambient_orchestration": ambient_orchestration.public_capability()',
+    '"vp3.os.v090"',
+    '"vp3.os.room_modes.v1"',
+    '"vp3.os.orchestration.owner_activation_required"',
+    '"vp3.os.orchestration.conflict_detection"',
+):
+    assert required in bridge_py, required
+
+for table in (
+    "orchestration_settings",
+    "orchestration_modes",
+    "orchestration_mode_sessions",
+    "orchestration_mode_conflicts",
+    "orchestration_mode_transitions",
+):
+    assert table in migration, table
+
+assert "Ambient context never activates a mode automatically." in docs
+assert "strictly higher priority" in docs
+assert "never silently reverses physical device state" in docs
+
+print("VP3 OS v0.90 orchestration governance contract passed")
