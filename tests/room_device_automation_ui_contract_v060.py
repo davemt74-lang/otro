@@ -72,6 +72,6 @@ assert "execute_command(" not in api_py
 
 # Approvals is the only release path into the command tool.
 assert '"devices.command"' in approvals_py
-assert "approval_request_id=request["id"]" in approvals_py
+assert 'approval_request_id=request["id"]' in approvals_py
 
 print("VP3 OS v0.60 room-device governance/UI contract passed")
