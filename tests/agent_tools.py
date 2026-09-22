@@ -65,6 +65,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
         assert default_policy.json()["policy"]["allow_write_proposals"] is False
         assert set(default_policy.json()["available_tools"]) == {
             "homeserver_contacts_search",
+            "homeserver_devices_list",
             "homeserver_file_read",
             "homeserver_files_list",
             "homeserver_knowledge_search",
