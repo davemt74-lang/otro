@@ -50,6 +50,7 @@ fan = room_device_automation.upsert_device(
 )
 
 now = datetime.now(timezone.utc)
+presence_times = []
 with db() as connection:
     for days_ago in (1, 2, 3, 4):
         day = (now - timedelta(days=days_ago)).date()
@@ -113,15 +114,8 @@ with db() as connection:
                 fan_at.isoformat(),
             ),
         )
-        automation_intelligence.record_context_event(
-            "presence",
-            "present",
-            source_kind="ambient",
-            metadata={
-                "source": "presence_sensor",
-                "raw_audio": "must-not-persist",
-            },
-            occurred_at=(light_at - timedelta(minutes=10)).isoformat(),
+        presence_times.append(
+            (light_at - timedelta(minutes=10)).isoformat()
         )
 
     # This action must not become learning evidence because it came from
@@ -144,6 +138,18 @@ with db() as connection:
             auto_at.isoformat(),
             auto_at.isoformat(),
         ),
+    )
+
+for occurred_at in presence_times:
+    automation_intelligence.record_context_event(
+        "presence",
+        "present",
+        source_kind="ambient",
+        metadata={
+            "source": "presence_sensor",
+            "raw_audio": "must-not-persist",
+        },
+        occurred_at=occurred_at,
     )
 
 settings = automation_intelligence.get_settings()
