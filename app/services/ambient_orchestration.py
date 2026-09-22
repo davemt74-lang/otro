@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import approvals, cognitive_runtime, local_automation, room_device_automation
+from . import approvals, cognitive_runtime, local_automation, physical_meeting, room_device_automation
 
 ORCHESTRATION_VERSION = "v0.90"
 _OPEN_STATES = {"suggested", "requested", "active", "suspended"}
@@ -490,20 +490,33 @@ def _context_snapshot() -> dict[str, Any]:
             """
         ).fetchone()
 
-    meeting = "inactive"
     meeting_event = None
     meeting_at = None
     if meeting_row is not None:
         meeting_event = str(meeting_row["event_type"])
         meeting_at = meeting_row["occurred_at"]
-        if meeting_event == "physical_meeting.started":
-            meeting = "active"
+
+    try:
+        meeting_status = physical_meeting.status()
+        meeting = (
+            "active"
+            if bool(meeting_status.get("meeting_id"))
+            else "inactive"
+        )
+        live_meeting_id = meeting_status.get("meeting_id")
+        live_meeting_state = meeting_status.get("state")
+    except Exception:
+        meeting = "inactive"
+        live_meeting_id = None
+        live_meeting_state = "unavailable"
 
     return {
         "evaluated_at": _iso(now),
         "presence": presence,
         "presence_at": presence_at,
         "meeting": meeting,
+        "meeting_id": live_meeting_id,
+        "meeting_state": live_meeting_state,
         "meeting_event": meeting_event,
         "meeting_at": meeting_at,
         "weekday": now.weekday(),
