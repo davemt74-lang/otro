@@ -93,6 +93,9 @@ for table in (
 ):
     assert table in migration, table
 
+assert "idx_orchestration_one_open_session_per_mode" in migration
+assert "WHERE state IN ('suggested','requested','active','suspended')" in migration
+
 assert "Ambient context never activates a mode automatically." in docs
 assert "strictly higher priority" in docs
 assert "never silently reverses physical device state" in docs
@@ -122,5 +125,8 @@ assert "execute_command(" not in automation_js
 assert "orchestration-card" in automation_css
 assert "def _assert_routine_not_bound_to_room_mode" in local_automation
 assert "bound to Room Mode" in local_automation
+assert "with _LOCK:" in service
+assert "def _open_session_for_mode" in service
+assert "Room Mode already has an open" in service
 
 print("VP3 OS v0.90 orchestration governance contract passed")
