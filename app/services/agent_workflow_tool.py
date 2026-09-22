@@ -13,6 +13,7 @@ from . import (
     context_chat,
     context_engine,
 )
+from .inference_cancellation import CancellationToken
 
 _CURRENT_PARENT_AGENT_ID: ContextVar[int | None] = ContextVar("agent_workflow_parent_agent_id", default=None)
 _CURRENT_CONVERSATION_ID: ContextVar[str | None] = ContextVar("agent_workflow_conversation_id", default=None)
@@ -209,23 +210,31 @@ def install() -> None:
         context_options: dict[str, Any] | None = None,
         tool_permissions: set[str] | None = None,
         owner_tools: bool = False,
+        read_only: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> dict[str, Any]:
         agent = agent_routing.resolve_agent(source_app_key, agent_id, owner=owner_tools)
         parent_token = _CURRENT_PARENT_AGENT_ID.set(int(agent["id"]))
         conversation_token = _CURRENT_CONVERSATION_ID.set(str(conversation_id) if conversation_id else None)
         handoff_token = _CURRENT_HANDOFF.set(_empty_handoff())
         try:
+            chat_kwargs = {
+                "agent_id": agent_id,
+                "include_memory": include_memory,
+                "include_knowledge": include_knowledge,
+                "include_contacts": include_contacts,
+                "context_options": context_options,
+                "tool_permissions": tool_permissions,
+                "owner_tools": owner_tools,
+                "read_only": read_only,
+            }
+            if cancellation_token is not None:
+                chat_kwargs["cancellation_token"] = cancellation_token
             result = original_chat(
                 source_app_key,
                 message,
                 conversation_id,
-                agent_id=agent_id,
-                include_memory=include_memory,
-                include_knowledge=include_knowledge,
-                include_contacts=include_contacts,
-                context_options=context_options,
-                tool_permissions=tool_permissions,
-                owner_tools=owner_tools,
+                **chat_kwargs,
             )
             handoff = current_handoff()
             handoff_ids = [int(value) for value in handoff.get("ids") or []]
