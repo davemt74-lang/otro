@@ -63,6 +63,32 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
         assert versions == list(range(1, 24))
+        for automation_table in (
+            "automation_rooms",
+            "automation_providers",
+            "automation_devices",
+            "automation_device_actions",
+            "automation_suggestions",
+        ):
+            assert migrated.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (automation_table,),
+            ).fetchone() is not None
+        migrated.execute(
+            """
+            INSERT INTO action_requests(
+                id, action_key, source_app_key, actor_type, status,
+                arguments_json, arguments_meta_json, expires_at
+            ) VALUES (
+                'v060-device-request', 'devices.command', 'owner', 'owner', 'pending',
+                '{"device_key":"migration-test","command":"on","arguments":{}}',
+                '{"command":"on"}', '2099-01-01T00:00:00+00:00'
+            )
+            """
+        )
+        assert migrated.execute(
+            "SELECT action_key FROM action_requests WHERE id='v060-device-request'"
+        ).fetchone()["action_key"] == "devices.command"
         pairing_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(pairing_requests)").fetchall()}
         assert {"request_id", "claim_hash"}.issubset(pairing_columns)
         agent_run_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(agent_runs)").fetchall()}
