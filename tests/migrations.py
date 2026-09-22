@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 29))
+        assert versions == list(range(1, 30))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -95,6 +95,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "vp3_fleet_rollout_outcomes",
             "vp3_fleet_update_requests",
             "vp3_fleet_events",
+            "vp3_hardware_experience_settings",
+            "vp3_hardware_experience_events",
+            "vp3_hardware_experience_cards",
+            "vp3_hardware_experience_certifications",
         ):
             assert migrated.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -344,6 +348,28 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_rollout_outcomes").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_update_requests").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_events").fetchone()[0] == 0
+        experience_settings = migrated.execute(
+            """
+            SELECT enabled,brightness_percent,volume_percent,led_intensity_percent,
+                   screen_timeout_seconds,wake_behavior,agent_button_action,
+                   hold_action,display_detail,quiet_visuals
+            FROM vp3_hardware_experience_settings WHERE id=1
+            """
+        ).fetchone()
+        assert experience_settings is not None
+        assert experience_settings["enabled"] == 1
+        assert experience_settings["brightness_percent"] == 70
+        assert experience_settings["volume_percent"] == 65
+        assert experience_settings["led_intensity_percent"] == 70
+        assert experience_settings["screen_timeout_seconds"] == 300
+        assert experience_settings["wake_behavior"] == "presence"
+        assert experience_settings["agent_button_action"] == "push_to_talk"
+        assert experience_settings["hold_action"] == "cancel"
+        assert experience_settings["display_detail"] == "standard"
+        assert experience_settings["quiet_visuals"] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM vp3_hardware_experience_events").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM vp3_hardware_experience_cards").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM vp3_hardware_experience_certifications").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM tool_runs").fetchone()[0] == 0
         agent_policy = migrated.execute(
             "SELECT enabled, max_calls, allow_write_proposals FROM agent_tool_policy WHERE id=1"
@@ -414,7 +440,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 29))
+        assert versions_again == list(range(1, 30))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
@@ -442,6 +468,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_rollout_outcomes").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_update_requests").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM vp3_fleet_events").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_hardware_experience_settings").fetchone()[0] == 1
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_hardware_experience_events").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_hardware_experience_cards").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM vp3_hardware_experience_certifications").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 2
         assert migrated_again.execute(
             "SELECT COUNT(*) FROM action_requests WHERE id='legacy-memory-request' AND action_key='memory.write'"
