@@ -22,7 +22,7 @@ DISCOVERABLE_CATEGORIES = SAFE_CONTROL_CATEGORIES | {
     "appliance",
     "other",
 }
-BLOCKED_CONTROL_CATEGORIES = {"camera", "lock", "garage", "security", "appliance"}
+BLOCKED_CONTROL_CATEGORIES = {"camera", "lock", "garage", "security", "appliance", "scene"}
 
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,79}$")
 _MAX_STATE_BYTES = 16 * 1024
