@@ -282,7 +282,16 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ).fetchone()[0] == 1
             migrated.execute("DELETE FROM action_requests WHERE id=?", (request_id,))
 
-        assert migrated.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1
+        remaining_requests = {
+            row["id"]: row["action_key"]
+            for row in migrated.execute(
+                "SELECT id, action_key FROM action_requests ORDER BY id"
+            ).fetchall()
+        }
+        assert remaining_requests == {
+            "legacy-memory-request": "memory.write",
+            "v060-device-request": "devices.command",
+        }
         assert migrated.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
 
