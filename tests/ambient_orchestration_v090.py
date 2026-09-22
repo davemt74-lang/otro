@@ -95,6 +95,14 @@ local_automation.upsert_routine(
     ],
 )
 local_automation.upsert_routine(
+    "emergency-routine",
+    "Emergency Routine",
+    approval_mode="ask_every_time",
+    steps=[
+        {"device_key": "desk-light", "command": "off", "arguments": {}},
+    ],
+)
+local_automation.upsert_routine(
     "evening-routine",
     "Evening Routine",
     approval_mode="ask_every_time",
@@ -130,6 +138,12 @@ meeting = ambient_orchestration.upsert_mode(
     routine_key="meeting-routine",
     priority=80,
 )
+emergency = ambient_orchestration.upsert_mode(
+    "emergency",
+    "Emergency",
+    routine_key="emergency-routine",
+    priority=90,
+)
 evening = ambient_orchestration.upsert_mode(
     "evening",
     "Evening",
@@ -141,6 +155,20 @@ evening = ambient_orchestration.upsert_mode(
 assert focus["room_keys"] == ["office"]
 assert focus["device_keys"] == ["desk-light", "office-fan"]
 assert meeting["priority"] == 80
+assert emergency["priority"] == 90
+
+try:
+    ambient_orchestration.upsert_mode(
+        "bad-scope",
+        "Bad Scope",
+        routine_key="focus-routine",
+        room_keys=["living-room"],
+    )
+except ambient_orchestration.OrchestrationError as exc:
+    assert exc.status_code == 409
+    assert "scope" in str(exc).lower()
+else:
+    raise AssertionError("Mode accepted a room scope that omitted routine rooms")
 
 try:
     ambient_orchestration.upsert_mode(
@@ -170,6 +198,19 @@ evening_suggestion = next(
 )
 assert focus_suggestion["state"] == "suggested"
 assert evening_suggestion["state"] == "suggested"
+
+try:
+    ambient_orchestration.upsert_mode(
+        "focus",
+        "Focus edited during suggestion",
+        routine_key="focus-routine",
+        priority=55,
+    )
+except ambient_orchestration.OrchestrationError as exc:
+    assert exc.status_code == 409
+    assert "open session" in str(exc).lower()
+else:
+    raise AssertionError("Open Room Mode definition was edited")
 
 with db() as connection:
     assert connection.execute(
@@ -246,17 +287,35 @@ assert ambient_orchestration.get_session(
     int(active_focus["id"]), refresh=False
 )["state"] == "suspended"
 
+emergency_requested = ambient_orchestration.activate_mode(
+    "emergency",
+    reason="Owner explicitly selected higher-priority Emergency mode.",
+    supersede_conflicts=True,
+)
+assert emergency_requested["state"] == "requested"
+assert ambient_orchestration.get_session(
+    int(high["id"]), refresh=False
+)["state"] == "suspended"
+
 with db() as connection:
+    displaced = connection.execute(
+        "SELECT status FROM action_requests WHERE id=?",
+        (high["request_ids"][0],),
+    ).fetchone()
+    assert displaced is not None
+    assert displaced["status"] == "denied"
     connection.execute(
         """
         UPDATE action_requests
         SET status='denied',decided_at=CURRENT_TIMESTAMP
         WHERE id=?
         """,
-        (high["request_ids"][0],),
+        (emergency_requested["request_ids"][0],),
     )
-failed_high = ambient_orchestration.refresh_session(int(high["id"]))
-assert failed_high["state"] == "failed"
+failed_emergency = ambient_orchestration.refresh_session(
+    int(emergency_requested["id"])
+)
+assert failed_emergency["state"] == "failed"
 
 dismissed = ambient_orchestration.dismiss_suggestion(
     int(evening_suggestion["id"])
