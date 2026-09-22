@@ -286,6 +286,17 @@ class AmbientAgentRuntime:
             elif state != "error":
                 self._last_error = ""
 
+    def _sync_presence_from_hardware(self) -> None:
+        sensor = vp3_os.hardware_inventory().get("presence_sensor", {})
+        if not bool(sensor.get("present")) or not bool(sensor.get("ready")):
+            return
+        occupied = "present" if bool(sensor.get("occupied")) else "absent"
+        with self._lock:
+            if self._presence == occupied:
+                return
+            self._presence = occupied
+            self._last_presence_at = _now_iso()
+
     def _presence_allowed(self, settings: dict[str, Any]) -> bool:
         if settings["presence_policy"] == "assume_present":
             return True
@@ -550,6 +561,8 @@ class AmbientAgentRuntime:
         while not self._stop.is_set():
             try:
                 settings = self._settings()
+                if settings["enabled"]:
+                    self._sync_presence_from_hardware()
                 if not settings["enabled"]:
                     self._sync_state()
                     self._stop.wait(LOOP_SECONDS)
@@ -586,6 +599,8 @@ class AmbientAgentRuntime:
 
     def update_settings(self, value: Any) -> dict[str, Any]:
         settings = save_settings(value)
+        if settings["enabled"]:
+            self._sync_presence_from_hardware()
         if not settings["enabled"]:
             with self._lock:
                 wake_active = self._wake_active
@@ -631,6 +646,10 @@ class AmbientAgentRuntime:
             )
             self._set_state("speaking")
             device_audio.device_audio.play_wav(spoken)
+        except AmbientAgentError:
+            raise
+        except Exception as exc:
+            raise AmbientAgentError(f"Ambient local voice test failed: {str(exc)[:180]}") from exc
         finally:
             self._sync_state()
         return {"spoken": True}
