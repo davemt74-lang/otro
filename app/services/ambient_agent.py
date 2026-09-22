@@ -143,6 +143,24 @@ def save_settings(value: Any) -> dict[str, Any]:
             """,
             (SETTING_KEY, encoded),
         )
+        connection.execute(
+            """
+            INSERT INTO activity_log(
+                actor_type, actor_key, action, resource_type, resource_key, metadata_json
+            ) VALUES ('owner', 'control-center', 'ambient.settings.updated', 'vp3_os', 'ambient', ?)
+            """,
+            (
+                json.dumps(
+                    {
+                        "enabled": bool(settings["enabled"]),
+                        "wake_enabled": bool(settings["wake_enabled"]),
+                        "proactive_voice": bool(settings["proactive_voice"]),
+                        "presence_policy": settings["presence_policy"],
+                    },
+                    separators=(",", ":"),
+                ),
+            ),
+        )
     return settings
 
 
@@ -322,11 +340,6 @@ class AmbientAgentRuntime:
             with self._lock:
                 self._presence = "present" if action == "present" else "absent"
                 self._last_presence_at = _now_iso()
-            self._emit_metadata_event(
-                "ambient.presence",
-                "Ambient room-presence state changed.",
-                {"presence": self._presence},
-            )
             self._sync_state()
             return
 
