@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .action_policy_api import router as action_policy_router
+from .ambient_orchestration_api import router as ambient_orchestration_router
 from .automation_intelligence_api import router as automation_intelligence_router
 from .agent_routing_api import router as agent_routing_router
 from .agents_api import router as agents_router
@@ -28,7 +29,7 @@ from .local_voice_api import router as local_voice_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
 from .room_device_api import router as room_device_router
-from .services import ambient_agent, automation_intelligence, hardware_adapters, local_automation, physical_agent, physical_meeting, providers, room_device_automation, vp3_os
+from .services import ambient_agent, ambient_orchestration, automation_intelligence, hardware_adapters, local_automation, physical_agent, physical_meeting, providers, room_device_automation, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -103,6 +104,7 @@ app.include_router(vp3_os_router)
 app.include_router(room_device_router)
 app.include_router(local_automation_router)
 app.include_router(automation_intelligence_router)
+app.include_router(ambient_orchestration_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -131,6 +133,7 @@ def capabilities() -> dict:
         "vp3_os_room_device_automation": room_device_automation.public_capability(),
         "vp3_os_local_automation": local_automation.public_capability(),
         "vp3_os_automation_intelligence": automation_intelligence.public_capability(),
+        "vp3_os_ambient_orchestration": ambient_orchestration.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
@@ -346,6 +349,10 @@ def capabilities() -> dict:
             "vp3.os.v060",
             "vp3.os.v070",
             "vp3.os.v080",
+            "vp3.os.v090",
+            "vp3.os.room_modes.v1",
+            "vp3.os.orchestration.owner_activation_required",
+            "vp3.os.orchestration.conflict_detection",
             "vp3.os.automation_intelligence.v1",
             "vp3.os.automation_drafts.disabled_by_default",
             "vp3.os.automation_learning.local_only",
