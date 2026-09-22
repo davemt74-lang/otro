@@ -146,17 +146,33 @@ class PhysicalAgentRuntime:
 
         if event_type != "agent_button":
             return
+        try:
+            from . import hardware_experience
+            policy = hardware_experience.button_policy()
+        except Exception:
+            policy = {
+                "agent_button_action": "push_to_talk",
+                "hold_action": "cancel",
+            }
         with self._lock:
             if self._external_mode:
                 return
-        if action == "press":
-            self.begin_listening()
-        elif action == "release":
-            self.finish_listening()
-        elif action == "hold":
-            # Hold is an explicit physical cancel gesture in v0.30.
-            self.cancel("button_hold")
-            self._set_state("idle" if not self._privacy_engaged() else "privacy")
+
+        button_action = str(policy.get("agent_button_action") or "push_to_talk")
+        hold_action = str(policy.get("hold_action") or "cancel")
+        if action == "hold":
+            if hold_action == "cancel":
+                self.cancel("button_hold")
+                self._set_state("idle" if not self._privacy_engaged() else "privacy")
+            return
+
+        if button_action == "none":
+            return
+        if button_action in {"push_to_talk", "ask_agent"}:
+            if action == "press":
+                self.begin_listening()
+            elif action == "release":
+                self.finish_listening()
 
     def begin_listening(self) -> dict[str, Any]:
         if not self._started:

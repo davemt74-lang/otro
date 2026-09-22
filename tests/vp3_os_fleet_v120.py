@@ -26,7 +26,7 @@ from app.services.owner_secret import load_or_create_owner_secret  # noqa: E402
 initialize_database()
 load_or_create_owner_secret()
 
-assert vp3_os.VP3_OS_VERSION == "v1.2"
+assert vp3_os.VP3_OS_VERSION.startswith("v1.")
 initial = fleet_management.get_settings()
 assert initial["enabled"] is False
 assert initial["controller_app_key"] is None
@@ -77,7 +77,7 @@ assert configured["remote_diagnostics"] is True
 snapshot = fleet_management.local_device_snapshot()
 encoded = json.dumps(snapshot, sort_keys=True)
 assert snapshot["format"] == "vp3-fleet-device-v1"
-assert snapshot["os_version"] == "v1.2"
+assert str(snapshot["os_version"]).startswith("v1.")
 assert snapshot["device_id"].startswith("hs-")
 assert snapshot["privacy"]["conversations_included"] is False
 assert snapshot["privacy"]["memory_content_included"] is False
@@ -230,9 +230,9 @@ def release_zip() -> bytes:
     installer_hash = hashlib.sha256(installer).hexdigest()
     manifest = {
         "format": "vp3-os-release-v1",
-        "version": "v1.2",
+        "version": vp3_os.VP3_OS_VERSION,
         "channel": "stable",
-        "minimum_schema_version": 28,
+        "minimum_schema_version": 29,
         "files": {
             "HomeServer.exe": exe_hash,
             "HomeServerSetup.exe": installer_hash,
@@ -250,12 +250,12 @@ def release_zip() -> bytes:
     return stream.getvalue()
 
 
-staged = device_rollout.stage_package(io.BytesIO(release_zip()), "VP3-OS-v1.2-test.zip")
+staged = device_rollout.stage_package(io.BytesIO(release_zip()), f"VP3-OS-{vp3_os.VP3_OS_VERSION}-fleet-test.zip")
 request = fleet_management.request_update(
     "vp3-fleet-control",
     "fleet-request-v120-001",
     staged["package_sha256"],
-    "v1.2",
+    vp3_os.VP3_OS_VERSION,
 )
 assert request["status"] == "pending_owner"
 assert device_rollout.get_package(staged["id"])["status"] == "staged"
@@ -272,7 +272,7 @@ try:
         "wrong-controller",
         "fleet-request-v120-002",
         staged["package_sha256"],
-        "v1.2",
+        vp3_os.VP3_OS_VERSION,
     )
 except fleet_management.FleetError as exc:
     assert exc.status_code == 403

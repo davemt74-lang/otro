@@ -209,12 +209,24 @@ class PhysicalMeetingRuntime:
             return
 
         if event_type == "agent_button":
+            try:
+                from . import hardware_experience
+                policy = hardware_experience.button_policy()
+            except Exception:
+                policy = {
+                    "agent_button_action": "push_to_talk",
+                    "hold_action": "cancel",
+                }
+            hold_action = str(policy.get("hold_action") or "cancel")
+
             with self._lock:
                 state = self._state
 
             if state == "recording":
-                if action == "hold":
-                    self.request_end("button_hold")
+                if action == "hold" and hold_action in {"cancel", "meeting_toggle"}:
+                    self.request_end(
+                        "button_hold_toggle" if hold_action == "meeting_toggle" else "button_hold"
+                    )
                 return
 
             if action == "press" and state in {"idle", "error"}:
@@ -224,13 +236,17 @@ class PhysicalMeetingRuntime:
                 return
 
             if action == "hold":
-                # The reference ESP32 emits hold after ~900 ms. Physical Agent
-                # keeps its v0.30 behavior and cancels PTT at that point. Meeting
-                # start requires the user to KEEP holding until release passes
-                # the longer v0.40 threshold.
-                with self._lock:
-                    if self._button_pressed_at_monotonic:
+                if hold_action == "meeting_toggle" and state in {"idle", "error"}:
+                    with self._lock:
                         self._button_hold_seen = True
+                    self.start_meeting(trigger="button_hold_toggle")
+                    return
+                if hold_action == "cancel":
+                    # Preserve the v0.40 extended-hold meeting gesture while the
+                    # default hold action remains the Physical Agent cancel gesture.
+                    with self._lock:
+                        if self._button_pressed_at_monotonic:
+                            self._button_hold_seen = True
                 return
 
             if action == "release":
@@ -242,7 +258,8 @@ class PhysicalMeetingRuntime:
                     self._button_hold_seen = False
                 duration = (now - pressed_at) if pressed_at else 0.0
                 if (
-                    state in {"idle", "error"}
+                    hold_action == "cancel"
+                    and state in {"idle", "error"}
                     and hold_seen
                     and duration >= MEETING_START_HOLD_SECONDS
                 ):

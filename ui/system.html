@@ -27,6 +27,37 @@
       <div class="diagnostic-grid" id="diagnosticGrid"><div class="diagnostic-card"><span>Loading diagnostics…</span></div></div>
     </section>
 
+    <section class="system-section" id="hardwareExperienceSection">
+      <div class="section-intro split">
+        <div><p class="eyebrow">VP3 OS v1.3 · HARDWARE EXPERIENCE</p><h2>Device experience</h2><p>One VP3 OS, tuned to this hardware profile. Physical inputs stay local and existing Agent, Meeting, Ambient, Automation, Update, and Fleet services remain authoritative.</p></div>
+        <span class="setup-state" id="hardwareExperienceState">Checking…</span>
+      </div>
+      <div class="rollout-summary" id="hardwareExperienceSummary"></div>
+      <div class="rollout-grid">
+        <div class="runtime-panel rollout-settings">
+          <div><strong>Experience preferences</strong><p class="muted">These settings control the device-facing experience profile without creating a second action engine.</p></div>
+          <div class="rollout-fields">
+            <label><span>Brightness</span><input id="experienceBrightness" type="number" min="0" max="100"></label>
+            <label><span>Volume</span><input id="experienceVolume" type="number" min="0" max="100"></label>
+            <label><span>LED intensity</span><input id="experienceLedIntensity" type="number" min="0" max="100"></label>
+            <label><span>Screen timeout (seconds)</span><input id="experienceScreenTimeout" type="number" min="15" max="86400"></label>
+            <label><span>Wake behavior</span><select id="experienceWakeBehavior"><option value="manual">Manual</option><option value="presence">Presence</option><option value="always_on">Always on</option></select></label>
+            <label><span>Agent button</span><select id="experienceAgentButton"><option value="push_to_talk">Push to talk</option><option value="ask_agent">Ask Agent</option><option value="none">Disabled</option></select></label>
+            <label><span>Hold action</span><select id="experienceHoldAction"><option value="cancel">Cancel / legacy meeting hold</option><option value="meeting_toggle">Meeting toggle</option><option value="privacy_hint">Privacy hint</option><option value="none">None</option></select></label>
+            <label><span>Display detail</span><select id="experienceDisplayDetail"><option value="minimal">Minimal</option><option value="standard">Standard</option><option value="detailed">Detailed</option></select></label>
+            <label class="startup-toggle"><input type="checkbox" id="hardwareExperienceEnabled"><span><strong>Enable Hardware Experience Runtime</strong><small>Disabling turns off the experience projection without disabling core VP3 OS services.</small></span></label>
+            <label class="startup-toggle"><input type="checkbox" id="experienceQuietVisuals"><span><strong>Quiet visuals</strong><small>Reduce nonessential visual emphasis on supported displays.</small></span></label>
+          </div>
+          <div class="runtime-actions"><button class="button primary" id="saveHardwareExperience" type="button">Save experience</button><button class="button secondary" id="certifyHardwareExperience" type="button">Certify product experience</button></div>
+        </div>
+        <div class="runtime-panel rollout-update-panel">
+          <div><strong>Active display cards</strong><p class="muted">Cards are filtered by the current product profile. Devices without display modes keep this list empty.</p></div>
+          <div class="fleet-list" id="hardwareExperienceCards"><div class="muted">No active display cards.</div></div>
+        </div>
+      </div>
+      <div class="fleet-subsection"><h3>Recent physical events</h3><div class="fleet-list" id="hardwareExperienceEvents"><div class="muted">No physical events recorded.</div></div></div>
+    </section>
+
     <section class="system-section" id="rolloutSection">
       <div class="section-intro split">
         <div><p class="eyebrow">VP3 OS v1.1 · CONTROLLED ROLLOUT</p><h2>Hardware commissioning & updates</h2><p>Certify this appliance, choose its release ring, stage verified update packages, and create privacy-safe support diagnostics. Updates never apply automatically.</p></div>

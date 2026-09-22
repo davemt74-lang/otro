@@ -1,0 +1,159 @@
+name: VP3 OS Hardware Experience v1.3
+
+on:
+  pull_request:
+    paths:
+      - "app/services/vp3_os.py"
+      - "app/services/hardware_adapters.py"
+      - "app/services/hardware_experience.py"
+      - "app/hardware_experience_api.py"
+      - "app/services/physical_agent.py"
+      - "app/services/physical_meeting.py"
+      - "app/services/fleet_management.py"
+      - "app/fleet_api.py"
+      - "app/main.py"
+      - "app/bridge.py"
+      - "database/migrations/**"
+      - "ui/system.html"
+      - "ui/system.js"
+      - "ui/system.css"
+      - "ui/index.html"
+      - "tests/vp3_os_*"
+      - "tests/physical_meeting_v040.py"
+      - "tests/ambient_agent_v050.py"
+      - "tests/remote_bridge.py"
+      - "tests/migrations.py"
+      - "tests/backups.py"
+      - "tests/backup_security.py"
+      - "tests/system_reliability.py"
+      - "tests/installer_contract.py"
+      - "docs/VP3_OS_*"
+      - ".github/CI_POLICY.md"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/vp3-os-hardware-experience-v130.yml"
+      - ".github/workflows/vp3-os-fleet-management-v120.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "app/services/vp3_os.py"
+      - "app/services/hardware_adapters.py"
+      - "app/services/hardware_experience.py"
+      - "app/hardware_experience_api.py"
+      - "app/services/physical_agent.py"
+      - "app/services/physical_meeting.py"
+      - "app/services/fleet_management.py"
+      - "app/fleet_api.py"
+      - "app/main.py"
+      - "app/bridge.py"
+      - "database/migrations/**"
+      - "ui/system.html"
+      - "ui/system.js"
+      - "ui/system.css"
+      - "ui/index.html"
+      - "tests/vp3_os_*"
+      - "tests/physical_meeting_v040.py"
+      - "tests/ambient_agent_v050.py"
+      - "tests/remote_bridge.py"
+      - "tests/migrations.py"
+      - "tests/backups.py"
+      - "tests/backup_security.py"
+      - "tests/system_reliability.py"
+      - "tests/installer_contract.py"
+      - "docs/VP3_OS_*"
+      - ".github/CI_POLICY.md"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/vp3-os-hardware-experience-v130.yml"
+      - ".github/workflows/vp3-os-fleet-management-v120.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: vp3-os-v130-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hardware-experience:
+    name: Hardware experience · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile v1.3 hardware experience
+        run: >-
+          python -m py_compile
+          app/services/vp3_os.py
+          app/services/hardware_adapters.py
+          app/services/hardware_experience.py
+          app/hardware_experience_api.py
+          app/services/physical_agent.py
+          app/services/physical_meeting.py
+          app/services/fleet_management.py
+          app/fleet_api.py
+          app/main.py
+          app/bridge.py
+          tests/vp3_os_hardware_experience_v130.py
+          tests/vp3_os_hardware_experience_api_v130.py
+          tests/vp3_os_hardware_experience_contract_v130.py
+      - name: Validate Hardware Experience workspace JavaScript
+        run: node --check ui/system.js
+      - name: Verify v0.20 hardware adapter contract
+        run: python tests/vp3_os_v020.py
+      - name: Verify v0.30 Physical Agent
+        run: python tests/vp3_os_v030.py
+      - name: Verify v0.40 Physical Meeting
+        run: python tests/physical_meeting_v040.py
+      - name: Verify v0.50 Ambient Agent
+        run: python tests/ambient_agent_v050.py
+      - name: Verify v1.0 production release journey
+        run: python tests/vp3_os_release_v100.py
+      - name: Verify v1.0 release API
+        run: python tests/vp3_os_release_api_v100.py
+      - name: Verify v1.0 release contract
+        run: python tests/vp3_os_release_contract_v100.py
+      - name: Verify v1.1 controlled rollout runtime
+        run: python tests/vp3_os_rollout_v110.py
+      - name: Verify v1.1 controlled rollout API
+        run: python tests/vp3_os_rollout_api_v110.py
+      - name: Verify v1.1 rollout contract
+        run: python tests/vp3_os_rollout_contract_v110.py
+      - name: Verify v1.2 fleet runtime
+        run: python tests/vp3_os_fleet_v120.py
+      - name: Verify v1.2 fleet API
+        run: python tests/vp3_os_fleet_api_v120.py
+      - name: Verify v1.2 five-device pilot
+        run: python tests/vp3_os_fleet_pilot_v120.py
+      - name: Verify v1.2 fleet contract
+        run: python tests/vp3_os_fleet_contract_v120.py
+      - name: Verify v1.3 Hardware Experience runtime
+        run: python tests/vp3_os_hardware_experience_v130.py
+      - name: Verify v1.3 Hardware Experience API
+        run: python tests/vp3_os_hardware_experience_api_v130.py
+      - name: Verify v1.3 Hardware Experience contract
+        run: python tests/vp3_os_hardware_experience_contract_v130.py
+      - name: Verify fleet Remote Bridge operations
+        run: python tests/remote_bridge.py
+      - name: Verify migrations
+        run: python tests/migrations.py
+      - name: Verify backup integrity
+        run: python tests/backups.py
+      - name: Verify backup security
+        run: python tests/backup_security.py
+      - name: Verify system reliability
+        run: python tests/system_reliability.py
+      - name: Verify installer upgrade contract
+        run: python tests/installer_contract.py

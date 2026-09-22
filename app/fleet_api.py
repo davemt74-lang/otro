@@ -33,6 +33,8 @@ class FleetCheckin(BaseModel):
     label: str = Field(default="", max_length=120)
     profile_key: str = Field(default="custom", max_length=80)
     os_version: str = Field(min_length=3, max_length=80)
+    hardware_experience_version: str = Field(default="", max_length=80)
+    experience_profile: str = Field(default="generic", max_length=80)
     release_channel: str = Field(max_length=20)
     rollout_ring: str = Field(max_length=20)
     commissioning_state: str = Field(max_length=20)

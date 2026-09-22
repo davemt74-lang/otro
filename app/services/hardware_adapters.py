@@ -170,7 +170,7 @@ def normalize_controller_message(message: Any) -> dict[str, Any]:
     if kind == "event":
         event = _bounded_text(message.get("event"), 80).lower()
         action = _bounded_text(message.get("action"), 80).lower()
-        if event not in {"agent_button", "privacy_switch", "presence_sensor", "wake_word", "voice_activity"}:
+        if event not in {"agent_button", "privacy_switch", "presence_sensor", "wake_word", "voice_activity", "control_dial"}:
             raise HardwareAdapterError("Hardware event type is not allowlisted.")
         if event == "agent_button" and action not in {"press", "release", "hold"}:
             raise HardwareAdapterError("Agent button action is invalid.")
@@ -182,6 +182,8 @@ def normalize_controller_message(message: Any) -> dict[str, Any]:
             raise HardwareAdapterError("Wake-word action is invalid.")
         if event == "voice_activity" and action not in {"started", "stopped"}:
             raise HardwareAdapterError("Voice-activity action is invalid.")
+        if event == "control_dial" and action not in {"clockwise", "counterclockwise", "press"}:
+            raise HardwareAdapterError("Control-dial action is invalid.")
         return {
             "type": "event",
             "seq": _safe_nonnegative_int(message.get("seq")),

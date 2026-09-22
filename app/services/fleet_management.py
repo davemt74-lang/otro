@@ -8,7 +8,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import device_rollout, system_state, vp3_os
+from . import device_rollout, hardware_experience, system_state, vp3_os
 from .remote_identity import remote_identity_metadata
 
 FLEET_VERSION = "v1.2"
@@ -388,6 +388,8 @@ def local_device_snapshot() -> dict[str, Any]:
         "label": fleet["device_label"],
         "profile_key": str((commissioning.get("profile") or {}).get("key") or "custom")[:80],
         "os_version": vp3_os.VP3_OS_VERSION,
+        "hardware_experience_version": hardware_experience.HARDWARE_EXPERIENCE_VERSION,
+        "experience_profile": hardware_experience.profile_experience()["experience"],
         "release_channel": rollout["release_channel"],
         "rollout_ring": rollout["rollout_ring"],
         "commissioning_state": str(commissioning.get("state") or "blocked"),
@@ -469,6 +471,8 @@ def _validate_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         "label": str(payload.get("label") or "").strip()[:120],
         "profile_key": str(payload.get("profile_key") or "custom").strip()[:80] or "custom",
         "os_version": os_version,
+        "hardware_experience_version": str(payload.get("hardware_experience_version") or "")[:80],
+        "experience_profile": str(payload.get("experience_profile") or "generic")[:80] or "generic",
         "release_channel": channel,
         "rollout_ring": ring,
         "commissioning_state": state,
@@ -488,14 +492,17 @@ def record_checkin(payload: dict[str, Any]) -> dict[str, Any]:
         connection.execute(
             """
             INSERT INTO vp3_fleet_inventory(
-                device_id,label,profile_key,os_version,release_channel,rollout_ring,
+                device_id,label,profile_key,os_version,hardware_experience_version,
+                experience_profile,release_channel,rollout_ring,
                 commissioning_state,certification_result,privacy_fault,update_status,
                 backup_state,storage_state,watchdog_failures,last_seen_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(device_id) DO UPDATE SET
                 label=excluded.label,
                 profile_key=excluded.profile_key,
                 os_version=excluded.os_version,
+                hardware_experience_version=excluded.hardware_experience_version,
+                experience_profile=excluded.experience_profile,
                 release_channel=excluded.release_channel,
                 rollout_ring=excluded.rollout_ring,
                 commissioning_state=excluded.commissioning_state,
@@ -510,6 +517,7 @@ def record_checkin(payload: dict[str, Any]) -> dict[str, Any]:
             """,
             (
                 item["device_id"], item["label"], item["profile_key"], item["os_version"],
+                item["hardware_experience_version"], item["experience_profile"],
                 item["release_channel"], item["rollout_ring"], item["commissioning_state"],
                 item["certification_result"], int(item["privacy_fault"]),
                 item["update_status"], item["backup_state"], item["storage_state"],
@@ -567,7 +575,8 @@ def get_inventory_device(device_id: str) -> dict[str, Any]:
     with db() as connection:
         row = connection.execute(
             """
-            SELECT device_id,label,profile_key,os_version,release_channel,rollout_ring,
+            SELECT device_id,label,profile_key,os_version,hardware_experience_version,
+                   experience_profile,release_channel,rollout_ring,
                    commissioning_state,certification_result,privacy_fault,update_status,
                    backup_state,storage_state,watchdog_failures,last_seen_at,enrolled_at,updated_at
             FROM vp3_fleet_inventory WHERE device_id=?

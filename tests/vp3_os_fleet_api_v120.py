@@ -82,7 +82,7 @@ with TestClient(app) as client:
     status = client.get("/api/v1/fleet/device/status", headers=headers)
     assert status.status_code == 200, status.text
     status_payload = status.json()
-    assert status_payload["os_version"] == "v1.2"
+    assert str(status_payload["os_version"]).startswith("v1.")
     assert status_payload["controller_app"] == "vp3-fleet-control"
     assert status_payload["privacy"]["credentials_included"] is False
     assert status_payload["privacy"]["filesystem_paths_included"] is False
@@ -184,7 +184,7 @@ with TestClient(app) as client:
     capabilities = client.get("/api/v1/capabilities")
     assert capabilities.status_code == 200
     caps = capabilities.json()
-    assert caps["vp3_os"]["os_version"] == "v1.2"
+    assert str(caps["vp3_os"]["os_version"]).startswith("v1.")
     assert caps["vp3_os_fleet_management"]["version"] == "v1.2"
     assert caps["vp3_os_fleet_management"]["remote_update_apply"] is False
     assert "fleet.read" in caps["permissions"]
