@@ -159,6 +159,14 @@ def record_context_event(
         raise AutomationIntelligenceError(
             "Context event type and state are required."
         )
+    if not get_settings()["enabled"]:
+        return {
+            "id": None,
+            "recorded": False,
+            "source_kind": safe_source,
+            "event_type": safe_type,
+            "state": safe_state,
+        }
     safe_meta = dict(metadata or {})
     allowed_meta = {
         str(key)[:80]: value
@@ -242,7 +250,7 @@ def _load_actions(settings: dict[str, Any]) -> list[dict[str, Any]]:
             LEFT JOIN automation_rooms r ON r.id=d.room_id
             WHERE a.status='completed'
               AND a.source_app_key NOT LIKE 'automation:%'
-            ORDER BY a.created_at ASC,a.id ASC
+            ORDER BY a.created_at DESC,a.id DESC
             LIMIT ?
             """,
             (_MAX_ACTION_ROWS,),
@@ -275,6 +283,7 @@ def _load_actions(settings: dict[str, Any]) -> list[dict[str, Any]]:
         except room_device_automation.RoomDeviceError:
             continue
         output.append(action)
+    output.sort(key=lambda item: (item["_when"], item["id"]))
     return output
 
 
@@ -317,25 +326,41 @@ def _context_near(times: list[datetime]) -> dict[str, Any]:
     with db() as connection:
         rows = connection.execute(
             """
-            SELECT event_type,state,COUNT(*) AS occurrences
+            SELECT event_type,state,occurred_at
             FROM automation_context_events
             WHERE occurred_at>=? AND occurred_at<=?
-            GROUP BY event_type,state
-            ORDER BY occurrences DESC,event_type,state
-            LIMIT 8
+            ORDER BY occurred_at ASC,id ASC
+            LIMIT 2000
             """,
             (_iso(start), _iso(end)),
         ).fetchall()
-    return {
-        "nearby_context": [
+    counts: dict[tuple[str, str], int] = defaultdict(int)
+    for row in rows:
+        occurred = _parse_time(row["occurred_at"])
+        if occurred is None:
+            continue
+        if not any(
+            abs((occurred - action_time).total_seconds()) <= 45 * 60
+            for action_time in times
+        ):
+            continue
+        counts[(str(row["event_type"]), str(row["state"]))] += 1
+    nearby = sorted(
+        (
             {
-                "event_type": row["event_type"],
-                "state": row["state"],
-                "occurrences": int(row["occurrences"]),
+                "event_type": event_type,
+                "state": state,
+                "occurrences": occurrences,
             }
-            for row in rows
-        ]
-    }
+            for (event_type, state), occurrences in counts.items()
+        ),
+        key=lambda item: (
+            -int(item["occurrences"]),
+            str(item["event_type"]),
+            str(item["state"]),
+        ),
+    )[:8]
+    return {"nearby_context": nearby}
 
 
 def _candidate_patterns(
@@ -989,7 +1014,11 @@ def enable_materialized_proposal(
             409,
         )
     local_automation.set_routine_enabled(routine_key, True)
-    local_automation.set_rule_enabled(rule_key, True)
+    try:
+        local_automation.set_rule_enabled(rule_key, True)
+    except Exception:
+        local_automation.set_routine_enabled(routine_key, False)
+        raise
     with db() as connection:
         connection.execute(
             """
