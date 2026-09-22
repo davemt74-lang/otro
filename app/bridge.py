@@ -25,7 +25,7 @@ from .local_apps_api import router as local_apps_router
 from .local_voice_api import router as local_voice_router
 from .main import app
 from .remote_bridge_api import router as remote_bridge_router
-from .services import hardware_adapters, physical_agent, physical_meeting, providers, vp3_os
+from .services import ambient_agent, hardware_adapters, physical_agent, physical_meeting, providers, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -121,6 +121,7 @@ def capabilities() -> dict:
         "vp3_os_hardware": hardware_adapters.public_capability(),
         "vp3_os_physical_agent": physical_agent.public_capability(),
         "vp3_os_physical_meeting": physical_meeting.public_capability(),
+        "vp3_os_ambient_agent": ambient_agent.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
@@ -332,6 +333,11 @@ def capabilities() -> dict:
             "vp3.os.v020",
             "vp3.os.v030",
             "vp3.os.v040",
+            "vp3.os.v050",
+            "vp3.os.ambient_agent.v1",
+            "vp3.os.presence_events.v1",
+            "vp3.os.wake_word_events.v1",
+            "vp3.os.proactive_voice.v1",
             "vp3.os.physical_meeting.v1",
             "vp3.os.streaming_meeting_stt.v1",
             "vp3.os.meeting_card.v1",

@@ -16,6 +16,8 @@ VP3 OS v0.30 adds the **Physical Agent Runtime**: headless local microphone capt
 
 VP3 OS v0.40 adds the **Physical Meeting Runtime** and true physical-turn inference cancellation: explicit button/voice meeting start-stop, streaming local Whisper transcription with no raw-audio persistence, local Meeting Intelligence, structured Agent Chat Meeting Cards, privacy interruption, and provider-request cancellation on barge-in. See [docs/VP3_OS_PHYSICAL_MEETING_V040.md](docs/VP3_OS_PHYSICAL_MEETING_V040.md).
 
+VP3 OS v0.50 adds the **Ambient Agent Runtime**: opt-in local presence/wake/VAD coordination, proactive local Agent Voice for existing notifications, bounded wake handoff into the existing Physical Agent, and explicit guarantees against passive ambient microphone capture, ambient transcription, ambient memory, or paired-app room occupancy. See [docs/VP3_OS_AMBIENT_AGENT_V050.md](docs/VP3_OS_AMBIENT_AGENT_V050.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`

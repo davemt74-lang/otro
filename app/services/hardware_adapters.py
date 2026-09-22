@@ -111,6 +111,8 @@ def _safe_component_state(component: str, raw: Any) -> dict[str, Any]:
         state["bytes_free"] = _safe_nonnegative_int(item.get("bytes_free"))
     elif component == "accelerator":
         state["kind"] = _bounded_text(item.get("kind"), 80)
+    elif component == "presence_sensor":
+        state["occupied"] = bool(item.get("occupied"))
     return state
 
 
@@ -168,12 +170,18 @@ def normalize_controller_message(message: Any) -> dict[str, Any]:
     if kind == "event":
         event = _bounded_text(message.get("event"), 80).lower()
         action = _bounded_text(message.get("action"), 80).lower()
-        if event not in {"agent_button", "privacy_switch"}:
+        if event not in {"agent_button", "privacy_switch", "presence_sensor", "wake_word", "voice_activity"}:
             raise HardwareAdapterError("Hardware event type is not allowlisted.")
         if event == "agent_button" and action not in {"press", "release", "hold"}:
             raise HardwareAdapterError("Agent button action is invalid.")
         if event == "privacy_switch" and action not in {"engaged", "disengaged"}:
             raise HardwareAdapterError("Privacy switch action is invalid.")
+        if event == "presence_sensor" and action not in {"present", "absent"}:
+            raise HardwareAdapterError("Presence sensor action is invalid.")
+        if event == "wake_word" and action != "detected":
+            raise HardwareAdapterError("Wake-word action is invalid.")
+        if event == "voice_activity" and action not in {"started", "stopped"}:
+            raise HardwareAdapterError("Voice-activity action is invalid.")
         return {
             "type": "event",
             "seq": _safe_nonnegative_int(message.get("seq")),
@@ -389,6 +397,23 @@ class HardwareAdapterManager:
 
         if item["type"] == "event":
             with self._lock:
+                controller = dict(self._controller) if self._controller else {}
+            controller_capabilities = {
+                str(value)
+                for value in controller.get("capabilities", [])
+                if isinstance(value, str)
+            }
+            ambient_capability = {
+                "presence_sensor": "presence_sensor",
+                "wake_word": "wake_word",
+                "voice_activity": "voice_activity",
+            }.get(str(item.get("event") or ""))
+            if ambient_capability and ambient_capability not in controller_capabilities:
+                raise HardwareAdapterError(
+                    f"Hardware controller did not advertise {ambient_capability} capability."
+                )
+
+            with self._lock:
                 seq = int(item.get("seq") or 0)
                 if seq and seq <= self._last_seq:
                     return {**item, "duplicate": True}
@@ -397,6 +422,18 @@ class HardwareAdapterManager:
                 event = {**item, "received_at": now}
                 self._events.append(event)
                 handlers = list(self._event_handlers)
+
+            # Only accepted presence events may mutate normalized hardware
+            # state. This keeps stale/duplicate event frames from rolling room
+            # occupancy backward after sequence deduplication.
+            if item.get("event") == "presence_sensor":
+                vp3_os.report_hardware_state(
+                    "presence_sensor",
+                    present=True,
+                    ready=True,
+                    metadata={"occupied": item.get("action") == "present"},
+                )
+
             for handler in handlers:
                 try:
                     handler(dict(event))
@@ -468,6 +505,8 @@ class HardwareAdapterManager:
                 }
             elif component == "accelerator":
                 metadata = {"kind": state.get("kind", "")}
+            elif component == "presence_sensor":
+                metadata = {"occupied": bool(state.get("occupied"))}
             elif component == "agent_button":
                 metadata = {"pressed": bool(state.get("pressed"))}
             vp3_os.report_hardware_state(

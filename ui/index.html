@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/assets/brain.css">
   <link rel="stylesheet" href="/assets/chat-enhancements.css">
   <link rel="stylesheet" href="/assets/voice-settings.css">
+  <link rel="stylesheet" href="/assets/ambient-agent.css">
   <link rel="stylesheet" href="/assets/tools.css">
   <link rel="stylesheet" href="/assets/approvals.css">
   <link rel="stylesheet" href="/assets/contacts.css">
@@ -28,6 +29,7 @@
         <button class="nav-item" data-view="memory">Memory</button>
         <button class="nav-item" data-view="contacts">Contacts</button>
         <button class="nav-item" data-view="apps">Connected Apps</button>
+        <button class="nav-item" data-view="ambient">Ambient Agent</button>
         <button class="nav-item" data-view="activity">Activity</button>
       </nav>
       <div class="sidebar-foot">
@@ -147,6 +149,69 @@
         <div id="pendingPairing" class="pending-list"></div><div id="appsList" class="cards-list"></div>
       </section>
 
+      <section class="view" id="view-ambient">
+        <div class="section-intro split">
+          <div>
+            <h2>Ambient Agent</h2>
+            <p>Optional room presence, wake events, and proactive local voice. Ambient mode never records or transcribes the room by itself.</p>
+          </div>
+          <span id="ambientStateBadge" class="ambient-state-badge">Loading…</span>
+        </div>
+        <div class="ambient-grid">
+          <section class="panel ambient-settings-panel">
+            <div class="ambient-section-title"><h3>Behavior</h3><p>Ambient is off by default and remains subordinate to the physical privacy switch.</p></div>
+            <label class="ambient-toggle"><input type="checkbox" id="ambientEnabled"><span><strong>Enable Ambient Agent</strong><small>Allow presence, wake and proactive voice coordination.</small></span></label>
+            <label class="ambient-toggle"><input type="checkbox" id="ambientWakeEnabled"><span><strong>Wake events</strong><small>Let trusted local wake/VAD hardware open a bounded Physical Agent turn.</small></span></label>
+            <label class="ambient-toggle"><input type="checkbox" id="ambientProactiveVoice"><span><strong>Proactive voice</strong><small>Speak eligible local notifications when presence policy allows.</small></span></label>
+
+            <div class="ambient-field-grid">
+              <label><span>Presence policy</span><select id="ambientPresencePolicy"><option value="sensor_required">Require presence sensor</option><option value="assume_present">Assume present</option></select></label>
+              <label><span>Announcement detail</span><select id="ambientAnnouncementDetail"><option value="title_only">Title only</option><option value="title_and_body">Title + body</option></select></label>
+              <label><span>Cooldown (seconds)</span><input id="ambientCooldown" type="number" min="5" max="3600" step="1"></label>
+              <label><span>Wake timeout (seconds)</span><input id="ambientWakeTimeout" type="number" min="5" max="120" step="1"></label>
+              <label><span>Max announcements / hour</span><input id="ambientMaxPerHour" type="number" min="1" max="60" step="1"></label>
+            </div>
+
+            <fieldset class="ambient-levels">
+              <legend>Speak notification levels</legend>
+              <label><input type="checkbox" value="info" data-ambient-level> Info</label>
+              <label><input type="checkbox" value="warning" data-ambient-level> Warning</label>
+              <label><input type="checkbox" value="error" data-ambient-level> Error</label>
+            </fieldset>
+
+            <div class="ambient-actions">
+              <button class="button primary" id="ambientSave">Save Ambient Settings</button>
+              <button class="button secondary" id="ambientTestVoice">Test Local Voice</button>
+            </div>
+            <p class="ambient-feedback" id="ambientFeedback" aria-live="polite"></p>
+          </section>
+
+          <section class="panel ambient-status-panel">
+            <div class="ambient-section-title"><h3>Local status</h3><p>This room state stays on the HomeServer and is not included in paired-app status.</p></div>
+            <dl class="ambient-status-list">
+              <div><dt>Runtime</dt><dd id="ambientRuntimeState">—</dd></div>
+              <div><dt>Presence</dt><dd id="ambientPresence">—</dd></div>
+              <div><dt>Wake turn</dt><dd id="ambientWakeActive">—</dd></div>
+              <div><dt>Last wake</dt><dd id="ambientLastWake">—</dd></div>
+              <div><dt>Last announcement</dt><dd id="ambientLastAnnouncement">—</dd></div>
+              <div><dt>Presence sensor</dt><dd id="ambientPresenceHardware">—</dd></div>
+              <div><dt>Wake event hardware</dt><dd id="ambientWakeHardware">—</dd></div>
+              <div><dt>Voice activity hardware</dt><dd id="ambientVadHardware">—</dd></div>
+            </dl>
+            <div class="ambient-privacy-contract">
+              <strong>Ambient privacy contract</strong>
+              <ul>
+                <li>No passive ambient microphone capture.</li>
+                <li>No ambient transcription.</li>
+                <li>No ambient memory creation.</li>
+                <li>Physical privacy switch always wins.</li>
+                <li>Spoken notifications stay unread until you mark them read.</li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section class="view" id="view-activity">
         <div class="section-intro"><div><h2>Activity</h2><p>A local audit trail of meaningful HomeServer actions.</p></div></div>
         <div class="panel table-wrap"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th></tr></thead><tbody id="activityTable"></tbody></table></div>
@@ -156,6 +221,7 @@
   <script src="/assets/app.js" defer></script>
   <script src="/assets/brain.js" defer></script>
   <script src="/assets/voice-settings.js" defer></script>
+  <script src="/assets/ambient-agent.js" defer></script>
   <script src="/assets/voice-catalog.js" defer></script>
   <script src="/assets/chat-enhancements.js" defer></script>
   <script src="/assets/chat-dictation.js" defer></script>

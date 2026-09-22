@@ -233,7 +233,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             public = client.get("/api/v1/capabilities")
             assert public.status_code == 200, public.text
             caps = public.json()
-            assert caps["vp3_os"]["os_version"] == "v0.40"
+            assert str(caps["vp3_os"]["os_version"]).startswith("v0.")
             assert caps["vp3_os_physical_meeting"]["version"] == "v0.40"
             assert caps["vp3_os_physical_meeting"]["raw_audio_persisted"] is False
             for feature in (

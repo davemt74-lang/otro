@@ -1,0 +1,13 @@
+.ambient-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(300px,.8fr);gap:18px}
+.ambient-settings-panel,.ambient-status-panel{display:grid;gap:16px}
+.ambient-section-title h3{margin:0 0 4px;font-size:15px}.ambient-section-title p{margin:0;color:var(--muted);font-size:11px;line-height:1.5}
+.ambient-state-badge{border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:#fff}
+.ambient-state-badge[data-state="present"],.ambient-state-badge[data-state="listening"],.ambient-state-badge[data-state="speaking"]{color:#222;border-color:#b9b9ad}
+.ambient-state-badge[data-state="privacy"],.ambient-state-badge[data-state="error"]{font-weight:700}
+.ambient-toggle{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff}.ambient-toggle input{margin-top:2px}.ambient-toggle span{display:grid;gap:3px}.ambient-toggle strong{font-size:12px}.ambient-toggle small{font-size:10px;color:var(--muted);line-height:1.4}
+.ambient-field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.ambient-field-grid label{display:grid;gap:5px}.ambient-field-grid label>span{font-size:10px;font-weight:700}.ambient-field-grid select,.ambient-field-grid input{width:100%;border:1px solid var(--line);border-radius:9px;background:#fff;padding:9px 10px;font:inherit}
+.ambient-levels{border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;gap:16px;flex-wrap:wrap}.ambient-levels legend{font-size:10px;font-weight:700;padding:0 5px}.ambient-levels label{font-size:11px;display:flex;align-items:center;gap:6px}
+.ambient-actions{display:flex;gap:9px;flex-wrap:wrap}.ambient-feedback{min-height:18px;margin:0;font-size:10px;color:var(--muted)}
+.ambient-status-list{display:grid;gap:0;margin:0}.ambient-status-list>div{display:flex;justify-content:space-between;gap:18px;padding:10px 0;border-bottom:1px solid #eeeeea}.ambient-status-list dt{font-size:10px;color:var(--muted)}.ambient-status-list dd{margin:0;font-size:10px;text-align:right;font-weight:600}
+.ambient-privacy-contract{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fafaf7}.ambient-privacy-contract strong{font-size:11px}.ambient-privacy-contract ul{margin:8px 0 0;padding-left:18px;display:grid;gap:4px}.ambient-privacy-contract li{font-size:10px;line-height:1.45;color:#555}
+@media(max-width:900px){.ambient-grid{grid-template-columns:1fr}}@media(max-width:560px){.ambient-field-grid{grid-template-columns:1fr}.ambient-actions .button{width:100%}}
