@@ -696,6 +696,64 @@ def discard_package(package_id: int) -> dict[str, Any]:
     return get_package(package_id)
 
 
+
+def reconcile_update_results() -> list[dict[str, Any]]:
+    with db() as connection:
+        rows = connection.execute(
+            """
+            SELECT id,status FROM vp3_rollout_packages
+            WHERE status='applying'
+            ORDER BY id
+            """
+        ).fetchall()
+
+    reconciled: list[dict[str, Any]] = []
+    for row in rows:
+        package_id = int(row["id"])
+        result_path = _updates_root() / f"apply-{package_id}" / "update-result.json"
+        if not result_path.is_file():
+            continue
+        try:
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(result, dict):
+            continue
+        status = str(result.get("status") or "").strip().lower()
+        reason = str(result.get("reason") or "")[:500]
+        if status not in {"applied", "rolled_back", "failed"}:
+            continue
+
+        with db() as connection:
+            connection.execute(
+                """
+                UPDATE vp3_rollout_packages
+                SET status=?,failure_reason=?,
+                    applied_at=CASE WHEN ?='applied' THEN CURRENT_TIMESTAMP ELSE applied_at END,
+                    updated_at=CURRENT_TIMESTAMP
+                WHERE id=? AND status='applying'
+                """,
+                (
+                    status,
+                    reason if status != "applied" else None,
+                    status,
+                    package_id,
+                ),
+            )
+        _pending_update_path().unlink(missing_ok=True)
+        _event(
+            f"update.{status}",
+            f"Controlled update {status.replace('_', ' ')}.",
+            severity="error" if status == "failed" else (
+                "warning" if status == "rolled_back" else "info"
+            ),
+            metadata={"package_id": package_id, "reason": reason},
+        )
+        reconciled.append(get_package(package_id))
+    return reconciled
+
+
+
 def support_bundle() -> dict[str, Any]:
     root = _support_root()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -712,7 +770,13 @@ def support_bundle() -> dict[str, Any]:
             ),
             "error": diagnostics.get("backups", {}).get("error"),
         },
-        "startup": diagnostics.get("startup"),
+        "startup": {
+            "supported": diagnostics.get("startup", {}).get("supported"),
+            "enabled": diagnostics.get("startup", {}).get("enabled"),
+            "registry_enabled": diagnostics.get("startup", {}).get("registry_enabled"),
+            "legacy_shortcut": diagnostics.get("startup", {}).get("legacy_shortcut"),
+            "mode": diagnostics.get("startup", {}).get("mode"),
+        },
         "owner_security": {
             "protection": diagnostics.get("owner_security", {}).get("protection"),
             "exists": diagnostics.get("owner_security", {}).get("exists"),
@@ -808,6 +872,7 @@ def list_events(limit: int = 50) -> list[dict[str, Any]]:
 
 
 def overview() -> dict[str, Any]:
+    reconcile_update_results()
     certifications = list_certifications(5)
     packages = list_packages(10)
     return {
