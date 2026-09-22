@@ -295,6 +295,27 @@ def upsert_mode(
     enabled: bool = True,
 ) -> dict[str, Any]:
     key = _key(mode_key, "mode_key")
+    with db() as connection:
+        existing_mode = connection.execute(
+            "SELECT id FROM orchestration_modes WHERE mode_key=? LIMIT 1",
+            (key,),
+        ).fetchone()
+        if existing_mode is not None:
+            open_session = connection.execute(
+                """
+                SELECT 1 FROM orchestration_mode_sessions
+                WHERE mode_id=? AND state IN (
+                    'suggested','requested','active','suspended'
+                )
+                LIMIT 1
+                """,
+                (int(existing_mode["id"]),),
+            ).fetchone()
+            if open_session is not None:
+                raise OrchestrationError(
+                    "Room Mode cannot be edited while it has an open session.",
+                    409,
+                )
     safe_name = _text(
         name, 160, required=True, label="mode name"
     )
@@ -315,6 +336,14 @@ def upsert_mode(
     safe_rooms = _validate_rooms(room_keys)
     if not safe_rooms:
         safe_rooms = list(resources["room_keys"])
+    missing_scope = sorted(
+        set(resources["room_keys"]) - set(safe_rooms)
+    )
+    if missing_scope:
+        raise OrchestrationError(
+            "Room Mode scope does not include every room used by its routine.",
+            409,
+        )
     trigger = _validate_suggest_trigger(suggest_trigger)
 
     with db() as connection:
@@ -744,7 +773,7 @@ def _manual_override(
             JOIN automation_devices d ON d.id=a.device_id
             WHERE d.device_key IN ({placeholders})
               AND a.status='completed'
-              AND a.completed_at>?
+              AND julianday(a.completed_at)>julianday(?)
               AND a.source_app_key NOT LIKE 'automation:%'
             ORDER BY a.completed_at DESC,a.id DESC LIMIT 1
             """,
@@ -829,7 +858,7 @@ def _mode_conflicts(
     with db() as connection:
         rows = connection.execute(
             f"""
-            SELECT s.id,m.mode_key,m.name,m.priority,r.routine_key
+            SELECT s.id,m.id AS mode_id,m.mode_key,m.name,m.priority,r.routine_key
             FROM orchestration_mode_sessions s
             JOIN orchestration_modes m ON m.id=s.mode_id
             JOIN automation_routines r ON r.id=m.routine_id
@@ -847,6 +876,7 @@ def _mode_conflicts(
         conflicts.append(
             {
                 "session_id": int(row["id"]),
+                "mode_id": int(row["mode_id"]),
                 "mode_key": str(row["mode_key"]),
                 "mode_name": str(row["name"]),
                 "priority": int(row["priority"]),
@@ -888,9 +918,6 @@ def _record_conflicts(
 ) -> None:
     with db() as connection:
         for conflict in conflicts:
-            other = get_session(
-                int(conflict["session_id"]), refresh=False
-            )
             connection.execute(
                 """
                 INSERT INTO orchestration_mode_conflicts(
@@ -902,7 +929,7 @@ def _record_conflicts(
                     session_id,
                     int(mode["id"]),
                     int(conflict["session_id"]),
-                    int(other["mode_id"]),
+                    int(conflict["mode_id"]),
                     _encoded(
                         conflict["shared_devices"],
                         max_bytes=4096,
@@ -978,7 +1005,8 @@ def suggest_mode(
         recent = connection.execute(
             """
             SELECT id FROM orchestration_mode_sessions
-            WHERE mode_id=? AND started_at>=?
+            WHERE mode_id=?
+              AND julianday(started_at)>=julianday(?)
             ORDER BY id DESC LIMIT 1
             """,
             (int(mode["id"]), cutoff),
@@ -1126,17 +1154,38 @@ def _activate(
             metadata={"request_ids": result["request_ids"]},
         )
     else:
-        session = _create_session(
-            mode,
-            state="requested",
-            source_kind=source_kind,
-            reason=reason or "Owner requested Room Mode activation.",
-            request_ids=list(result["request_ids"]),
-            context_snapshot=_context_snapshot(),
-        )
+        try:
+            session = _create_session(
+                mode,
+                state="requested",
+                source_kind=source_kind,
+                reason=reason or "Owner requested Room Mode activation.",
+                request_ids=list(result["request_ids"]),
+                context_snapshot=_context_snapshot(),
+            )
+        except Exception:
+            approvals.cancel_pending_requests(
+                result["request_ids"],
+                source_app_key="automation:local-rule",
+                reason="Room Mode session could not be created.",
+            )
+            raise
 
     if conflicts:
         for conflict in conflicts:
+            conflicting_session = get_session(
+                int(conflict["session_id"]),
+                refresh=False,
+            )
+            if conflicting_session["state"] == "requested":
+                approvals.cancel_pending_requests(
+                    list(conflicting_session["request_ids"]),
+                    source_app_key="automation:local-rule",
+                    reason=(
+                        "Pending Room Mode requests were cancelled because "
+                        f"{mode['name']} explicitly superseded the mode."
+                    ),
+                )
             _transition(
                 int(conflict["session_id"]),
                 "suspended",
