@@ -11,8 +11,9 @@ from ..database import db
 
 AUTOMATION_VERSION = "v0.60"
 
-SAFE_CONTROL_CATEGORIES = {"light", "outlet", "fan", "thermostat", "scene"}
+SAFE_CONTROL_CATEGORIES = {"light", "outlet", "fan", "thermostat"}
 DISCOVERABLE_CATEGORIES = SAFE_CONTROL_CATEGORIES | {
+    "scene",
     "sensor",
     "camera",
     "lock",
@@ -482,11 +483,6 @@ def normalize_command(device: dict[str, Any], command: str, arguments: Any) -> t
             if mode not in {"off", "heat", "cool", "auto"}:
                 raise RoomDeviceError("Unsupported thermostat mode.")
             return cmd, {"mode": mode}
-
-    if category == "scene" and cmd == "activate":
-        if args:
-            raise RoomDeviceError("activate does not accept arguments.")
-        return cmd, {}
 
     raise RoomDeviceError("Command is not supported for this device.", 422)
 
