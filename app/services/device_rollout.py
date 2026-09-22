@@ -9,6 +9,8 @@ import shutil
 import sys
 import stat
 import tempfile
+import threading
+import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -28,6 +30,9 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 VERSION_RE = re.compile(r"^v\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$")
 CHANNELS = {"stable", "beta", "dev"}
 RINGS = {"pilot", "staged", "broad"}
+
+_STOP = threading.Event()
+_THREAD: threading.Thread | None = None
 _ALLOWED_PACKAGE_FILES = {
     "RELEASE.json",
     "HomeServer.exe",
@@ -894,6 +899,39 @@ def overview() -> dict[str, Any]:
             "support_bundle_private_content_included": False,
         },
     }
+
+
+
+def _reconcile_loop() -> None:
+    while not _STOP.wait(2.0):
+        try:
+            reconcile_update_results()
+        except Exception:
+            # Update-state reconciliation must never take down HomeServer.
+            pass
+
+
+def start() -> None:
+    global _THREAD
+    if _THREAD and _THREAD.is_alive():
+        return
+    _STOP.clear()
+    _THREAD = threading.Thread(
+        target=_reconcile_loop,
+        name="vp3-rollout-reconcile",
+        daemon=True,
+    )
+    _THREAD.start()
+
+
+def stop() -> None:
+    global _THREAD
+    _STOP.set()
+    thread = _THREAD
+    if thread and thread.is_alive():
+        thread.join(timeout=3)
+    _THREAD = None
+
 
 
 def public_capability() -> dict[str, Any]:
