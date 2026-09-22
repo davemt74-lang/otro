@@ -56,8 +56,9 @@ for feature in (
 ):
     assert feature in bridge, feature
 
-assert "pull_request:" in workflow
-assert "cancel-in-progress: true" in workflow
+assert "workflow_dispatch:" in workflow
+assert "pull_request:" not in workflow
+assert "push:" not in workflow
 assert "ubuntu-latest" in workflow
 assert "windows-latest" in workflow
 assert "tests/vp3_os_release_v100.py" in workflow
