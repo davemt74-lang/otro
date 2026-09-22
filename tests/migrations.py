@@ -221,6 +221,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         policies = migrated.execute("SELECT tool_key, enabled FROM tool_policies ORDER BY tool_key").fetchall()
         assert [(row["tool_key"], row["enabled"]) for row in policies] == [
             ("contacts.search", 1),
+            ("devices.command", 1),
+            ("devices.list", 1),
             ("files.delete", 1),
             ("files.update", 1),
             ("knowledge.search", 1),
