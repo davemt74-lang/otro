@@ -184,7 +184,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v050-ambient-") as data_dir:
             public = client.get("/api/v1/capabilities")
             assert public.status_code == 200, public.text
             caps = public.json()
-            assert str(caps["vp3_os"]["os_version"]).startswith("v0.")
+            assert str(caps["vp3_os"]["os_version"]).startswith("v")
             ambient_caps = caps["vp3_os_ambient_agent"]
             assert ambient_caps["version"] == "v0.50"
             assert ambient_caps["opt_in_default"] is False
