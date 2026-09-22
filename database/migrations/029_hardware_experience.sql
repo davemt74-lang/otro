@@ -1,5 +1,11 @@
 PRAGMA foreign_keys = ON;
 
+ALTER TABLE vp3_fleet_inventory
+ADD COLUMN hardware_experience_version TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE vp3_fleet_inventory
+ADD COLUMN experience_profile TEXT NOT NULL DEFAULT 'generic';
+
 CREATE TABLE IF NOT EXISTS vp3_hardware_experience_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
