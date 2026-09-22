@@ -44,10 +44,13 @@ from app.services.restore_runtime import apply_pending_restore_for_startup  # no
 from app.services.runtime_control import register_runtime_handler  # noqa: E402
 from app.services.windows_integration import open_folder  # noqa: E402
 from desktop.single_instance import SingleInstance  # noqa: E402
+from desktop.update_runtime import spawn_pending_update  # noqa: E402
 
 
 EXIT_ALREADY_RUNNING = 23
 EXIT_SERVER_NOT_READY = 24
+WATCHDOG_FAILURE_WINDOW_SECONDS = 300
+WATCHDOG_STABLE_RESET_SECONDS = 60
 
 
 def _icon() -> Image.Image:
@@ -125,6 +128,70 @@ def _select_runtime_app():
         return build_recovery_app(reason), True, reason
 
 
+def _watchdog_state_path() -> Path:
+    settings.runtime_dir.mkdir(parents=True, exist_ok=True)
+    return settings.runtime_dir / "watchdog-state.json"
+
+
+def _read_watchdog_state() -> dict:
+    path = _watchdog_state_path()
+    if not path.is_file():
+        return {"count": 0, "first_failure_at": 0.0}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {"count": 0, "first_failure_at": 0.0}
+    if not isinstance(payload, dict):
+        return {"count": 0, "first_failure_at": 0.0}
+    try:
+        count = max(0, int(payload.get("count") or 0))
+        first = max(0.0, float(payload.get("first_failure_at") or 0.0))
+    except (TypeError, ValueError):
+        return {"count": 0, "first_failure_at": 0.0}
+    return {"count": count, "first_failure_at": first}
+
+
+def _write_watchdog_state(count: int, first_failure_at: float) -> None:
+    path = _watchdog_state_path()
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(
+            {
+                "count": max(0, int(count)),
+                "first_failure_at": max(0.0, float(first_failure_at)),
+                "updated_at": time.time(),
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def _reset_watchdog_state() -> None:
+    try:
+        _watchdog_state_path().unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _register_watchdog_failure(max_failures: int) -> bool:
+    now = time.time()
+    state = _read_watchdog_state()
+    first = float(state["first_failure_at"])
+    count = int(state["count"])
+    if first <= 0 or now - first > WATCHDOG_FAILURE_WINDOW_SECONDS:
+        first = now
+        count = 0
+    count += 1
+    try:
+        _write_watchdog_state(count, first)
+    except OSError:
+        # Fail closed on restart-loop prevention if the state cannot be stored.
+        return False
+    return count < max(1, int(max_failures))
+
+
 def _restart_command() -> list[str]:
     args = [arg for arg in sys.argv[1:] if arg != "--restart-child"]
     if getattr(sys, "frozen", False):
@@ -157,8 +224,14 @@ class RuntimeController:
         self.remote_bridge = None if recovery_mode else RemoteBridgeWorker()
         self.restart_requested = False
         self.shutdown_requested = False
+        self.update_requested = False
         self._command_lock = threading.Lock()
         self._stop_scheduled = False
+        self._watchdog_stop = threading.Event()
+        self._watchdog_thread: threading.Thread | None = None
+        self._watchdog_started_at = 0.0
+        self._watchdog_state_reset = False
+        self._watchdog_max_failures = 3
 
     def _run_server(self) -> None:
         self.server.run()
@@ -166,6 +239,69 @@ class RuntimeController:
     def start_threaded(self) -> None:
         self.thread = threading.Thread(target=self._run_server, name="homeserver-api", daemon=False)
         self.thread.start()
+
+    def _watchdog_loop(self) -> None:
+        while not self._watchdog_stop.wait(1.0):
+            thread = self.thread
+            if thread is None or thread.is_alive():
+                if (
+                    not self._watchdog_state_reset
+                    and self._watchdog_started_at > 0
+                    and time.monotonic() - self._watchdog_started_at
+                    >= WATCHDOG_STABLE_RESET_SECONDS
+                ):
+                    _reset_watchdog_state()
+                    self._watchdog_state_reset = True
+                continue
+            with self._command_lock:
+                intentional = (
+                    self.restart_requested
+                    or self.shutdown_requested
+                    or self.update_requested
+                )
+                if intentional:
+                    return
+                self.restart_requested = _register_watchdog_failure(
+                    self._watchdog_max_failures
+                )
+                self._stop_scheduled = True
+            if self.tray is not None:
+                try:
+                    self.tray.stop()
+                except Exception:
+                    pass
+            return
+
+    def start_watchdog(self) -> None:
+        try:
+            from app.services.device_rollout import get_settings
+            rollout = get_settings()
+            enabled = bool(rollout.get("watchdog_enabled"))
+            self._watchdog_max_failures = max(
+                1,
+                int(rollout.get("max_failed_starts") or 3),
+            )
+        except Exception:
+            enabled = True
+            self._watchdog_max_failures = 3
+        if not enabled:
+            return
+        self._watchdog_stop.clear()
+        self._watchdog_started_at = time.monotonic()
+        self._watchdog_state_reset = False
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog_loop,
+            name="homeserver-runtime-watchdog",
+            daemon=True,
+        )
+        self._watchdog_thread.start()
+
+    def stop_watchdog(self) -> None:
+        self._watchdog_stop.set()
+        thread = self._watchdog_thread
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=2)
+        self._watchdog_thread = None
 
     def start_remote_bridge(self) -> None:
         if self.remote_bridge is not None:
@@ -192,11 +328,13 @@ class RuntimeController:
                 pass
 
     def handle_command(self, command: str) -> bool:
-        if command not in {"restart", "shutdown"}:
+        if command not in {"restart", "shutdown", "apply_update"}:
             return False
         with self._command_lock:
             if command == "restart":
                 self.restart_requested = True
+            elif command == "apply_update":
+                self.update_requested = True
             else:
                 self.shutdown_requested = True
             if not self._stop_scheduled:
@@ -283,6 +421,7 @@ class RuntimeController:
             raise SystemExit(EXIT_SERVER_NOT_READY)
 
         self.start_remote_bridge()
+        self.start_watchdog()
         register_runtime_handler(self.handle_command)
         try:
             self.tray = pystray.Icon(
@@ -306,6 +445,7 @@ class RuntimeController:
             self.tray.run()
         finally:
             register_runtime_handler(None)
+            self.stop_watchdog()
             self.stop_remote_bridge()
             self.stop_server()
 
@@ -325,6 +465,7 @@ def main() -> None:
         raise SystemExit(EXIT_ALREADY_RUNNING)
 
     restart_requested = False
+    update_requested = False
     try:
         _apply_staged_restore_before_server()
         asgi_app, recovery_mode, _reason = _select_runtime_app()
@@ -334,10 +475,19 @@ def main() -> None:
         else:
             controller.run_tray()
         restart_requested = controller.restart_requested
+        update_requested = controller.update_requested
     finally:
         instance.release()
 
-    if restart_requested:
+    if update_requested:
+        time.sleep(0.15)
+        if not spawn_pending_update():
+            subprocess.Popen(
+                _restart_command(),
+                close_fds=True,
+                env=_restart_environment(),
+            )
+    elif restart_requested:
         time.sleep(0.15)
         subprocess.Popen(
             _restart_command(),

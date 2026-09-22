@@ -27,6 +27,31 @@
       <div class="diagnostic-grid" id="diagnosticGrid"><div class="diagnostic-card"><span>Loading diagnostics…</span></div></div>
     </section>
 
+    <section class="system-section" id="rolloutSection">
+      <div class="section-intro split">
+        <div><p class="eyebrow">VP3 OS v1.1 · CONTROLLED ROLLOUT</p><h2>Hardware commissioning & updates</h2><p>Certify this appliance, choose its release ring, stage verified update packages, and create privacy-safe support diagnostics. Updates never apply automatically.</p></div>
+        <span class="setup-state" id="commissioningState">Checking…</span>
+      </div>
+      <div class="rollout-summary" id="rolloutSummary"></div>
+      <div class="rollout-grid">
+        <div class="runtime-panel rollout-settings">
+          <div><strong>Release policy</strong><p class="muted">Stable + pilot is the default production posture. Automatic apply remains disabled.</p></div>
+          <div class="rollout-fields">
+            <label><span>Channel</span><select id="rolloutChannel"><option value="stable">Stable</option><option value="beta">Beta</option><option value="dev">Dev</option></select></label>
+            <label><span>Rollout ring</span><select id="rolloutRing"><option value="pilot">Pilot</option><option value="staged">Staged</option><option value="broad">Broad</option></select></label>
+            <label class="startup-toggle"><input type="checkbox" id="rolloutWatchdog"><span><strong>Runtime watchdog</strong><small>Restart HomeServer if the supervised API thread exits unexpectedly.</small></span></label>
+          </div>
+          <div class="runtime-actions"><button class="button secondary" id="saveRolloutSettings" type="button">Save rollout policy</button><button class="button primary" id="certifyHardware" type="button">Run hardware certification</button><button class="button secondary" id="downloadSupportBundle" type="button">Support bundle</button></div>
+        </div>
+        <div class="runtime-panel rollout-update-panel">
+          <div><strong>Stage an update</strong><p class="muted">Upload a VP3 OS release ZIP. The embedded release manifest and SHA-256 inventory must validate before approval.</p></div>
+          <input id="rolloutPackage" type="file" accept=".zip,application/zip">
+          <div class="runtime-actions"><button class="button secondary" id="stageRolloutPackage" type="button">Validate & stage</button></div>
+        </div>
+      </div>
+      <div class="rollout-packages" id="rolloutPackages"><div class="muted">No staged updates.</div></div>
+    </section>
+
     <section class="system-section" id="commercePaymentsSection">
       <div class="section-intro split"><div><p class="eyebrow">COMMERCE PAYMENTS · v0.60</p><h2>Optional local payment authority</h2><p>VP3 Cloud can process commerce without HomeServer. Configure Stripe here only when you want this HomeServer to hold the merchant Stripe credentials and execute selected VP3 commerce payments locally.</p></div><span class="setup-state" id="stripePaymentState">Checking…</span></div>
       <div class="runtime-panel commerce-payment-panel">

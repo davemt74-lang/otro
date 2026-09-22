@@ -339,11 +339,24 @@ jobs:
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { throw "$file was not built" }
           }
+          $hashMap = [ordered]@{}
           $lines = foreach ($file in $files) {
             $hash = Get-FileHash -Algorithm SHA256 $file
-            "$($hash.Hash.ToLower())  $([System.IO.Path]::GetFileName($file))"
+            $name = [System.IO.Path]::GetFileName($file)
+            $digest = $hash.Hash.ToLower()
+            $hashMap[$name] = $digest
+            "$digest  $name"
           }
           $lines | Set-Content -Encoding ascii 'dist/SHA256SUMS.txt'
+          $manifest = [ordered]@{
+            format = 'vp3-os-release-v1'
+            version = 'v1.1'
+            channel = 'stable'
+            minimum_schema_version = 27
+            files = $hashMap
+            release_notes = 'VP3 OS v1.1 Controlled Production Rollout & Hardware Certification'
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
         uses: actions/upload-artifact@v4
         with:
@@ -352,5 +365,6 @@ jobs:
             dist/HomeServer.exe
             dist/HomeServerSetup.exe
             dist/SHA256SUMS.txt
+            dist/RELEASE.json
           if-no-files-found: error
           retention-days: 14

@@ -4,7 +4,7 @@ const bytes = value => { const n=Number(value||0); if(n<1024)return `${n} B`; if
 
 async function systemApi(path, options = {}) {
   const headers = {...(options.headers || {})};
-  if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  if (options.body && !(options.body instanceof FormData) && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
   const response = await fetch(path, {...options, headers});
   let payload = {};
   try { payload = await response.json(); } catch (_) {}
@@ -70,6 +70,63 @@ function renderDiagnostics(data) {
   if (bootstrap.warning) systemFlash(bootstrap.warning, true);
 }
 
+
+function rolloutStatusLabel(value) {
+  return String(value || 'unknown').replaceAll('_', ' ');
+}
+
+function rolloutPackageCard(item) {
+  const actions = [];
+  if (item.status === 'staged') {
+    actions.push('<button class="button secondary" data-rollout-approve="' + item.id + '" type="button">Approve + backup</button>');
+  }
+  if (item.status === 'approved') {
+    actions.push('<button class="button primary" data-rollout-apply="' + item.id + '" type="button">Apply update</button>');
+  }
+  if (!['applying','applied'].includes(item.status)) {
+    actions.push('<button class="text-button danger" data-rollout-discard="' + item.id + '" type="button">Discard</button>');
+  }
+  return '<article class="rollout-package"><div><strong>' +
+    escSystem(item.version) + '</strong><span>' + escSystem(item.channel) + ' · ' +
+    escSystem(rolloutStatusLabel(item.status)) + '</span><small>SHA-256 ' +
+    escSystem((item.package_sha256 || '').slice(0,16)) + '…</small></div><div class="runtime-actions">' +
+    actions.join('') + '</div></article>';
+}
+
+function renderRollout(data) {
+  const settings = data.settings || {};
+  const commissioning = data.commissioning || {};
+  const profile = commissioning.profile || {};
+  const hardware = commissioning.hardware || {};
+  const state = commissioning.state || 'unknown';
+  const stateNode = byId('commissioningState');
+  stateNode.textContent = state === 'ready' ? 'Commissioned' : rolloutStatusLabel(state);
+  stateNode.classList.toggle('complete', state === 'ready');
+
+  byId('rolloutChannel').value = settings.release_channel || 'stable';
+  byId('rolloutRing').value = settings.rollout_ring || 'pilot';
+  byId('rolloutWatchdog').checked = settings.watchdog_enabled !== false;
+
+  const missing = hardware.missing_hardware || [];
+  const notReady = hardware.not_ready_hardware || [];
+  const cert = data.latest_certification || null;
+  byId('rolloutSummary').innerHTML = [
+    diagnosticCard('VP3 OS', state === 'ready', [['Version', data.vp3_os_version || '—'], ['Profile', profile.label || profile.key || 'custom'], ['Commissioning', rolloutStatusLabel(state)]]),
+    diagnosticCard('Hardware', hardware.result === 'passed' ? true : (hardware.result === 'failed' ? false : null), [['Certification', cert ? rolloutStatusLabel(cert.result) : 'not run'], ['Missing', missing.length ? missing.join(', ') : 'none'], ['Not ready', notReady.length ? notReady.join(', ') : 'none']]),
+    diagnosticCard('Rollout', true, [['Channel', settings.release_channel || 'stable'], ['Ring', settings.rollout_ring || 'pilot'], ['Automatic apply', settings.automatic_apply ? 'enabled' : 'disabled']]),
+  ].join('');
+
+  const packages = data.packages || [];
+  byId('rolloutPackages').innerHTML = packages.length
+    ? packages.map(rolloutPackageCard).join('')
+    : '<div class="muted">No staged updates.</div>';
+}
+
+async function refreshRollout() {
+  const data = await systemApi('/api/v1/control/vp3-os/rollout');
+  renderRollout(data);
+}
+
 function renderPayments(data) {
   const stripe = data?.providers?.stripe || {};
   const state = byId('stripePaymentState');
@@ -90,14 +147,107 @@ async function refreshPayments() {
 }
 
 async function refreshSystem() {
-  const [system, payments] = await Promise.all([
+  const [system, payments, rollout] = await Promise.all([
     systemApi('/api/v1/control/system'),
     systemApi('/api/v1/control/payments'),
+    systemApi('/api/v1/control/vp3-os/rollout'),
   ]);
   renderSetup(system.setup || {});
   renderDiagnostics(system.diagnostics || {});
   renderPayments(payments);
+  renderRollout(rollout);
 }
+
+
+byId('saveRolloutSettings').addEventListener('click', async () => {
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/rollout/settings', {
+      method:'PUT',
+      body:JSON.stringify({
+        release_channel:byId('rolloutChannel').value,
+        rollout_ring:byId('rolloutRing').value,
+        watchdog_enabled:byId('rolloutWatchdog').checked,
+      }),
+    });
+    await refreshRollout();
+    systemFlash('Rollout policy saved · ' + result.settings.release_channel + ' / ' + result.settings.rollout_ring + '.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('certifyHardware').addEventListener('click', async () => {
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/certifications', {method:'POST'});
+    await refreshRollout();
+    systemFlash('Hardware certification ' + rolloutStatusLabel(result.result) + '.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('stageRolloutPackage').addEventListener('click', async () => {
+  const file = byId('rolloutPackage').files && byId('rolloutPackage').files[0];
+  if (!file) return systemFlash('Choose a VP3 OS release ZIP first.', true);
+  const form = new FormData();
+  form.append('package', file);
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/updates/stage', {method:'POST', body:form});
+    byId('rolloutPackage').value = '';
+    await refreshRollout();
+    systemFlash(result.version + ' validated and staged.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('rolloutPackages').addEventListener('click', async event => {
+  const approve = event.target.closest('[data-rollout-approve]');
+  const apply = event.target.closest('[data-rollout-apply]');
+  const discard = event.target.closest('[data-rollout-discard]');
+  try {
+    if (approve) {
+      const id = approve.dataset.rolloutApprove;
+      await systemApi('/api/v1/control/vp3-os/updates/' + id + '/approve', {method:'POST'});
+      await refreshRollout();
+      return systemFlash('Update approved and pre-update backup created.');
+    }
+    if (apply) {
+      const id = apply.dataset.rolloutApply;
+      if (!confirm('Apply this verified VP3 OS update now? HomeServer will shut down, install, restart, and restore the previous executable if health validation fails.')) return;
+      systemFlash('Controlled update requested. HomeServer will close and restart.');
+      await systemApi('/api/v1/control/vp3-os/updates/' + id + '/apply', {method:'POST'});
+      return;
+    }
+    if (discard) {
+      const id = discard.dataset.rolloutDiscard;
+      await systemApi('/api/v1/control/vp3-os/updates/' + id + '/discard', {method:'POST'});
+      await refreshRollout();
+      return systemFlash('Staged update discarded.');
+    }
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('downloadSupportBundle').addEventListener('click', async () => {
+  try {
+    const response = await fetch('/api/v1/control/vp3-os/support-bundle', {method:'POST'});
+    if (!response.ok) {
+      let detail = 'Request failed (' + response.status + ')';
+      try {
+        const payload = await response.json();
+        detail = payload.detail || detail;
+      } catch (_) {}
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const name = match && match[1] ? match[1] : 'vp3-support.zip';
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    systemFlash('Sanitized support bundle created.');
+  } catch (err) { systemFlash(err.message, true); }
+});
 
 byId('completeSetup').addEventListener('click', async () => {
   try {

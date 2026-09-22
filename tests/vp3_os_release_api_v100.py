@@ -36,14 +36,14 @@ with TestClient(app) as client:
     assert ready.status_code == 200, ready.text
     payload = ready.json()
     assert payload["release"] == "v1.0"
-    assert payload["vp3_os_version"] == "v1.0"
+    assert str(payload["vp3_os_version"]).startswith("v1.")
     assert payload["production_ready"] is True
     assert payload["status"] in {"ready", "degraded"}
 
     public = client.get("/api/v1/capabilities")
     assert public.status_code == 200
     capabilities = public.json()
-    assert capabilities["vp3_os"]["os_version"] == "v1.0"
+    assert str(capabilities["vp3_os"]["os_version"]).startswith("v1.")
     assert capabilities["vp3_os_release_readiness"]["version"] == "v1.0"
     assert "vp3.os.v100" in capabilities["features"]
 

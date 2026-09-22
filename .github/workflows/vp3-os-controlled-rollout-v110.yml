@@ -1,0 +1,133 @@
+name: VP3 OS Controlled Rollout v1.1
+
+on:
+  pull_request:
+    paths:
+      - "app/services/vp3_os.py"
+      - "app/services/release_readiness.py"
+      - "app/services/device_rollout.py"
+      - "app/device_rollout_api.py"
+      - "app/services/hardware_adapters.py"
+      - "app/services/runtime_control.py"
+      - "app/main.py"
+      - "app/bridge.py"
+      - "desktop/launcher.py"
+      - "desktop/update_runtime.py"
+      - "database/migrations/**"
+      - "ui/system.html"
+      - "ui/system.js"
+      - "ui/system.css"
+      - "ui/index.html"
+      - "tests/vp3_os_release_*"
+      - "tests/vp3_os_rollout_*"
+      - "tests/migrations.py"
+      - "tests/backups.py"
+      - "tests/backup_security.py"
+      - "tests/system_reliability.py"
+      - "tests/installer_contract.py"
+      - "docs/VP3_OS_*"
+      - ".github/CI_POLICY.md"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/vp3-os-controlled-rollout-v110.yml"
+      - ".github/workflows/vp3-os-production-release-v100.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "app/services/vp3_os.py"
+      - "app/services/release_readiness.py"
+      - "app/services/device_rollout.py"
+      - "app/device_rollout_api.py"
+      - "app/services/hardware_adapters.py"
+      - "app/services/runtime_control.py"
+      - "app/main.py"
+      - "app/bridge.py"
+      - "desktop/launcher.py"
+      - "desktop/update_runtime.py"
+      - "database/migrations/**"
+      - "ui/system.html"
+      - "ui/system.js"
+      - "ui/system.css"
+      - "ui/index.html"
+      - "tests/vp3_os_release_*"
+      - "tests/vp3_os_rollout_*"
+      - "tests/migrations.py"
+      - "tests/backups.py"
+      - "tests/backup_security.py"
+      - "tests/system_reliability.py"
+      - "tests/installer_contract.py"
+      - "docs/VP3_OS_*"
+      - ".github/CI_POLICY.md"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/vp3-os-controlled-rollout-v110.yml"
+      - ".github/workflows/vp3-os-production-release-v100.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: vp3-os-v110-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  controlled-rollout:
+    name: Controlled rollout · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile v1.1 rollout runtime
+        run: >-
+          python -m py_compile
+          app/services/vp3_os.py
+          app/services/release_readiness.py
+          app/services/device_rollout.py
+          app/device_rollout_api.py
+          app/services/runtime_control.py
+          app/main.py
+          app/bridge.py
+          desktop/launcher.py
+          desktop/update_runtime.py
+          tests/vp3_os_release_v100.py
+          tests/vp3_os_release_api_v100.py
+          tests/vp3_os_release_contract_v100.py
+          tests/vp3_os_rollout_v110.py
+          tests/vp3_os_rollout_api_v110.py
+          tests/vp3_os_rollout_contract_v110.py
+      - name: Validate system rollout JavaScript
+        run: node --check ui/system.js
+      - name: Verify v1.0 production release journey
+        run: python tests/vp3_os_release_v100.py
+      - name: Verify v1.0 release readiness API
+        run: python tests/vp3_os_release_api_v100.py
+      - name: Verify v1.0 release contract
+        run: python tests/vp3_os_release_contract_v100.py
+      - name: Verify v1.1 controlled rollout runtime
+        run: python tests/vp3_os_rollout_v110.py
+      - name: Verify v1.1 controlled rollout API
+        run: python tests/vp3_os_rollout_api_v110.py
+      - name: Verify v1.1 rollout contract
+        run: python tests/vp3_os_rollout_contract_v110.py
+      - name: Verify migrations
+        run: python tests/migrations.py
+      - name: Verify backup integrity
+        run: python tests/backups.py
+      - name: Verify backup security
+        run: python tests/backup_security.py
+      - name: Verify system reliability
+        run: python tests/system_reliability.py
+      - name: Verify installer upgrade contract
+        run: python tests/installer_contract.py
