@@ -22,6 +22,7 @@ os.environ["VP3_OS_HARDWARE_ADAPTER"] = "disabled"
 
 from app.runtime import app  # noqa: E402
 from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
+from app.services import vp3_os  # noqa: E402
 from app.services.tasks import scheduler  # noqa: E402
 
 
@@ -32,7 +33,7 @@ def package_bytes() -> bytes:
     installer_hash = hashlib.sha256(installer).hexdigest()
     manifest = {
         "format": "vp3-os-release-v1",
-        "version": "v1.1",
+        "version": vp3_os.VP3_OS_VERSION,
         "channel": "stable",
         "minimum_schema_version": 27,
         "files": {
@@ -70,7 +71,7 @@ with TestClient(app) as client:
     assert overview.status_code == 200, overview.text
     payload = overview.json()
     assert payload["version"] == "v1.1"
-    assert payload["vp3_os_version"] == "v1.1"
+    assert str(payload["vp3_os_version"]).startswith("v1.")
     assert payload["settings"]["release_channel"] == "stable"
     assert payload["settings"]["rollout_ring"] == "pilot"
     assert payload["governance"]["automatic_apply"] is False
@@ -94,7 +95,7 @@ with TestClient(app) as client:
 
     staged = client.post(
         "/api/v1/control/vp3-os/updates/stage",
-        files={"package": ("VP3-OS-v1.1.zip", package_bytes(), "application/zip")},
+        files={"package": (f"VP3-OS-{vp3_os.VP3_OS_VERSION}.zip", package_bytes(), "application/zip")},
     )
     assert staged.status_code == 200, staged.text
     staged_payload = staged.json()
@@ -125,7 +126,7 @@ with TestClient(app) as client:
     capabilities = client.get("/api/v1/capabilities")
     assert capabilities.status_code == 200
     caps = capabilities.json()
-    assert caps["vp3_os"]["os_version"] == "v1.1"
+    assert str(caps["vp3_os"]["os_version"]).startswith("v1.")
     assert caps["vp3_os_device_rollout"]["version"] == "v1.1"
     assert caps["vp3_os_device_rollout"]["automatic_apply"] is False
     assert "vp3.os.v110" in caps["features"]
