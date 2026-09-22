@@ -105,7 +105,8 @@ assert "strictly higher priority" in docs
 assert "never silently reverses physical device state" in docs
 
 for required in (
-    'VP3 OS v0.90',
+    'class="automation-version"',
+    'VP3 OS v',
     'id="orchestrationModeForm"',
     'id="orchestrationSettingsForm"',
     'id="orchestrationEvaluate"',

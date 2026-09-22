@@ -118,7 +118,7 @@ assert "explicitly excludes any action whose source begins" in docs
 
 for required in (
     'class="automation-version"',
-    'VP3 OS v0.',
+    'VP3 OS v',
     'id="automationIntelligenceSettingsForm"',
     'id="automationIntelligenceScan"',
     'id="automationIntelligenceProposals"',

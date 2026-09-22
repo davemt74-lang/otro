@@ -26,6 +26,8 @@ VP3 OS v0.80 adds **Ambient Intelligence & Automation Learning**: local pattern 
 
 VP3 OS v0.90 adds **Ambient Orchestration & Room Modes**: owner-defined room modes backed by v0.70 routines, presence/meeting/time suggestions, simulation, priority-based conflict detection, governed requested→active session tracking, manual-override suspension, and private Cognitive Runtime awareness. Ambient context can suggest a mode but cannot activate one; all physical device changes remain behind v0.70 requests and v0.60 owner approval. See [docs/VP3_OS_AMBIENT_ORCHESTRATION_V090.md](docs/VP3_OS_AMBIENT_ORCHESTRATION_V090.md).
 
+VP3 OS v1.0 adds **Production Release Hardening**: canonical v1.0 release identity, owner-only release-readiness diagnostics, fresh-install/restart/upgrade validation, backup/recovery gates, bounded orchestration soak testing, cross-platform release CI, and explicit post-merge packaging discipline. v1.0 adds no new physical execution path and preserves the v0.60/v0.70 owner-approval boundary. See [docs/VP3_OS_PRODUCTION_RELEASE_V100.md](docs/VP3_OS_PRODUCTION_RELEASE_V100.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`

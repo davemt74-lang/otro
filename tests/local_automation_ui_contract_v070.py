@@ -51,7 +51,7 @@ for required in (
     'id="automationRuleForm"',
     'id="automationRuntimeForm"',
     'class="automation-version"',
-    'VP3 OS v0.',
+    'VP3 OS v',
 ):
     assert required in index_html, required
 

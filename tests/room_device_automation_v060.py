@@ -84,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v060-room-device-") as data_dir:
                     ).fetchone() is not None
 
             caps = client.get("/api/v1/capabilities").json()
-            assert caps["vp3_os"]["os_version"] == "v0.60"
+            assert str(caps["vp3_os"]["os_version"]).startswith("v")
             automation_caps = caps["vp3_os_room_device_automation"]
             assert automation_caps["version"] == "v0.60"
             assert automation_caps["ambient_direct_execution"] is False

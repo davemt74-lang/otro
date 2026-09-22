@@ -1,0 +1,180 @@
+name: VP3 OS Production Release v1.0
+
+on:
+  pull_request:
+    paths:
+      - "app/services/vp3_os.py"
+      - "app/services/release_readiness.py"
+      - "app/release_readiness_api.py"
+      - "app/services/hardware_adapters.py"
+      - "app/services/physical_agent.py"
+      - "app/services/physical_meeting.py"
+      - "app/services/ambient_agent.py"
+      - "app/services/room_device_automation.py"
+      - "app/services/local_automation.py"
+      - "app/services/automation_intelligence.py"
+      - "app/services/ambient_orchestration.py"
+      - "app/main.py"
+      - "app/bridge.py"
+      - "app/system_api.py"
+      - "app/services/system_state.py"
+      - "ui/index.html"
+      - "desktop/**"
+      - "installer/**"
+      - "database/migrations/**"
+      - "tests/vp3_os_*"
+      - "tests/device_audio_v040.py"
+      - "tests/physical_meeting_v040.py"
+      - "tests/ambient_agent_*"
+      - "tests/room_device_automation_*"
+      - "tests/local_automation_*"
+      - "tests/automation_intelligence_*"
+      - "tests/ambient_orchestration_*"
+      - "tests/recovery.py"
+      - "tests/backup_security.py"
+      - "tests/backups.py"
+      - "tests/bootstrap.py"
+      - "tests/installer_contract.py"
+      - "tests/migrations.py"
+      - "docs/VP3_OS_*"
+      - ".github/CI_POLICY.md"
+      - ".github/workflows/vp3-os-production-release-v100.yml"
+      - ".github/workflows/vp3-os-ambient-orchestration-v090.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "app/services/vp3_os.py"
+      - "app/services/release_readiness.py"
+      - "app/release_readiness_api.py"
+      - "app/services/hardware_adapters.py"
+      - "app/services/physical_agent.py"
+      - "app/services/physical_meeting.py"
+      - "app/services/ambient_agent.py"
+      - "app/services/room_device_automation.py"
+      - "app/services/local_automation.py"
+      - "app/services/automation_intelligence.py"
+      - "app/services/ambient_orchestration.py"
+      - "app/main.py"
+      - "app/bridge.py"
+      - "app/system_api.py"
+      - "app/services/system_state.py"
+      - "desktop/**"
+      - "installer/**"
+      - "database/migrations/**"
+      - "tests/vp3_os_*"
+      - "tests/device_audio_v040.py"
+      - "tests/physical_meeting_v040.py"
+      - "tests/ambient_agent_*"
+      - "tests/room_device_automation_*"
+      - "tests/local_automation_*"
+      - "tests/automation_intelligence_*"
+      - "tests/ambient_orchestration_*"
+      - "tests/recovery.py"
+      - "tests/backup_security.py"
+      - "tests/backups.py"
+      - "tests/bootstrap.py"
+      - "tests/installer_contract.py"
+      - "tests/migrations.py"
+      - "docs/VP3_OS_*"
+      - ".github/CI_POLICY.md"
+      - ".github/workflows/vp3-os-production-release-v100.yml"
+      - ".github/workflows/vp3-os-ambient-orchestration-v090.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: vp3-os-v100-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  production-release:
+    name: Production release · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile VP3 OS production release
+        run: >-
+          python -m py_compile
+          app/services/vp3_os.py
+          app/services/release_readiness.py
+          app/release_readiness_api.py
+          app/services/hardware_adapters.py
+          app/services/physical_agent.py
+          app/services/physical_meeting.py
+          app/services/ambient_agent.py
+          app/services/room_device_automation.py
+          app/services/local_automation.py
+          app/services/automation_intelligence.py
+          app/services/ambient_orchestration.py
+          app/main.py
+          app/bridge.py
+          tests/vp3_os_release_v100.py
+          tests/vp3_os_release_api_v100.py
+          tests/vp3_os_soak_v100.py
+          tests/vp3_os_release_contract_v100.py
+      - name: Verify v0.10 platform contract
+        run: python tests/vp3_os_v010.py
+      - name: Verify v0.20 hardware adapter contract
+        run: python tests/vp3_os_v020.py
+      - name: Verify v0.30 physical agent
+        run: python tests/vp3_os_v030.py
+      - name: Verify v0.40 device audio
+        run: python tests/device_audio_v040.py
+      - name: Verify v0.40 physical meeting
+        run: python tests/physical_meeting_v040.py
+      - name: Verify v0.50 ambient agent
+        run: python tests/ambient_agent_v050.py
+      - name: Verify v0.50 ambient governance
+        run: python tests/ambient_agent_ui_contract_v050.py
+      - name: Verify v0.60 room-device runtime
+        run: python tests/room_device_automation_v060.py
+      - name: Verify v0.60 room-device governance
+        run: python tests/room_device_automation_ui_contract_v060.py
+      - name: Verify v0.70 local automation runtime
+        run: python tests/local_automation_v070.py
+      - name: Verify v0.70 local automation governance
+        run: python tests/local_automation_ui_contract_v070.py
+      - name: Verify v0.80 automation intelligence runtime
+        run: python tests/automation_intelligence_v080.py
+      - name: Verify v0.80 automation intelligence governance
+        run: python tests/automation_intelligence_contract_v080.py
+      - name: Verify v0.90 ambient orchestration runtime
+        run: python tests/ambient_orchestration_v090.py
+      - name: Verify v0.90 ambient orchestration governance
+        run: python tests/ambient_orchestration_contract_v090.py
+      - name: Verify v1.0 production release journey
+        run: python tests/vp3_os_release_v100.py
+      - name: Verify v1.0 release readiness API
+        run: python tests/vp3_os_release_api_v100.py
+      - name: Verify v1.0 bounded soak
+        run: python tests/vp3_os_soak_v100.py
+      - name: Verify v1.0 release contract
+        run: python tests/vp3_os_release_contract_v100.py
+      - name: Verify backup integrity
+        run: python tests/backups.py
+      - name: Verify backup security
+        run: python tests/backup_security.py
+      - name: Verify restricted recovery
+        run: python tests/recovery.py
+      - name: Verify Windows data bootstrap contract
+        run: python tests/bootstrap.py
+      - name: Verify installer upgrade contract
+        run: python tests/installer_contract.py
+      - name: Verify migrations
+        run: python tests/migrations.py

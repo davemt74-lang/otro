@@ -231,7 +231,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v030-") as data_dir:
             public = client.get("/api/v1/capabilities")
             assert public.status_code == 200, public.text
             advertised = public.json()
-            assert str(advertised["vp3_os"]["os_version"]).startswith("v0.")
+            assert str(advertised["vp3_os"]["os_version"]).startswith("v")
             assert advertised["vp3_os_physical_agent"]["version"] == "v0.30"
             assert advertised["vp3_os_physical_agent"]["push_to_talk"] is True
             assert advertised["vp3_os_physical_agent"]["barge_in"] is True
