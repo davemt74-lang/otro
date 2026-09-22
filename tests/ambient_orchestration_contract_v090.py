@@ -25,6 +25,9 @@ automation_js = (
 automation_css = (
     ROOT / "ui" / "room-device-automation.css"
 ).read_text(encoding="utf-8")
+local_automation = (
+    ROOT / "app" / "services" / "local_automation.py"
+).read_text(encoding="utf-8")
 
 for forbidden in (
     "execute_command(",
@@ -117,5 +120,7 @@ for required in (
 
 assert "execute_command(" not in automation_js
 assert "orchestration-card" in automation_css
+assert "def _assert_routine_not_bound_to_room_mode" in local_automation
+assert "bound to Room Mode" in local_automation
 
 print("VP3 OS v0.90 orchestration governance contract passed")
