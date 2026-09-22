@@ -97,6 +97,14 @@ def approve_update(package_id: int) -> dict:
         _raise(exc)
 
 
+@router.post("/api/v1/control/vp3-os/updates/{package_id}/apply")
+def apply_update(package_id: int) -> dict:
+    try:
+        return device_rollout.request_apply(package_id)
+    except device_rollout.RolloutError as exc:
+        _raise(exc)
+
+
 @router.post("/api/v1/control/vp3-os/updates/{package_id}/discard")
 def discard_update(package_id: int) -> dict:
     try:
