@@ -302,16 +302,19 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 23))
+        assert versions_again == list(range(1, 24))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 9
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 11
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
-        assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 1
+        assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 2
         assert migrated_again.execute(
             "SELECT COUNT(*) FROM action_requests WHERE id='legacy-memory-request' AND action_key='memory.write'"
+        ).fetchone()[0] == 1
+        assert migrated_again.execute(
+            "SELECT COUNT(*) FROM action_requests WHERE id='v060-device-request' AND action_key='devices.command'"
         ).fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
