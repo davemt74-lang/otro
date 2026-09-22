@@ -204,6 +204,21 @@ automation_intelligence.record_context_event(
     metadata={"source": "presence_sensor"},
 )
 
+ambient_orchestration.ambient_agent.status = lambda: {
+    "presence": "present",
+    "last_presence_at": datetime.now(timezone.utc).isoformat(),
+    "settings": {"enabled": True},
+}
+automation_intelligence.update_settings(
+    enabled=False,
+    scan_interval_seconds=3600,
+    lookback_days=21,
+    min_occurrences=4,
+    time_bucket_minutes=30,
+    max_proposals_per_scan=12,
+    suppression_days=30,
+)
+
 suggestions = ambient_orchestration.evaluate_mode_suggestions()
 focus_suggestion = next(
     item for item in suggestions if item["mode_key"] == "focus"
