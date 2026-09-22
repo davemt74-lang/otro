@@ -8,6 +8,7 @@ import httpx
 
 from ..database import db
 from . import provider_secrets
+from .inference_cancellation import CancellationToken, InferenceCancelled
 
 
 class ProviderError(RuntimeError):
@@ -286,6 +287,7 @@ def _generate_ollama_step(
     model: str,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None,
+    cancellation_token: CancellationToken | None = None,
 ) -> dict[str, Any]:
     url = normalize_loopback_url(provider["base_url"])
     request_body: dict[str, Any] = {
@@ -296,13 +298,29 @@ def _generate_ollama_step(
     }
     if tools:
         request_body["tools"] = tools
+    client = httpx.Client(timeout=120.0, trust_env=False)
     try:
-        with httpx.Client(timeout=120.0, trust_env=False) as client:
-            response = client.post(f"{url}/api/chat", json=request_body)
+        if cancellation_token is not None:
+            cancellation_token.register_client(client)
+            cancellation_token.raise_if_cancelled()
+        response = client.post(f"{url}/api/chat", json=request_body)
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
         response.raise_for_status()
         payload = response.json()
+    except InferenceCancelled:
+        raise
     except (httpx.HTTPError, ValueError) as exc:
+        if cancellation_token is not None and cancellation_token.cancelled:
+            raise InferenceCancelled(cancellation_token.reason) from exc
         raise ProviderError(f"Ollama could not complete the request at {url}.") from exc
+    finally:
+        if cancellation_token is not None:
+            cancellation_token.unregister_client(client)
+        try:
+            client.close()
+        except Exception:
+            pass
     message = payload.get("message") if isinstance(payload, dict) else None
     if not isinstance(message, dict):
         raise ProviderError("Ollama returned an invalid chat response.")
@@ -357,6 +375,7 @@ def _generate_openai_compatible_step(
     model: str,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None,
+    cancellation_token: CancellationToken | None = None,
 ) -> dict[str, Any]:
     key = provider["provider_key"]
     api_key = provider_secrets.get_api_key(key)
@@ -376,13 +395,29 @@ def _generate_openai_compatible_step(
         headers["HTTP-Referer"] = "https://vp3.me"
         headers["X-Title"] = "VP3 HomeServer"
     url = str(provider["base_url"]).rstrip("/") + "/chat/completions"
+    client = httpx.Client(timeout=120.0, trust_env=True)
     try:
-        with httpx.Client(timeout=120.0, trust_env=True) as client:
-            response = client.post(url, json=request_body, headers=headers)
+        if cancellation_token is not None:
+            cancellation_token.register_client(client)
+            cancellation_token.raise_if_cancelled()
+        response = client.post(url, json=request_body, headers=headers)
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
         response.raise_for_status()
         payload = response.json()
+    except InferenceCancelled:
+        raise
     except (httpx.HTTPError, ValueError) as exc:
+        if cancellation_token is not None and cancellation_token.cancelled:
+            raise InferenceCancelled(cancellation_token.reason) from exc
         raise ProviderError(f"{provider['name']} could not complete the request.") from exc
+    finally:
+        if cancellation_token is not None:
+            cancellation_token.unregister_client(client)
+        try:
+            client.close()
+        except Exception:
+            pass
     choices = payload.get("choices") if isinstance(payload, dict) else None
     message = choices[0].get("message") if isinstance(choices, list) and choices and isinstance(choices[0], dict) else None
     if not isinstance(message, dict):
@@ -462,6 +497,7 @@ def _generate_anthropic_step(
     model: str,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None,
+    cancellation_token: CancellationToken | None = None,
 ) -> dict[str, Any]:
     api_key = provider_secrets.get_api_key("anthropic")
     if not api_key:
@@ -479,13 +515,29 @@ def _generate_anthropic_step(
         "content-type": "application/json",
     }
     url = str(provider["base_url"]).rstrip("/") + "/v1/messages"
+    client = httpx.Client(timeout=120.0, trust_env=True)
     try:
-        with httpx.Client(timeout=120.0, trust_env=True) as client:
-            response = client.post(url, json=request_body, headers=headers)
+        if cancellation_token is not None:
+            cancellation_token.register_client(client)
+            cancellation_token.raise_if_cancelled()
+        response = client.post(url, json=request_body, headers=headers)
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
         response.raise_for_status()
         payload = response.json()
+    except InferenceCancelled:
+        raise
     except (httpx.HTTPError, ValueError) as exc:
+        if cancellation_token is not None and cancellation_token.cancelled:
+            raise InferenceCancelled(cancellation_token.reason) from exc
         raise ProviderError("Claude / Anthropic could not complete the request.") from exc
+    finally:
+        if cancellation_token is not None:
+            cancellation_token.unregister_client(client)
+        try:
+            client.close()
+        except Exception:
+            pass
     blocks = payload.get("content") if isinstance(payload, dict) else None
     if not isinstance(blocks, list):
         raise ProviderError("Claude / Anthropic returned an invalid chat response.")
@@ -527,26 +579,62 @@ def generate_step(
     *,
     tools: list[dict[str, Any]] | None = None,
     model_override: str | None = None,
+    cancellation_token: CancellationToken | None = None,
 ) -> dict[str, Any]:
     provider, model = _selected_provider(model_override)
     key = provider["provider_key"]
     if key == "ollama":
         # Keep all routed Ollama traffic on the same public seam used by the
-        # existing Agent Brain regressions and downstream integrations.
-        return generate_ollama_step(messages, tools=tools, model_override=model)
+        # existing Agent Brain regressions and downstream integrations. The
+        # cancellation keyword is opt-in so historical monkeypatches retain
+        # their original callable signature.
+        if cancellation_token is None:
+            return generate_ollama_step(messages, tools=tools, model_override=model)
+        return generate_ollama_step(
+            messages,
+            tools=tools,
+            model_override=model,
+            cancellation_token=cancellation_token,
+        )
     if key == "anthropic":
-        return _generate_anthropic_step(provider, model, messages, tools)
+        if cancellation_token is None:
+            return _generate_anthropic_step(provider, model, messages, tools)
+        return _generate_anthropic_step(
+            provider, model, messages, tools, cancellation_token
+        )
     if key in {"openai", "openrouter"}:
-        return _generate_openai_compatible_step(provider, model, messages, tools)
+        if cancellation_token is None:
+            return _generate_openai_compatible_step(provider, model, messages, tools)
+        return _generate_openai_compatible_step(
+            provider, model, messages, tools, cancellation_token
+        )
     raise ProviderError("Selected provider is not supported.")
 
 
-def generate(messages: list[dict[str, Any]], model_override: str | None = None) -> dict:
+def generate(
+    messages: list[dict[str, Any]],
+    model_override: str | None = None,
+    *,
+    cancellation_token: CancellationToken | None = None,
+) -> dict:
     provider, model = _selected_provider(model_override)
     if provider["provider_key"] == "ollama":
         # Preserve the long-standing non-tool Ollama seam as well.
-        return generate_ollama(messages, model_override=model)
-    generated = generate_step(messages, model_override=model)
+        if cancellation_token is None:
+            return generate_ollama(messages, model_override=model)
+        return generate_ollama(
+            messages,
+            model_override=model,
+            cancellation_token=cancellation_token,
+        )
+    if cancellation_token is None:
+        generated = generate_step(messages, model_override=model)
+    else:
+        generated = generate_step(
+            messages,
+            model_override=model,
+            cancellation_token=cancellation_token,
+        )
     if not generated["content"]:
         raise ProviderError("Inference provider returned no final response text.")
     return generated
@@ -557,6 +645,7 @@ def generate_ollama_step(
     *,
     tools: list[dict[str, Any]] | None = None,
     model_override: str | None = None,
+    cancellation_token: CancellationToken | None = None,
 ) -> dict[str, Any]:
     provider = get_ollama()
     if not provider["enabled"]:
@@ -564,11 +653,30 @@ def generate_ollama_step(
     model = str(model_override or provider["model"] or "").strip()
     if not model:
         raise ProviderError("No Ollama model is configured.")
-    return _generate_ollama_step(provider, model, messages, tools)
+    if cancellation_token is None:
+        return _generate_ollama_step(provider, model, messages, tools)
+    return _generate_ollama_step(
+        provider, model, messages, tools, cancellation_token
+    )
 
 
-def generate_ollama(messages: list[dict[str, Any]], model_override: str | None = None) -> dict:
-    generated = generate_ollama_step(messages, model_override=model_override)
+def generate_ollama(
+    messages: list[dict[str, Any]],
+    model_override: str | None = None,
+    *,
+    cancellation_token: CancellationToken | None = None,
+) -> dict:
+    if cancellation_token is None:
+        generated = generate_ollama_step(
+            messages,
+            model_override=model_override,
+        )
+    else:
+        generated = generate_ollama_step(
+            messages,
+            model_override=model_override,
+            cancellation_token=cancellation_token,
+        )
     if not generated["content"]:
         raise ProviderError("Ollama returned no final response text.")
     return generated

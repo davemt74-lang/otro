@@ -8,6 +8,7 @@ from ..database import db
 from . import (
     agent_routing,
     app_scopes,
+    approvals,
     brain,
     canonical_context,
     context_engine,
@@ -15,6 +16,7 @@ from . import (
     providers,
     usage as usage_service,
 )
+from .inference_cancellation import CancellationToken, InferenceCancelled
 
 
 def _apply_context_options(conversation_id: str, options: dict[str, Any] | None) -> dict[str, Any]:
@@ -139,7 +141,10 @@ def chat(
     tool_permissions: set[str] | None = None,
     owner_tools: bool = False,
     read_only: bool = False,
+    cancellation_token: CancellationToken | None = None,
 ) -> dict[str, Any]:
+    if cancellation_token is not None:
+        cancellation_token.raise_if_cancelled()
     text = message.strip()
     if not text:
         raise brain.BrainError("Message is required.")
@@ -148,6 +153,7 @@ def chat(
 
     granted_permissions = set(tool_permissions or set())
     agent = agent_routing.resolve_agent(source_app_key, agent_id, owner=owner_tools)
+    original_conversation_id = conversation_id
     agent_routing.validate_conversation_agent(source_app_key, conversation_id, int(agent["id"]))
     conversation_id = brain._conversation_for_source(
         source_app_key, conversation_id, int(agent["id"]), text
@@ -179,10 +185,11 @@ def chat(
         provider_key, provider_model, provider_override = _private_inference_route(inference)
 
     with db() as connection:
-        connection.execute(
+        cursor = connection.execute(
             "INSERT INTO conversation_messages(conversation_id, role, content, source_app_key) VALUES (?, 'user', ?, ?)",
             (conversation_id, text, source_app_key),
         )
+        user_message_id = int(cursor.lastrowid)
         connection.execute(
             "UPDATE conversations SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (conversation_id,)
         )
@@ -225,17 +232,84 @@ def chat(
 
     started = time.perf_counter()
     tool_state: dict[str, Any] = {}
-    try:
-        generated, tool_state = brain._generate_with_agent_tools(
-            messages,
+
+    def cancel_turn(reason: str) -> None:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        cancelled_requests = approvals.cancel_pending_requests(
+            list(tool_state.get("action_request_ids") or []),
             source_app_key=source_app_key,
-            selected_model=selected_model,
-            granted_permissions=_model_tool_permissions(read_only, canonical.model_tool_permissions),
-            owner=bool(owner_tools and not read_only),
-            state=tool_state,
-            provider_key=provider_override,
+            reason=f"Interrupted Agent turn: {reason[:180]}",
         )
+        cancelled_metadata = _safe_run_metadata(tool_state, canonical, agent=agent)
+        cancelled_metadata.update({
+            "cancelled": True,
+            "cancellation_reason": reason[:180],
+            "cancelled_action_requests": cancelled_requests,
+            "read_only": bool(read_only),
+        })
+        with db() as connection:
+            connection.execute(
+                """
+                UPDATE agent_runs
+                SET status='failed', duration_ms=?, error=?, tool_call_count=?, metadata_json=?, completed_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (
+                    duration_ms,
+                    f"cancelled:{reason}"[:1000],
+                    int(tool_state.get("call_count") or 0),
+                    json.dumps(cancelled_metadata, separators=(",", ":")),
+                    run_id,
+                ),
+            )
+            connection.execute("DELETE FROM conversation_messages WHERE id=?", (user_message_id,))
+            if original_conversation_id is None:
+                connection.execute(
+                    "DELETE FROM conversations WHERE id=? AND NOT EXISTS (SELECT 1 FROM conversation_messages WHERE conversation_id=?)",
+                    (conversation_id, conversation_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE conversations
+                    SET updated_at=COALESCE(
+                        (SELECT MAX(created_at) FROM conversation_messages WHERE conversation_id=?),
+                        created_at
+                    )
+                    WHERE id=?
+                    """,
+                    (conversation_id, conversation_id),
+                )
+
+    try:
+        if cancellation_token is None:
+            generated, tool_state = brain._generate_with_agent_tools(
+                messages,
+                source_app_key=source_app_key,
+                selected_model=selected_model,
+                granted_permissions=_model_tool_permissions(read_only, canonical.model_tool_permissions),
+                owner=bool(owner_tools and not read_only),
+                state=tool_state,
+                provider_key=provider_override,
+            )
+        else:
+            generated, tool_state = brain._generate_with_agent_tools(
+                messages,
+                source_app_key=source_app_key,
+                selected_model=selected_model,
+                granted_permissions=_model_tool_permissions(read_only, canonical.model_tool_permissions),
+                owner=bool(owner_tools and not read_only),
+                state=tool_state,
+                provider_key=provider_override,
+                cancellation_token=cancellation_token,
+            )
         tool_state["read_only"] = bool(read_only)
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
+    except InferenceCancelled as exc:
+        cancel_turn(str(exc))
+        raise brain.BrainError("Agent turn cancelled.", 409) from exc
+
     except providers.ProviderError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
         failed_metadata = _safe_run_metadata(tool_state, canonical, agent=agent)
@@ -257,6 +331,10 @@ def chat(
             )
         raise brain.BrainError(str(exc), 503) from exc
 
+    if cancellation_token is not None and cancellation_token.cancelled:
+        reason = cancellation_token.reason
+        cancel_turn(reason)
+        raise brain.BrainError("Agent turn cancelled.", 409)
     duration_ms = int((time.perf_counter() - started) * 1000)
     reply = str(generated.get("content") or "").strip()
     if not reply:
@@ -284,6 +362,11 @@ def chat(
     run_metadata = _safe_run_metadata(tool_state, canonical, agent=agent, context_event_id=context_event_id)
     run_metadata["scope_enforced"] = not owner_tools
     run_metadata["read_only"] = bool(read_only)
+
+    if cancellation_token is not None and cancellation_token.cancelled:
+        reason = cancellation_token.reason
+        cancel_turn(reason)
+        raise brain.BrainError("Agent turn cancelled.", 409)
 
     with db() as connection:
         connection.execute(

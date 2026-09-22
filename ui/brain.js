@@ -38,6 +38,43 @@
     if (node) node.textContent = title;
   }
 
+  function durationLabel(ms) {
+    const total = Math.max(0, Math.round(Number(ms || 0) / 1000));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  }
+
+  function meetingRows(items, key, label) {
+    const rows = Array.isArray(items) ? items : [];
+    if (!rows.length) return '';
+    return `<section class="meeting-card-section"><h5>${escapeHtml(label)}</h5><ul>${rows.map(item => {
+      const primary = escapeHtml(item?.[key] || '');
+      const extras = [item?.owner, item?.due_date, item?.contact, item?.signal].filter(Boolean).map(escapeHtml).join(' · ');
+      return `<li><span>${primary}</span>${extras ? `<small>${extras}</small>` : ''}</li>`;
+    }).join('')}</ul></section>`;
+  }
+
+  function renderMeetingCard(card) {
+    const status = card?.status || 'completed';
+    const meta = [
+      durationLabel(card?.duration_ms),
+      `${Number(card?.segment_count || 0)} transcript segment${Number(card?.segment_count || 0) === 1 ? '' : 's'}`,
+      status,
+    ].filter(Boolean).join(' · ');
+    return `<article class="meeting-card">
+      <header><div><p class="eyebrow">VP3 PHYSICAL MEETING</p><h4>${escapeHtml(card?.title || 'Meeting')}</h4></div><span class="meeting-card-status">${escapeHtml(status)}</span></header>
+      <p class="meeting-card-summary">${escapeHtml(card?.summary || 'Meeting intelligence was not available.')}</p>
+      <div class="meeting-card-meta">${escapeHtml(meta)}</div>
+      ${meetingRows(card?.decisions, 'decision', 'Decisions')}
+      ${meetingRows(card?.actions, 'action', 'Actions & commitments')}
+      ${meetingRows(card?.task_candidates, 'title', 'Task candidates')}
+      ${meetingRows(card?.questions, 'question', 'Open questions')}
+      ${meetingRows(card?.risks, 'risk', 'Risks')}
+      ${card?.follow_up_draft ? `<section class="meeting-card-section"><h5>Follow-up draft</h5><p>${escapeHtml(card.follow_up_draft)}</p></section>` : ''}
+    </article>`;
+  }
+
   function renderMessages(data) {
     const node = byId('chatMessages');
     if (!node) return;
@@ -46,7 +83,10 @@
       node.innerHTML = '<div class="chat-empty">Start a private conversation with your HomeServer Agent Brain. Local memory, knowledge and tools are used only within your permissions.</div>';
       return;
     }
-    node.innerHTML = messages.map(message => `<div class="chat-message ${escapeHtml(message.role)}">${escapeHtml(message.content)}${message.model ? `<small>${escapeHtml(message.model)}</small>` : ''}</div>`).join('');
+    node.innerHTML = messages.map(message => {
+      if (message?.card?.card_type === 'meeting') return renderMeetingCard(message.card);
+      return `<div class="chat-message ${escapeHtml(message.role)}">${escapeHtml(message.content)}${message.model ? `<small>${escapeHtml(message.model)}</small>` : ''}</div>`;
+    }).join('');
     node.scrollTop = node.scrollHeight;
   }
 

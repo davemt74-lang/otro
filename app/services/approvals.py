@@ -361,6 +361,56 @@ def approve_request(request_id: str) -> dict[str, Any]:
     return _request_for_owner(request["id"])
 
 
+def cancel_pending_requests(
+    request_ids: list[str] | tuple[str, ...],
+    *,
+    source_app_key: str | None = None,
+    reason: str = "Interrupted Agent turn cancelled this pending action.",
+) -> int:
+    """Fail closed any approval proposals created by a cancelled Agent turn."""
+    ids = []
+    for value in request_ids:
+        request_id = str(value or "").strip()
+        if request_id and request_id not in ids:
+            ids.append(request_id)
+        if len(ids) >= 16:
+            break
+    if not ids:
+        return 0
+
+    cancelled = 0
+    with db() as connection:
+        for request_id in ids:
+            params: list[Any] = [reason[:1000], request_id]
+            source_clause = ""
+            if source_app_key:
+                source_clause = " AND source_app_key=?"
+                params.append(str(source_app_key).strip())
+            updated = connection.execute(
+                f"""
+                UPDATE action_requests
+                SET status='denied', decided_at=CURRENT_TIMESTAMP, error=?
+                WHERE id=? AND status='pending'{source_clause}
+                """,
+                params,
+            )
+            if updated.rowcount != 1:
+                continue
+            cancelled += 1
+            connection.execute(
+                """
+                INSERT INTO activity_log(
+                    actor_type, actor_key, action, resource_type, resource_key, metadata_json
+                ) VALUES ('system', 'agent-cancellation', 'action.cancelled', 'action_request', ?, ?)
+                """,
+                (
+                    request_id,
+                    json.dumps({"reason": reason[:240]}, separators=(",", ":")),
+                ),
+            )
+    return cancelled
+
+
 def deny_request(request_id: str) -> dict[str, Any]:
     request = _request_for_owner(request_id)
     if request["status"] != "pending":

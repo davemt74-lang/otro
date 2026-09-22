@@ -14,6 +14,8 @@ VP3 OS v0.20 adds the first real hardware-adapter runtime: a bounded USB serial 
 
 VP3 OS v0.30 adds the **Physical Agent Runtime**: headless local microphone capture, push-to-talk and barge-in, local Whisper STT, the existing Agent Chat/Cognitive Runtime path, Agent voice profiles, local Piper TTS, speaker playback, and immediate privacy-switch interruption. See [docs/VP3_OS_PHYSICAL_AGENT_V030.md](docs/VP3_OS_PHYSICAL_AGENT_V030.md).
 
+VP3 OS v0.40 adds the **Physical Meeting Runtime** and true physical-turn inference cancellation: explicit button/voice meeting start-stop, streaming local Whisper transcription with no raw-audio persistence, local Meeting Intelligence, structured Agent Chat Meeting Cards, privacy interruption, and provider-request cancellation on barge-in. See [docs/VP3_OS_PHYSICAL_MEETING_V040.md](docs/VP3_OS_PHYSICAL_MEETING_V040.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`

@@ -88,6 +88,8 @@ class DeviceAudio:
         self._capture_chunks: list[bytes] = []
         self._capture_bytes = 0
         self._capture_overflow = False
+        self._capture_mode = "idle"
+        self._stream_callback: Any = None
         self._playback_stream: Any = None
         self._playing = False
 
@@ -99,6 +101,8 @@ class DeviceAudio:
             self._capture_chunks = []
             self._capture_bytes = 0
             self._capture_overflow = False
+            self._capture_mode = "turn"
+            self._stream_callback = None
 
         sd = _sounddevice()
         cfg = config()
@@ -136,6 +140,8 @@ class DeviceAudio:
                 self._capture_stream = None
                 self._capture_chunks = []
                 self._capture_bytes = 0
+                self._capture_mode = "idle"
+                self._stream_callback = None
             raise DeviceAudioError("VP3 OS could not open the microphone device.") from exc
 
     def stop_capture(self) -> bytes:
@@ -159,6 +165,8 @@ class DeviceAudio:
             self._capture_chunks = []
             self._capture_bytes = 0
             self._capture_overflow = False
+            self._capture_mode = "idle"
+            self._stream_callback = None
 
         if overflow:
             raise DeviceAudioError("Microphone capture overflowed or exceeded the safe duration.")
@@ -180,9 +188,80 @@ class DeviceAudio:
             self._capture_chunks = []
             self._capture_bytes = 0
             self._capture_overflow = False
+            self._capture_mode = "idle"
+            self._stream_callback = None
         if stream is not None:
             try:
                 stream.abort()
+            except Exception:
+                pass
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    def start_stream_capture(self, callback) -> None:
+        if not callable(callback):
+            raise DeviceAudioError("Streaming microphone callback must be callable.")
+        with self._lock:
+            if self._capture_stream is not None:
+                raise DeviceAudioError("Microphone capture is already active.")
+            self.stop_playback()
+            self._capture_chunks = []
+            self._capture_bytes = 0
+            self._capture_overflow = False
+            self._capture_mode = "stream"
+            self._stream_callback = callback
+
+        sd = _sounddevice()
+        cfg = config()
+
+        def stream_callback(indata, frames, time_info, status_flags):
+            del frames, time_info
+            payload = bytes(indata)
+            with self._lock:
+                if self._capture_stream is None or self._capture_mode != "stream":
+                    return
+                target = self._stream_callback
+            if target is None:
+                return
+            try:
+                target(payload, bool(status_flags))
+            except Exception:
+                # PortAudio callbacks must never propagate application errors.
+                # The meeting runtime owns its own fault state.
+                return
+
+        try:
+            stream = sd.RawInputStream(
+                samplerate=SAMPLE_RATE,
+                blocksize=0,
+                device=cfg.input_device,
+                channels=CHANNELS,
+                dtype="int16",
+                callback=stream_callback,
+            )
+            with self._lock:
+                self._capture_stream = stream
+            stream.start()
+        except Exception as exc:
+            with self._lock:
+                self._capture_stream = None
+                self._capture_mode = "idle"
+                self._stream_callback = None
+            raise DeviceAudioError("VP3 OS could not open the microphone device.") from exc
+
+    def stop_stream_capture(self) -> None:
+        with self._lock:
+            if self._capture_mode != "stream":
+                raise DeviceAudioError("Streaming microphone capture is not active.")
+            stream = self._capture_stream
+            self._capture_stream = None
+            self._capture_mode = "idle"
+            self._stream_callback = None
+        if stream is not None:
+            try:
+                stream.stop()
             except Exception:
                 pass
             try:
@@ -258,6 +337,7 @@ class DeviceAudio:
         with self._lock:
             return {
                 "capturing": self._capture_stream is not None,
+                "capture_mode": self._capture_mode,
                 "playing": self._playing,
                 "captured_bytes": self._capture_bytes,
             }

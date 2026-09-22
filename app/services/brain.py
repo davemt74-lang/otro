@@ -9,6 +9,7 @@ from typing import Any
 from ..database import db
 from .knowledge import list_knowledge
 from . import agent_tools, providers, usage as usage_service
+from .inference_cancellation import CancellationToken
 
 
 class BrainError(RuntimeError):
@@ -176,6 +177,7 @@ def _generate_with_agent_tools(
     owner: bool,
     state: dict[str, Any] | None = None,
     provider_key: str | None = None,
+    cancellation_token: CancellationToken | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     policy = agent_tools.get_policy()
     schemas = (
@@ -204,20 +206,48 @@ def _generate_with_agent_tools(
     )
 
     def generate_for_route(tool_schemas: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
         if provider_key == "ollama":
             if tool_schemas is None:
-                return providers.generate_ollama(messages, model_override=selected_model or None)
+                if cancellation_token is None:
+                    return providers.generate_ollama(messages, model_override=selected_model or None)
+                return providers.generate_ollama(
+                    messages,
+                    model_override=selected_model or None,
+                    cancellation_token=cancellation_token,
+                )
+            if cancellation_token is None:
+                return providers.generate_ollama_step(
+                    messages,
+                    tools=tool_schemas,
+                    model_override=selected_model or None,
+                )
             return providers.generate_ollama_step(
                 messages,
                 tools=tool_schemas,
                 model_override=selected_model or None,
+                cancellation_token=cancellation_token,
             )
         if tool_schemas is None:
-            return providers.generate(messages, model_override=selected_model or None)
+            if cancellation_token is None:
+                return providers.generate(messages, model_override=selected_model or None)
+            return providers.generate(
+                messages,
+                model_override=selected_model or None,
+                cancellation_token=cancellation_token,
+            )
+        if cancellation_token is None:
+            return providers.generate_step(
+                messages,
+                tools=tool_schemas,
+                model_override=selected_model or None,
+            )
         return providers.generate_step(
             messages,
             tools=tool_schemas,
             model_override=selected_model or None,
+            cancellation_token=cancellation_token,
         )
 
     if not schemas:
@@ -238,6 +268,8 @@ def _generate_with_agent_tools(
     while generated.get("tool_calls"):
         messages.append(_assistant_tool_message(generated))
         for call in generated["tool_calls"]:
+            if cancellation_token is not None:
+                cancellation_token.raise_if_cancelled()
             function = call.get("function") if isinstance(call, dict) else None
             model_name = str(function.get("name") or "") if isinstance(function, dict) else ""
             arguments = function.get("arguments") if isinstance(function, dict) else {}
@@ -255,6 +287,8 @@ def _generate_with_agent_tools(
 
             tool_state["call_count"] += 1
             try:
+                if cancellation_token is not None:
+                    cancellation_token.raise_if_cancelled()
                 result = agent_tools.execute_model_tool(
                     source_app_key, model_name, arguments, granted_permissions, owner=owner
                 )
@@ -479,6 +513,22 @@ def list_conversations(source_app_key: str, limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def _safe_message_card(metadata_json: str | None) -> dict[str, Any] | None:
+    try:
+        raw = json.loads(metadata_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict) or raw.get("card_type") != "meeting":
+        return None
+    allowed = {
+        "card_type", "version", "meeting_id", "title", "status", "duration_ms",
+        "segment_count", "source_hash", "summary", "key_points", "decisions",
+        "actions", "questions", "risks", "topics", "task_candidates",
+        "crm_candidates", "follow_up_draft", "agent_brief",
+    }
+    return {key: raw[key] for key in allowed if key in raw}
+
+
 def get_conversation(source_app_key: str, conversation_id: str) -> dict:
     with db() as connection:
         conversation = connection.execute(
@@ -492,12 +542,20 @@ def get_conversation(source_app_key: str, conversation_id: str) -> dict:
             raise BrainError("Conversation not found for this application.", 404)
         messages = connection.execute(
             """
-            SELECT id, role, content, model, created_at
+            SELECT id, role, content, model, metadata_json, created_at
             FROM conversation_messages WHERE conversation_id=? ORDER BY id
             """,
             (conversation_id,),
         ).fetchall()
-    return {"conversation": dict(conversation), "messages": [dict(row) for row in messages]}
+    output_messages = []
+    for row in messages:
+        item = dict(row)
+        metadata_json = item.pop("metadata_json", None)
+        card = _safe_message_card(metadata_json)
+        if card is not None:
+            item["card"] = card
+        output_messages.append(item)
+    return {"conversation": dict(conversation), "messages": output_messages}
 
 
 def rename_conversation(source_app_key: str, conversation_id: str, title: str) -> dict:

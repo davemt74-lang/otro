@@ -15,6 +15,7 @@ from . import (
     local_voice,
     vp3_os,
 )
+from .inference_cancellation import CancellationToken
 
 PHYSICAL_AGENT_VERSION = "v0.30"
 SOURCE_APP_KEY = "owner"
@@ -51,6 +52,8 @@ class PhysicalAgentRuntime:
         self._last_turn_at_monotonic: float | None = None
         self._generation = 0
         self._worker: threading.Thread | None = None
+        self._inference_token: CancellationToken | None = None
+        self._external_mode = ""
         self._last_error = ""
         self._last_transcript_chars = 0
         self._last_reply_chars = 0
@@ -143,6 +146,9 @@ class PhysicalAgentRuntime:
 
         if event_type != "agent_button":
             return
+        with self._lock:
+            if self._external_mode:
+                return
         if action == "press":
             self.begin_listening()
         elif action == "release":
@@ -158,11 +164,13 @@ class PhysicalAgentRuntime:
 
         with self._lock:
             state = self._state
+            external_mode = self._external_mode
+        if external_mode:
+            return {"started": False, "reason": f"external_mode:{external_mode}"}
 
-        # Pressing while the Agent speaks is a barge-in: stop output and start
-        # a fresh turn. We deliberately do not support interrupting inference
-        # mid-provider request in v0.30.
-        if state == "speaking":
+        # v0.40 barge-in supersedes any current physical turn. Provider
+        # inference is cooperatively cancelled when it is already in flight.
+        if state in {"transcribing", "thinking", "speaking"}:
             self.cancel("barge_in")
             state = "idle"
 
@@ -249,20 +257,41 @@ class PhysicalAgentRuntime:
 
             if not self._generation_active(generation) or self._privacy_engaged():
                 return
+
+            # Physical meeting mode is an explicit local control command, not an
+            # LLM interpretation. Import lazily to avoid a runtime cycle.
+            try:
+                from . import physical_meeting
+                if physical_meeting.handle_start_voice_command(transcript):
+                    return
+            except Exception:
+                pass
+
             self._set_state("thinking")
 
             conversation_id = self._conversation_for_turn()
-            result = context_chat.chat(
-                SOURCE_APP_KEY,
-                transcript,
-                conversation_id,
-                include_memory=True,
-                include_knowledge=True,
-                include_contacts=True,
-                context_options=None,
-                tool_permissions=set(),
-                owner_tools=True,
-            )
+            token = CancellationToken()
+            with self._lock:
+                if generation != self._generation:
+                    return
+                self._inference_token = token
+            try:
+                result = context_chat.chat(
+                    SOURCE_APP_KEY,
+                    transcript,
+                    conversation_id,
+                    include_memory=True,
+                    include_knowledge=True,
+                    include_contacts=True,
+                    context_options=None,
+                    tool_permissions=set(),
+                    owner_tools=True,
+                    cancellation_token=token,
+                )
+            finally:
+                with self._lock:
+                    if self._inference_token is token:
+                        self._inference_token = None
             reply = str(result.get("reply") or "").strip()
             if not reply:
                 raise PhysicalAgentError("The Agent returned no reply.")
@@ -345,8 +374,28 @@ class PhysicalAgentRuntime:
         with self._lock:
             self._generation += 1
             self._cancel_reason = str(reason)[:80]
+            token = self._inference_token
+            self._inference_token = None
+        if token is not None:
+            token.cancel(reason)
         device_audio.device_audio.cancel_capture()
         device_audio.device_audio.stop_playback()
+
+    def set_external_mode(self, mode: str | None) -> None:
+        normalized = str(mode or "").strip().lower()[:40]
+        with self._lock:
+            self._external_mode = normalized
+        if normalized:
+            self.cancel(f"external_mode:{normalized}")
+            if self._started:
+                self._set_state("idle" if not self._privacy_engaged() else "privacy")
+        # Clearing an external mode deliberately preserves the current Agent
+        # state. Hardware privacy events are authoritative and may arrive just
+        # before the controller's state snapshot.
+
+    def external_mode(self) -> str:
+        with self._lock:
+            return self._external_mode
 
     def reset_conversation(self) -> None:
         with self._lock:
@@ -368,6 +417,7 @@ class PhysicalAgentRuntime:
                 "last_transcript_chars": self._last_transcript_chars,
                 "last_reply_chars": self._last_reply_chars,
                 "last_compute_source": self._last_compute_source,
+                "external_mode": self._external_mode,
                 "audio": device_audio.device_audio.runtime_state(),
             }
 
@@ -378,6 +428,7 @@ def public_capability() -> dict[str, Any]:
         "version": PHYSICAL_AGENT_VERSION,
         "push_to_talk": True,
         "barge_in": True,
+        "provider_cancellation": True,
         "privacy_interrupt": True,
         "local_stt": "whisper.cpp",
         "local_tts": "piper",
@@ -392,6 +443,7 @@ def paired_status() -> dict[str, Any]:
         "state": str(raw.get("state") or "")[:40],
         "turn_count": int(raw.get("turn_count") or 0),
         "last_compute_source": str(raw.get("last_compute_source") or "")[:80],
+        "external_mode": str(raw.get("external_mode") or "")[:40],
         "audio": {
             "capturing": bool(raw.get("audio", {}).get("capturing")),
             "playing": bool(raw.get("audio", {}).get("playing")),
@@ -429,4 +481,9 @@ def finish_listening() -> dict[str, Any]:
 def cancel(reason: str = "owner_cancelled") -> dict[str, Any]:
     runtime.cancel(reason)
     runtime._set_state("privacy" if runtime._privacy_engaged() else "idle")
+    return runtime.status()
+
+
+def set_external_mode(mode: str | None) -> dict[str, Any]:
+    runtime.set_external_mode(mode)
     return runtime.status()
