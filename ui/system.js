@@ -318,12 +318,13 @@ async function refreshPayments() {
 }
 
 async function refreshSystem() {
-  const [system, payments, rollout, fleet, experience] = await Promise.all([
+  const [system, payments, rollout, fleet, experience, experienceEvents] = await Promise.all([
     systemApi('/api/v1/control/system'),
     systemApi('/api/v1/control/payments'),
     systemApi('/api/v1/control/vp3-os/rollout'),
     systemApi('/api/v1/control/vp3-os/fleet'),
     systemApi('/api/v1/control/vp3-os/hardware-experience'),
+    systemApi('/api/v1/control/vp3-os/hardware-experience/events?limit=12'),
   ]);
   renderSetup(system.setup || {});
   renderDiagnostics(system.diagnostics || {});
@@ -331,6 +332,10 @@ async function refreshSystem() {
   renderRollout(rollout);
   renderFleet(fleet);
   renderHardwareExperience(experience);
+  const experienceEventItems = experienceEvents.items || [];
+  byId('hardwareExperienceEvents').innerHTML = experienceEventItems.length
+    ? experienceEventItems.map(experienceEventCard).join('')
+    : '<div class="muted">No physical events recorded.</div>';
 }
 
 
