@@ -47,6 +47,9 @@ for required in (
     'privacy_scope="private"',
     "memory_candidate=False",
     "ambient_auto_activation",
+    "orchestration.mode_active",
+    "orchestration.mode_failed",
+    "orchestration.mode_suspended",
 ):
     assert required in service, required
 
