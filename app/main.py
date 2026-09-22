@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, app_scopes, hardware_adapters, local_automation, physical_agent, physical_meeting
+from .services import ambient_agent, app_scopes, automation_intelligence, hardware_adapters, local_automation, physical_agent, physical_meeting
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
