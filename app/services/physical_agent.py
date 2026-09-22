@@ -15,6 +15,7 @@ from . import (
     local_voice,
     vp3_os,
 )
+from .inference_cancellation import CancellationToken
 
 PHYSICAL_AGENT_VERSION = "v0.30"
 SOURCE_APP_KEY = "owner"
@@ -51,6 +52,7 @@ class PhysicalAgentRuntime:
         self._last_turn_at_monotonic: float | None = None
         self._generation = 0
         self._worker: threading.Thread | None = None
+        self._inference_token: CancellationToken | None = None
         self._last_error = ""
         self._last_transcript_chars = 0
         self._last_reply_chars = 0
@@ -159,10 +161,9 @@ class PhysicalAgentRuntime:
         with self._lock:
             state = self._state
 
-        # Pressing while the Agent speaks is a barge-in: stop output and start
-        # a fresh turn. We deliberately do not support interrupting inference
-        # mid-provider request in v0.30.
-        if state == "speaking":
+        # v0.40 barge-in supersedes any current physical turn. Provider
+        # inference is cooperatively cancelled when it is already in flight.
+        if state in {"transcribing", "thinking", "speaking"}:
             self.cancel("barge_in")
             state = "idle"
 
@@ -252,17 +253,28 @@ class PhysicalAgentRuntime:
             self._set_state("thinking")
 
             conversation_id = self._conversation_for_turn()
-            result = context_chat.chat(
-                SOURCE_APP_KEY,
-                transcript,
-                conversation_id,
-                include_memory=True,
-                include_knowledge=True,
-                include_contacts=True,
-                context_options=None,
-                tool_permissions=set(),
-                owner_tools=True,
-            )
+            token = CancellationToken()
+            with self._lock:
+                if generation != self._generation:
+                    return
+                self._inference_token = token
+            try:
+                result = context_chat.chat(
+                    SOURCE_APP_KEY,
+                    transcript,
+                    conversation_id,
+                    include_memory=True,
+                    include_knowledge=True,
+                    include_contacts=True,
+                    context_options=None,
+                    tool_permissions=set(),
+                    owner_tools=True,
+                    cancellation_token=token,
+                )
+            finally:
+                with self._lock:
+                    if self._inference_token is token:
+                        self._inference_token = None
             reply = str(result.get("reply") or "").strip()
             if not reply:
                 raise PhysicalAgentError("The Agent returned no reply.")
@@ -345,6 +357,10 @@ class PhysicalAgentRuntime:
         with self._lock:
             self._generation += 1
             self._cancel_reason = str(reason)[:80]
+            token = self._inference_token
+            self._inference_token = None
+        if token is not None:
+            token.cancel(reason)
         device_audio.device_audio.cancel_capture()
         device_audio.device_audio.stop_playback()
 
@@ -378,6 +394,7 @@ def public_capability() -> dict[str, Any]:
         "version": PHYSICAL_AGENT_VERSION,
         "push_to_talk": True,
         "barge_in": True,
+        "provider_cancellation": True,
         "privacy_interrupt": True,
         "local_stt": "whisper.cpp",
         "local_tts": "piper",
