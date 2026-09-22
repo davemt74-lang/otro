@@ -413,14 +413,6 @@ class HardwareAdapterManager:
                     f"Hardware controller did not advertise {ambient_capability} capability."
                 )
 
-            if item.get("event") == "presence_sensor":
-                vp3_os.report_hardware_state(
-                    "presence_sensor",
-                    present=True,
-                    ready=True,
-                    metadata={"occupied": item.get("action") == "present"},
-                )
-
             with self._lock:
                 seq = int(item.get("seq") or 0)
                 if seq and seq <= self._last_seq:
@@ -430,6 +422,18 @@ class HardwareAdapterManager:
                 event = {**item, "received_at": now}
                 self._events.append(event)
                 handlers = list(self._event_handlers)
+
+            # Only accepted presence events may mutate normalized hardware
+            # state. This keeps stale/duplicate event frames from rolling room
+            # occupancy backward after sequence deduplication.
+            if item.get("event") == "presence_sensor":
+                vp3_os.report_hardware_state(
+                    "presence_sensor",
+                    present=True,
+                    ready=True,
+                    metadata={"occupied": item.get("action") == "present"},
+                )
+
             for handler in handlers:
                 try:
                     handler(dict(event))
