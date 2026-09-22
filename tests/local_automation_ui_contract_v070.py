@@ -50,7 +50,8 @@ for required in (
     'id="automationRoutineForm"',
     'id="automationRuleForm"',
     'id="automationRuntimeForm"',
-    'VP3 OS v0.70',
+    'class="automation-version"',
+    'VP3 OS v0.',
 ):
     assert required in index_html, required
 

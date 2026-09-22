@@ -38,6 +38,10 @@ class RuntimeSettingsUpdate(BaseModel):
     max_rule_fires_per_minute: int = Field(default=20, ge=1, le=60)
 
 
+class EnabledUpdate(BaseModel):
+    enabled: bool
+
+
 def _call(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
@@ -81,6 +85,17 @@ def owner_routine_run(routine_key: str) -> dict:
     return _call(local_automation.run_routine, routine_key, source_kind="owner:manual-routine")
 
 
+@router.put("/api/v1/control/vp3-os/automation/routines/{routine_key}/enabled")
+def owner_routine_enabled(routine_key: str, payload: EnabledUpdate) -> dict:
+    return {
+        "routine": _call(
+            local_automation.set_routine_enabled,
+            routine_key,
+            payload.enabled,
+        )
+    }
+
+
 @router.put("/api/v1/control/vp3-os/automation/rules/{rule_key}")
 def owner_rule_upsert(rule_key: str, payload: RuleUpsert) -> dict:
     if rule_key.strip().lower() != payload.rule_key.strip().lower():
@@ -102,6 +117,17 @@ def owner_rule_upsert(rule_key: str, payload: RuleUpsert) -> dict:
 @router.post("/api/v1/control/vp3-os/automation/rules/{rule_key}/run")
 def owner_rule_run(rule_key: str) -> dict:
     return _call(local_automation.evaluate_rule, rule_key, force_manual=True)
+
+
+@router.put("/api/v1/control/vp3-os/automation/rules/{rule_key}/enabled")
+def owner_rule_enabled(rule_key: str, payload: EnabledUpdate) -> dict:
+    return {
+        "rule": _call(
+            local_automation.set_rule_enabled,
+            rule_key,
+            payload.enabled,
+        )
+    }
 
 
 @router.put("/api/v1/control/vp3-os/automation/rules-runtime/settings")

@@ -96,23 +96,24 @@
     const executions = data.recent_executions || [];
     const settings = data.settings || {};
 
-    $('automationRoutines').innerHTML = routines.length ? routines.map(item => `
-      <div class="automation-rule-item">
-        <div><strong>${esc(item.name)}</strong><small>${esc(item.routine_key)} · ${esc(item.approval_mode)} · ${item.steps.length} steps</small></div>
-        <button class="button secondary" type="button" data-routine-run="${esc(item.routine_key)}">Run</button>
-      </div>
-    `).join('') : '<div class="empty-state">No routines yet.</div>';
+    $('automationRoutines').innerHTML = routines.length ? routines.map(item => {
+      const controls = item.enabled
+        ? '<div class="automation-rule-actions"><button class="button secondary" type="button" data-routine-run="' + esc(item.routine_key) + '">Run</button><button class="text-button" type="button" data-routine-enabled="' + esc(item.routine_key) + '" data-enabled="false">Disable</button></div>'
+        : '<button class="button secondary" type="button" data-routine-enabled="' + esc(item.routine_key) + '" data-enabled="true">Enable</button>';
+      return '<div class="automation-rule-item"><div><strong>' + esc(item.name) + '</strong><small>' + esc(item.routine_key) + ' · ' + esc(item.approval_mode) + ' · ' + item.steps.length + ' steps · ' + (item.enabled ? 'enabled' : 'disabled') + '</small></div>' + controls + '</div>';
+    }).join('') : '<div class="empty-state">No routines yet.</div>';
 
-    $('automationRules').innerHTML = rules.length ? rules.map(item => `
-      <div class="automation-rule-item">
-        <div><strong>${esc(item.name)}</strong><small>${esc(item.rule_key)} · ${esc(item.trigger_kind)} · ${esc(item.routine_name)}</small></div>
-        ${item.trigger_kind === 'manual' ? `<button class="button secondary" type="button" data-rule-run="${esc(item.rule_key)}">Run</button>` : `<span class="automation-ready ${item.enabled ? '' : 'no'}">${item.enabled ? 'Enabled' : 'Disabled'}</span>`}
-      </div>
-    `).join('') : '<div class="empty-state">No rules yet.</div>';
+    $('automationRules').innerHTML = rules.length ? rules.map(item => {
+      let controls = '<button class="button secondary" type="button" data-rule-enabled="' + esc(item.rule_key) + '" data-enabled="' + (item.enabled ? 'false' : 'true') + '">' + (item.enabled ? 'Disable' : 'Enable') + '</button>';
+      if (item.trigger_kind === 'manual' && item.enabled) {
+        controls = '<div class="automation-rule-actions"><button class="button secondary" type="button" data-rule-run="' + esc(item.rule_key) + '">Run</button>' + controls + '</div>';
+      }
+      return '<div class="automation-rule-item"><div><strong>' + esc(item.name) + '</strong><small>' + esc(item.rule_key) + ' · ' + esc(item.trigger_kind) + ' · ' + esc(item.routine_name) + ' · ' + (item.enabled ? 'enabled' : 'disabled') + '</small></div>' + controls + '</div>';
+    }).join('') : '<div class="empty-state">No rules yet.</div>';
 
-    $('automationRuleExecutions').innerHTML = executions.length ? executions.slice(0, 12).map(item => `
-      <div class="automation-rule-item"><div><strong>${esc(item.rule_name || item.routine_name)}</strong><small>${esc(item.status)} · ${item.action_count || 0} actions · ${fmt(item.completed_at || item.created_at)}</small></div></div>
-    `).join('') : '<div class="empty-state">No rule executions yet.</div>';
+    $('automationRuleExecutions').innerHTML = executions.length ? executions.slice(0, 12).map(item =>
+      '<div class="automation-rule-item"><div><strong>' + esc(item.rule_name || item.routine_name) + '</strong><small>' + esc(item.status) + ' · ' + (item.action_count || 0) + ' actions · ' + fmt(item.completed_at || item.created_at) + '</small></div></div>'
+    ).join('') : '<div class="empty-state">No rule executions yet.</div>';
 
     $('automationRuntimeEnabled').checked = Boolean(settings.enabled);
     $('automationRuntimePoll').value = settings.poll_seconds ?? 15;
@@ -120,15 +121,61 @@
     $('automationRuntimeRate').value = settings.max_rule_fires_per_minute ?? 20;
   }
 
+  function proposalActions(item) {
+    if (item.status === 'proposed') {
+      return '<div class="automation-intelligence-actions"><button class="button secondary" type="button" data-intelligence-simulate="' + item.id + '">Simulate</button><button class="button primary" type="button" data-intelligence-materialize="' + item.id + '">Create disabled draft</button><button class="text-button danger" type="button" data-intelligence-dismiss="' + item.id + '">Dismiss</button></div>';
+    }
+    if (item.status === 'materialized') {
+      return '<div class="automation-intelligence-actions"><button class="button primary" type="button" data-intelligence-enable="' + item.id + '">Enable reviewed draft</button><span class="muted">Still approval-gated when it fires.</span></div>';
+    }
+    if (item.status === 'active') {
+      return '<span class="automation-intelligence-state">Active · governed by v0.70</span>';
+    }
+    return '<span class="automation-intelligence-state">' + esc(item.status) + (item.suppression_until ? ' until ' + fmt(item.suppression_until) : '') + '</span>';
+  }
+
+  function renderIntelligence(data) {
+    const settings = data.settings || {};
+    const counts = data.counts || {};
+    const proposals = data.proposals || [];
+
+    $('automationPatternCount').textContent = counts.patterns || 0;
+    $('automationProposalCount').textContent = counts.proposed || 0;
+    $('automationDraftCount').textContent = counts.materialized || 0;
+    $('automationActiveCount').textContent = counts.active || 0;
+
+    $('automationIntelligenceEnabled').checked = Boolean(settings.enabled);
+    $('automationIntelligenceLookback').value = settings.lookback_days ?? 21;
+    $('automationIntelligenceMinOccurrences').value = settings.min_occurrences ?? 4;
+    $('automationIntelligenceBucket').value = String(settings.time_bucket_minutes ?? 30);
+    $('automationIntelligenceInterval').value = settings.scan_interval_seconds ?? 3600;
+    $('automationIntelligenceSuppression').value = settings.suppression_days ?? 30;
+    $('automationIntelligenceMaxProposals').value = settings.max_proposals_per_scan ?? 12;
+
+    $('automationIntelligenceProposals').innerHTML = proposals.length ? proposals.map(item => {
+      const simulation = item.simulation || {};
+      const context = ((item.evidence || {}).nearby_context || []).slice(0, 3).map(entry => esc(entry.event_type) + ': ' + esc(entry.state)).join(' · ');
+      return '<article class="automation-intelligence-card">' +
+        '<div class="automation-intelligence-card-head"><div><strong>' + esc(item.title) + '</strong><small>' + Math.round(Number(item.confidence || 0) * 100) + '% confidence · observed ' + (item.occurrence_count || 0) + ' times · ' + esc(item.pattern_kind) + '</small></div><span class="automation-intelligence-status">' + esc(item.status) + '</span></div>' +
+        '<p>' + esc(item.rationale) + '</p>' +
+        '<div class="automation-intelligence-evidence"><span>Historical triggers: ' + (simulation.would_have_triggered || 0) + '</span><span>Approval requests: ' + (simulation.approval_requests_if_enabled || 0) + '</span><span>Unapproved physical actions: ' + (simulation.physical_actions_without_owner_approval || 0) + '</span></div>' +
+        (context ? '<small class="automation-intelligence-context">Nearby context: ' + context + '</small>' : '') +
+        proposalActions(item) +
+      '</article>';
+    }).join('') : '<div class="empty-state">No learned opportunities yet. VP3 needs repeated completed device actions before it proposes anything.</div>';
+  }
+
   async function load() {
     if (!$('automationDevices')) return;
     try {
-      const [devices, rules] = await Promise.all([
+      const [devices, rules, intelligence] = await Promise.all([
         request('/api/v1/control/vp3-os/automation'),
         request('/api/v1/control/vp3-os/automation/rules-runtime'),
+        request('/api/v1/control/vp3-os/automation/intelligence'),
       ]);
       render(devices);
       renderRules(rules);
+      renderIntelligence(intelligence);
       $('automationFeedback').textContent = '';
     } catch (error) {
       $('automationFeedback').textContent = error.message;
@@ -254,6 +301,62 @@
     } catch (error) { $('automationFeedback').textContent = error.message; }
   }
 
+  async function saveIntelligenceSettings(event) {
+    event.preventDefault();
+    try {
+      await request('/api/v1/control/vp3-os/automation/intelligence/settings', {
+        method:'PUT',
+        body:JSON.stringify({
+          enabled:$('automationIntelligenceEnabled').checked,
+          scan_interval_seconds:Number($('automationIntelligenceInterval').value || 3600),
+          lookback_days:Number($('automationIntelligenceLookback').value || 21),
+          min_occurrences:Number($('automationIntelligenceMinOccurrences').value || 4),
+          time_bucket_minutes:Number($('automationIntelligenceBucket').value || 30),
+          max_proposals_per_scan:Number($('automationIntelligenceMaxProposals').value || 12),
+          suppression_days:Number($('automationIntelligenceSuppression').value || 30),
+        }),
+      });
+      $('automationFeedback').textContent = 'Automation learning settings saved.';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function scanIntelligence() {
+    try {
+      const result = await request('/api/v1/control/vp3-os/automation/intelligence/scan', {method:'POST',body:'{}'});
+      $('automationFeedback').textContent = 'Learning scan complete: ' + (result.patterns_found || 0) + ' pattern(s) found.';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function intelligenceAction(id, action) {
+    try {
+      const body = action === 'dismiss' ? JSON.stringify({note:''}) : '{}';
+      const result = await request('/api/v1/control/vp3-os/automation/intelligence/proposals/' + encodeURIComponent(id) + '/' + action, {method:'POST',body});
+      if (action === 'simulate') {
+        $('automationFeedback').textContent = 'Simulation: ' + (result.would_have_triggered || 0) + ' historical trigger(s), ' + (result.approval_requests_if_enabled || 0) + ' approval request(s), 0 unapproved physical actions.';
+      } else if (action === 'materialize') {
+        $('automationFeedback').textContent = 'Disabled rule and routine drafts created. Review them before enabling.';
+      } else if (action === 'enable') {
+        $('automationFeedback').textContent = 'Reviewed draft enabled. Physical commands still require the configured v0.70/v0.60 governance path.';
+      } else {
+        $('automationFeedback').textContent = 'Automation opportunity suppressed.';
+      }
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function setAutomationEnabled(kind, key, enabled) {
+    try {
+      await request('/api/v1/control/vp3-os/automation/' + kind + '/' + encodeURIComponent(key) + '/enabled', {
+        method:'PUT',
+        body:JSON.stringify({enabled}),
+      });
+      $('automationFeedback').textContent = (kind === 'rules' ? 'Rule' : 'Routine') + (enabled ? ' enabled.' : ' disabled.');
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
   async function requestCommand(button) {
     const key = button.dataset.deviceRequest;
     const command = button.dataset.command;
@@ -284,6 +387,8 @@
     $('automationRoutineForm').addEventListener('submit', saveRoutine);
     $('automationRuleForm').addEventListener('submit', saveRule);
     $('automationRuntimeForm').addEventListener('submit', saveRuntime);
+    $('automationIntelligenceSettingsForm').addEventListener('submit', saveIntelligenceSettings);
+    $('automationIntelligenceScan').addEventListener('click', scanIntelligence);
     $('automationRefresh').addEventListener('click', load);
     document.querySelectorAll('.nav-item[data-view="automation"]').forEach(node => node.addEventListener('click', load));
     $('view-automation').addEventListener('click', event => {
@@ -297,6 +402,18 @@
       if (routineRun) runRoutine(routineRun.dataset.routineRun);
       const ruleRun = event.target.closest('[data-rule-run]');
       if (ruleRun) runRule(ruleRun.dataset.ruleRun);
+      const routineEnabled = event.target.closest('[data-routine-enabled]');
+      if (routineEnabled) setAutomationEnabled('routines', routineEnabled.dataset.routineEnabled, routineEnabled.dataset.enabled === 'true');
+      const ruleEnabled = event.target.closest('[data-rule-enabled]');
+      if (ruleEnabled) setAutomationEnabled('rules', ruleEnabled.dataset.ruleEnabled, ruleEnabled.dataset.enabled === 'true');
+      const simulate = event.target.closest('[data-intelligence-simulate]');
+      if (simulate) intelligenceAction(simulate.dataset.intelligenceSimulate, 'simulate');
+      const materialize = event.target.closest('[data-intelligence-materialize]');
+      if (materialize) intelligenceAction(materialize.dataset.intelligenceMaterialize, 'materialize');
+      const enable = event.target.closest('[data-intelligence-enable]');
+      if (enable) intelligenceAction(enable.dataset.intelligenceEnable, 'enable');
+      const dismiss = event.target.closest('[data-intelligence-dismiss]');
+      if (dismiss) intelligenceAction(dismiss.dataset.intelligenceDismiss, 'dismiss');
     });
     load();
   });
