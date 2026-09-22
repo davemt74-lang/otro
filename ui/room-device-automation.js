@@ -134,6 +134,55 @@
     return '<span class="automation-intelligence-state">' + esc(item.status) + (item.suppression_until ? ' until ' + fmt(item.suppression_until) : '') + '</span>';
   }
 
+  function renderOrchestration(data) {
+    const settings = data.settings || {};
+    const modes = data.modes || [];
+    const sessions = data.sessions || [];
+    const suggested = sessions.filter(item => item.state === 'suggested').length;
+    const requested = sessions.filter(item => item.state === 'requested').length;
+    const active = sessions.filter(item => item.state === 'active').length;
+
+    $('orchestrationModeCount').textContent = modes.length;
+    $('orchestrationSuggestedCount').textContent = suggested;
+    $('orchestrationRequestedCount').textContent = requested;
+    $('orchestrationActiveCount').textContent = active;
+
+    $('orchestrationEnabled').checked = Boolean(settings.enabled);
+    $('orchestrationPoll').value = settings.poll_seconds ?? 30;
+    $('orchestrationCooldown').value = settings.suggestion_cooldown_seconds ?? 14400;
+    $('orchestrationMaxSessions').value = settings.max_open_sessions ?? 12;
+
+    $('orchestrationModes').innerHTML = modes.length ? modes.map(item =>
+      '<article class="orchestration-card">' +
+        '<div class="automation-intelligence-card-head"><div><strong>' + esc(item.name) + '</strong><small>' + esc(item.mode_key) + ' · priority ' + item.priority + ' · ' + esc(item.routine_name) + '</small></div><span class="automation-intelligence-status">' + (item.enabled ? 'enabled' : 'disabled') + '</span></div>' +
+        '<p>' + esc(item.description || 'Coordinates ' + item.device_keys.length + ' device(s) across ' + (item.room_keys.length || 0) + ' room(s).') + '</p>' +
+        '<div class="automation-intelligence-actions">' +
+          '<button class="button secondary" type="button" data-mode-simulate="' + esc(item.mode_key) + '">Simulate</button>' +
+          '<button class="button primary" type="button" data-mode-activate="' + esc(item.mode_key) + '">Activate</button>' +
+          '<button class="text-button" type="button" data-mode-supersede="' + esc(item.mode_key) + '">Supersede conflicts</button>' +
+          '<button class="text-button" type="button" data-mode-enabled="' + esc(item.mode_key) + '" data-enabled="' + (item.enabled ? 'false' : 'true') + '">' + (item.enabled ? 'Disable' : 'Enable') + '</button>' +
+        '</div>' +
+      '</article>'
+    ).join('') : '<div class="empty-state">No Room Modes yet.</div>';
+
+    $('orchestrationSessions').innerHTML = sessions.length ? sessions.map(item => {
+      let actions = '';
+      if (item.state === 'suggested') {
+        actions = '<div class="automation-intelligence-actions"><button class="button primary" type="button" data-mode-session-accept="' + item.id + '">Accept</button><button class="text-button danger" type="button" data-mode-session-dismiss="' + item.id + '">Dismiss</button></div>';
+      } else if (item.state === 'requested' || item.state === 'active') {
+        actions = '<div class="automation-intelligence-actions"><button class="button secondary" type="button" data-mode-session-refresh="' + item.id + '">Refresh</button><button class="text-button" type="button" data-mode-session-suspend="' + item.id + '">Suspend</button><button class="text-button danger" type="button" data-mode-session-end="' + item.id + '">End</button></div>';
+      } else if (item.state === 'suspended') {
+        actions = '<div class="automation-intelligence-actions"><button class="text-button danger" type="button" data-mode-session-end="' + item.id + '">End</button></div>';
+      }
+      return '<article class="orchestration-card">' +
+        '<div class="automation-intelligence-card-head"><div><strong>' + esc(item.mode_name) + '</strong><small>Session #' + item.id + ' · priority ' + item.priority + ' · ' + esc(item.source_kind) + '</small></div><span class="orchestration-state state-' + esc(item.state) + '">' + esc(item.state) + '</span></div>' +
+        '<p>' + esc(item.reason || '') + '</p>' +
+        (item.request_ids?.length ? '<small class="automation-intelligence-context">' + item.request_ids.length + ' governed approval request(s)</small>' : '') +
+        actions +
+      '</article>';
+    }).join('') : '<div class="empty-state">No Room Mode sessions yet.</div>';
+  }
+
   function renderIntelligence(data) {
     const settings = data.settings || {};
     const counts = data.counts || {};
@@ -168,14 +217,16 @@
   async function load() {
     if (!$('automationDevices')) return;
     try {
-      const [devices, rules, intelligence] = await Promise.all([
+      const [devices, rules, intelligence, orchestration] = await Promise.all([
         request('/api/v1/control/vp3-os/automation'),
         request('/api/v1/control/vp3-os/automation/rules-runtime'),
         request('/api/v1/control/vp3-os/automation/intelligence'),
+        request('/api/v1/control/vp3-os/orchestration'),
       ]);
       render(devices);
       renderRules(rules);
       renderIntelligence(intelligence);
+      renderOrchestration(orchestration);
       $('automationFeedback').textContent = '';
     } catch (error) {
       $('automationFeedback').textContent = error.message;
@@ -301,6 +352,98 @@
     } catch (error) { $('automationFeedback').textContent = error.message; }
   }
 
+  async function saveOrchestrationMode(event) {
+    event.preventDefault();
+    const key = $('orchestrationModeKey').value.trim().toLowerCase();
+    try {
+      const rooms = $('orchestrationModeRooms').value.split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
+      await request('/api/v1/control/vp3-os/orchestration/modes/' + encodeURIComponent(key), {
+        method:'PUT',
+        body:JSON.stringify({
+          mode_key:key,
+          name:$('orchestrationModeName').value.trim(),
+          routine_key:$('orchestrationModeRoutine').value.trim().toLowerCase(),
+          description:'',
+          room_keys:rooms,
+          priority:Number($('orchestrationModePriority').value || 50),
+          suggest_trigger:parseObject('orchestrationModeTrigger'),
+          enabled:true,
+        }),
+      });
+      event.target.reset();
+      $('orchestrationModePriority').value = '50';
+      $('automationFeedback').textContent = 'Room Mode saved.';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function saveOrchestrationSettings(event) {
+    event.preventDefault();
+    try {
+      await request('/api/v1/control/vp3-os/orchestration/settings', {
+        method:'PUT',
+        body:JSON.stringify({
+          enabled:$('orchestrationEnabled').checked,
+          poll_seconds:Number($('orchestrationPoll').value || 30),
+          suggestion_cooldown_seconds:Number($('orchestrationCooldown').value || 14400),
+          max_open_sessions:Number($('orchestrationMaxSessions').value || 12),
+        }),
+      });
+      $('automationFeedback').textContent = 'Orchestration settings saved.';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function evaluateOrchestration() {
+    try {
+      const result = await request('/api/v1/control/vp3-os/orchestration/evaluate', {method:'POST',body:'{}'});
+      $('automationFeedback').textContent = 'Context evaluation complete: ' + (result.suggestions || []).length + ' matching mode suggestion(s).';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function simulateMode(key) {
+    try {
+      const result = await request('/api/v1/control/vp3-os/orchestration/modes/' + encodeURIComponent(key) + '/simulate');
+      const conflictText = result.conflicts?.length ? result.conflicts.length + ' conflict(s)' : 'no conflicts';
+      $('automationFeedback').textContent = 'Simulation: ' + result.approval_requests_if_activated + ' approval request(s), ' + conflictText + ', 0 unapproved physical actions.';
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function activateMode(key, supersede) {
+    try {
+      const result = await request('/api/v1/control/vp3-os/orchestration/modes/' + encodeURIComponent(key) + '/activate', {
+        method:'POST',
+        body:JSON.stringify({reason:'Owner activation from Control Center.',supersede_conflicts:Boolean(supersede)}),
+      });
+      $('automationFeedback').textContent = 'Room Mode requested: ' + (result.session?.request_ids?.length || 0) + ' governed approval request(s).';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function setModeEnabled(key, enabled) {
+    try {
+      await request('/api/v1/control/vp3-os/orchestration/modes/' + encodeURIComponent(key) + '/enabled', {
+        method:'PUT',
+        body:JSON.stringify({enabled}),
+      });
+      $('automationFeedback').textContent = 'Room Mode ' + (enabled ? 'enabled.' : 'disabled.');
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function modeSessionAction(id, action) {
+    try {
+      let body = '{}';
+      if (action === 'accept') body = JSON.stringify({reason:'Owner accepted Room Mode suggestion.',supersede_conflicts:false});
+      if (action === 'suspend') body = JSON.stringify({reason:'Owner suspended Room Mode from Control Center.'});
+      if (action === 'end') body = JSON.stringify({reason:'Owner ended Room Mode from Control Center.'});
+      await request('/api/v1/control/vp3-os/orchestration/sessions/' + encodeURIComponent(id) + '/' + action, {method:'POST',body});
+      $('automationFeedback').textContent = 'Room Mode session updated.';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
   async function saveIntelligenceSettings(event) {
     event.preventDefault();
     try {
@@ -389,6 +532,9 @@
     $('automationRuntimeForm').addEventListener('submit', saveRuntime);
     $('automationIntelligenceSettingsForm').addEventListener('submit', saveIntelligenceSettings);
     $('automationIntelligenceScan').addEventListener('click', scanIntelligence);
+    $('orchestrationModeForm').addEventListener('submit', saveOrchestrationMode);
+    $('orchestrationSettingsForm').addEventListener('submit', saveOrchestrationSettings);
+    $('orchestrationEvaluate').addEventListener('click', evaluateOrchestration);
     $('automationRefresh').addEventListener('click', load);
     document.querySelectorAll('.nav-item[data-view="automation"]').forEach(node => node.addEventListener('click', load));
     $('view-automation').addEventListener('click', event => {
@@ -414,6 +560,24 @@
       if (enable) intelligenceAction(enable.dataset.intelligenceEnable, 'enable');
       const dismiss = event.target.closest('[data-intelligence-dismiss]');
       if (dismiss) intelligenceAction(dismiss.dataset.intelligenceDismiss, 'dismiss');
+      const modeSimulate = event.target.closest('[data-mode-simulate]');
+      if (modeSimulate) simulateMode(modeSimulate.dataset.modeSimulate);
+      const modeActivate = event.target.closest('[data-mode-activate]');
+      if (modeActivate) activateMode(modeActivate.dataset.modeActivate, false);
+      const modeSupersede = event.target.closest('[data-mode-supersede]');
+      if (modeSupersede) activateMode(modeSupersede.dataset.modeSupersede, true);
+      const modeEnabled = event.target.closest('[data-mode-enabled]');
+      if (modeEnabled) setModeEnabled(modeEnabled.dataset.modeEnabled, modeEnabled.dataset.enabled === 'true');
+      const modeAccept = event.target.closest('[data-mode-session-accept]');
+      if (modeAccept) modeSessionAction(modeAccept.dataset.modeSessionAccept, 'accept');
+      const modeDismiss = event.target.closest('[data-mode-session-dismiss]');
+      if (modeDismiss) modeSessionAction(modeDismiss.dataset.modeSessionDismiss, 'dismiss');
+      const modeRefresh = event.target.closest('[data-mode-session-refresh]');
+      if (modeRefresh) modeSessionAction(modeRefresh.dataset.modeSessionRefresh, 'refresh');
+      const modeSuspend = event.target.closest('[data-mode-session-suspend]');
+      if (modeSuspend) modeSessionAction(modeSuspend.dataset.modeSessionSuspend, 'suspend');
+      const modeEnd = event.target.closest('[data-mode-session-end]');
+      if (modeEnd) modeSessionAction(modeEnd.dataset.modeSessionEnd, 'end');
     });
     load();
   });
