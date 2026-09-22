@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/assets/chat-enhancements.css">
   <link rel="stylesheet" href="/assets/voice-settings.css">
   <link rel="stylesheet" href="/assets/ambient-agent.css">
+  <link rel="stylesheet" href="/assets/room-device-automation.css">
   <link rel="stylesheet" href="/assets/tools.css">
   <link rel="stylesheet" href="/assets/approvals.css">
   <link rel="stylesheet" href="/assets/contacts.css">
@@ -30,6 +31,7 @@
         <button class="nav-item" data-view="contacts">Contacts</button>
         <button class="nav-item" data-view="apps">Connected Apps</button>
         <button class="nav-item" data-view="ambient">Ambient Agent</button>
+        <button class="nav-item" data-view="automation">Rooms & Devices</button>
         <button class="nav-item" data-view="activity">Activity</button>
       </nav>
       <div class="sidebar-foot">
@@ -212,6 +214,89 @@
         </div>
       </section>
 
+      <section class="view" id="view-automation">
+        <div class="section-intro split">
+          <div>
+            <h2>Rooms & Devices</h2>
+            <p>Discover and organize local devices. Physical changes always create an approval request before any provider driver can execute them.</p>
+          </div>
+          <span class="automation-version">VP3 OS v0.60</span>
+        </div>
+        <div class="automation-guardrail">
+          <strong>Physical action boundary:</strong>
+          Agent, Ambient, and paired applications may read permitted device state or propose commands. v0.60 never auto-executes a physical command.
+        </div>
+
+        <div class="automation-stats">
+          <article><span>Rooms</span><strong id="automationRoomCount">0</strong></article>
+          <article><span>Devices</span><strong id="automationDeviceCount">0</strong></article>
+          <article><span>Controllable</span><strong id="automationControllableCount">0</strong></article>
+          <article><span>Suggestions</span><strong id="automationSuggestionCount">0</strong></article>
+        </div>
+
+        <div class="automation-layout">
+          <section class="panel automation-main">
+            <div class="panel-head"><div><p class="eyebrow">INVENTORY</p><h3>Devices</h3></div><button class="button secondary" id="automationRefresh" type="button">Refresh</button></div>
+            <div id="automationDevices" class="automation-devices"><div class="empty-state">No devices registered.</div></div>
+          </section>
+
+          <aside class="automation-side">
+            <section class="panel">
+              <div class="panel-head"><div><p class="eyebrow">ROOMS</p><h3>Room registry</h3></div></div>
+              <form id="automationRoomForm" class="automation-compact-form">
+                <input id="automationRoomKey" maxlength="80" placeholder="living-room" required>
+                <input id="automationRoomName" maxlength="120" placeholder="Living Room" required>
+                <button class="button secondary" type="submit">Save room</button>
+              </form>
+              <div id="automationRooms" class="automation-mini-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head"><div><p class="eyebrow">PROVIDERS</p><h3>Local providers</h3></div></div>
+              <form id="automationProviderForm" class="automation-compact-form">
+                <input id="automationProviderKey" maxlength="80" placeholder="home-assistant-local" required>
+                <input id="automationProviderName" maxlength="120" placeholder="Home Assistant" required>
+                <input id="automationProviderType" maxlength="80" placeholder="home_assistant" required>
+                <label class="check-inline"><input id="automationProviderExecutable" type="checkbox"> Provider may execute <span class="muted">still requires a bound local driver</span></label>
+                <button class="button secondary" type="submit">Save provider</button>
+              </form>
+              <div id="automationProviders" class="automation-mini-list"></div>
+            </section>
+          </aside>
+        </div>
+
+        <section class="panel automation-register">
+          <div class="panel-head"><div><p class="eyebrow">REGISTER / DISCOVERY</p><h3>Add or update a device</h3></div></div>
+          <form id="automationDeviceForm">
+            <div class="automation-field-grid">
+              <label>Device key<input id="automationDeviceKey" maxlength="80" placeholder="living-room-lamp" required></label>
+              <label>Name<input id="automationDeviceName" maxlength="160" placeholder="Floor Lamp" required></label>
+              <label>Provider key<input id="automationDeviceProvider" maxlength="80" placeholder="home-assistant-local" required></label>
+              <label>Provider device ID<input id="automationProviderDeviceId" maxlength="240" placeholder="light.floor_lamp" required></label>
+              <label>Category<select id="automationDeviceCategory"><option>light</option><option>outlet</option><option>fan</option><option>thermostat</option><option>scene</option><option>sensor</option><option>camera</option><option>lock</option><option>garage</option><option>security</option><option>appliance</option><option>other</option></select></label>
+              <label>Room key<input id="automationDeviceRoom" maxlength="80" placeholder="living-room"></label>
+            </div>
+            <label class="check-inline"><input id="automationDeviceControllable" type="checkbox"> Mark controllable <span class="muted">only safe v0.60 categories can become controllable</span></label>
+            <div class="automation-field-grid">
+              <label>Capabilities JSON<textarea id="automationDeviceCapabilities" rows="4" placeholder='{"power":true,"brightness":true}'></textarea></label>
+              <label>Current state JSON<textarea id="automationDeviceState" rows="4" placeholder='{"power":"off","brightness":40}'></textarea></label>
+            </div>
+            <div class="form-actions"><span id="automationFeedback" class="muted"></span><button class="button primary" type="submit">Save device</button></div>
+          </form>
+        </section>
+
+        <div class="two-col automation-bottom">
+          <section class="panel">
+            <div class="panel-head"><div><p class="eyebrow">SUGGESTIONS</p><h3>Proposed physical actions</h3></div></div>
+            <div id="automationSuggestions" class="automation-suggestions"><div class="empty-state">No pending suggestions.</div></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><div><p class="eyebrow">AUDIT</p><h3>Recent device actions</h3></div></div>
+            <div id="automationActions" class="automation-actions"><div class="empty-state">No device actions yet.</div></div>
+          </section>
+        </div>
+      </section>
+
       <section class="view" id="view-activity">
         <div class="section-intro"><div><h2>Activity</h2><p>A local audit trail of meaningful HomeServer actions.</p></div></div>
         <div class="panel table-wrap"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th></tr></thead><tbody id="activityTable"></tbody></table></div>
@@ -222,6 +307,7 @@
   <script src="/assets/brain.js" defer></script>
   <script src="/assets/voice-settings.js" defer></script>
   <script src="/assets/ambient-agent.js" defer></script>
+  <script src="/assets/room-device-automation.js" defer></script>
   <script src="/assets/voice-catalog.js" defer></script>
   <script src="/assets/chat-enhancements.js" defer></script>
   <script src="/assets/chat-dictation.js" defer></script>
