@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS orchestration_mode_sessions (
 CREATE INDEX IF NOT EXISTS idx_orchestration_sessions_open
 ON orchestration_mode_sessions(state,mode_id,updated_at DESC);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orchestration_one_open_session_per_mode
+ON orchestration_mode_sessions(mode_id)
+WHERE state IN ('suggested','requested','active','suspended');
+
 CREATE TABLE IF NOT EXISTS orchestration_mode_conflicts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER,
