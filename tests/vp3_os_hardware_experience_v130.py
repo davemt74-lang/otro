@@ -188,6 +188,14 @@ hardware_experience.handle_hardware_event(
     {"event": "control_dial", "action": "counterclockwise", "seq": 5}
 )
 assert hardware_experience.get_settings()["volume_percent"] == before_volume
+hardware_experience.update_settings(hold_action="privacy_hint")
+hardware_experience.handle_hardware_event(
+    {"event": "agent_button", "action": "hold", "seq": 6}
+)
+assert any(
+    item["card_key"] == "privacy-hint"
+    for item in hardware_experience.list_cards(20)
+)
 events = hardware_experience.recent_events(10)
 assert any(
     item["event_type"] == "agent_button"
