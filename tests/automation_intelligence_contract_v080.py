@@ -84,6 +84,7 @@ assert "raw_audio" not in ambient
 
 assert "automation_intelligence.start()" in main_py
 assert "automation_intelligence.stop()" in main_py
+assert "\\n" not in bridge_py
 
 for required in (
     '"vp3_os_automation_intelligence": automation_intelligence.public_capability()',
