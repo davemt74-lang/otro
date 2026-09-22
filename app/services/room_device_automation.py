@@ -528,6 +528,51 @@ def validate_command_request(
     }
 
 
+def _assert_approved_execution_context(
+    action_request_id: str | None,
+    *,
+    device_key: str,
+    command: str,
+    arguments: dict[str, Any],
+) -> None:
+    request_id = str(action_request_id or "").strip()
+    if not request_id:
+        raise RoomDeviceError(
+            "Physical device commands require an approved action request.",
+            403,
+        )
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT id, action_key, status, arguments_json
+            FROM action_requests
+            WHERE id=? LIMIT 1
+            """,
+            (request_id,),
+        ).fetchone()
+    if row is None:
+        raise RoomDeviceError("Approved action request was not found.", 403)
+    if str(row["action_key"]) != "devices.command" or str(row["status"]) != "executing":
+        raise RoomDeviceError(
+            "Device action request is not reserved for execution.",
+            409,
+        )
+    try:
+        request_arguments = json.loads(str(row["arguments_json"] or "{}"))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RoomDeviceError("Approved action request arguments are invalid.", 409) from exc
+    expected = {
+        "device_key": str(device_key),
+        "command": str(command),
+        "arguments": dict(arguments),
+    }
+    if request_arguments != expected:
+        raise RoomDeviceError(
+            "Approved action request does not match this device command.",
+            409,
+        )
+
+
 def execute_command(
     device_key: str,
     command: str,
@@ -537,6 +582,12 @@ def execute_command(
     action_request_id: str | None = None,
 ) -> dict[str, Any]:
     validated = validate_command_request(device_key, command, arguments)
+    _assert_approved_execution_context(
+        action_request_id,
+        device_key=validated["device_key"],
+        command=validated["command"],
+        arguments=validated["arguments"],
+    )
     device = validated["device"]
     provider = get_provider(str(device["provider_key"]))
     if not provider["currently_executable"] or not device["currently_executable"]:
