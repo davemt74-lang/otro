@@ -249,15 +249,17 @@ async function refreshPayments() {
 }
 
 async function refreshSystem() {
-  const [system, payments, rollout] = await Promise.all([
+  const [system, payments, rollout, fleet] = await Promise.all([
     systemApi('/api/v1/control/system'),
     systemApi('/api/v1/control/payments'),
     systemApi('/api/v1/control/vp3-os/rollout'),
+    systemApi('/api/v1/control/vp3-os/fleet'),
   ]);
   renderSetup(system.setup || {});
   renderDiagnostics(system.diagnostics || {});
   renderPayments(payments);
   renderRollout(rollout);
+  renderFleet(fleet);
 }
 
 
@@ -348,6 +350,94 @@ byId('downloadSupportBundle').addEventListener('click', async () => {
     link.remove();
     URL.revokeObjectURL(url);
     systemFlash('Sanitized support bundle created.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+
+byId('saveFleetSettings').addEventListener('click', async () => {
+  try {
+    const result = await systemApi('/api/v1/control/vp3-os/fleet/settings', {
+      method:'PUT',
+      body:JSON.stringify({
+        enabled:byId('fleetEnabled').checked,
+        controller_app_key:byId('fleetControllerApp').value.trim() || null,
+        device_label:byId('fleetDeviceLabel').value.trim(),
+        remote_diagnostics:byId('fleetDiagnostics').checked,
+        remote_support_summary:byId('fleetSupportSummary').checked,
+        remote_update_requests:byId('fleetUpdateRequests').checked,
+        stale_after_seconds:Number(byId('fleetStaleAfter').value || 900),
+        rollout_failure_threshold:Number(byId('fleetFailureThreshold').value || 2),
+      }),
+    });
+    await refreshFleet();
+    systemFlash(result.settings.enabled ? 'Fleet enrollment saved.' : 'Fleet remains disabled.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('decommissionFleet').addEventListener('click', async () => {
+  if (!confirm('Disable fleet access and revoke this controller app\'s fleet permissions? Local private data will not be deleted.')) return;
+  try {
+    await systemApi('/api/v1/control/vp3-os/fleet/decommission', {method:'POST'});
+    await refreshFleet();
+    systemFlash('Fleet access decommissioned. Private HomeServer data was left intact.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('createFleetRollout').addEventListener('click', async () => {
+  try {
+    const rollout = await systemApi('/api/v1/control/vp3-os/fleet/rollouts', {
+      method:'POST',
+      body:JSON.stringify({
+        release_version:byId('fleetRolloutVersion').value.trim(),
+        channel:byId('fleetRolloutChannel').value,
+        rollout_ring:byId('fleetRolloutRing').value,
+        failure_threshold:Number(byId('fleetFailureThreshold').value || 2),
+      }),
+    });
+    await refreshFleet();
+    systemFlash('Fleet rollout ' + rollout.release_version + ' created.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('fleetInventory').addEventListener('click', async event => {
+  const remove = event.target.closest('[data-fleet-remove]');
+  if (!remove) return;
+  if (!confirm('Remove this device from the local fleet registry? The remote device and its private data will not be changed.')) return;
+  try {
+    await systemApi('/api/v1/control/vp3-os/fleet/devices/' + encodeURIComponent(remove.dataset.fleetRemove), {method:'DELETE'});
+    await refreshFleet();
+    systemFlash('Fleet registry entry removed.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('fleetRollouts').addEventListener('click', async event => {
+  const button = event.target.closest('[data-fleet-rollout-status]');
+  if (!button) return;
+  try {
+    await systemApi('/api/v1/control/vp3-os/fleet/rollouts/' + button.dataset.fleetRolloutId + '/status', {
+      method:'POST',
+      body:JSON.stringify({status:button.dataset.fleetRolloutStatus, reason:'owner'}),
+    });
+    await refreshFleet();
+    systemFlash('Fleet rollout updated.');
+  } catch (err) { systemFlash(err.message, true); }
+});
+
+byId('fleetUpdateRequestsList').addEventListener('click', async event => {
+  const approve = event.target.closest('[data-fleet-request-approve]');
+  const dismiss = event.target.closest('[data-fleet-request-dismiss]');
+  try {
+    if (approve) {
+      const result = await systemApi('/api/v1/control/vp3-os/fleet/update-requests/' + approve.dataset.fleetRequestApprove + '/approve', {method:'POST'});
+      await refreshFleet();
+      await refreshRollout();
+      return systemFlash(result.apply_automatic ? 'Update approved.' : 'Fleet update request approved. Apply remains manual.');
+    }
+    if (dismiss) {
+      await systemApi('/api/v1/control/vp3-os/fleet/update-requests/' + dismiss.dataset.fleetRequestDismiss + '/dismiss', {method:'POST'});
+      await refreshFleet();
+      return systemFlash('Fleet update request dismissed.');
+    }
   } catch (err) { systemFlash(err.message, true); }
 });
 
