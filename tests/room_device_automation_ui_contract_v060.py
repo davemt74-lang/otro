@@ -12,6 +12,9 @@ api_py = (ROOT / "app" / "room_device_api.py").read_text(encoding="utf-8")
 policy_py = (ROOT / "app" / "services" / "action_policy.py").read_text(encoding="utf-8")
 tools_py = (ROOT / "app" / "services" / "tools.py").read_text(encoding="utf-8")
 approvals_py = (ROOT / "app" / "services" / "approvals.py").read_text(encoding="utf-8")
+file_wrapper_py = (ROOT / "app" / "services" / "local_file_actions_tools.py").read_text(encoding="utf-8")
+scheduling_wrapper_py = (ROOT / "app" / "services" / "vp3_scheduling_tools.py").read_text(encoding="utf-8")
+commerce_wrapper_py = (ROOT / "app" / "services" / "vp3_commerce_agent_tools.py").read_text(encoding="utf-8")
 
 for required in (
     'data-view="automation"',
@@ -73,5 +76,12 @@ assert "execute_command(" not in api_py
 # Approvals is the only release path into the command tool.
 assert '"devices.command"' in approvals_py
 assert 'approval_request_id=request["id"]' in approvals_py
+
+# Installed tool decorators must preserve approval context when they delegate
+# tools they do not own. Dropping this keyword would break the approved
+# physical-action release path depending on wrapper install order.
+for wrapper in (file_wrapper_py, scheduling_wrapper_py, commerce_wrapper_py):
+    assert "approval_request_id" in wrapper
+    assert "approval_request_id=approval_request_id" in wrapper
 
 print("VP3 OS v0.60 room-device governance/UI contract passed")
