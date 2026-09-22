@@ -220,11 +220,11 @@
             <h2>Rooms & Devices</h2>
             <p>Discover and organize local devices. Physical changes always create an approval request before any provider driver can execute them.</p>
           </div>
-          <span class="automation-version">VP3 OS v0.60</span>
+          <span class="automation-version">VP3 OS v0.70</span>
         </div>
         <div class="automation-guardrail">
           <strong>Physical action boundary:</strong>
-          Agent, Ambient, and paired applications may read permitted device state or propose commands. v0.60 never auto-executes a physical command.
+          Rules, Agent, Ambient, and paired applications may read permitted device state or propose commands. v0.70 routines create suggestions or approval requests only; they never auto-execute a physical command.
         </div>
 
         <div class="automation-stats">
@@ -233,6 +233,51 @@
           <article><span>Controllable</span><strong id="automationControllableCount">0</strong></article>
           <article><span>Suggestions</span><strong id="automationSuggestionCount">0</strong></article>
         </div>
+
+        <div class="automation-rules-grid">
+          <section class="panel">
+            <div class="panel-head"><div><p class="eyebrow">ROUTINES</p><h3>Local routines</h3></div></div>
+            <form id="automationRoutineForm" class="automation-rule-form">
+              <div class="automation-field-grid">
+                <label>Routine key<input id="automationRoutineKey" maxlength="80" placeholder="workday-start" required></label>
+                <label>Name<input id="automationRoutineName" maxlength="160" placeholder="Workday Start" required></label>
+                <label>Approval mode<select id="automationRoutineApproval"><option value="ask_every_time">Ask every time</option><option value="suggest_only">Suggest only</option></select></label>
+              </div>
+              <label>Steps JSON<textarea id="automationRoutineSteps" rows="5" placeholder='[{"device_key":"desk-light","command":"on","arguments":{}}]' required></textarea></label>
+              <button class="button secondary" type="submit">Save routine</button>
+            </form>
+            <div id="automationRoutines" class="automation-rules-list"><div class="empty-state">No routines yet.</div></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><div><p class="eyebrow">RULES</p><h3>Schedules & conditions</h3></div></div>
+            <form id="automationRuleForm" class="automation-rule-form">
+              <div class="automation-field-grid">
+                <label>Rule key<input id="automationRuleKey" maxlength="80" placeholder="weekday-start" required></label>
+                <label>Name<input id="automationRuleName" maxlength="160" placeholder="Weekday Start" required></label>
+                <label>Routine key<input id="automationRuleRoutine" maxlength="80" placeholder="workday-start" required></label>
+                <label>Trigger<select id="automationRuleTriggerKind"><option value="manual">Manual</option><option value="daily">Daily UTC</option><option value="device_state">Device state</option></select></label>
+                <label>Cooldown seconds<input id="automationRuleCooldown" type="number" min="0" max="86400" value="60"></label>
+              </div>
+              <label>Trigger JSON<textarea id="automationRuleTrigger" rows="4" placeholder='{"hour":15,"minute":0,"weekdays":[0,1,2,3,4]}'></textarea></label>
+              <label>Conditions JSON<textarea id="automationRuleConditions" rows="4" placeholder='[{"device_key":"office-sensor","field":"occupied","operator":"eq","value":true}]'></textarea></label>
+              <button class="button secondary" type="submit">Save rule</button>
+            </form>
+            <div id="automationRules" class="automation-rules-list"><div class="empty-state">No rules yet.</div></div>
+          </section>
+        </div>
+
+        <section class="panel automation-runtime-panel">
+          <div class="panel-head"><div><p class="eyebrow">RUNTIME</p><h3>Automation guardrails</h3></div></div>
+          <form id="automationRuntimeForm" class="automation-runtime-form">
+            <label class="check-inline"><input id="automationRuntimeEnabled" type="checkbox" checked> Enable local rule evaluation</label>
+            <label>Poll seconds<input id="automationRuntimePoll" type="number" min="5" max="300" value="15"></label>
+            <label>Max actions / run<input id="automationRuntimeMaxActions" type="number" min="1" max="16" value="12"></label>
+            <label>Max rule fires / minute<input id="automationRuntimeRate" type="number" min="1" max="60" value="20"></label>
+            <button class="button secondary" type="submit">Save runtime settings</button>
+          </form>
+          <div id="automationRuleExecutions" class="automation-rules-list"><div class="empty-state">No rule executions yet.</div></div>
+        </section>
 
         <div class="automation-layout">
           <section class="panel automation-main">

@@ -62,13 +62,18 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 24))
+        assert versions == list(range(1, 25))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
             "automation_devices",
             "automation_device_actions",
             "automation_suggestions",
+            "automation_runtime_settings",
+            "automation_routines",
+            "automation_routine_steps",
+            "automation_rules",
+            "automation_rule_executions",
         ):
             assert migrated.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -232,6 +237,17 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ("tasks.create", 1),
             ("tasks.list", 1),
         ]
+        runtime_settings = migrated.execute(
+            "SELECT enabled,poll_seconds,max_actions_per_run,max_rule_fires_per_minute FROM automation_runtime_settings WHERE id=1"
+        ).fetchone()
+        assert runtime_settings is not None
+        assert runtime_settings["enabled"] == 1
+        assert runtime_settings["poll_seconds"] == 15
+        assert runtime_settings["max_actions_per_run"] == 12
+        assert runtime_settings["max_rule_fires_per_minute"] == 20
+        assert migrated.execute("SELECT COUNT(*) FROM automation_routines").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM automation_rules").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM automation_rule_executions").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM tool_runs").fetchone()[0] == 0
         agent_policy = migrated.execute(
             "SELECT enabled, max_calls, allow_write_proposals FROM agent_tool_policy WHERE id=1"
@@ -302,7 +318,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 24))
+        assert versions_again == list(range(1, 25))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1

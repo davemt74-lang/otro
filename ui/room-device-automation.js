@@ -25,6 +25,14 @@
     return value;
   }
 
+  function parseArray(id) {
+    const raw = $(id).value.trim();
+    if (!raw) return [];
+    const value = JSON.parse(raw);
+    if (!Array.isArray(value)) throw new Error(`${id} must be a JSON array.`);
+    return value;
+  }
+
   function commandControls(device) {
     if (!device.controllable || !device.currently_executable) {
       const why = !device.controllable ? 'Discovery only' : 'Provider driver not ready';
@@ -82,10 +90,45 @@
     `).join('') : '<div class="empty-state">No device actions yet.</div>';
   }
 
+  function renderRules(data) {
+    const routines = data.routines || [];
+    const rules = data.rules || [];
+    const executions = data.recent_executions || [];
+    const settings = data.settings || {};
+
+    $('automationRoutines').innerHTML = routines.length ? routines.map(item => `
+      <div class="automation-rule-item">
+        <div><strong>${esc(item.name)}</strong><small>${esc(item.routine_key)} · ${esc(item.approval_mode)} · ${item.steps.length} steps</small></div>
+        <button class="button secondary" type="button" data-routine-run="${esc(item.routine_key)}">Run</button>
+      </div>
+    `).join('') : '<div class="empty-state">No routines yet.</div>';
+
+    $('automationRules').innerHTML = rules.length ? rules.map(item => `
+      <div class="automation-rule-item">
+        <div><strong>${esc(item.name)}</strong><small>${esc(item.rule_key)} · ${esc(item.trigger_kind)} · ${esc(item.routine_name)}</small></div>
+        ${item.trigger_kind === 'manual' ? `<button class="button secondary" type="button" data-rule-run="${esc(item.rule_key)}">Run</button>` : `<span class="automation-ready ${item.enabled ? '' : 'no'}">${item.enabled ? 'Enabled' : 'Disabled'}</span>`}
+      </div>
+    `).join('') : '<div class="empty-state">No rules yet.</div>';
+
+    $('automationRuleExecutions').innerHTML = executions.length ? executions.slice(0, 12).map(item => `
+      <div class="automation-rule-item"><div><strong>${esc(item.rule_name || item.routine_name)}</strong><small>${esc(item.status)} · ${item.action_count || 0} actions · ${fmt(item.completed_at || item.created_at)}</small></div></div>
+    `).join('') : '<div class="empty-state">No rule executions yet.</div>';
+
+    $('automationRuntimeEnabled').checked = Boolean(settings.enabled);
+    $('automationRuntimePoll').value = settings.poll_seconds ?? 15;
+    $('automationRuntimeMaxActions').value = settings.max_actions_per_run ?? 12;
+    $('automationRuntimeRate').value = settings.max_rule_fires_per_minute ?? 20;
+  }
+
   async function load() {
     if (!$('automationDevices')) return;
     try {
-      render(await request('/api/v1/control/vp3-os/automation'));
+      const [devices, rules] = await Promise.all([
+        request('/api/v1/control/vp3-os/automation'),
+        request('/api/v1/control/vp3-os/automation/rules-runtime'),
+      ]);
+      render(devices);
+      renderRules(rules);
       $('automationFeedback').textContent = '';
     } catch (error) {
       $('automationFeedback').textContent = error.message;
@@ -133,6 +176,84 @@
     } catch (error) { $('automationFeedback').textContent = error.message; }
   }
 
+  async function saveRoutine(event) {
+    event.preventDefault();
+    const key = $('automationRoutineKey').value.trim().toLowerCase();
+    try {
+      await request(`/api/v1/control/vp3-os/automation/routines/${encodeURIComponent(key)}`, {
+        method:'PUT',
+        body:JSON.stringify({
+          routine_key:key,
+          name:$('automationRoutineName').value.trim(),
+          description:'',
+          enabled:true,
+          approval_mode:$('automationRoutineApproval').value,
+          steps:parseArray('automationRoutineSteps'),
+        }),
+      });
+      event.target.reset();
+      $('automationRoutineApproval').value = 'ask_every_time';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function saveRule(event) {
+    event.preventDefault();
+    const key = $('automationRuleKey').value.trim().toLowerCase();
+    try {
+      await request(`/api/v1/control/vp3-os/automation/rules/${encodeURIComponent(key)}`, {
+        method:'PUT',
+        body:JSON.stringify({
+          rule_key:key,
+          name:$('automationRuleName').value.trim(),
+          description:'',
+          enabled:true,
+          routine_key:$('automationRuleRoutine').value.trim().toLowerCase(),
+          trigger_kind:$('automationRuleTriggerKind').value,
+          trigger:parseObject('automationRuleTrigger'),
+          conditions:parseArray('automationRuleConditions'),
+          cooldown_seconds:Number($('automationRuleCooldown').value || 60),
+        }),
+      });
+      event.target.reset();
+      $('automationRuleCooldown').value = '60';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function saveRuntime(event) {
+    event.preventDefault();
+    try {
+      await request('/api/v1/control/vp3-os/automation/rules-runtime/settings', {
+        method:'PUT',
+        body:JSON.stringify({
+          enabled:$('automationRuntimeEnabled').checked,
+          poll_seconds:Number($('automationRuntimePoll').value || 15),
+          max_actions_per_run:Number($('automationRuntimeMaxActions').value || 12),
+          max_rule_fires_per_minute:Number($('automationRuntimeRate').value || 20),
+        }),
+      });
+      $('automationFeedback').textContent = 'Automation runtime settings saved.';
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function runRoutine(key) {
+    try {
+      const result = await request(`/api/v1/control/vp3-os/automation/routines/${encodeURIComponent(key)}/run`, {method:'POST',body:'{}'});
+      $('automationFeedback').textContent = result.approval_required ? `${result.action_count} approval request(s) created.` : `${result.action_count} suggestion(s) created.`;
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
+  async function runRule(key) {
+    try {
+      const result = await request(`/api/v1/control/vp3-os/automation/rules/${encodeURIComponent(key)}/run`, {method:'POST',body:'{}'});
+      $('automationFeedback').textContent = result.fired ? 'Rule evaluated and created governed actions.' : `Rule did not fire: ${result.reason || 'not eligible'}.`;
+      await load();
+    } catch (error) { $('automationFeedback').textContent = error.message; }
+  }
+
   async function requestCommand(button) {
     const key = button.dataset.deviceRequest;
     const command = button.dataset.command;
@@ -160,6 +281,9 @@
     $('automationRoomForm').addEventListener('submit', saveRoom);
     $('automationProviderForm').addEventListener('submit', saveProvider);
     $('automationDeviceForm').addEventListener('submit', saveDevice);
+    $('automationRoutineForm').addEventListener('submit', saveRoutine);
+    $('automationRuleForm').addEventListener('submit', saveRule);
+    $('automationRuntimeForm').addEventListener('submit', saveRuntime);
     $('automationRefresh').addEventListener('click', load);
     document.querySelectorAll('.nav-item[data-view="automation"]').forEach(node => node.addEventListener('click', load));
     $('view-automation').addEventListener('click', event => {
@@ -169,6 +293,10 @@
       if (requestSuggestion) suggestionAction(requestSuggestion.dataset.suggestionRequest, 'request');
       const dismissSuggestion = event.target.closest('[data-suggestion-dismiss]');
       if (dismissSuggestion) suggestionAction(dismissSuggestion.dataset.suggestionDismiss, 'dismiss');
+      const routineRun = event.target.closest('[data-routine-run]');
+      if (routineRun) runRoutine(routineRun.dataset.routineRun);
+      const ruleRun = event.target.closest('[data-rule-run]');
+      if (ruleRun) runRule(ruleRun.dataset.ruleRun);
     });
     load();
   });
