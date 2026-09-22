@@ -269,20 +269,23 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
                 {"type": "event", "seq": 3, "event": "agent_button", "action": "release"}
             )
 
-            # The real ESP32 emits press/release pairs. A second press within
-            # the bounded gesture window starts meeting mode and cancels any
-            # short push-to-talk turn created by the first click.
+            # The real ESP32 emits press, then hold after ~900 ms, then
+            # release. Normal hold remains a v0.30 cancel. Keeping the button
+            # down past the longer v0.40 threshold and then releasing starts
+            # Meeting Mode without adding a firmware command.
             hardware_adapters.manager.handle_message(
                 {"type": "event", "seq": 4, "event": "agent_button", "action": "press"}
             )
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 5, "event": "agent_button", "action": "release"}
+                {"type": "event", "seq": 5, "event": "agent_button", "action": "hold"}
             )
+            with physical_meeting.runtime._lock:
+                physical_meeting.runtime._button_pressed_at_monotonic = (
+                    time.monotonic() - physical_meeting.MEETING_START_HOLD_SECONDS - 0.1
+                )
+                physical_meeting.runtime._button_hold_seen = True
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 6, "event": "agent_button", "action": "press"}
-            )
-            hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 7, "event": "agent_button", "action": "release"}
+                {"type": "event", "seq": 6, "event": "agent_button", "action": "release"}
             )
             active = wait_for(
                 lambda: (
@@ -343,13 +346,13 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             # The ESP32 emits press before hold. During meeting mode the
             # Physical Agent ignores both; the meeting runtime ends on hold.
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 8, "event": "agent_button", "action": "press"}
+                {"type": "event", "seq": 7, "event": "agent_button", "action": "press"}
             )
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 9, "event": "agent_button", "action": "hold"}
+                {"type": "event", "seq": 8, "event": "agent_button", "action": "hold"}
             )
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 10, "event": "agent_button", "action": "release"}
+                {"type": "event", "seq": 9, "event": "agent_button", "action": "release"}
             )
             completed = wait_for(
                 lambda: (
@@ -415,7 +418,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             analyzer_count = len(intelligence_calls)
 
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 11, "event": "privacy_switch", "action": "engaged"}
+                {"type": "event", "seq": 10, "event": "privacy_switch", "action": "engaged"}
             )
             hardware_adapters.manager.handle_message(
                 controller_state(2, privacy=True, mic_powered=False)
@@ -450,7 +453,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v040-meeting-") as data_dir:
             # Restore physical privacy state, then prove exact on-device voice
             # commands can start and stop meeting mode without an LLM.
             hardware_adapters.manager.handle_message(
-                {"type": "event", "seq": 12, "event": "privacy_switch", "action": "disengaged"}
+                {"type": "event", "seq": 11, "event": "privacy_switch", "action": "disengaged"}
             )
             hardware_adapters.manager.handle_message(
                 controller_state(3, privacy=False, mic_powered=True)
