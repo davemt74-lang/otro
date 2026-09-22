@@ -44,6 +44,7 @@ from app.services.restore_runtime import apply_pending_restore_for_startup  # no
 from app.services.runtime_control import register_runtime_handler  # noqa: E402
 from app.services.windows_integration import open_folder  # noqa: E402
 from desktop.single_instance import SingleInstance  # noqa: E402
+from desktop.update_runtime import spawn_pending_update  # noqa: E402
 
 
 EXIT_ALREADY_RUNNING = 23
@@ -157,6 +158,7 @@ class RuntimeController:
         self.remote_bridge = None if recovery_mode else RemoteBridgeWorker()
         self.restart_requested = False
         self.shutdown_requested = False
+        self.update_requested = False
         self._command_lock = threading.Lock()
         self._stop_scheduled = False
 
@@ -192,11 +194,13 @@ class RuntimeController:
                 pass
 
     def handle_command(self, command: str) -> bool:
-        if command not in {"restart", "shutdown"}:
+        if command not in {"restart", "shutdown", "apply_update"}:
             return False
         with self._command_lock:
             if command == "restart":
                 self.restart_requested = True
+            elif command == "apply_update":
+                self.update_requested = True
             else:
                 self.shutdown_requested = True
             if not self._stop_scheduled:
@@ -325,6 +329,7 @@ def main() -> None:
         raise SystemExit(EXIT_ALREADY_RUNNING)
 
     restart_requested = False
+    update_requested = False
     try:
         _apply_staged_restore_before_server()
         asgi_app, recovery_mode, _reason = _select_runtime_app()
@@ -334,10 +339,19 @@ def main() -> None:
         else:
             controller.run_tray()
         restart_requested = controller.restart_requested
+        update_requested = controller.update_requested
     finally:
         instance.release()
 
-    if restart_requested:
+    if update_requested:
+        time.sleep(0.15)
+        if not spawn_pending_update():
+            subprocess.Popen(
+                _restart_command(),
+                close_fds=True,
+                env=_restart_environment(),
+            )
+    elif restart_requested:
         time.sleep(0.15)
         subprocess.Popen(
             _restart_command(),
