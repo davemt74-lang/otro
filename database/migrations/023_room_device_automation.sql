@@ -70,6 +70,10 @@ CREATE TABLE IF NOT EXISTS automation_device_actions (
 CREATE INDEX IF NOT EXISTS idx_automation_device_actions_device
 ON automation_device_actions(device_id, id DESC);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_automation_device_actions_request
+ON automation_device_actions(action_request_id)
+WHERE action_request_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS automation_suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_kind TEXT NOT NULL,
