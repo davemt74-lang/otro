@@ -186,6 +186,20 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v060-room-device-") as data_dir:
                 assert "approved action request" in str(exc)
             assert driver_calls == []
 
+            # Even an internal caller cannot fabricate an approval token.
+            try:
+                room_device_automation.execute_command(
+                    "living-room-lamp",
+                    "on",
+                    {},
+                    source_app_key="owner",
+                    action_request_id="fabricated-request",
+                )
+                raise AssertionError("fabricated approval context unexpectedly executed")
+            except room_device_automation.RoomDeviceError as exc:
+                assert exc.status_code == 403
+            assert driver_calls == []
+
             # A request can be created before the driver comes online, but
             # approval fails closed and records failure if execution is not
             # currently possible.
