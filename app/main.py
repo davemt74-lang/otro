@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import app_scopes, hardware_adapters, physical_agent, physical_meeting
+from .services import ambient_agent, app_scopes, hardware_adapters, physical_agent, physical_meeting
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -34,9 +34,11 @@ async def lifespan(_: FastAPI):
     hardware_adapters.start()
     physical_agent.start()
     physical_meeting.start_runtime()
+    ambient_agent.start()
     try:
         yield
     finally:
+        ambient_agent.stop()
         physical_meeting.stop_runtime()
         physical_agent.stop()
         hardware_adapters.stop()
