@@ -53,6 +53,7 @@ class PhysicalAgentRuntime:
         self._generation = 0
         self._worker: threading.Thread | None = None
         self._inference_token: CancellationToken | None = None
+        self._external_mode = ""
         self._last_error = ""
         self._last_transcript_chars = 0
         self._last_reply_chars = 0
@@ -145,6 +146,9 @@ class PhysicalAgentRuntime:
 
         if event_type != "agent_button":
             return
+        with self._lock:
+            if self._external_mode:
+                return
         if action == "press":
             self.begin_listening()
         elif action == "release":
@@ -160,6 +164,9 @@ class PhysicalAgentRuntime:
 
         with self._lock:
             state = self._state
+            external_mode = self._external_mode
+        if external_mode:
+            return {"started": False, "reason": f"external_mode:{external_mode}"}
 
         # v0.40 barge-in supersedes any current physical turn. Provider
         # inference is cooperatively cancelled when it is already in flight.
@@ -250,6 +257,16 @@ class PhysicalAgentRuntime:
 
             if not self._generation_active(generation) or self._privacy_engaged():
                 return
+
+            # Physical meeting mode is an explicit local control command, not an
+            # LLM interpretation. Import lazily to avoid a runtime cycle.
+            try:
+                from . import physical_meeting
+                if physical_meeting.handle_start_voice_command(transcript):
+                    return
+            except Exception:
+                pass
+
             self._set_state("thinking")
 
             conversation_id = self._conversation_for_turn()
@@ -364,6 +381,19 @@ class PhysicalAgentRuntime:
         device_audio.device_audio.cancel_capture()
         device_audio.device_audio.stop_playback()
 
+    def set_external_mode(self, mode: str | None) -> None:
+        normalized = str(mode or "").strip().lower()[:40]
+        with self._lock:
+            self._external_mode = normalized
+        if normalized:
+            self.cancel(f"external_mode:{normalized}")
+        if self._started:
+            self._set_state("idle" if not self._privacy_engaged() else "privacy")
+
+    def external_mode(self) -> str:
+        with self._lock:
+            return self._external_mode
+
     def reset_conversation(self) -> None:
         with self._lock:
             self._conversation_id = None
@@ -384,6 +414,7 @@ class PhysicalAgentRuntime:
                 "last_transcript_chars": self._last_transcript_chars,
                 "last_reply_chars": self._last_reply_chars,
                 "last_compute_source": self._last_compute_source,
+                "external_mode": self._external_mode,
                 "audio": device_audio.device_audio.runtime_state(),
             }
 
@@ -409,6 +440,7 @@ def paired_status() -> dict[str, Any]:
         "state": str(raw.get("state") or "")[:40],
         "turn_count": int(raw.get("turn_count") or 0),
         "last_compute_source": str(raw.get("last_compute_source") or "")[:80],
+        "external_mode": str(raw.get("external_mode") or "")[:40],
         "audio": {
             "capturing": bool(raw.get("audio", {}).get("capturing")),
             "playing": bool(raw.get("audio", {}).get("playing")),
@@ -446,4 +478,9 @@ def finish_listening() -> dict[str, Any]:
 def cancel(reason: str = "owner_cancelled") -> dict[str, Any]:
     runtime.cancel(reason)
     runtime._set_state("privacy" if runtime._privacy_engaged() else "idle")
+    return runtime.status()
+
+
+def set_external_mode(mode: str | None) -> dict[str, Any]:
+    runtime.set_external_mode(mode)
     return runtime.status()
