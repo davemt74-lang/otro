@@ -28,6 +28,8 @@ VP3 OS v0.90 adds **Ambient Orchestration & Room Modes**: owner-defined room mod
 
 VP3 OS v1.0 adds **Production Release Hardening**: canonical v1.0 release identity, owner-only release-readiness diagnostics, fresh-install/restart/upgrade validation, backup/recovery gates, bounded orchestration soak testing, cross-platform release CI, and explicit post-merge packaging discipline. v1.0 adds no new physical execution path and preserves the v0.60/v0.70 owner-approval boundary. See [docs/VP3_OS_PRODUCTION_RELEASE_V100.md](docs/VP3_OS_PRODUCTION_RELEASE_V100.md).
 
+VP3 OS v1.1 adds **Controlled Production Rollout & Hardware Certification**: appliance commissioning, persistent hardware certification, stable/beta/dev release channels, pilot/staged/broad rollout rings, owner-staged SHA-256-verified update packages, mandatory pre-update backups, supervised Windows apply with binary rollback on failed health validation, bounded runtime-watchdog restarts, and privacy-safe support bundles. Automatic and remote unattended update apply remain disabled. See [docs/VP3_OS_CONTROLLED_ROLLOUT_V110.md](docs/VP3_OS_CONTROLLED_ROLLOUT_V110.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
@@ -50,7 +52,7 @@ VP3 OS v1.0 adds **Production Release Hardening**: canonical v1.0 release identi
 - Token Usage History with provider/model, input/output/total tokens, cloud debit and latest reported balance
 - App-scoped usage history and app-scoped idempotency keys
 - Watched local Knowledge Sources with scheduled synchronization and SQLite FTS indexing
-- SQLite WAL database with transactional migrations through schema 15
+- SQLite WAL database with transactional migrations through schema 27
 - Supervised Windows tray runtime with graceful restart/shutdown and single-instance enforcement
 - `%LOCALAPPDATA%\HomeServer\Data` as the installed Windows data location
 - Windows DPAPI protection for owner, Remote Bridge and provider credentials
