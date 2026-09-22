@@ -4,7 +4,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import ambient_agent, app_scopes, hardware_adapters, local_apps, local_files, physical_agent, physical_meeting, plugins, providers, tools, vp3_os
+from . import ambient_agent, app_scopes, hardware_adapters, local_apps, local_files, physical_agent, physical_meeting, plugins, providers, room_device_automation, tools, vp3_os
 from .knowledge import SUPPORTED_EXTENSIONS
 from .remote_bridge import bridge_status
 
@@ -331,6 +331,7 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
         "vp3_os_physical_agent": physical_agent.paired_status(),
         "vp3_os_physical_meeting": physical_meeting.paired_status(),
         "vp3_os_ambient_agent": ambient_agent.paired_status(),
+        "vp3_os_room_device_automation": room_device_automation.paired_status(),
         "app": {
             "key": str(identity.get("app_key") or "")[:80],
             "name": str(identity.get("name") or "")[:120],
