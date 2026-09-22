@@ -440,15 +440,26 @@ assert overview["governance"]["owner_activation_required"] is True
 assert overview["governance"]["ending_mode_reverts_device_state"] is False
 
 with db() as connection:
-    cognitive_count = connection.execute(
-        """
-        SELECT COUNT(*) FROM cognitive_events
-        WHERE event_type LIKE 'orchestration.mode_%'
-          AND privacy_scope='private'
-          AND memory_candidate=0
-        """
-    ).fetchone()[0]
-    assert cognitive_count >= 4
+    cognitive_events = {
+        row["event_type"]
+        for row in connection.execute(
+            """
+            SELECT event_type FROM cognitive_events
+            WHERE event_type LIKE 'orchestration.mode_%'
+              AND privacy_scope='private'
+              AND memory_candidate=0
+            """
+        ).fetchall()
+    }
+    for required_event in (
+        "orchestration.mode_suggested",
+        "orchestration.mode_requested",
+        "orchestration.mode_active",
+        "orchestration.mode_suspended",
+        "orchestration.mode_failed",
+        "orchestration.mode_ended",
+    ):
+        assert required_event in cognitive_events, required_event
 
 tmp.cleanup()
 print("VP3 OS v0.90 ambient orchestration runtime passed")
