@@ -282,17 +282,27 @@ def chat(
                 )
 
     try:
-        generation_kwargs = {
-            "source_app_key": source_app_key,
-            "selected_model": selected_model,
-            "granted_permissions": _model_tool_permissions(read_only, canonical.model_tool_permissions),
-            "owner": bool(owner_tools and not read_only),
-            "state": tool_state,
-            "provider_key": provider_override,
-        }
-        if cancellation_token is not None:
-            generation_kwargs["cancellation_token"] = cancellation_token
-        generated, tool_state = brain._generate_with_agent_tools(messages, **generation_kwargs)
+        if cancellation_token is None:
+            generated, tool_state = brain._generate_with_agent_tools(
+                messages,
+                source_app_key=source_app_key,
+                selected_model=selected_model,
+                granted_permissions=_model_tool_permissions(read_only, canonical.model_tool_permissions),
+                owner=bool(owner_tools and not read_only),
+                state=tool_state,
+                provider_key=provider_override,
+            )
+        else:
+            generated, tool_state = brain._generate_with_agent_tools(
+                messages,
+                source_app_key=source_app_key,
+                selected_model=selected_model,
+                granted_permissions=_model_tool_permissions(read_only, canonical.model_tool_permissions),
+                owner=bool(owner_tools and not read_only),
+                state=tool_state,
+                provider_key=provider_override,
+                cancellation_token=cancellation_token,
+            )
         tool_state["read_only"] = bool(read_only)
         if cancellation_token is not None:
             cancellation_token.raise_if_cancelled()
