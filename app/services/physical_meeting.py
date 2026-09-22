@@ -196,10 +196,12 @@ class PhysicalMeetingRuntime:
                 self.interrupt("privacy_engaged", create_card=True)
                 self._set_state("privacy")
             elif action == "disengaged":
+                # The controller emits the switch event before its authoritative
+                # state frame. Physical Agent owns its own event-state transition;
+                # do not re-read the still-stale hardware snapshot here.
                 with self._lock:
                     active = self._meeting_id is not None and self._state not in {"idle", "privacy", "error"}
                 if not active:
-                    physical_agent.set_external_mode(None)
                     self._set_state("idle")
             return
 
