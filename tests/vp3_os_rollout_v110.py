@@ -144,8 +144,9 @@ except device_rollout.RolloutError as exc:
 else:
     raise AssertionError("Tampered installer was accepted")
 
+release_payload = release_zip()
 staged = device_rollout.stage_package(
-    io.BytesIO(release_zip()),
+    io.BytesIO(release_payload),
     f"VP3-OS-{vp3_os.VP3_OS_VERSION}-test.zip",
 )
 assert staged["version"] == vp3_os.VP3_OS_VERSION
@@ -154,7 +155,7 @@ assert staged["status"] == "staged"
 assert len(staged["package_sha256"]) == 64
 assert len(staged["installer_sha256"]) == 64
 duplicate = device_rollout.stage_package(
-    io.BytesIO(release_zip()),
+    io.BytesIO(release_payload),
     f"VP3-OS-{vp3_os.VP3_OS_VERSION}-duplicate.zip",
 )
 assert duplicate["id"] == staged["id"]
