@@ -32,6 +32,8 @@ VP3 OS v1.1 adds **Controlled Production Rollout & Hardware Certification**: app
 
 VP3 OS v1.2 adds **Fleet & Remote Device Management**: opt-in paired-controller enrollment, bounded device health telemetry, multi-device fleet inventory and alerts, pilot/staged/broad rollout tracking, automatic rollout pause on failure thresholds, owner-reviewed fleet update requests that reuse the v1.1 staged updater, fleet decommission permission revocation, and a local Fleet Management workspace. Fleet control never gains physical-action authority, private-content telemetry, update download, update approval, or update apply. See [docs/VP3_OS_FLEET_MANAGEMENT_V120.md](docs/VP3_OS_FLEET_MANAGEMENT_V120.md).
 
+VP3 OS v1.3 adds **Hardware Experience Runtime**: product-specific Node/Desk/Studio/Team Node/Pocket experience profiles, a normalized local hardware-event projection, unified Agent/Meeting/Ambient/Update visual state, persistent display cards/preferences, configurable Agent-button/hold policy, optional profile-aware control-dial volume input, degraded-mode reasoning, per-product experience certification, and bounded experience identity in fleet telemetry. v1.3 adds no new room-device or cloud physical-action authority. See [docs/VP3_OS_HARDWARE_EXPERIENCE_V130.md](docs/VP3_OS_HARDWARE_EXPERIENCE_V130.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
@@ -54,7 +56,7 @@ VP3 OS v1.2 adds **Fleet & Remote Device Management**: opt-in paired-controller 
 - Token Usage History with provider/model, input/output/total tokens, cloud debit and latest reported balance
 - App-scoped usage history and app-scoped idempotency keys
 - Watched local Knowledge Sources with scheduled synchronization and SQLite FTS indexing
-- SQLite WAL database with transactional migrations through schema 28
+- SQLite WAL database with transactional migrations through schema 29
 - Supervised Windows tray runtime with graceful restart/shutdown and single-instance enforcement
 - `%LOCALAPPDATA%\HomeServer\Data` as the installed Windows data location
 - Windows DPAPI protection for owner, Remote Bridge and provider credentials
