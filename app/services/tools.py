@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, knowledge_collection_policy, local_files
+from . import app_scopes, knowledge_collection_policy, local_files, room_device_automation
 from .contacts import list_contacts
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
@@ -107,6 +107,40 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "devices.list": {
+        "key": "devices.list",
+        "name": "Read Rooms & Devices",
+        "description": "Read bounded local room/device inventory and normalized state without executing physical actions.",
+        "mode": "read",
+        "required_permissions": ["devices.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "room_key": {"type": ["string", "null"], "maxLength": 80},
+                "category": {"type": ["string", "null"], "maxLength": 40},
+                "controllable_only": {"type": "boolean"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+            },
+            "additionalProperties": False
+        }
+    },
+    "devices.command": {
+        "key": "devices.command",
+        "name": "Control Local Device",
+        "description": "Execute one previously approved physical device command through a registered local provider driver.",
+        "mode": "write",
+        "required_permissions": ["devices.control"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "device_key": {"type": "string", "maxLength": 80},
+                "command": {"type": "string", "maxLength": 40},
+                "arguments": {"type": "object"}
+            },
+            "required": ["device_key", "command"],
+            "additionalProperties": False
+        }
+    },
     "notifications.list": {
         "key": "notifications.list",
         "name": "Read Notifications",
@@ -186,6 +220,12 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "name": "Memory Manager",
         "description": "Read and create durable agent memory through explicit local capabilities.",
         "tools": ["memory.list", "memory.write"],
+    },
+    {
+        "key": "room.automation",
+        "name": "Room & Device Automation",
+        "description": "Read local rooms/devices and propose governed physical device commands.",
+        "tools": ["devices.list", "devices.command"],
     },
     {
         "key": "task.manager",
@@ -291,6 +331,20 @@ def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[st
             "ref_length": len(ref),
             "offset": _safe_numeric(arguments.get("offset"), 0),
             "max_chars": _safe_numeric(arguments.get("max_chars"), 6000),
+        }
+    if tool_key == "devices.list":
+        return {
+            "room_key_length": len(str(arguments.get("room_key") or "")),
+            "category": str(arguments.get("category") or "")[:40] or None,
+            "controllable_only": bool(arguments.get("controllable_only", False)),
+            "limit": _safe_numeric(arguments.get("limit"), 50),
+        }
+    if tool_key == "devices.command":
+        nested = arguments.get("arguments")
+        return {
+            "device_key_length": len(str(arguments.get("device_key") or "")),
+            "command": str(arguments.get("command") or "")[:40],
+            "argument_count": len(nested) if isinstance(nested, dict) else 0,
         }
     if tool_key == "notifications.list":
         return {"unread_only": bool(arguments.get("unread_only", False)), "limit": _safe_numeric(arguments.get("limit"), 20)}
@@ -546,6 +600,76 @@ def _notifications_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict
     return {"items": rows, "count": len(rows)}, {"count": len(rows)}
 
 
+def _devices_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown = set(arguments) - {"room_key", "category", "controllable_only", "limit"}
+    if unknown:
+        raise ToolError(f"Unsupported devices.list argument: {sorted(unknown)[0]}")
+    room_key = str(arguments.get("room_key") or "").strip() or None
+    category = str(arguments.get("category") or "").strip() or None
+    controllable_raw = arguments.get("controllable_only", False)
+    if not isinstance(controllable_raw, bool):
+        raise ToolError("devices.list controllable_only must be boolean.")
+    limit = _bounded_int(arguments.get("limit"), 50, 1, 100, "limit")
+    try:
+        rows = room_device_automation.list_devices(
+            room_key=room_key,
+            category=category,
+            enabled_only=True,
+            controllable_only=controllable_raw,
+            limit=limit,
+        )
+    except room_device_automation.RoomDeviceError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    items = []
+    for row in rows:
+        items.append(
+            {
+                "device_key": row["device_key"],
+                "name": row["name"],
+                "category": row["category"],
+                "room_key": row.get("room_key"),
+                "room_name": row.get("room_name"),
+                "controllable": bool(row["controllable"]),
+                "currently_executable": bool(row["currently_executable"]),
+                "capabilities": row["capabilities"],
+                "state": row["state"],
+            }
+        )
+    return {"items": items, "count": len(items)}, {"count": len(items), "automation_version": room_device_automation.AUTOMATION_VERSION}
+
+
+def _devices_command(
+    arguments: dict[str, Any],
+    source: str,
+    *,
+    approval_request_id: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not approval_request_id:
+        raise ToolError(
+            "Physical device commands require an approved action request in VP3 OS v0.60.",
+            403,
+        )
+    unknown = set(arguments) - {"device_key", "command", "arguments"}
+    if unknown:
+        raise ToolError(f"Unsupported devices.command argument: {sorted(unknown)[0]}")
+    try:
+        result = room_device_automation.execute_command(
+            str(arguments.get("device_key") or ""),
+            str(arguments.get("command") or ""),
+            arguments.get("arguments") if isinstance(arguments.get("arguments"), dict) else {},
+            source_app_key=source,
+            action_request_id=approval_request_id,
+        )
+    except room_device_automation.RoomDeviceError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return result, {
+        "executed": True,
+        "action_id": int(result["action_id"]),
+        "device_key": str(result["device_key"])[:80],
+        "command": str(result["command"])[:40],
+    }
+
+
 def _tasks_create(arguments: dict[str, Any], source: str, created_by_type: str) -> tuple[dict[str, Any], dict[str, Any]]:
     source_key = source.removeprefix("app:") if source.startswith("app:") else (None if source == "owner" else source)
     try:
@@ -556,7 +680,8 @@ def _tasks_create(arguments: dict[str, Any], source: str, created_by_type: str) 
 
 
 def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
-                 granted_permissions: set[str] | None = None, *, owner: bool = False) -> dict[str, Any]:
+                 granted_permissions: set[str] | None = None, *, owner: bool = False,
+                 approval_request_id: str | None = None) -> dict[str, Any]:
     tool = _tool_definition(tool_key)
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
@@ -599,6 +724,14 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _tasks_list(payload)
         elif tool["key"] == "notifications.list":
             result, result_meta = _notifications_list(payload)
+        elif tool["key"] == "devices.list":
+            result, result_meta = _devices_list(payload)
+        elif tool["key"] == "devices.command":
+            result, result_meta = _devices_command(
+                payload,
+                source,
+                approval_request_id=approval_request_id,
+            )
         elif tool["key"] == "tasks.create":
             task_creator = "agent" if owner and source.startswith("app:") else actor_type
             result, result_meta = _tasks_create(payload, source, task_creator)
