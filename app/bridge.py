@@ -364,6 +364,8 @@ def capabilities() -> dict:
             "cognition.memory_candidates",
             "cognition.multi_app_awareness",
             "contacts.read",
+            "devices.read",
+            "devices.control",
             "conversations",
             "events.read",
             "events.write",
