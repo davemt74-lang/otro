@@ -99,6 +99,41 @@ except device_rollout.RolloutError as exc:
 else:
     raise AssertionError("Mismatched update channel was accepted")
 
+
+def downgrade_zip() -> bytes:
+    exe = b"vp3-home-server-v100"
+    installer = b"vp3-home-server-setup-v100"
+    exe_hash = hashlib.sha256(exe).hexdigest()
+    installer_hash = hashlib.sha256(installer).hexdigest()
+    manifest = {
+        "format": "vp3-os-release-v1",
+        "version": "v1.0",
+        "channel": "stable",
+        "minimum_schema_version": 26,
+        "files": {
+            "HomeServer.exe": exe_hash,
+            "HomeServerSetup.exe": installer_hash,
+        },
+    }
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("RELEASE.json", json.dumps(manifest, sort_keys=True))
+        archive.writestr("HomeServer.exe", exe)
+        archive.writestr("HomeServerSetup.exe", installer)
+        archive.writestr(
+            "SHA256SUMS.txt",
+            f"{exe_hash}  HomeServer.exe\n{installer_hash}  HomeServerSetup.exe\n",
+        )
+    return stream.getvalue()
+
+
+try:
+    device_rollout.stage_package(io.BytesIO(downgrade_zip()), "downgrade.zip")
+except device_rollout.RolloutError as exc:
+    assert "older than the installed VP3 OS" in str(exc)
+else:
+    raise AssertionError("Downgrade package was accepted")
+
 try:
     device_rollout.stage_package(
         io.BytesIO(release_zip("stable", tamper=True)),
@@ -118,6 +153,12 @@ assert staged["channel"] == "stable"
 assert staged["status"] == "staged"
 assert len(staged["package_sha256"]) == 64
 assert len(staged["installer_sha256"]) == 64
+duplicate = device_rollout.stage_package(
+    io.BytesIO(release_zip()),
+    "VP3-OS-v1.1-duplicate.zip",
+)
+assert duplicate["id"] == staged["id"]
+assert len(device_rollout.list_packages(20)) == 1
 
 approved = device_rollout.approve_package(staged["id"])
 assert approved["status"] == "approved"
