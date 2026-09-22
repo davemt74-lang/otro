@@ -345,6 +345,17 @@ def _safe_member(name: str) -> str:
     return normalized
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _stream_package(source: BinaryIO, target: Path) -> tuple[int, str]:
     digest = hashlib.sha256()
     written = 0
@@ -570,7 +581,13 @@ def approve_package(package_id: int) -> dict[str, Any]:
     package = get_package(package_id)
     if package["status"] != "staged":
         raise RolloutError("Only a staged update can be approved.", 409)
-    backup = backups.create_backup(f"pre-update-{package['version']}")
+    try:
+        backup = backups.create_backup(f"pre-update-{package['version']}")
+    except backups.BackupError as exc:
+        raise RolloutError(
+            f"Pre-update backup failed: {exc}",
+            getattr(exc, "status_code", 422),
+        ) from exc
     with db() as connection:
         cursor = connection.execute(
             """
@@ -626,7 +643,7 @@ def request_apply(package_id: int) -> dict[str, Any]:
     with zipfile.ZipFile(archive_path, "r") as archive:
         with archive.open("HomeServerSetup.exe", "r") as source, installer_path.open("wb") as output:
             shutil.copyfileobj(source, output, length=1024 * 1024)
-    installer_hash = hashlib.sha256(installer_path.read_bytes()).hexdigest()
+    installer_hash = _sha256_file(installer_path)
     if installer_hash != package["installer_sha256"]:
         shutil.rmtree(apply_dir, ignore_errors=True)
         raise RolloutError("Staged installer failed revalidation before apply.")
@@ -824,28 +841,55 @@ def support_bundle() -> dict[str, Any]:
         "runtime_control": diagnostics.get("runtime_control"),
     }
     commissioning = commissioning_report()
-    commissioning["hardware"]["adapter"]["controller"] = {
+    adapter = commissioning["hardware"]["adapter"]
+    adapter["last_error_present"] = bool(adapter.get("last_error"))
+    adapter.pop("last_error", None)
+    adapter["controller"] = {
         key: value
         for key, value in (commissioning["hardware"]["adapter"].get("controller") or {}).items()
         if key in {"protocol", "firmware", "hardware_revision", "components", "capabilities"}
     }
 
+    safe_event_metadata_keys = {
+        "package_id",
+        "channel",
+        "profile",
+        "missing_hardware",
+        "not_ready_hardware",
+        "certification_id",
+        "rollback_backup_name",
+        "release_channel",
+        "rollout_ring",
+        "watchdog_enabled",
+        "sha256",
+    }
     with db() as connection:
-        events = [
-            {
-                "event_type": row["event_type"],
-                "severity": row["severity"],
-                "summary": row["summary"],
-                "metadata": _read_json(row["metadata_json"], {}),
-                "created_at": row["created_at"],
-            }
-            for row in connection.execute(
-                """
-                SELECT event_type,severity,summary,metadata_json,created_at
-                FROM vp3_rollout_events ORDER BY id DESC LIMIT 100
-                """
-            ).fetchall()
-        ]
+        events = []
+        for row in connection.execute(
+            """
+            SELECT event_type,severity,summary,metadata_json,created_at
+            FROM vp3_rollout_events ORDER BY id DESC LIMIT 100
+            """
+        ).fetchall():
+            raw_metadata = _read_json(row["metadata_json"], {})
+            metadata = (
+                {
+                    key: value
+                    for key, value in raw_metadata.items()
+                    if key in safe_event_metadata_keys
+                }
+                if isinstance(raw_metadata, dict)
+                else {}
+            )
+            events.append(
+                {
+                    "event_type": row["event_type"],
+                    "severity": row["severity"],
+                    "summary": row["summary"],
+                    "metadata": metadata,
+                    "created_at": row["created_at"],
+                }
+            )
 
     payloads = {
         "support-summary.json": {
@@ -871,7 +915,7 @@ def support_bundle() -> dict[str, Any]:
                 name,
                 json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
             )
-    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    digest = _sha256_file(target)
     _event(
         "support.bundle_created",
         "Sanitized VP3 OS support bundle created.",
