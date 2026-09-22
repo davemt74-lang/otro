@@ -161,6 +161,8 @@ class RuntimeController:
         self.update_requested = False
         self._command_lock = threading.Lock()
         self._stop_scheduled = False
+        self._watchdog_stop = threading.Event()
+        self._watchdog_thread: threading.Thread | None = None
 
     def _run_server(self) -> None:
         self.server.run()
@@ -168,6 +170,51 @@ class RuntimeController:
     def start_threaded(self) -> None:
         self.thread = threading.Thread(target=self._run_server, name="homeserver-api", daemon=False)
         self.thread.start()
+
+    def _watchdog_loop(self) -> None:
+        while not self._watchdog_stop.wait(1.0):
+            thread = self.thread
+            if thread is None or thread.is_alive():
+                continue
+            with self._command_lock:
+                intentional = (
+                    self.restart_requested
+                    or self.shutdown_requested
+                    or self.update_requested
+                )
+                if intentional:
+                    return
+                self.restart_requested = True
+                self._stop_scheduled = True
+            if self.tray is not None:
+                try:
+                    self.tray.stop()
+                except Exception:
+                    pass
+            return
+
+    def start_watchdog(self) -> None:
+        try:
+            from app.services.device_rollout import get_settings
+            enabled = bool(get_settings().get("watchdog_enabled"))
+        except Exception:
+            enabled = True
+        if not enabled:
+            return
+        self._watchdog_stop.clear()
+        self._watchdog_thread = threading.Thread(
+            target=self._watchdog_loop,
+            name="homeserver-runtime-watchdog",
+            daemon=True,
+        )
+        self._watchdog_thread.start()
+
+    def stop_watchdog(self) -> None:
+        self._watchdog_stop.set()
+        thread = self._watchdog_thread
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=2)
+        self._watchdog_thread = None
 
     def start_remote_bridge(self) -> None:
         if self.remote_bridge is not None:
@@ -287,6 +334,7 @@ class RuntimeController:
             raise SystemExit(EXIT_SERVER_NOT_READY)
 
         self.start_remote_bridge()
+        self.start_watchdog()
         register_runtime_handler(self.handle_command)
         try:
             self.tray = pystray.Icon(
@@ -310,6 +358,7 @@ class RuntimeController:
             self.tray.run()
         finally:
             register_runtime_handler(None)
+            self.stop_watchdog()
             self.stop_remote_bridge()
             self.stop_server()
 
