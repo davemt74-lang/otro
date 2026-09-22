@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import os
 import re
 import shutil
 import sys
 import stat
-import tempfile
 import threading
-import time
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -61,6 +58,18 @@ def _read_json(value: Any, default: Any) -> Any:
         return parsed
     except (TypeError, ValueError, json.JSONDecodeError):
         return default
+
+
+def _version_key(value: str) -> tuple[int, int, int]:
+    text = str(value or "").strip()
+    match = re.match(r"^v(\d+)\.(\d+)(?:\.(\d+))?", text)
+    if match is None:
+        raise RolloutError("Release version is invalid.")
+    return (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3) or 0),
+    )
 
 
 def _event(event_type: str, summary: str, *, severity: str = "info", metadata: dict[str, Any] | None = None) -> None:
@@ -458,6 +467,23 @@ def stage_package(source: BinaryIO, original_name: str) -> dict[str, Any]:
                 f"Package channel {metadata['channel']} does not match configured "
                 f"{current['release_channel']} channel."
             )
+        if _version_key(metadata["version"]) < _version_key(vp3_os.VP3_OS_VERSION):
+            raise RolloutError(
+                "Release package is older than the installed VP3 OS. "
+                "Use the controlled rollback path instead of staging a downgrade."
+            )
+        with db() as connection:
+            existing = connection.execute(
+                """
+                SELECT id FROM vp3_rollout_packages
+                WHERE package_sha256=?
+                  AND status IN ('staged','approved','applying')
+                ORDER BY id DESC LIMIT 1
+                """,
+                (package_sha256,),
+            ).fetchone()
+        if existing is not None:
+            return get_package(int(existing["id"]))
         final = root / f"{package_sha256}.zip"
         if not final.exists():
             os.replace(temporary, final)
@@ -546,7 +572,7 @@ def approve_package(package_id: int) -> dict[str, Any]:
         raise RolloutError("Only a staged update can be approved.", 409)
     backup = backups.create_backup(f"pre-update-{package['version']}")
     with db() as connection:
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE vp3_rollout_packages
             SET status='approved',rollback_backup_name=?,approved_at=CURRENT_TIMESTAMP,
@@ -555,6 +581,8 @@ def approve_package(package_id: int) -> dict[str, Any]:
             """,
             (backup["name"], int(package_id)),
         )
+        if cursor.rowcount != 1:
+            raise RolloutError("Update approval state changed; refresh and try again.", 409)
     _event(
         "update.approved",
         f"VP3 OS {package['version']} update approved with rollback backup.",
@@ -628,7 +656,7 @@ def request_apply(package_id: int) -> dict[str, Any]:
     os.replace(temporary, pending_path)
 
     with db() as connection:
-        connection.execute(
+        cursor = connection.execute(
             """
             UPDATE vp3_rollout_packages
             SET status='applying',updated_at=CURRENT_TIMESTAMP
@@ -636,6 +664,10 @@ def request_apply(package_id: int) -> dict[str, Any]:
             """,
             (int(package_id),),
         )
+        if cursor.rowcount != 1:
+            pending_path.unlink(missing_ok=True)
+            shutil.rmtree(apply_dir, ignore_errors=True)
+            raise RolloutError("Update apply state changed; refresh and try again.", 409)
     _event(
         "update.apply_requested",
         f"VP3 OS {package['version']} controlled update apply requested.",
