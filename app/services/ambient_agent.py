@@ -203,6 +203,7 @@ class AmbientAgentRuntime:
         self._last_announcement_id: int | None = None
         self._last_announcement_at = ""
         self._last_error = ""
+        self._privacy_blocked = False
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._delivered_ids: list[int] = []
@@ -214,6 +215,11 @@ class AmbientAgentRuntime:
                 return
             self._started = True
             self._delivered_ids = _load_delivered_ids()
+            self._privacy_blocked = bool(
+                vp3_os.manifest(include_hardware=False, include_device_id=False)["privacy"].get(
+                    "privacy_switch_engaged"
+                )
+            )
             self._stop.clear()
         hardware_adapters.add_event_handler(self.handle_hardware_event)
         self._sync_state()
@@ -245,11 +251,8 @@ class AmbientAgentRuntime:
             self._state_changed_at = _now_iso()
 
     def _privacy_engaged(self) -> bool:
-        return bool(
-            vp3_os.manifest(include_hardware=False, include_device_id=False)["privacy"].get(
-                "privacy_switch_engaged"
-            )
-        )
+        with self._lock:
+            return bool(self._privacy_blocked)
 
     def _settings(self) -> dict[str, Any]:
         return get_settings()
@@ -299,6 +302,7 @@ class AmbientAgentRuntime:
         if event_type == "privacy_switch":
             if action == "engaged":
                 with self._lock:
+                    self._privacy_blocked = True
                     wake_active = self._wake_active
                     self._wake_active = False
                     self._wake_started_monotonic = 0.0
@@ -306,6 +310,8 @@ class AmbientAgentRuntime:
                     physical_agent.cancel("ambient_privacy_engaged")
                 self._set_state("privacy")
             elif action == "disengaged":
+                with self._lock:
+                    self._privacy_blocked = False
                 self._sync_state()
             return
 
@@ -402,11 +408,17 @@ class AmbientAgentRuntime:
     def _can_announce(self, settings: dict[str, Any]) -> bool:
         if self._privacy_engaged() or self._meeting_active():
             return False
+        with self._lock:
+            if self._state == "privacy":
+                return False
         agent_state = str(physical_agent.status().get("state") or "")
         if agent_state not in {"idle", "error"}:
             return False
         audio = device_audio.device_audio.runtime_state()
         if bool(audio.get("capturing")) or bool(audio.get("playing")):
+            return False
+        speaker = vp3_os.hardware_inventory().get("speaker", {})
+        if not bool(speaker.get("ready")):
             return False
         with self._lock:
             if self._wake_active:
@@ -468,7 +480,8 @@ class AmbientAgentRuntime:
             return
         finally:
             try:
-                hardware_adapters.set_status_light("idle")
+                if str(physical_agent.status().get("state") or "") in {"idle", "error"}:
+                    hardware_adapters.set_status_light("idle")
             except Exception:
                 pass
 
