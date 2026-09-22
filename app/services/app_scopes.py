@@ -27,6 +27,8 @@ PLUGIN_SCOPE_PREFIX = "__app_scope_plugin__:"
 
 _TOOL_PERMISSION_BY_KEY = {
     "contacts.search": "contacts.read",
+    "devices.list": "devices.read",
+    "devices.command": "devices.control",
     "knowledge.search": "knowledge.search",
     "memory.list": "memory.read",
     "memory.write": "memory.write",
