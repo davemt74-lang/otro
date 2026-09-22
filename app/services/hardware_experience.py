@@ -607,7 +607,22 @@ def handle_hardware_event(event: dict[str, Any]) -> None:
         outcome = "privacy" if action == "engaged" else "privacy_released"
     elif event_type == "agent_button":
         handled = True
-        outcome = "delegated_to_physical_runtimes"
+        policy = button_policy()
+        if action == "hold" and policy.get("hold_action") == "privacy_hint":
+            try:
+                upsert_card(
+                    "privacy-hint",
+                    "system",
+                    "Privacy switch",
+                    subtitle="Use the physical privacy switch to disconnect the microphone.",
+                    priority=95,
+                    payload={"state": "privacy_hint"},
+                )
+            except Exception:
+                pass
+            outcome = "privacy_hint"
+        else:
+            outcome = "delegated_to_physical_runtimes"
     elif event_type == "control_dial":
         experience = profile_experience()
         if "control_dial" in experience["controls"]:
