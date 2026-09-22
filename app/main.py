@@ -36,9 +36,11 @@ async def lifespan(_: FastAPI):
     physical_meeting.start_runtime()
     ambient_agent.start()
     local_automation.start()
+    automation_intelligence.start()
     try:
         yield
     finally:
+        automation_intelligence.stop()
         local_automation.stop()
         ambient_agent.stop()
         physical_meeting.stop_runtime()
