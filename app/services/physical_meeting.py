@@ -36,6 +36,7 @@ MAX_SEGMENT_MS = 30_000
 MAX_SEGMENTS = 500
 MAX_PENDING_SEGMENTS = 16
 TRANSCRIBER_JOIN_SECONDS = 45.0
+DOUBLE_PRESS_SECONDS = 0.55
 
 _START_COMMANDS = {
     "start meeting",
@@ -129,6 +130,7 @@ class PhysicalMeetingRuntime:
         self._last_card: dict[str, Any] | None = None
         self._last_meeting: dict[str, Any] | None = None
         self._dropped_segments = 0
+        self._last_button_press_monotonic = 0.0
 
     def start_runtime(self) -> None:
         with self._lock:
@@ -205,13 +207,34 @@ class PhysicalMeetingRuntime:
                     self._set_state("idle")
             return
 
-        if event_type == "agent_button" and action == "hold":
+        if event_type == "agent_button":
             with self._lock:
                 state = self._state
+
             if state == "recording":
-                self.request_end("button_hold")
-            elif state in {"idle", "error"}:
-                self.start_meeting(trigger="button_hold")
+                if action == "hold":
+                    self.request_end("button_hold")
+                return
+
+            if action == "hold":
+                # Preserve v0.30 semantics: a long hold cancels the current
+                # push-to-talk Agent turn. The ESP32 emits press before hold,
+                # so using hold as meeting-start would be ambiguous.
+                with self._lock:
+                    self._last_button_press_monotonic = 0.0
+                return
+
+            if action != "press" or state not in {"idle", "error"}:
+                return
+
+            now = time.monotonic()
+            with self._lock:
+                previous = self._last_button_press_monotonic
+                self._last_button_press_monotonic = now
+            if previous and (now - previous) <= DOUBLE_PRESS_SECONDS:
+                with self._lock:
+                    self._last_button_press_monotonic = 0.0
+                self.start_meeting(trigger="button_double_press")
 
     def start_meeting(self, title: str = "", *, trigger: str = "owner") -> dict[str, Any]:
         if not self._started:
@@ -255,6 +278,7 @@ class PhysicalMeetingRuntime:
             self._stop_event = threading.Event()
             self._intelligence_token = None
             self._dropped_segments = 0
+            self._last_button_press_monotonic = 0.0
             meeting_queue = self._queue
 
         transcriber = threading.Thread(
@@ -626,6 +650,7 @@ class PhysicalMeetingRuntime:
             self._trailing_silence_ms = 0
             self._segment_start_ms = 0
             self._sequence = 0
+            self._last_button_press_monotonic = 0.0
             self._queue = None
             self._transcriber_thread = None
             self._intelligence_token = None
@@ -718,7 +743,8 @@ def public_capability() -> dict[str, Any]:
     return {
         "version": PHYSICAL_MEETING_VERSION,
         "explicit_start_stop": True,
-        "button_hold_toggle": True,
+        "button_double_press_start": True,
+        "button_hold_end": True,
         "local_streaming_stt": "whisper.cpp",
         "meeting_intelligence": "homeserver_local",
         "meeting_card": True,
