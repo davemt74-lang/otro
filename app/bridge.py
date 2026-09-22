@@ -18,6 +18,7 @@ from .connected_apps_api import router as connected_apps_router
 from .contacts_api import router as contacts_router
 from .config import settings
 from .delegation_api import router as delegation_router
+from .device_rollout_api import router as device_rollout_router
 from .files_api import router as files_router
 from .handoffs_api import router as handoffs_router
 from .knowledge_backup_api import router as knowledge_backup_router
@@ -30,7 +31,7 @@ from .main import app
 from .release_readiness_api import router as release_readiness_router
 from .remote_bridge_api import router as remote_bridge_router
 from .room_device_api import router as room_device_router
-from .services import ambient_agent, ambient_orchestration, automation_intelligence, hardware_adapters, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, vp3_os
+from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, hardware_adapters, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -107,6 +108,7 @@ app.include_router(local_automation_router)
 app.include_router(automation_intelligence_router)
 app.include_router(ambient_orchestration_router)
 app.include_router(release_readiness_router)
+app.include_router(device_rollout_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -137,6 +139,7 @@ def capabilities() -> dict:
         "vp3_os_automation_intelligence": automation_intelligence.public_capability(),
         "vp3_os_ambient_orchestration": ambient_orchestration.public_capability(),
         "vp3_os_release_readiness": release_readiness.public_capability(),
+        "vp3_os_device_rollout": device_rollout.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
@@ -354,6 +357,11 @@ def capabilities() -> dict:
             "vp3.os.v080",
             "vp3.os.v090",
             "vp3.os.v100",
+            "vp3.os.v110",
+            "vp3.os.hardware_certification.v1",
+            "vp3.os.controlled_rollout.v1",
+            "vp3.os.staged_updates.v1",
+            "vp3.os.support_bundle.v1",
             "vp3.os.production_release.v1",
             "vp3.os.release_readiness.v1",
             "vp3.os.room_modes.v1",
