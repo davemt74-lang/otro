@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -8,13 +9,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app import config
-from app.database import initialize_database
-from app.services import approvals, local_automation, room_device_automation
+tmp = tempfile.TemporaryDirectory(prefix="vp3-os-v070-local-automation-")
+os.environ["HOMESERVER_DATA_DIR"] = tmp.name
+os.environ["VP3_OS_HARDWARE_ADAPTER"] = "disabled"
 
-tmp = tempfile.TemporaryDirectory()
-config.settings.data_dir = Path(tmp.name)
-config.settings.db_path = Path(tmp.name) / "homeserver.db"
+from app.database import initialize_database  # noqa: E402
+from app.services import approvals, local_automation, room_device_automation  # noqa: E402
+
 initialize_database()
 
 room_device_automation.upsert_room("office", "Office")
@@ -108,4 +109,5 @@ assert local_automation.evaluate_due_rules() == []
 for execution in local_automation.list_executions(20):
     assert execution["status"] in {"suggested", "requested", "skipped", "failed"}
 
+tmp.cleanup()
 print("VP3 OS v0.70 local automation runtime passed")
