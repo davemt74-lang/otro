@@ -1,50 +1,6 @@
 name: VP3 OS Ambient Orchestration v0.90
 
 on:
-  pull_request:
-    paths:
-      - "app/services/ambient_orchestration.py"
-      - "app/ambient_orchestration_api.py"
-      - "app/services/automation_intelligence.py"
-      - "app/services/local_automation.py"
-      - "app/services/room_device_automation.py"
-      - "app/services/ambient_agent.py"
-      - "app/services/physical_meeting.py"
-      - "app/main.py"
-      - "app/bridge.py"
-      - "ui/index.html"
-      - "ui/room-device-automation.js"
-      - "ui/room-device-automation.css"
-      - "tests/ambient_orchestration_*"
-      - "tests/automation_intelligence_*"
-      - "tests/local_automation_*"
-      - "tests/room_device_automation_*"
-      - "tests/migrations.py"
-      - "database/migrations/**"
-      - ".github/workflows/vp3-os-ambient-orchestration-v090.yml"
-  push:
-    branches:
-      - main
-    paths:
-      - "app/services/ambient_orchestration.py"
-      - "app/ambient_orchestration_api.py"
-      - "app/services/automation_intelligence.py"
-      - "app/services/local_automation.py"
-      - "app/services/room_device_automation.py"
-      - "app/services/ambient_agent.py"
-      - "app/services/physical_meeting.py"
-      - "app/main.py"
-      - "app/bridge.py"
-      - "ui/index.html"
-      - "ui/room-device-automation.js"
-      - "ui/room-device-automation.css"
-      - "tests/ambient_orchestration_*"
-      - "tests/automation_intelligence_*"
-      - "tests/local_automation_*"
-      - "tests/room_device_automation_*"
-      - "tests/migrations.py"
-      - "database/migrations/**"
-      - ".github/workflows/vp3-os-ambient-orchestration-v090.yml"
   workflow_dispatch:
 
 concurrency:
