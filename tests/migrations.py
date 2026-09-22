@@ -348,6 +348,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_rollout_outcomes").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_update_requests").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM vp3_fleet_events").fetchone()[0] == 0
+        fleet_inventory_columns = {
+            row["name"]
+            for row in migrated.execute("PRAGMA table_info(vp3_fleet_inventory)").fetchall()
+        }
+        assert "hardware_experience_version" in fleet_inventory_columns
+        assert "experience_profile" in fleet_inventory_columns
         experience_settings = migrated.execute(
             """
             SELECT enabled,brightness_percent,volume_percent,led_intensity_percent,
