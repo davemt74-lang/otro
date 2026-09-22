@@ -44,7 +44,7 @@ for required in (
     assert required in automation_css, required
 
 # High-impact physical categories are discoverable but never controllable.
-for blocked in ('"camera"', '"lock"', '"garage"', '"security"', '"appliance"'):
+for blocked in ('"camera"', '"lock"', '"garage"', '"security"', '"appliance"', '"scene"'):
     assert blocked in automation_py
 assert "BLOCKED_CONTROL_CATEGORIES" in automation_py
 assert "SAFE_CONTROL_CATEGORIES" in automation_py
