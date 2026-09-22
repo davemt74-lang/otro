@@ -513,6 +513,22 @@ def list_conversations(source_app_key: str, limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def _safe_message_card(metadata_json: str | None) -> dict[str, Any] | None:
+    try:
+        raw = json.loads(metadata_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict) or raw.get("card_type") != "meeting":
+        return None
+    allowed = {
+        "card_type", "version", "meeting_id", "title", "status", "duration_ms",
+        "segment_count", "source_hash", "summary", "key_points", "decisions",
+        "actions", "questions", "risks", "topics", "task_candidates",
+        "crm_candidates", "follow_up_draft", "agent_brief",
+    }
+    return {key: raw[key] for key in allowed if key in raw}
+
+
 def get_conversation(source_app_key: str, conversation_id: str) -> dict:
     with db() as connection:
         conversation = connection.execute(
@@ -526,12 +542,20 @@ def get_conversation(source_app_key: str, conversation_id: str) -> dict:
             raise BrainError("Conversation not found for this application.", 404)
         messages = connection.execute(
             """
-            SELECT id, role, content, model, created_at
+            SELECT id, role, content, model, metadata_json, created_at
             FROM conversation_messages WHERE conversation_id=? ORDER BY id
             """,
             (conversation_id,),
         ).fetchall()
-    return {"conversation": dict(conversation), "messages": [dict(row) for row in messages]}
+    output_messages = []
+    for row in messages:
+        item = dict(row)
+        metadata_json = item.pop("metadata_json", None)
+        card = _safe_message_card(metadata_json)
+        if card is not None:
+            item["card"] = card
+        output_messages.append(item)
+    return {"conversation": dict(conversation), "messages": output_messages}
 
 
 def rename_conversation(source_app_key: str, conversation_id: str, title: str) -> dict:
