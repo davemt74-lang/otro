@@ -56,7 +56,8 @@ def _database_check() -> dict[str, Any]:
             supported_schema_version=supported,
         )
 
-    ok = quick == ["ok"] and not violations and schema_version >= MIN_SCHEMA_VERSION
+    required_schema = max(MIN_SCHEMA_VERSION, supported)
+    ok = quick == ["ok"] and not violations and schema_version >= required_schema
     return _check(
         "database",
         "ready" if ok else "blocked",
@@ -68,6 +69,7 @@ def _database_check() -> dict[str, Any]:
         schema_version=schema_version,
         supported_schema_version=supported,
         minimum_schema_version=MIN_SCHEMA_VERSION,
+        required_schema_version=required_schema,
     )
 
 
