@@ -838,41 +838,64 @@ def refresh_session(session_id: int) -> dict[str, Any]:
         request_ids = list(session["request_ids"])
         states = _request_states(request_ids)
         if not request_ids or len(states) != len(request_ids):
-            return _transition(
+            failed = _transition(
                 session_id,
                 "failed",
                 reason="Mode request tracking is incomplete.",
             )
-        failed = {
+            _emit_mode_event(
+                "orchestration.mode_failed",
+                failed,
+                f"Room Mode {failed['mode_name']} failed because request tracking was incomplete.",
+            )
+            return failed
+        failed_states = {
             request_id: state
             for request_id, state in states.items()
             if state in {"denied", "failed", "expired"}
         }
-        if failed:
-            return _transition(
+        if failed_states:
+            failed = _transition(
                 session_id,
                 "failed",
                 reason="One or more governed device requests did not execute.",
                 metadata={"request_states": states},
             )
+            _emit_mode_event(
+                "orchestration.mode_failed",
+                failed,
+                f"Room Mode {failed['mode_name']} failed because a governed device request did not execute.",
+            )
+            return failed
         if all(state == "executed" for state in states.values()):
-            return _transition(
+            active = _transition(
                 session_id,
                 "active",
                 reason="All governed device requests executed.",
                 metadata={"request_states": states},
             )
+            _emit_mode_event(
+                "orchestration.mode_active",
+                active,
+                f"Room Mode {active['mode_name']} is active after all governed device requests executed.",
+            )
+            return active
     elif session["state"] == "active":
         override = _manual_override(session)
         if override is not None:
-            return _transition(
+            suspended = _transition(
                 session_id,
                 "suspended",
                 reason="Manual device change suspended the Room Mode.",
                 metadata={"manual_override": override},
             )
+            _emit_mode_event(
+                "orchestration.mode_suspended",
+                suspended,
+                f"Room Mode {suspended['mode_name']} was suspended after a manual device change.",
+            )
+            return suspended
     return get_session(session_id, refresh=False)
-
 
 def refresh_open_sessions() -> list[dict[str, Any]]:
     with db() as connection:
@@ -1229,11 +1252,19 @@ def _activate(
                         f"{mode['name']} explicitly superseded the mode."
                     ),
                 )
-            _transition(
+            displaced = _transition(
                 int(conflict["session_id"]),
                 "suspended",
                 reason=f"Superseded by higher-priority Room Mode {mode['name']}.",
                 superseded_by_session_id=int(session["id"]),
+            )
+            _emit_mode_event(
+                "orchestration.mode_suspended",
+                displaced,
+                (
+                    f"Room Mode {displaced['mode_name']} was suspended because "
+                    f"higher-priority mode {mode['name']} was explicitly activated."
+                ),
             )
         _record_conflicts(
             mode,
