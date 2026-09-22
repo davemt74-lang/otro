@@ -1,9 +1,7 @@
 name: Approval Federation CI
 
 on:
-  push:
-    branches: [main, "feature/v0.31-approval-federation"]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

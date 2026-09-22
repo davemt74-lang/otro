@@ -1,41 +1,7 @@
 name: HomeServer Governed Local Files v0.38
 
 on:
-  pull_request:
-    paths:
-      - 'app/bridge.py'
-      - 'app/files_api.py'
-      - 'app/services/agent_tools.py'
-      - 'app/services/app_scopes.py'
-      - 'app/services/capability_registry.py'
-      - 'app/services/knowledge_collection_policy.py'
-      - 'app/services/local_files.py'
-      - 'app/services/local_files_agent.py'
-      - 'app/services/local_files_remote.py'
-      - 'app/services/pairing.py'
-      - 'app/services/tools.py'
-      - 'app/tools_api.py'
-      - 'docs/section-9-governed-local-files-v038.md'
-      - 'tests/governed_local_files_v038.py'
-      - '.github/workflows/governed-local-files-v038.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/bridge.py'
-      - 'app/files_api.py'
-      - 'app/services/agent_tools.py'
-      - 'app/services/app_scopes.py'
-      - 'app/services/capability_registry.py'
-      - 'app/services/knowledge_collection_policy.py'
-      - 'app/services/local_files.py'
-      - 'app/services/local_files_agent.py'
-      - 'app/services/local_files_remote.py'
-      - 'app/services/pairing.py'
-      - 'app/services/tools.py'
-      - 'app/tools_api.py'
-      - 'docs/section-9-governed-local-files-v038.md'
-      - 'tests/governed_local_files_v038.py'
-      - '.github/workflows/governed-local-files-v038.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
