@@ -369,14 +369,24 @@ def _candidate_patterns(
 ) -> list[dict[str, Any]]:
     minutes = int(settings["time_bucket_minutes"])
     minimum = int(settings["min_occurrences"])
-    singles: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    singles_by_day: dict[
+        tuple[str, int, str], dict[str, Any]
+    ] = {}
     sessions: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
 
     for action in actions:
         signature = _encoded(_step(action), max_bytes=4096)
         bucket = _bucket_index(action["_when"], minutes)
+        day_key = action["_when"].date().isoformat()
+        singles_by_day.setdefault(
+            (signature, bucket, day_key),
+            action,
+        )
+        sessions[(day_key, bucket)].append(action)
+
+    singles: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+    for (signature, bucket, _day_key), action in singles_by_day.items():
         singles[(signature, bucket)].append(action)
-        sessions[(action["_when"].date().isoformat(), bucket)].append(action)
 
     candidates: list[dict[str, Any]] = []
     for (signature_text, bucket), evidence in singles.items():
