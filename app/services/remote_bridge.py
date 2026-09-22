@@ -249,6 +249,36 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             return _local_response(client.get("/api/v1/vp3-os/status", headers=headers))
         if op == "vp3.os.placement":
             return _local_response(client.post("/api/v1/vp3-os/placement", json=body, headers=headers))
+        if op == "fleet.device.status":
+            return _local_response(client.get("/api/v1/fleet/device/status", headers=headers))
+        if op == "fleet.device.diagnostics":
+            return _local_response(client.post("/api/v1/fleet/device/diagnostics", headers=headers))
+        if op == "fleet.device.support_summary":
+            return _local_response(client.post("/api/v1/fleet/device/support-summary", headers=headers))
+        if op == "fleet.device.update_request":
+            return _local_response(client.post("/api/v1/fleet/device/update-requests", json=body, headers=headers))
+        if op == "fleet.checkin":
+            return _local_response(client.post("/api/v1/fleet/check-ins", json=body, headers=headers))
+        if op == "fleet.inventory":
+            limit = _bounded_int(body.get("limit"), default=100, minimum=1, maximum=500, name="limit")
+            return _local_response(client.get("/api/v1/fleet/inventory", params={"limit": limit}, headers=headers))
+        if op == "fleet.rollouts":
+            limit = _bounded_int(body.get("limit"), default=50, minimum=1, maximum=100, name="limit")
+            return _local_response(client.get("/api/v1/fleet/rollouts", params={"limit": limit}, headers=headers))
+        if op == "fleet.rollout.outcome":
+            rollout_id = _bounded_int(body.get("rollout_id"), default=0, minimum=1, maximum=2147483647, name="rollout_id")
+            outcome_body = {
+                "device_id": body.get("device_id"),
+                "outcome": body.get("outcome"),
+                "detail_code": body.get("detail_code") or "",
+            }
+            return _local_response(
+                client.post(
+                    f"/api/v1/fleet/rollouts/{rollout_id}/outcomes",
+                    json=outcome_body,
+                    headers=headers,
+                )
+            )
         if op == "pair.request":
             return _local_response(client.post("/api/v1/pairing/request", json=body))
         if op == "pair.status":

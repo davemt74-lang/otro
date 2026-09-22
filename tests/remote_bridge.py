@@ -118,6 +118,65 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
         assert inference["ok"] is True
         assert calls[-1]["path"] == "/api/v1/inference/status"
 
+        fleet_status = remote_bridge.dispatch_remote_request(
+            "fleet.device.status", {}, token
+        )
+        assert fleet_status["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/fleet/device/status"
+
+        fleet_diagnostics = remote_bridge.dispatch_remote_request(
+            "fleet.device.diagnostics", {}, token
+        )
+        assert fleet_diagnostics["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/fleet/device/diagnostics"
+        assert calls[-1]["method"] == "POST"
+
+        fleet_support = remote_bridge.dispatch_remote_request(
+            "fleet.device.support_summary", {}, token
+        )
+        assert fleet_support["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/fleet/device/support-summary"
+
+        fleet_update = remote_bridge.dispatch_remote_request(
+            "fleet.device.update_request",
+            {
+                "request_key": "remote-fleet-update-001",
+                "package_sha256": "c" * 64,
+                "release_version": "v1.2",
+            },
+            token,
+        )
+        assert fleet_update["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/fleet/device/update-requests"
+
+        fleet_inventory = remote_bridge.dispatch_remote_request(
+            "fleet.inventory", {"limit": 25}, token
+        )
+        assert fleet_inventory["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/fleet/inventory"
+        assert calls[-1]["params"] == {"limit": 25}
+
+        fleet_rollouts = remote_bridge.dispatch_remote_request(
+            "fleet.rollouts", {"limit": 12}, token
+        )
+        assert fleet_rollouts["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/fleet/rollouts"
+        assert calls[-1]["params"] == {"limit": 12}
+
+        fleet_outcome = remote_bridge.dispatch_remote_request(
+            "fleet.rollout.outcome",
+            {
+                "rollout_id": 7,
+                "device_id": "hs-" + "d" * 24,
+                "outcome": "healthy",
+                "detail_code": "health_check_passed",
+            },
+            token,
+        )
+        assert fleet_outcome["ok"] is True
+        assert calls[-1]["path"] == "/api/v1/fleet/rollouts/7/outcomes"
+        assert calls[-1]["json"]["outcome"] == "healthy"
+
         emitted = remote_bridge.dispatch_remote_request(
             "events.emit",
             {"event_id": "remote-event-1", "event_type": "campaign.claimed", "summary": "Claimed"},
@@ -179,6 +238,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
             ("events.list", {"event_type": "../../control"}),
             ("awareness.list", {"limit": 1000}),
             ("tool.execute", {"tool_key": "../../control", "arguments": {}}),
+            ("fleet.rollout.outcome", {"rollout_id": 0, "device_id": "hs-" + "e" * 24, "outcome": "healthy"}),
         ):
             try:
                 remote_bridge.dispatch_remote_request(operation, payload, token)

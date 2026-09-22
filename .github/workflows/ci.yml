@@ -350,11 +350,11 @@ jobs:
           $lines | Set-Content -Encoding ascii 'dist/SHA256SUMS.txt'
           $manifest = [ordered]@{
             format = 'vp3-os-release-v1'
-            version = 'v1.1'
+            version = 'v1.2'
             channel = 'stable'
-            minimum_schema_version = 27
+            minimum_schema_version = 28
             files = $hashMap
-            release_notes = 'VP3 OS v1.1 Controlled Production Rollout & Hardware Certification'
+            release_notes = 'VP3 OS v1.2 Fleet & Remote Device Management'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution

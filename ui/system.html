@@ -52,6 +52,43 @@
       <div class="rollout-packages" id="rolloutPackages"><div class="muted">No staged updates.</div></div>
     </section>
 
+    <section class="system-section" id="fleetSection">
+      <div class="section-intro split">
+        <div><p class="eyebrow">VP3 OS v1.2 · FLEET MANAGEMENT</p><h2>Fleet & remote device management</h2><p>Enroll this appliance with one paired fleet controller, review bounded device health, coordinate rollout rings, and keep update approval local.</p></div>
+        <span class="setup-state" id="fleetState">Checking…</span>
+      </div>
+      <div class="rollout-summary" id="fleetSummary"></div>
+      <div class="rollout-grid">
+        <div class="runtime-panel rollout-settings">
+          <div><strong>Local fleet enrollment</strong><p class="muted">Fleet is disabled by default. The controller app must already be paired with fleet permissions.</p></div>
+          <div class="rollout-fields">
+            <label><span>Controller app key</span><input id="fleetControllerApp" type="text" maxlength="80" autocomplete="off" placeholder="vp3-fleet-control"></label>
+            <label><span>Device label</span><input id="fleetDeviceLabel" type="text" maxlength="120" autocomplete="off" placeholder="Studio Node"></label>
+            <label><span>Failure threshold</span><input id="fleetFailureThreshold" type="number" min="1" max="100" value="2"></label>
+            <label><span>Stale after (seconds)</span><input id="fleetStaleAfter" type="number" min="120" max="604800" value="900"></label>
+            <label class="startup-toggle"><input type="checkbox" id="fleetEnabled"><span><strong>Enable fleet enrollment</strong><small>Only the enrolled controller app may use paired fleet APIs.</small></span></label>
+            <label class="startup-toggle"><input type="checkbox" id="fleetDiagnostics"><span><strong>Allow remote diagnostics</strong><small>Bounded health metadata only; no Memory, Knowledge, recordings, credentials, paths, or network addresses.</small></span></label>
+            <label class="startup-toggle"><input type="checkbox" id="fleetSupportSummary"><span><strong>Allow remote support summary</strong><small>Full support ZIP remains owner-only and local.</small></span></label>
+            <label class="startup-toggle"><input type="checkbox" id="fleetUpdateRequests"><span><strong>Allow remote update requests</strong><small>Controller may request only a release already staged locally. Owner approval and apply remain separate.</small></span></label>
+          </div>
+          <div class="runtime-actions"><button class="button primary" id="saveFleetSettings" type="button">Save fleet policy</button><button class="text-button danger" id="decommissionFleet" type="button">Decommission fleet access</button></div>
+        </div>
+        <div class="runtime-panel rollout-update-panel">
+          <div><strong>Create fleet rollout</strong><p class="muted">Track a release across pilot, staged, or broad devices. Failure thresholds pause active rollout automatically.</p></div>
+          <div class="rollout-fields">
+            <label><span>Release version</span><input id="fleetRolloutVersion" type="text" maxlength="80" placeholder="v1.2"></label>
+            <label><span>Channel</span><select id="fleetRolloutChannel"><option value="stable">Stable</option><option value="beta">Beta</option><option value="dev">Dev</option></select></label>
+            <label><span>Ring</span><select id="fleetRolloutRing"><option value="pilot">Pilot</option><option value="staged">Staged</option><option value="broad">Broad</option></select></label>
+          </div>
+          <div class="runtime-actions"><button class="button secondary" id="createFleetRollout" type="button">Create rollout</button></div>
+        </div>
+      </div>
+      <div class="fleet-subsection"><h3>Fleet inventory</h3><div class="fleet-list" id="fleetInventory"><div class="muted">No fleet check-ins yet.</div></div></div>
+      <div class="fleet-subsection"><h3>Rollouts</h3><div class="fleet-list" id="fleetRollouts"><div class="muted">No fleet rollouts yet.</div></div></div>
+      <div class="fleet-subsection"><h3>Pending update requests</h3><div class="fleet-list" id="fleetUpdateRequestsList"><div class="muted">No fleet update requests.</div></div></div>
+      <div class="fleet-subsection"><h3>Alerts</h3><div class="fleet-list" id="fleetAlerts"><div class="muted">No fleet alerts.</div></div></div>
+    </section>
+
     <section class="system-section" id="commercePaymentsSection">
       <div class="section-intro split"><div><p class="eyebrow">COMMERCE PAYMENTS · v0.60</p><h2>Optional local payment authority</h2><p>VP3 Cloud can process commerce without HomeServer. Configure Stripe here only when you want this HomeServer to hold the merchant Stripe credentials and execute selected VP3 commerce payments locally.</p></div><span class="setup-state" id="stripePaymentState">Checking…</span></div>
       <div class="runtime-panel commerce-payment-panel">

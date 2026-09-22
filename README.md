@@ -30,6 +30,8 @@ VP3 OS v1.0 adds **Production Release Hardening**: canonical v1.0 release identi
 
 VP3 OS v1.1 adds **Controlled Production Rollout & Hardware Certification**: appliance commissioning, persistent hardware certification, stable/beta/dev release channels, pilot/staged/broad rollout rings, owner-staged SHA-256-verified update packages, mandatory pre-update backups, supervised Windows apply with binary rollback on failed health validation, bounded runtime-watchdog restarts, and privacy-safe support bundles. Automatic and remote unattended update apply remain disabled. See [docs/VP3_OS_CONTROLLED_ROLLOUT_V110.md](docs/VP3_OS_CONTROLLED_ROLLOUT_V110.md).
 
+VP3 OS v1.2 adds **Fleet & Remote Device Management**: opt-in paired-controller enrollment, bounded device health telemetry, multi-device fleet inventory and alerts, pilot/staged/broad rollout tracking, automatic rollout pause on failure thresholds, owner-reviewed fleet update requests that reuse the v1.1 staged updater, fleet decommission permission revocation, and a local Fleet Management workspace. Fleet control never gains physical-action authority, private-content telemetry, update download, update approval, or update apply. See [docs/VP3_OS_FLEET_MANAGEMENT_V120.md](docs/VP3_OS_FLEET_MANAGEMENT_V120.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`
@@ -52,7 +54,7 @@ VP3 OS v1.1 adds **Controlled Production Rollout & Hardware Certification**: app
 - Token Usage History with provider/model, input/output/total tokens, cloud debit and latest reported balance
 - App-scoped usage history and app-scoped idempotency keys
 - Watched local Knowledge Sources with scheduled synchronization and SQLite FTS indexing
-- SQLite WAL database with transactional migrations through schema 27
+- SQLite WAL database with transactional migrations through schema 28
 - Supervised Windows tray runtime with graceful restart/shutdown and single-instance enforcement
 - `%LOCALAPPDATA%\HomeServer\Data` as the installed Windows data location
 - Windows DPAPI protection for owner, Remote Bridge and provider credentials
@@ -331,6 +333,9 @@ Each paired application receives its own token and explicit permissions. Current
 - `contacts.read`
 - `events.read`
 - `events.write`
+- `fleet.read`
+- `fleet.manage`
+- `fleet.telemetry`
 - `knowledge.search`
 - `memory.read`
 - `memory.write`

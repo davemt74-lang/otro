@@ -25,7 +25,7 @@ from app.services.owner_secret import load_or_create_owner_secret  # noqa: E402
 initialize_database()
 load_or_create_owner_secret()
 
-assert vp3_os.VP3_OS_VERSION == "v1.1"
+assert vp3_os.VP3_OS_VERSION.startswith("v1.")
 settings = device_rollout.get_settings()
 assert settings["release_channel"] == "stable"
 assert settings["rollout_ring"] == "pilot"
@@ -67,7 +67,7 @@ def release_zip(channel: str = "stable", *, tamper: bool = False) -> bytes:
     installer_hash = hashlib.sha256(installer).hexdigest()
     manifest = {
         "format": "vp3-os-release-v1",
-        "version": "v1.1",
+        "version": vp3_os.VP3_OS_VERSION,
         "channel": channel,
         "minimum_schema_version": 27,
         "files": {
@@ -146,16 +146,16 @@ else:
 
 staged = device_rollout.stage_package(
     io.BytesIO(release_zip()),
-    "VP3-OS-v1.1-test.zip",
+    f"VP3-OS-{vp3_os.VP3_OS_VERSION}-test.zip",
 )
-assert staged["version"] == "v1.1"
+assert staged["version"] == vp3_os.VP3_OS_VERSION
 assert staged["channel"] == "stable"
 assert staged["status"] == "staged"
 assert len(staged["package_sha256"]) == 64
 assert len(staged["installer_sha256"]) == 64
 duplicate = device_rollout.stage_package(
     io.BytesIO(release_zip()),
-    "VP3-OS-v1.1-duplicate.zip",
+    f"VP3-OS-{vp3_os.VP3_OS_VERSION}-duplicate.zip",
 )
 assert duplicate["id"] == staged["id"]
 assert len(device_rollout.list_packages(20)) == 1
@@ -233,7 +233,7 @@ with zipfile.ZipFile(bundle_path, "r") as archive:
 
 overview = device_rollout.overview()
 assert overview["version"] == "v1.1"
-assert overview["vp3_os_version"] == "v1.1"
+assert str(overview["vp3_os_version"]).startswith("v1.")
 assert overview["governance"]["automatic_apply"] is False
 assert overview["governance"]["remote_unattended_updates"] is False
 assert overview["governance"]["pre_update_backup_required"] is True
