@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import tools
+from . import room_device_automation, tools
 
 
 class ApprovalError(RuntimeError):
@@ -209,6 +209,39 @@ def _create_action_request(source: str, actor_type: str, action_key: str, normal
     }
 
 
+def _safe_device_command_meta(arguments: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(arguments or {})
+    nested = payload.get("arguments")
+    return {
+        "device_key_length": len(str(payload.get("device_key") or "")),
+        "command": str(payload.get("command") or "")[:40],
+        "argument_count": len(nested) if isinstance(nested, dict) else 0,
+    }
+
+
+def _validate_device_command(arguments: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(arguments or {})
+    unknown = set(payload) - {"device_key", "command", "arguments"}
+    if unknown:
+        raise ApprovalError(f"Unsupported devices.command proposal argument: {sorted(unknown)[0]}")
+    nested = payload.get("arguments")
+    if nested is not None and not isinstance(nested, dict):
+        raise ApprovalError("devices.command arguments must be an object.")
+    try:
+        validated = room_device_automation.validate_command_request(
+            str(payload.get("device_key") or ""),
+            str(payload.get("command") or ""),
+            nested or {},
+        )
+    except room_device_automation.RoomDeviceError as exc:
+        raise ApprovalError(str(exc), exc.status_code) from exc
+    return {
+        "device_key": validated["device_key"],
+        "command": validated["command"],
+        "arguments": validated["arguments"],
+    }
+
+
 def create_memory_write_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
@@ -235,6 +268,47 @@ def create_task_create_request(source_app_key: str, arguments: dict[str, Any] | 
         raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
     meta = _safe_task_meta(normalized)
     return _create_action_request(source, actor_type, "tasks.create", normalized, meta, required)
+
+
+def create_device_command_request(
+    source_app_key: str,
+    arguments: dict[str, Any] | None,
+    *,
+    owner: bool = False,
+) -> dict[str, Any]:
+    source = source_app_key.strip() or ("owner" if owner else "app:unknown")
+    actor_type = "owner" if owner else "app"
+    raw_meta = _safe_device_command_meta(arguments)
+    required = [] if owner else ["devices.control", "tools.execute"]
+    try:
+        normalized = _validate_device_command(arguments)
+    except ApprovalError as exc:
+        run_id = _record_failed_proposal(
+            source,
+            actor_type,
+            "devices.command",
+            required,
+            raw_meta,
+            str(exc),
+        )
+        raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
+    try:
+        validated = room_device_automation.validate_command_request(
+            normalized["device_key"],
+            normalized["command"],
+            normalized["arguments"],
+        )
+    except room_device_automation.RoomDeviceError as exc:
+        raise ApprovalError(str(exc), exc.status_code) from exc
+    meta = validated["arguments_meta"]
+    return _create_action_request(
+        source,
+        actor_type,
+        "devices.command",
+        normalized,
+        meta,
+        required,
+    )
 
 
 def _decode_row(row, *, include_arguments: bool) -> dict[str, Any]:
@@ -324,7 +398,7 @@ def approve_request(request_id: str) -> dict[str, Any]:
     request = _request_for_owner(request_id)
     if request["status"] != "pending":
         raise ApprovalError(f"Action request is already {request['status']}.", 409)
-    if request["action_key"] not in {"memory.write", "tasks.create"}:
+    if request["action_key"] not in {"memory.write", "tasks.create", "devices.command"}:
         raise ApprovalError("Action type is not approved for local execution.", 403)
     with db() as connection:
         reserved = connection.execute(
@@ -335,7 +409,23 @@ def approve_request(request_id: str) -> dict[str, Any]:
             raise ApprovalError("Action request is no longer pending.", 409)
 
     try:
-        execution = tools.execute_tool(request["source_app_key"], request["action_key"], request["arguments"], set(), owner=True)
+        if request["action_key"] == "devices.command":
+            execution = tools.execute_tool(
+                request["source_app_key"],
+                request["action_key"],
+                request["arguments"],
+                set(),
+                owner=True,
+                approval_request_id=request["id"],
+            )
+        else:
+            execution = tools.execute_tool(
+                request["source_app_key"],
+                request["action_key"],
+                request["arguments"],
+                set(),
+                owner=True,
+            )
     except tools.ToolError as exc:
         execution_run_id = _extract_run_id(str(exc))
         with db() as connection:
