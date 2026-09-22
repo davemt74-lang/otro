@@ -235,6 +235,31 @@ def list_routines() -> list[dict[str, Any]]:
     return [get_routine(str(row["routine_key"])) for row in rows]
 
 
+def set_routine_enabled(routine_key: str, enabled: bool) -> dict[str, Any]:
+    routine = get_routine(routine_key)
+    with db() as connection:
+        connection.execute(
+            """
+            UPDATE automation_routines
+            SET enabled=?,updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (1 if enabled else 0, int(routine["id"])),
+        )
+        connection.execute(
+            """
+            INSERT INTO activity_log(
+                actor_type,actor_key,action,resource_type,resource_key,metadata_json
+            ) VALUES ('owner','control-center','automation.routine.enabled','automation_routine',?,?)
+            """,
+            (
+                routine["routine_key"],
+                json.dumps({"enabled": bool(enabled)}, separators=(",", ":")),
+            ),
+        )
+    return get_routine(routine["routine_key"])
+
+
 def _next_daily(trigger: dict[str, Any], *, from_time: datetime | None = None) -> str:
     hour = int(trigger.get("hour", -1))
     minute = int(trigger.get("minute", -1))
@@ -397,6 +422,34 @@ def list_rules() -> list[dict[str, Any]]:
             "SELECT rule_key FROM automation_rules ORDER BY name COLLATE NOCASE,id"
         ).fetchall()
     return [get_rule(str(row["rule_key"])) for row in rows]
+
+
+def set_rule_enabled(rule_key: str, enabled: bool) -> dict[str, Any]:
+    rule = get_rule(rule_key)
+    next_run = rule.get("next_run_at")
+    if enabled and rule["trigger_kind"] == "daily":
+        next_run = _next_daily(rule["trigger"])
+    with db() as connection:
+        connection.execute(
+            """
+            UPDATE automation_rules
+            SET enabled=?,next_run_at=?,last_condition=NULL,updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (1 if enabled else 0, next_run, int(rule["id"])),
+        )
+        connection.execute(
+            """
+            INSERT INTO activity_log(
+                actor_type,actor_key,action,resource_type,resource_key,metadata_json
+            ) VALUES ('owner','control-center','automation.rule.enabled','automation_rule',?,?)
+            """,
+            (
+                rule["rule_key"],
+                json.dumps({"enabled": bool(enabled)}, separators=(",", ":")),
+            ),
+        )
+    return get_rule(rule["rule_key"])
 
 
 def _compare(actual: Any, operator: str, expected: Any) -> bool:
