@@ -1,11 +1,7 @@
 name: VP3 OS Room & Device Automation v0.60
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - vp3-os-v060-room-device-automation
+  workflow_dispatch:
 
 permissions:
   contents: read

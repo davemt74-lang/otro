@@ -1,9 +1,7 @@
 name: Connected Apps + VP3 Pairing CI
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   connected-apps:

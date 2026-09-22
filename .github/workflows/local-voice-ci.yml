@@ -1,9 +1,7 @@
 name: HomeServer Local Voice Runtime v0.41
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read

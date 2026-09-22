@@ -1,43 +1,7 @@
 name: Multi-Agent Persona Management v0.46
 
 on:
-  pull_request:
-    paths:
-      - 'app/agents_api.py'
-      - 'app/bridge.py'
-      - 'app/services/agent_management.py'
-      - 'app/services/agent_voice_profiles.py'
-      - 'app/services/voice_settings.py'
-      - 'ui/agent-management.js'
-      - 'ui/agent-management.css'
-      - 'ui/agent-voice-profile.js'
-      - 'tests/multi_agent_personas_v046.py'
-      - 'tests/multi_agent_personas_ui_contract_v046.py'
-      - 'tests/agent_voice_profiles_v045.py'
-      - 'tests/voice_catalog_management_v044.py'
-      - 'tests/voice_catalog_v043.py'
-      - 'tests/voice_settings_v042.py'
-      - 'tests/local_voice_v041.py'
-      - '.github/workflows/multi-agent-personas-v046.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/agents_api.py'
-      - 'app/bridge.py'
-      - 'app/services/agent_management.py'
-      - 'app/services/agent_voice_profiles.py'
-      - 'app/services/voice_settings.py'
-      - 'ui/agent-management.js'
-      - 'ui/agent-management.css'
-      - 'ui/agent-voice-profile.js'
-      - 'tests/multi_agent_personas_v046.py'
-      - 'tests/multi_agent_personas_ui_contract_v046.py'
-      - 'tests/agent_voice_profiles_v045.py'
-      - 'tests/voice_catalog_management_v044.py'
-      - 'tests/voice_catalog_v043.py'
-      - 'tests/voice_settings_v042.py'
-      - 'tests/local_voice_v041.py'
-      - '.github/workflows/multi-agent-personas-v046.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

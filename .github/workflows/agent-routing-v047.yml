@@ -1,51 +1,7 @@
 name: Agent Selection and Persona Routing v0.47
 
 on:
-  pull_request:
-    paths:
-      - 'app/agent_routing_api.py'
-      - 'app/brain_api.py'
-      - 'app/delegation_api.py'
-      - 'app/bridge.py'
-      - 'app/database.py'
-      - 'app/services/agent_routing.py'
-      - 'app/services/context_chat.py'
-      - 'app/services/delegation.py'
-      - 'database/agent_routing.sql'
-      - 'HomeServer.spec'
-      - 'ui/agent-routing.js'
-      - 'ui/agent-routing.css'
-      - 'ui/agent-voice-profile.js'
-      - 'tests/agent_routing_v047.py'
-      - 'tests/agent_routing_ui_contract_v047.py'
-      - 'tests/context_engine.py'
-      - 'tests/packaged_lifecycle.py'
-      - 'tests/multi_agent_personas_v046.py'
-      - 'tests/canonical_agent_context_v430.py'
-      - '.github/workflows/agent-routing-v047.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/agent_routing_api.py'
-      - 'app/brain_api.py'
-      - 'app/delegation_api.py'
-      - 'app/bridge.py'
-      - 'app/database.py'
-      - 'app/services/agent_routing.py'
-      - 'app/services/context_chat.py'
-      - 'app/services/delegation.py'
-      - 'database/agent_routing.sql'
-      - 'HomeServer.spec'
-      - 'ui/agent-routing.js'
-      - 'ui/agent-routing.css'
-      - 'ui/agent-voice-profile.js'
-      - 'tests/agent_routing_v047.py'
-      - 'tests/agent_routing_ui_contract_v047.py'
-      - 'tests/context_engine.py'
-      - 'tests/packaged_lifecycle.py'
-      - 'tests/multi_agent_personas_v046.py'
-      - 'tests/canonical_agent_context_v430.py'
-      - '.github/workflows/agent-routing-v047.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

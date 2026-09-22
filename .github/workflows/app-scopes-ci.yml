@@ -1,9 +1,7 @@
 name: App Scope CI
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   app-scopes:

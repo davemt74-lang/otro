@@ -1,11 +1,7 @@
 name: Capability Registry CI
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - section-4-capability-registry-**
+  workflow_dispatch:
 
 permissions:
   contents: read

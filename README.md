@@ -24,6 +24,8 @@ VP3 OS v0.70 adds **Local Automation Rules & Routines**: owner-defined manual/da
 
 VP3 OS v0.80 adds **Ambient Intelligence & Automation Learning**: local pattern detection from completed human/Agent-approved device actions, bounded presence context, private cognitive awareness for Agent/Now, evidence-backed automation proposals, historical simulation, suppression feedback, and disabled-by-default v0.70 rule/routine drafts. Learned automations require an explicit owner enable and still use the v0.70/v0.60 approval path. See [docs/VP3_OS_AMBIENT_INTELLIGENCE_V080.md](docs/VP3_OS_AMBIENT_INTELLIGENCE_V080.md).
 
+VP3 OS v0.90 adds **Ambient Orchestration & Room Modes**: owner-defined room modes backed by v0.70 routines, presence/meeting/time suggestions, simulation, priority-based conflict detection, governed requested→active session tracking, manual-override suspension, and private Cognitive Runtime awareness. Ambient context can suggest a mode but cannot activate one; all physical device changes remain behind v0.70 requests and v0.60 owner approval. See [docs/VP3_OS_AMBIENT_ORCHESTRATION_V090.md](docs/VP3_OS_AMBIENT_ORCHESTRATION_V090.md).
+
 ## Current v0.17 foundation
 
 - Packaged Windows `HomeServer.exe` and per-user `HomeServerSetup.exe`

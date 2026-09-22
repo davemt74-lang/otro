@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 26))
+        assert versions == list(range(1, 27))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -80,6 +80,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "automation_proposals",
             "automation_proposal_feedback",
             "automation_simulations",
+            "orchestration_settings",
+            "orchestration_modes",
+            "orchestration_mode_sessions",
+            "orchestration_mode_conflicts",
+            "orchestration_mode_transitions",
         ):
             assert migrated.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -274,6 +279,22 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM automation_proposals").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM automation_proposal_feedback").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM automation_simulations").fetchone()[0] == 0
+        orchestration_settings = migrated.execute(
+            """
+            SELECT enabled,poll_seconds,suggestion_cooldown_seconds,
+                   max_open_sessions
+            FROM orchestration_settings WHERE id=1
+            """
+        ).fetchone()
+        assert orchestration_settings is not None
+        assert orchestration_settings["enabled"] == 1
+        assert orchestration_settings["poll_seconds"] == 30
+        assert orchestration_settings["suggestion_cooldown_seconds"] == 14400
+        assert orchestration_settings["max_open_sessions"] == 12
+        assert migrated.execute("SELECT COUNT(*) FROM orchestration_modes").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM orchestration_mode_sessions").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM orchestration_mode_conflicts").fetchone()[0] == 0
+        assert migrated.execute("SELECT COUNT(*) FROM orchestration_mode_transitions").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM tool_runs").fetchone()[0] == 0
         agent_policy = migrated.execute(
             "SELECT enabled, max_calls, allow_write_proposals FROM agent_tool_policy WHERE id=1"
@@ -344,7 +365,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 26))
+        assert versions_again == list(range(1, 27))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
@@ -357,6 +378,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_proposals").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_proposal_feedback").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_simulations").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM orchestration_settings").fetchone()[0] == 1
+        assert migrated_again.execute("SELECT COUNT(*) FROM orchestration_modes").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM orchestration_mode_sessions").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM orchestration_mode_conflicts").fetchone()[0] == 0
+        assert migrated_again.execute("SELECT COUNT(*) FROM orchestration_mode_transitions").fetchone()[0] == 0
         assert migrated_again.execute("SELECT COUNT(*) FROM action_requests").fetchone()[0] == 2
         assert migrated_again.execute(
             "SELECT COUNT(*) FROM action_requests WHERE id='legacy-memory-request' AND action_key='memory.write'"

@@ -220,11 +220,11 @@
             <h2>Rooms & Devices</h2>
             <p>Discover and organize local devices. Physical changes always create an approval request before any provider driver can execute them.</p>
           </div>
-          <span class="automation-version">VP3 OS v0.80</span>
+          <span class="automation-version">VP3 OS v0.90</span>
         </div>
         <div class="automation-guardrail">
           <strong>Physical action boundary:</strong>
-          VP3 may learn repeated local behavior and draft automations, but learned drafts start disabled. Rules, Agent, Ambient, and paired applications never bypass local owner approval for physical commands.
+          VP3 can coordinate Room Modes and suggest them from local context, but Ambient never activates a mode automatically. Every physical change still flows through governed v0.70 requests and v0.60 owner approval.
         </div>
 
         <div class="automation-stats">
@@ -233,6 +233,42 @@
           <article><span>Controllable</span><strong id="automationControllableCount">0</strong></article>
           <article><span>Suggestions</span><strong id="automationSuggestionCount">0</strong></article>
         </div>
+
+        <section class="panel orchestration-panel">
+          <div class="panel-head">
+            <div><p class="eyebrow">AMBIENT ORCHESTRATION</p><h3>Room Modes</h3></div>
+            <button class="button secondary" id="orchestrationEvaluate" type="button">Evaluate context</button>
+          </div>
+          <p class="automation-intelligence-copy">Modes coordinate existing ask-every-time routines. Context may suggest a mode, but only the owner can activate or supersede one.</p>
+          <div class="automation-intelligence-stats">
+            <article><span>Modes</span><strong id="orchestrationModeCount">0</strong></article>
+            <article><span>Suggested</span><strong id="orchestrationSuggestedCount">0</strong></article>
+            <article><span>Requested</span><strong id="orchestrationRequestedCount">0</strong></article>
+            <article><span>Active</span><strong id="orchestrationActiveCount">0</strong></article>
+          </div>
+          <form id="orchestrationModeForm" class="automation-rule-form">
+            <div class="automation-field-grid">
+              <label>Mode key<input id="orchestrationModeKey" maxlength="80" placeholder="focus" required></label>
+              <label>Name<input id="orchestrationModeName" maxlength="160" placeholder="Focus" required></label>
+              <label>Routine key<input id="orchestrationModeRoutine" maxlength="80" placeholder="focus-routine" required></label>
+              <label>Priority<input id="orchestrationModePriority" type="number" min="0" max="100" value="50"></label>
+              <label>Room keys<input id="orchestrationModeRooms" placeholder="office,living-room"></label>
+            </div>
+            <label>Suggestion trigger JSON<textarea id="orchestrationModeTrigger" rows="3" placeholder='{"presence":"present","meeting":"inactive","weekdays":[0,1,2,3,4],"time_start":"14:00","time_end":"23:00"}'></textarea></label>
+            <button class="button secondary" type="submit">Save Room Mode</button>
+          </form>
+          <form id="orchestrationSettingsForm" class="automation-runtime-form">
+            <label class="check-inline"><input id="orchestrationEnabled" type="checkbox" checked> Enable orchestration</label>
+            <label>Poll seconds<input id="orchestrationPoll" type="number" min="10" max="300" value="30"></label>
+            <label>Suggestion cooldown<input id="orchestrationCooldown" type="number" min="300" max="604800" value="14400"></label>
+            <label>Max open sessions<input id="orchestrationMaxSessions" type="number" min="1" max="50" value="12"></label>
+            <button class="button secondary" type="submit">Save orchestration settings</button>
+          </form>
+          <div class="orchestration-grid">
+            <div><p class="eyebrow">MODES</p><div id="orchestrationModes" class="orchestration-list"><div class="empty-state">No Room Modes yet.</div></div></div>
+            <div><p class="eyebrow">SESSIONS</p><div id="orchestrationSessions" class="orchestration-list"><div class="empty-state">No Room Mode sessions yet.</div></div></div>
+          </div>
+        </section>
 
         <section class="panel automation-intelligence-panel">
           <div class="panel-head">

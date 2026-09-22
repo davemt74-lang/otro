@@ -1,37 +1,7 @@
 name: Local Voice Packs CI
 
 on:
-  pull_request:
-    paths:
-      - 'app/local_voice_api.py'
-      - 'app/services/local_voice.py'
-      - 'app/services/voice_settings.py'
-      - 'app/services/local_app_catalog.py'
-      - 'ui/voice-catalog.js'
-      - 'ui/voice-settings.css'
-      - 'tests/voice_catalog_v043.py'
-      - 'tests/voice_catalog_management_v044.py'
-      - 'tests/voice_catalog_ui_contract.py'
-      - 'tests/voice_catalog_management_ui_contract_v044.py'
-      - 'tests/voice_settings_v042.py'
-      - 'tests/local_voice_v041.py'
-      - '.github/workflows/voice-catalog-ci.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/local_voice_api.py'
-      - 'app/services/local_voice.py'
-      - 'app/services/voice_settings.py'
-      - 'app/services/local_app_catalog.py'
-      - 'ui/voice-catalog.js'
-      - 'ui/voice-settings.css'
-      - 'tests/voice_catalog_v043.py'
-      - 'tests/voice_catalog_management_v044.py'
-      - 'tests/voice_catalog_ui_contract.py'
-      - 'tests/voice_catalog_management_ui_contract_v044.py'
-      - 'tests/voice_settings_v042.py'
-      - 'tests/local_voice_v041.py'
-      - '.github/workflows/voice-catalog-ci.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

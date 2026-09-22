@@ -1,11 +1,7 @@
 name: Knowledge Backup CI
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - feature/v0.32-vp3-knowledge-backup
+  workflow_dispatch:
 
 permissions:
   contents: read

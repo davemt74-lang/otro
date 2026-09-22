@@ -1,11 +1,7 @@
 name: VP3 OS Hardware Adapters v0.20
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - vp3-os-v020-hardware-adapters
+  workflow_dispatch:
 
 permissions:
   contents: read

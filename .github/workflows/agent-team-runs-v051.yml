@@ -1,51 +1,7 @@
 name: Agent Team Runs v0.51
 
 on:
-  pull_request:
-    paths:
-      - 'app/bridge.py'
-      - 'app/team_runs_api.py'
-      - 'app/services/agent_team_runs.py'
-      - 'app/services/agent_workflows.py'
-      - 'app/services/agent_workflow_timeline.py'
-      - 'app/services/agent_handoffs.py'
-      - 'database/agent_delegation_workflows.sql'
-      - 'ui/agent-routing.js'
-      - 'ui/agent-team-runs.js'
-      - 'ui/agent-team-runs.css'
-      - 'tests/agent_team_runs_v051.py'
-      - 'tests/agent_team_runs_ui_contract_v051.py'
-      - 'tests/packaged_lifecycle.py'
-      - 'tests/agent_workflow_timeline_v050.py'
-      - 'tests/agent_workflow_timeline_ui_contract_v050.py'
-      - 'tests/agent_handoffs_v049.py'
-      - 'tests/agent_handoff_revocation_v049.py'
-      - 'tests/agent_workflows_v048.py'
-      - 'tests/agent_routing_v047.py'
-      - '.github/workflows/agent-team-runs-v051.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/bridge.py'
-      - 'app/team_runs_api.py'
-      - 'app/services/agent_team_runs.py'
-      - 'app/services/agent_workflows.py'
-      - 'app/services/agent_workflow_timeline.py'
-      - 'app/services/agent_handoffs.py'
-      - 'database/agent_delegation_workflows.sql'
-      - 'ui/agent-routing.js'
-      - 'ui/agent-team-runs.js'
-      - 'ui/agent-team-runs.css'
-      - 'tests/agent_team_runs_v051.py'
-      - 'tests/agent_team_runs_ui_contract_v051.py'
-      - 'tests/packaged_lifecycle.py'
-      - 'tests/agent_workflow_timeline_v050.py'
-      - 'tests/agent_workflow_timeline_ui_contract_v050.py'
-      - 'tests/agent_handoffs_v049.py'
-      - 'tests/agent_handoff_revocation_v049.py'
-      - 'tests/agent_workflows_v048.py'
-      - 'tests/agent_routing_v047.py'
-      - '.github/workflows/agent-team-runs-v051.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

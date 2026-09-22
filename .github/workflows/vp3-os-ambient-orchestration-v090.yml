@@ -1,0 +1,115 @@
+name: VP3 OS Ambient Orchestration v0.90
+
+on:
+  pull_request:
+    paths:
+      - "app/services/ambient_orchestration.py"
+      - "app/ambient_orchestration_api.py"
+      - "app/services/automation_intelligence.py"
+      - "app/services/local_automation.py"
+      - "app/services/room_device_automation.py"
+      - "app/services/ambient_agent.py"
+      - "app/services/physical_meeting.py"
+      - "app/main.py"
+      - "app/bridge.py"
+      - "ui/index.html"
+      - "ui/room-device-automation.js"
+      - "ui/room-device-automation.css"
+      - "tests/ambient_orchestration_*"
+      - "tests/automation_intelligence_*"
+      - "tests/local_automation_*"
+      - "tests/room_device_automation_*"
+      - "tests/migrations.py"
+      - "database/migrations/**"
+      - ".github/workflows/vp3-os-ambient-orchestration-v090.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "app/services/ambient_orchestration.py"
+      - "app/ambient_orchestration_api.py"
+      - "app/services/automation_intelligence.py"
+      - "app/services/local_automation.py"
+      - "app/services/room_device_automation.py"
+      - "app/services/ambient_agent.py"
+      - "app/services/physical_meeting.py"
+      - "app/main.py"
+      - "app/bridge.py"
+      - "ui/index.html"
+      - "ui/room-device-automation.js"
+      - "ui/room-device-automation.css"
+      - "tests/ambient_orchestration_*"
+      - "tests/automation_intelligence_*"
+      - "tests/local_automation_*"
+      - "tests/room_device_automation_*"
+      - "tests/migrations.py"
+      - "database/migrations/**"
+      - ".github/workflows/vp3-os-ambient-orchestration-v090.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: vp3-os-v090-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ambient-orchestration:
+    name: Ambient orchestration · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 24
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile v0.90 runtime
+        run: >-
+          python -m py_compile
+          app/services/ambient_orchestration.py
+          app/services/automation_intelligence.py
+          app/services/local_automation.py
+          app/services/room_device_automation.py
+          app/ambient_orchestration_api.py
+          app/automation_intelligence_api.py
+          app/local_automation_api.py
+          app/main.py
+          app/bridge.py
+          tests/ambient_orchestration_v090.py
+          tests/ambient_orchestration_contract_v090.py
+          tests/automation_intelligence_v080.py
+          tests/automation_intelligence_contract_v080.py
+          tests/local_automation_v070.py
+          tests/local_automation_ui_contract_v070.py
+          tests/room_device_automation_v060.py
+          tests/room_device_automation_ui_contract_v060.py
+      - name: Validate automation JavaScript
+        run: node --check ui/room-device-automation.js
+      - name: Verify v0.60 room-device runtime
+        run: python tests/room_device_automation_v060.py
+      - name: Verify v0.60 governance contract
+        run: python tests/room_device_automation_ui_contract_v060.py
+      - name: Verify v0.70 local automation runtime
+        run: python tests/local_automation_v070.py
+      - name: Verify v0.70 governance contract
+        run: python tests/local_automation_ui_contract_v070.py
+      - name: Verify v0.80 automation intelligence
+        run: python tests/automation_intelligence_v080.py
+      - name: Verify v0.80 governance contract
+        run: python tests/automation_intelligence_contract_v080.py
+      - name: Verify v0.90 ambient orchestration
+        run: python tests/ambient_orchestration_v090.py
+      - name: Verify v0.90 governance contract
+        run: python tests/ambient_orchestration_contract_v090.py
+      - name: Verify migrations
+        run: python tests/migrations.py

@@ -1,9 +1,7 @@
 name: Agent Chat Voice and Brain Activity
 
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   chat-enhancements:

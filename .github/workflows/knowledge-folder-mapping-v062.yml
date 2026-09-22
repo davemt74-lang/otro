@@ -1,35 +1,7 @@
 name: HomeServer Knowledge Folder Mapping v0.62
 
 on:
-  pull_request:
-    paths:
-      - 'app/knowledge_collections_api.py'
-      - 'app/knowledge_folder_mapping_api.py'
-      - 'app/services/knowledge_collections.py'
-      - 'app/services/knowledge_collections_remote.py'
-      - 'app/services/knowledge_folder_mapping.py'
-      - 'app/services/knowledge_folder_mapping_remote.py'
-      - 'app/services/knowledge_sources.py'
-      - 'app/services/windows_integration.py'
-      - 'tests/knowledge_folder_mapping_v062.py'
-      - 'tests/knowledge_folder_mapping_v062_capabilities.py'
-      - 'tests/knowledge_folder_mapping_v062_remote_contract.py'
-      - '.github/workflows/knowledge-folder-mapping-v062.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'app/knowledge_collections_api.py'
-      - 'app/knowledge_folder_mapping_api.py'
-      - 'app/services/knowledge_collections.py'
-      - 'app/services/knowledge_collections_remote.py'
-      - 'app/services/knowledge_folder_mapping.py'
-      - 'app/services/knowledge_folder_mapping_remote.py'
-      - 'app/services/knowledge_sources.py'
-      - 'app/services/windows_integration.py'
-      - 'tests/knowledge_folder_mapping_v062.py'
-      - 'tests/knowledge_folder_mapping_v062_capabilities.py'
-      - 'tests/knowledge_folder_mapping_v062_remote_contract.py'
-      - '.github/workflows/knowledge-folder-mapping-v062.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

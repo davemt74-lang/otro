@@ -1,51 +1,7 @@
 name: Agent Workflow Supervision v0.57
 
 on:
-  pull_request:
-    paths:
-      - 'HomeServer.spec'
-      - 'app/bridge.py'
-      - 'app/database.py'
-      - 'app/workflow_resume_api.py'
-      - 'app/workflow_rehydration_api.py'
-      - 'app/workflow_supervision_api.py'
-      - 'app/services/agent_workflow_supervision.py'
-      - 'app/services/agent_workflow_rehydration.py'
-      - 'app/services/agent_team_orchestration.py'
-      - 'app/services/agent_team_runs.py'
-      - 'database/agent_workflow_supervision.sql'
-      - 'ui/agent-workflow-rehydration.js'
-      - 'ui/agent-workflow-supervision.js'
-      - 'ui/agent-workflow-supervision.css'
-      - 'tests/agent_workflow_supervision_v057.py'
-      - 'tests/agent_workflow_supervision_edges_v057.py'
-      - 'tests/agent_workflow_supervision_schema_v057.py'
-      - 'tests/agent_workflow_supervision_ui_contract_v057.py'
-      - 'tests/packaged_workflow_supervision_v057.py'
-      - '.github/workflows/agent-workflow-supervision-v057.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'HomeServer.spec'
-      - 'app/bridge.py'
-      - 'app/database.py'
-      - 'app/workflow_resume_api.py'
-      - 'app/workflow_rehydration_api.py'
-      - 'app/workflow_supervision_api.py'
-      - 'app/services/agent_workflow_supervision.py'
-      - 'app/services/agent_workflow_rehydration.py'
-      - 'app/services/agent_team_orchestration.py'
-      - 'app/services/agent_team_runs.py'
-      - 'database/agent_workflow_supervision.sql'
-      - 'ui/agent-workflow-rehydration.js'
-      - 'ui/agent-workflow-supervision.js'
-      - 'ui/agent-workflow-supervision.css'
-      - 'tests/agent_workflow_supervision_v057.py'
-      - 'tests/agent_workflow_supervision_edges_v057.py'
-      - 'tests/agent_workflow_supervision_schema_v057.py'
-      - 'tests/agent_workflow_supervision_ui_contract_v057.py'
-      - 'tests/packaged_workflow_supervision_v057.py'
-      - '.github/workflows/agent-workflow-supervision-v057.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read

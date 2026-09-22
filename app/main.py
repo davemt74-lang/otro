@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, app_scopes, automation_intelligence, hardware_adapters, local_automation, physical_agent, physical_meeting
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, hardware_adapters, local_automation, physical_agent, physical_meeting
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -37,9 +37,11 @@ async def lifespan(_: FastAPI):
     ambient_agent.start()
     local_automation.start()
     automation_intelligence.start()
+    ambient_orchestration.start()
     try:
         yield
     finally:
+        ambient_orchestration.stop()
         automation_intelligence.stop()
         local_automation.stop()
         ambient_agent.stop()

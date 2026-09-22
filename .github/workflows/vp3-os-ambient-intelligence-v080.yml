@@ -1,11 +1,7 @@
 name: VP3 OS Ambient Intelligence v0.80
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - vp3-os-v080-ambient-intelligence
+  workflow_dispatch:
 
 permissions:
   contents: read
