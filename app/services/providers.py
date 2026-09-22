@@ -597,9 +597,17 @@ def generate_step(
             cancellation_token=cancellation_token,
         )
     if key == "anthropic":
-        return _generate_anthropic_step(provider, model, messages, tools, cancellation_token)
+        if cancellation_token is None:
+            return _generate_anthropic_step(provider, model, messages, tools)
+        return _generate_anthropic_step(
+            provider, model, messages, tools, cancellation_token
+        )
     if key in {"openai", "openrouter"}:
-        return _generate_openai_compatible_step(provider, model, messages, tools, cancellation_token)
+        if cancellation_token is None:
+            return _generate_openai_compatible_step(provider, model, messages, tools)
+        return _generate_openai_compatible_step(
+            provider, model, messages, tools, cancellation_token
+        )
     raise ProviderError("Selected provider is not supported.")
 
 
@@ -645,7 +653,11 @@ def generate_ollama_step(
     model = str(model_override or provider["model"] or "").strip()
     if not model:
         raise ProviderError("No Ollama model is configured.")
-    return _generate_ollama_step(provider, model, messages, tools, cancellation_token)
+    if cancellation_token is None:
+        return _generate_ollama_step(provider, model, messages, tools)
+    return _generate_ollama_step(
+        provider, model, messages, tools, cancellation_token
+    )
 
 
 def generate_ollama(
