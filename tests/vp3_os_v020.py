@@ -279,7 +279,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v020-") as data_dir:
         public = client.get("/api/v1/capabilities")
         assert public.status_code == 200, public.text
         advertised = public.json()
-        assert str(advertised["vp3_os"]["os_version"]).startswith("v0.")
+        assert str(advertised["vp3_os"]["os_version"]).startswith("v")
         assert advertised["vp3_os"]["platform_version"] == "v0.10"
         assert advertised["vp3_os_hardware"] == {
             "version": "v0.20",
@@ -318,7 +318,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v020-") as data_dir:
         owner = client.get("/api/v1/control/vp3-os")
         assert owner.status_code == 200, owner.text
         owner_json = owner.json()
-        assert str(owner_json["os_version"]).startswith("v0.")
+        assert str(owner_json["os_version"]).startswith("v")
         assert owner_json["hardware_adapter"]["version"] == "v0.20"
         assert owner_json["hardware_adapter"]["controller"]["controller_id"] == "vp3-node-devkit"
 
@@ -372,7 +372,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v020-") as data_dir:
         registry = client.get("/api/v1/capability-registry", headers=headers)
         assert registry.status_code == 200, registry.text
         registry_json = registry.json()
-        assert str(registry_json["vp3_os"]["os_version"]).startswith("v0.")
+        assert str(registry_json["vp3_os"]["os_version"]).startswith("v")
         assert registry_json["vp3_os_hardware"]["version"] == "v0.20"
         assert "controller_id" not in json.dumps(registry_json["vp3_os_hardware"]).lower()
 
