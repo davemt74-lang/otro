@@ -946,6 +946,21 @@ def materialize_proposal(proposal_id: int) -> dict[str, Any]:
     routine = proposal["draft_routine"]
     rule = proposal["draft_rule"]
 
+    for kind, key, getter in (
+        ("routine", str(routine["routine_key"]), local_automation.get_routine),
+        ("rule", str(rule["rule_key"]), local_automation.get_rule),
+    ):
+        try:
+            getter(key)
+        except local_automation.LocalAutomationError as exc:
+            if exc.status_code == 404:
+                continue
+            raise AutomationIntelligenceError(str(exc), exc.status_code) from exc
+        raise AutomationIntelligenceError(
+            f"Learned draft {kind} key already exists; refusing to overwrite it.",
+            409,
+        )
+
     created_routine = local_automation.upsert_routine(
         routine["routine_key"],
         routine["name"],
