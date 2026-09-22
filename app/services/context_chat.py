@@ -232,32 +232,18 @@ def chat(
 
     started = time.perf_counter()
     tool_state: dict[str, Any] = {}
-    try:
-        generation_kwargs = {
-            "source_app_key": source_app_key,
-            "selected_model": selected_model,
-            "granted_permissions": _model_tool_permissions(read_only, canonical.model_tool_permissions),
-            "owner": bool(owner_tools and not read_only),
-            "state": tool_state,
-            "provider_key": provider_override,
-        }
-        if cancellation_token is not None:
-            generation_kwargs["cancellation_token"] = cancellation_token
-        generated, tool_state = brain._generate_with_agent_tools(messages, **generation_kwargs)
-        tool_state["read_only"] = bool(read_only)
-        if cancellation_token is not None:
-            cancellation_token.raise_if_cancelled()
-    except InferenceCancelled as exc:
+
+    def cancel_turn(reason: str) -> None:
         duration_ms = int((time.perf_counter() - started) * 1000)
         cancelled_requests = approvals.cancel_pending_requests(
             list(tool_state.get("action_request_ids") or []),
             source_app_key=source_app_key,
-            reason=f"Interrupted Agent turn: {str(exc)[:180]}",
+            reason=f"Interrupted Agent turn: {reason[:180]}",
         )
         cancelled_metadata = _safe_run_metadata(tool_state, canonical, agent=agent)
         cancelled_metadata.update({
             "cancelled": True,
-            "cancellation_reason": str(exc)[:180],
+            "cancellation_reason": reason[:180],
             "cancelled_action_requests": cancelled_requests,
             "read_only": bool(read_only),
         })
@@ -270,7 +256,7 @@ def chat(
                 """,
                 (
                     duration_ms,
-                    f"cancelled:{str(exc)}"[:1000],
+                    f"cancelled:{reason}"[:1000],
                     int(tool_state.get("call_count") or 0),
                     json.dumps(cancelled_metadata, separators=(",", ":")),
                     run_id,
@@ -294,6 +280,24 @@ def chat(
                     """,
                     (conversation_id, conversation_id),
                 )
+
+    try:
+        generation_kwargs = {
+            "source_app_key": source_app_key,
+            "selected_model": selected_model,
+            "granted_permissions": _model_tool_permissions(read_only, canonical.model_tool_permissions),
+            "owner": bool(owner_tools and not read_only),
+            "state": tool_state,
+            "provider_key": provider_override,
+        }
+        if cancellation_token is not None:
+            generation_kwargs["cancellation_token"] = cancellation_token
+        generated, tool_state = brain._generate_with_agent_tools(messages, **generation_kwargs)
+        tool_state["read_only"] = bool(read_only)
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
+    except InferenceCancelled as exc:
+        cancel_turn(str(exc))
         raise brain.BrainError("Agent turn cancelled.", 409) from exc
 
     except providers.ProviderError as exc:
@@ -317,8 +321,10 @@ def chat(
             )
         raise brain.BrainError(str(exc), 503) from exc
 
-    if cancellation_token is not None:
-        cancellation_token.raise_if_cancelled()
+    if cancellation_token is not None and cancellation_token.cancelled:
+        reason = cancellation_token.reason
+        cancel_turn(reason)
+        raise brain.BrainError("Agent turn cancelled.", 409)
     duration_ms = int((time.perf_counter() - started) * 1000)
     reply = str(generated.get("content") or "").strip()
     if not reply:
@@ -346,6 +352,11 @@ def chat(
     run_metadata = _safe_run_metadata(tool_state, canonical, agent=agent, context_event_id=context_event_id)
     run_metadata["scope_enforced"] = not owner_tools
     run_metadata["read_only"] = bool(read_only)
+
+    if cancellation_token is not None and cancellation_token.cancelled:
+        reason = cancellation_token.reason
+        cancel_turn(reason)
+        raise brain.BrainError("Agent turn cancelled.", 409)
 
     with db() as connection:
         connection.execute(
