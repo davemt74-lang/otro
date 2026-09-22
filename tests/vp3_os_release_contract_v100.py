@@ -8,6 +8,7 @@ vp3_os = (ROOT / "app" / "services" / "vp3_os.py").read_text(encoding="utf-8")
 readiness = (ROOT / "app" / "services" / "release_readiness.py").read_text(encoding="utf-8")
 readiness_api = (ROOT / "app" / "release_readiness_api.py").read_text(encoding="utf-8")
 bridge = (ROOT / "app" / "bridge.py").read_text(encoding="utf-8")
+index_html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
 workflow = (ROOT / ".github" / "workflows" / "vp3-os-production-release-v100.yml").read_text(encoding="utf-8")
 v090_workflow = (ROOT / ".github" / "workflows" / "vp3-os-ambient-orchestration-v090.yml").read_text(encoding="utf-8")
 policy = (ROOT / ".github" / "CI_POLICY.md").read_text(encoding="utf-8")
@@ -60,11 +61,13 @@ assert "cancel-in-progress: true" in workflow
 assert "ubuntu-latest" in workflow
 assert "windows-latest" in workflow
 assert "tests/vp3_os_release_v100.py" in workflow
+assert "tests/vp3_os_release_api_v100.py" in workflow
 assert "tests/vp3_os_soak_v100.py" in workflow
 assert "tests/vp3_os_release_contract_v100.py" in workflow
 assert "tests/recovery.py" in workflow
 assert "tests/backup_security.py" in workflow
 assert "tests/migrations.py" in workflow
+assert "VP3 OS v1.0" in index_html
 
 assert "workflow_dispatch:" in v090_workflow
 assert "pull_request:" not in v090_workflow
