@@ -15,8 +15,8 @@ because people are present or speaking.
 
 A meeting can begin from:
 
-- a double press on the VP3 Agent button while idle (the second press must
-  arrive within 550 ms)
+- an extended hold on the VP3 Agent button while idle: keep holding past the
+  normal v0.30 cancel hold and release after about 2 seconds
 - the exact local voice commands `start meeting`, `start meeting mode`,
   `begin meeting`, or `begin meeting mode`
 - the owner-only local control API
@@ -31,11 +31,18 @@ A meeting can end from:
 The command transcript used to end a meeting is not stored as meeting content.
 
 The button gesture deliberately preserves the v0.30 contract. The reference
-ESP32 controller emits `press` immediately and then emits `hold` after 900 ms
-if the button remains down. Therefore a long hold cannot safely mean both
-"cancel the current push-to-talk Agent turn" and "start meeting." v0.40 keeps
-**hold = cancel** outside meeting mode and uses **double press = start meeting**.
-While a meeting owns the microphone, a long hold means **end meeting**.
+ESP32 controller emits `press` immediately and then emits `hold` after about
+900 ms if the button remains down. At that normal hold event the Physical Agent
+still performs its v0.30 **cancel** behavior. If the user deliberately keeps
+holding and releases after the longer v0.40 threshold (about 2 seconds total),
+VP3 OS starts Meeting Mode. While a meeting owns the microphone, the normal
+hold event means **end meeting**.
+
+This gives the existing `press / release / hold` firmware two unambiguous
+physical behaviors without adding a new controller command:
+
+- normal hold → cancel the current Physical Agent turn
+- extended hold, then release → start Physical Meeting Mode
 
 ## Runtime flow
 
