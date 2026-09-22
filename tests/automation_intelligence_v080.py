@@ -118,6 +118,36 @@ with db() as connection:
             (light_at - timedelta(minutes=10)).isoformat()
         )
 
+    # Repeated clicks on one day must not inflate a learned daily pattern.
+    noisy_day = (now - timedelta(days=1)).date()
+    for minute in (12, 18, 24):
+        noisy_at = datetime(
+            noisy_day.year,
+            noisy_day.month,
+            noisy_day.day,
+            8,
+            minute,
+            tzinfo=timezone.utc,
+        )
+        connection.execute(
+            """
+            INSERT INTO automation_device_actions(
+                device_id,source_app_key,command,arguments_meta_json,
+                before_state_json,after_state_json,status,created_at,completed_at
+            ) VALUES (?,?,?,?,?,?, 'completed', ?, ?)
+            """,
+            (
+                int(light["id"]),
+                "owner",
+                "on",
+                '{"command":"on","argument_count":0}',
+                '{"power":"off"}',
+                '{"power":"on"}',
+                noisy_at.isoformat(),
+                noisy_at.isoformat(),
+            ),
+        )
+
     # This action must not become learning evidence because it came from
     # the automation runtime itself.
     auto_at = now - timedelta(hours=2)
@@ -158,11 +188,18 @@ assert settings["min_occurrences"] == 4
 
 scan = automation_intelligence.scan_patterns()
 assert scan["enabled"] is True
-assert scan["actions_considered"] == 8
+assert scan["actions_considered"] == 11
 assert scan["patterns_found"] >= 3
 assert scan["proposals"]
 
 proposals = automation_intelligence.list_proposals("proposed", 20)
+desk_single = next(
+    item
+    for item in proposals
+    if item["pattern_kind"] == "time_action"
+    and item["draft_routine"]["steps"][0]["device_key"] == "desk-light"
+)
+assert desk_single["occurrence_count"] == 4
 sequence = next(
     item for item in proposals if item["pattern_kind"] == "action_sequence"
 )
@@ -198,7 +235,7 @@ with db() as connection:
     ).fetchone()[0] == 0
     assert connection.execute(
         "SELECT COUNT(*) FROM automation_device_actions"
-    ).fetchone()[0] == 9
+    ).fetchone()[0] == 12
 
 active = automation_intelligence.enable_materialized_proposal(
     int(sequence["id"])
@@ -219,7 +256,7 @@ with db() as connection:
     ).fetchone()[0] == 0
     assert connection.execute(
         "SELECT COUNT(*) FROM automation_device_actions"
-    ).fetchone()[0] == 9
+    ).fetchone()[0] == 12
 
 remaining = [
     item
