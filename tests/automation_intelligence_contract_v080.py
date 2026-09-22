@@ -24,6 +24,16 @@ migration = (
 docs = (
     ROOT / "docs" / "VP3_OS_AMBIENT_INTELLIGENCE_V080.md"
 ).read_text(encoding="utf-8")
+index_html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+automation_js = (
+    ROOT / "ui" / "room-device-automation.js"
+).read_text(encoding="utf-8")
+automation_css = (
+    ROOT / "ui" / "room-device-automation.css"
+).read_text(encoding="utf-8")
+local_api = (
+    ROOT / "app" / "local_automation_api.py"
+).read_text(encoding="utf-8")
 
 for forbidden in (
     "execute_command(",
@@ -95,5 +105,37 @@ for table in (
 
 assert "cannot execute a physical device command" in docs
 assert "explicitly excludes any action whose source begins" in docs
+
+for required in (
+    'VP3 OS v0.80',
+    'id="automationIntelligenceSettingsForm"',
+    'id="automationIntelligenceScan"',
+    'id="automationIntelligenceProposals"',
+    'id="automationPatternCount"',
+):
+    assert required in index_html, required
+
+for required in (
+    "/automation/intelligence/scan",
+    "Create disabled draft",
+    "Enable reviewed draft",
+    "Unapproved physical actions",
+    "data-intelligence-dismiss",
+    "data-rule-enabled",
+    "data-routine-enabled",
+):
+    assert required in automation_js, required
+
+# The browser UI never gets a direct physical execution endpoint.
+assert "/execute" not in automation_js
+assert "automation-intelligence-card" in automation_css
+
+for required in (
+    "/routines/{routine_key}/enabled",
+    "/rules/{rule_key}/enabled",
+    "set_routine_enabled",
+    "set_rule_enabled",
+):
+    assert required in local_api, required
 
 print("VP3 OS v0.80 intelligence governance contract passed")
