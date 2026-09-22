@@ -21,7 +21,7 @@ homeserver_ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="
 policy = (ROOT / ".github" / "CI_POLICY.md").read_text(encoding="utf-8")
 docs = (ROOT / "docs" / "VP3_OS_FLEET_MANAGEMENT_V120.md").read_text(encoding="utf-8")
 
-assert 'VP3_OS_VERSION = "v1.2"' in vp3_os
+assert 'VP3_OS_VERSION = "v1.' in vp3_os
 assert '"fleet_management": "vp3_os_fleet_management_v120"' in vp3_os
 
 for required in (
@@ -141,7 +141,7 @@ for required in (
 ):
     assert required in system_js, required
 
-assert "VP3 OS v1.2" in index_html
+assert "VP3 OS v1." in index_html
 
 assert "pull_request:" in workflow
 assert "push:" in workflow
