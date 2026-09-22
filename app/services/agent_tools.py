@@ -10,6 +10,7 @@ from . import action_policy, approvals, app_scopes, plugins, tools
 
 MODEL_TOOL_NAMES = {
     "homeserver_contacts_search": "contacts.search",
+    "homeserver_devices_list": "devices.list",
     "homeserver_knowledge_search": "knowledge.search",
     "homeserver_memory_list": "memory.list",
     "homeserver_notifications_list": "notifications.list",
@@ -19,6 +20,8 @@ MEMORY_PROPOSAL_TOOL_NAME = "homeserver_memory_write_request"
 MEMORY_PROPOSAL_TOOL_KEY = "memory.write"
 TASK_PROPOSAL_TOOL_NAME = "homeserver_task_create_request"
 TASK_PROPOSAL_TOOL_KEY = "tasks.create"
+DEVICE_PROPOSAL_TOOL_NAME = "homeserver_device_command_request"
+DEVICE_PROPOSAL_TOOL_KEY = "devices.command"
 
 
 class AgentToolError(RuntimeError):
@@ -200,6 +203,26 @@ def model_tool_schemas(
                     },
                 }
             )
+        device_tool = by_key.get(DEVICE_PROPOSAL_TOOL_KEY)
+        device_execution = _execution_policy(source_app_key, DEVICE_PROPOSAL_TOOL_KEY, owner)
+        if (
+            device_tool
+            and device_tool.get("available")
+            and not (device_execution and device_execution["policy_mode"] == action_policy.SENSITIVE_HIGH_IMPACT)
+        ):
+            schemas.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": DEVICE_PROPOSAL_TOOL_NAME,
+                        "description": (
+                            "Propose one bounded physical device command for owner approval. "
+                            "VP3 OS v0.60 never allows Agent device commands to execute automatically."
+                        ),
+                        "parameters": device_tool["input_schema"],
+                    },
+                }
+            )
     return schemas
 
 
@@ -297,11 +320,16 @@ def execute_model_tool(
     }
     args = arguments or {}
 
-    if model_tool_name in {MEMORY_PROPOSAL_TOOL_NAME, TASK_PROPOSAL_TOOL_NAME}:
+    if model_tool_name in {MEMORY_PROPOSAL_TOOL_NAME, TASK_PROPOSAL_TOOL_NAME, DEVICE_PROPOSAL_TOOL_NAME}:
         global_policy = get_policy()
         if not global_policy["enabled"] or not global_policy["allow_write_proposals"]:
             raise _deny_unavailable(source_app_key, owner)
-        tool_key = MEMORY_PROPOSAL_TOOL_KEY if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME else TASK_PROPOSAL_TOOL_KEY
+        if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
+            tool_key = MEMORY_PROPOSAL_TOOL_KEY
+        elif model_tool_name == TASK_PROPOSAL_TOOL_NAME:
+            tool_key = TASK_PROPOSAL_TOOL_KEY
+        else:
+            tool_key = DEVICE_PROPOSAL_TOOL_KEY
         write_tool = available.get(tool_key)
         if not write_tool or write_tool.get("mode") != "write":
             raise _deny_unavailable(source_app_key, owner)
@@ -326,8 +354,10 @@ def execute_model_tool(
         try:
             if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
                 result = approvals.create_memory_write_request(source_app_key, args, owner=owner)
-            else:
+            elif model_tool_name == TASK_PROPOSAL_TOOL_NAME:
                 result = approvals.create_task_create_request(source_app_key, args, owner=owner)
+            else:
+                result = approvals.create_device_command_request(source_app_key, args, owner=owner)
             request_id = str(((result.get("result") or {}).get("request_id") or "")) or None
             _record_policy(
                 execution,
