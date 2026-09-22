@@ -452,6 +452,143 @@ def set_rule_enabled(rule_key: str, enabled: bool) -> dict[str, Any]:
     return get_rule(rule["rule_key"])
 
 
+def create_disabled_draft_pair(
+    *,
+    routine_key: str,
+    routine_name: str,
+    routine_description: str,
+    steps: list[dict[str, Any]],
+    rule_key: str,
+    rule_name: str,
+    rule_description: str,
+    trigger_kind: str,
+    trigger: dict[str, Any] | None = None,
+    conditions: list[dict[str, Any]] | None = None,
+    cooldown_seconds: int = 60,
+) -> dict[str, Any]:
+    """Atomically create one disabled routine + disabled rule without overwrites."""
+    safe_routine_key = _key(routine_key, "routine_key")
+    safe_rule_key = _key(rule_key, "rule_key")
+    safe_routine_name = _text(
+        routine_name, 160, required=True, label="routine name"
+    )
+    safe_rule_name = _text(
+        rule_name, 160, required=True, label="rule name"
+    )
+    raw_steps = list(steps or [])
+    if not raw_steps or len(raw_steps) > MAX_ROUTINE_STEPS:
+        raise LocalAutomationError(
+            f"Routine must contain between 1 and {MAX_ROUTINE_STEPS} steps."
+        )
+    validated_steps = [_validate_step(step) for step in raw_steps]
+
+    kind = str(trigger_kind or "").strip().lower()
+    if kind not in _ALLOWED_TRIGGER_KINDS:
+        raise LocalAutomationError("Unsupported trigger kind.")
+    if cooldown_seconds < 0 or cooldown_seconds > 86400:
+        raise LocalAutomationError(
+            "cooldown_seconds must be between 0 and 86400."
+        )
+    safe_trigger, next_run = _validate_trigger(kind, trigger or {})
+    safe_conditions = _validate_conditions(conditions or [])
+
+    with db() as connection:
+        routine_exists = connection.execute(
+            "SELECT 1 FROM automation_routines WHERE routine_key=? LIMIT 1",
+            (safe_routine_key,),
+        ).fetchone()
+        if routine_exists is not None:
+            raise LocalAutomationError(
+                "Draft routine key already exists; refusing to overwrite it.",
+                409,
+            )
+        rule_exists = connection.execute(
+            "SELECT 1 FROM automation_rules WHERE rule_key=? LIMIT 1",
+            (safe_rule_key,),
+        ).fetchone()
+        if rule_exists is not None:
+            raise LocalAutomationError(
+                "Draft rule key already exists; refusing to overwrite it.",
+                409,
+            )
+
+        routine_cursor = connection.execute(
+            """
+            INSERT INTO automation_routines(
+                routine_key,name,description,enabled,approval_mode
+            ) VALUES (?,?,?,0,'ask_every_time')
+            """,
+            (
+                safe_routine_key,
+                safe_routine_name,
+                _text(routine_description, 1000) or None,
+            ),
+        )
+        routine_id = int(routine_cursor.lastrowid)
+        for position, step in enumerate(validated_steps, start=1):
+            connection.execute(
+                """
+                INSERT INTO automation_routine_steps(
+                    routine_id,position,device_id,command,arguments_json
+                ) VALUES (?,?,?,?,?)
+                """,
+                (
+                    routine_id,
+                    position,
+                    step["device_id"],
+                    step["command"],
+                    json.dumps(step["arguments"], separators=(",", ":")),
+                ),
+            )
+
+        connection.execute(
+            """
+            INSERT INTO automation_rules(
+                rule_key,name,description,enabled,trigger_kind,trigger_json,
+                conditions_json,routine_id,cooldown_seconds,next_run_at
+            ) VALUES (?,?,?,0,?,?,?,?,?,?)
+            """,
+            (
+                safe_rule_key,
+                safe_rule_name,
+                _text(rule_description, 1000) or None,
+                kind,
+                json.dumps(safe_trigger, separators=(",", ":")),
+                json.dumps(safe_conditions, separators=(",", ":")),
+                routine_id,
+                int(cooldown_seconds),
+                next_run,
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO activity_log(
+                actor_type,actor_key,action,resource_type,resource_key,metadata_json
+            ) VALUES (
+                'owner','control-center','automation.learned_draft.created',
+                'automation_rule',?,?
+            )
+            """,
+            (
+                safe_rule_key,
+                json.dumps(
+                    {
+                        "routine_key": safe_routine_key,
+                        "rule_enabled": False,
+                        "routine_enabled": False,
+                        "approval_mode": "ask_every_time",
+                    },
+                    separators=(",", ":"),
+                ),
+            ),
+        )
+
+    return {
+        "routine": get_routine(safe_routine_key),
+        "rule": get_rule(safe_rule_key),
+    }
+
+
 def _compare(actual: Any, operator: str, expected: Any) -> bool:
     if operator == "eq":
         return actual == expected
