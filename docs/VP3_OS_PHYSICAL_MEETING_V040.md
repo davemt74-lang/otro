@@ -15,19 +15,27 @@ because people are present or speaking.
 
 A meeting can begin from:
 
-- a long hold on the VP3 Agent button while idle
+- a double press on the VP3 Agent button while idle (the second press must
+  arrive within 550 ms)
 - the exact local voice commands `start meeting`, `start meeting mode`,
   `begin meeting`, or `begin meeting mode`
 - the owner-only local control API
 
 A meeting can end from:
 
-- another long hold while recording
+- a long hold while recording
 - the exact locally transcribed commands `end meeting`, `end meeting mode`,
   `stop meeting`, or `stop meeting mode`
 - the owner-only local control API
 
 The command transcript used to end a meeting is not stored as meeting content.
+
+The button gesture deliberately preserves the v0.30 contract. The reference
+ESP32 controller emits `press` immediately and then emits `hold` after 900 ms
+if the button remains down. Therefore a long hold cannot safely mean both
+"cancel the current push-to-talk Agent turn" and "start meeting." v0.40 keeps
+**hold = cancel** outside meeting mode and uses **double press = start meeting**.
+While a meeting owns the microphone, a long hold means **end meeting**.
 
 ## Runtime flow
 
@@ -213,7 +221,8 @@ The existing v0.20 status light is reused:
 | error | error |
 | disabled | off |
 
-No controller firmware change is required for v0.40.
+No controller firmware change is required for v0.40. The existing
+`press` / `release` / `hold` event protocol is sufficient.
 
 ## APIs
 
