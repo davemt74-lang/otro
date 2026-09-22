@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import approvals, cognitive_runtime, local_automation, physical_meeting, room_device_automation
+from . import ambient_agent, approvals, cognitive_runtime, local_automation, physical_meeting, room_device_automation
 
 ORCHESTRATION_VERSION = "v0.90"
 _OPEN_STATES = {"suggested", "requested", "active", "suspended"}
@@ -462,8 +462,8 @@ def set_mode_enabled(
 
 def _context_snapshot() -> dict[str, Any]:
     now = _now()
-    presence = None
-    presence_at = None
+    presence_history = None
+    presence_history_at = None
     with db() as connection:
         row = connection.execute(
             """
@@ -474,8 +474,8 @@ def _context_snapshot() -> dict[str, Any]:
             """
         ).fetchone()
         if row is not None:
-            presence = str(row["state"] or "")
-            presence_at = row["occurred_at"]
+            presence_history = str(row["state"] or "")
+            presence_history_at = row["occurred_at"]
 
         meeting_row = connection.execute(
             """
@@ -497,6 +497,25 @@ def _context_snapshot() -> dict[str, Any]:
         meeting_at = meeting_row["occurred_at"]
 
     try:
+        ambient_status = ambient_agent.status()
+        ambient_settings = ambient_status.get("settings") or {}
+        raw_presence = str(ambient_status.get("presence") or "").lower()
+        presence = (
+            raw_presence
+            if bool(ambient_settings.get("enabled"))
+            and raw_presence in {"present", "absent"}
+            else None
+        )
+        presence_at = (
+            ambient_status.get("last_presence_at")
+            if presence is not None
+            else None
+        )
+    except Exception:
+        presence = None
+        presence_at = None
+
+    try:
         meeting_status = physical_meeting.status()
         meeting = (
             "active"
@@ -514,6 +533,8 @@ def _context_snapshot() -> dict[str, Any]:
         "evaluated_at": _iso(now),
         "presence": presence,
         "presence_at": presence_at,
+        "presence_history": presence_history,
+        "presence_history_at": presence_history_at,
         "meeting": meeting,
         "meeting_id": live_meeting_id,
         "meeting_state": live_meeting_state,
