@@ -30,12 +30,12 @@ function renderRemote(data) {
   const identity = data.identity || {};
   const canonical = data.cloud_connection || {};
   const cloud = canonical.cloud || {};
+  const transport = settings.transport || data.transport || 'custom_websocket';
+  const standardHttps = transport === 'vp3_https';
   remoteById('brokerUrl').value = standardHttps ? '' : (settings.broker_url || '');
   remoteById('bridgeEnabled').checked = standardHttps ? false : Boolean(settings.enabled);
   remoteById('deviceId').textContent = identity.device_id || '—';
   remoteById('identityProtection').textContent = identity.protection || '—';
-  const transport = settings.transport || data.transport || 'custom_websocket';
-  const standardHttps = transport === 'vp3_https';
   const connected = standardHttps ? Boolean(cloud.connected) : Boolean(runtime.connected);
   const paired = standardHttps ? Boolean(cloud.paired) : Boolean(runtime.claimed);
   const stateLabel = standardHttps
@@ -62,8 +62,9 @@ function renderRemote(data) {
   const pairButton = remoteById('pairVp3');
   if (pairButton) pairButton.disabled = paired;
   const error = remoteById('remoteError');
-  if (runtime.last_error) {
-    error.textContent = runtime.last_error;
+  const connectionError = standardHttps ? (cloud.last_error || '') : (runtime.last_error || '');
+  if (connectionError) {
+    error.textContent = connectionError;
     error.classList.remove('hidden');
   } else {
     error.textContent = '';
@@ -121,7 +122,7 @@ remoteById('vp3PairingForm').addEventListener('submit', async event => {
     remoteFlash(err.message, true);
     await refreshRemote().catch(() => {});
   } finally {
-    button.disabled = Boolean(latestRemote?.cloud_connection?.cloud?.paired || latestRemote?.runtime?.claimed);
+    button.disabled = Boolean(latestRemote?.cloud_connection?.cloud?.paired);
   }
 });
 
