@@ -11,10 +11,13 @@ pairing = read("app/services/cloud_pairing.py")
 api = read("app/remote_bridge_api.py")
 ui = read("ui/remote.js")
 html = read("ui/remote.html")
+shell = read("ui/shell.js")
+app_ui = read("ui/app.js")
+pairing_service = read("app/services/pairing.py")
 installer = read("installer/HomeServer.iss")
 
 checks = [
-    ("HomeServer release is v0.19.3", 'version: str = "0.19.3"' in config and '#define MyAppVersion "0.19.3"' in installer),
+    ("HomeServer release is v0.19.4", 'version: str = "0.19.4"' in config and '#define MyAppVersion "0.19.4"' in installer),
     ("migration adds a first-class transport and HTTPS endpoint without removing broker_url",
      "ADD COLUMN transport" in migration and "ADD COLUMN https_endpoint" in migration and "broker_url" in bridge),
     ("HTTPS session credential is stored in protected local storage",
@@ -46,6 +49,18 @@ checks = [
      "Paste the pairing key from VP3 and click Pair" in ui and "reconnection are automatic" in ui),
     ("control API still exposes custom relay settings separately from normal pairing",
      "save_bridge_settings" in api and "pair-vp3" in api),
+    ("owner shell uses one canonical VP3 Cloud connection endpoint",
+     "/api/v1/control/cloud-connection" in api and
+     "shellApi('/api/v1/control/cloud-connection')" in shell and
+     "api('/api/v1/control/cloud-connection')" in app_ui),
+    ("normal connection UI no longer derives status from legacy Remote Bridge fields",
+     "VP3 cloud fallback required" not in shell and
+     "<span>Remote bridge</span>" not in shell and
+     "Promise.all([" not in shell[shell.index("async function loadConnectionModal"):shell.index("function primaryButton")]),
+    ("successful HTTPS heartbeats update VP3 app last-seen through the canonical pairing lifecycle",
+     'touch_paired_app("vp3")' in bridge and "def touch_paired_app" in pairing_service),
+    ("revoked HTTPS sessions revoke the VP3 paired app through the canonical lifecycle",
+     'revoke_paired_app("vp3")' in bridge and "def revoke_paired_app" in pairing_service),
 ]
 
 for name, ok in checks:
