@@ -16,6 +16,8 @@ from ..config import settings
 from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, normalize_https_endpoint
+from .pairing import revoke_paired_app, touch_paired_app
+from . import providers
 
 
 class RemoteBridgeError(RuntimeError):
@@ -168,6 +170,91 @@ def bridge_status() -> dict:
         "transport": transport,
         "trust_model": "vp3-https-outbound" if transport == "vp3_https" else "trusted-wss-relay",
         "end_to_end_payload_encryption": False,
+    }
+
+
+def cloud_connection_status() -> dict:
+    """One authoritative owner-facing VP3 Cloud connection projection."""
+    bridge = bridge_status()
+    configured = bridge["settings"]
+    runtime = bridge["runtime"]
+    transport = str(bridge.get("transport") or "custom_websocket")
+    session = load_https_session() if transport == "vp3_https" else None
+
+    with db() as connection:
+        app = connection.execute(
+            "SELECT id,app_key,name,status,paired_at,last_seen_at FROM paired_apps WHERE app_key='vp3' LIMIT 1"
+        ).fetchone()
+    app_item = dict(app) if app is not None else None
+
+    vp3_authorized = bool(app_item and app_item.get("status") == "active")
+    paired = bool(
+        transport == "vp3_https"
+        and configured.get("enabled")
+        and session
+        and vp3_authorized
+    )
+    connected = bool(paired and runtime.get("connected"))
+    if connected:
+        state = "connected"
+    elif paired and runtime.get("claimed"):
+        state = "reconnecting"
+    elif paired:
+        state = "offline"
+    else:
+        state = "not_connected"
+
+    inference = providers.inference_status()
+    if inference.get("available"):
+        compute_source = str(inference.get("compute_source") or "")
+        compute_label = (
+            "Local HomeServer"
+            if compute_source == "homeserver_local"
+            else "User provider"
+            if compute_source == "user_provider"
+            else "HomeServer provider"
+        )
+        provider_label = str(inference.get("selected_provider") or "Configured provider")
+    elif connected:
+        compute_source = "vp3_cloud"
+        compute_label = "VP3 Cloud fallback available"
+        provider_label = "VP3 Cloud"
+    else:
+        compute_source = ""
+        compute_label = "No inference route ready"
+        provider_label = "No local provider configured"
+
+    last_cloud_contact = runtime.get("last_message_at") or (
+        app_item.get("last_seen_at") if app_item else None
+    )
+    return {
+        "service": {
+            "online": True,
+            "version": settings.version,
+        },
+        "cloud": {
+            "state": state,
+            "connected": connected,
+            "paired": paired,
+            "transport": "vp3_https" if transport == "vp3_https" else "custom_websocket",
+            "transport_label": "VP3 HTTPS Relay" if transport == "vp3_https" else "Custom WebSocket Relay",
+            "last_seen_at": last_cloud_contact,
+            "last_error": str(runtime.get("last_error") or ""),
+        },
+        "compute": {
+            "available": bool(inference.get("available")),
+            "source": compute_source,
+            "source_label": compute_label,
+            "provider": provider_label,
+            "model": inference.get("model"),
+            "cloud_fallback_available": bool(connected and not inference.get("available")),
+        },
+        "vp3_app": app_item,
+        "advanced_relay": {
+            "enabled": bool(configured.get("enabled")) if transport != "vp3_https" else False,
+            "connected": bool(runtime.get("connected")) if transport != "vp3_https" else False,
+            "broker_url": str(configured.get("broker_url") or "") if transport != "vp3_https" else "",
+        },
     }
 
 
@@ -524,6 +611,7 @@ class RemoteBridgeWorker:
                 if response.status_code in {401, 403, 410}:
                     clear_https_session()
                     disable_vp3_https_settings()
+                    revoke_paired_app("vp3")
                     _set_state(
                         stage="revoked",
                         connected=False,
@@ -541,6 +629,7 @@ class RemoteBridgeWorker:
                 if not isinstance(data, dict) or not data.get("ok"):
                     raise RemoteBridgeError("VP3 HTTPS relay rejected the exchange.")
 
+                touch_paired_app("vp3")
                 now = _iso_now()
                 _set_state(
                     stage="ready",
