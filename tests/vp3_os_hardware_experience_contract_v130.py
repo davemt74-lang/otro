@@ -179,7 +179,7 @@ for required in (
     "vp3-os-release-v1",
     "version = 'v1.3'",
     "channel = 'stable'",
-    "minimum_schema_version = 29",
+    "minimum_schema_version = 30",
 ):
     assert required in homeserver_ci, required
 
