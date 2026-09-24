@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-recovery-") as data_dir:
         assert health.status_code == 200
         assert health.json()["ok"] is False
         assert health.json()["recovery"] is True
-        assert health.json()["version"] == "2.1"
+        assert health.json()["version"] == "2.2"
 
         denied = client.post(
             "/api/v1/recovery/restore",

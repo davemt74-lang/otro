@@ -241,6 +241,58 @@
     }).catch(() => {});
   }
 
+  const presenceStorageKey = 'homeserver:v2.2:cloud-presence-state';
+
+  function presenceCopy(state, previous = '') {
+    const normalized = String(state || '').toLowerCase();
+    if (normalized === 'connected') {
+      const reconnected = ['offline','disconnected','reconnecting','connection_error'].includes(String(previous || '').toLowerCase());
+      return reconnected
+        ? 'VP3 Cloud reconnected. Shared Agent context, knowledge, contacts, tasks, notifications and approved Cloud capabilities are available again.'
+        : 'VP3 Cloud connected. Shared Agent context, knowledge, contacts, tasks, notifications and approved Cloud capabilities are available.';
+    }
+    if (normalized === 'reconnecting') {
+      return 'VP3 Cloud connection is recovering. Local HomeServer capabilities remain available while shared Cloud context reconnects.';
+    }
+    if (['offline','disconnected','connection_error'].includes(normalized)) {
+      return 'VP3 Cloud disconnected. Local HomeServer capabilities remain available here, but shared Cloud context and synchronization are temporarily unavailable.';
+    }
+    return '';
+  }
+
+  function appendPresenceMessage(text, state) {
+    const messages = byId('chatMessages');
+    if (!messages || !String(text || '').trim()) return false;
+    const empty = messages.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const agentName = String(byId('sidebarAgentName')?.textContent || 'HomeServer Agent').trim() || 'HomeServer Agent';
+    const row = document.createElement('div');
+    row.className = 'chat-message assistant homeserver-presence-message';
+    row.dataset.connectionState = String(state || '');
+    row.innerHTML = `<div class="hs-chat-avatar" aria-hidden="true">✦</div><div class="hs-chat-message-body"><div class="hs-chat-role"></div><div class="hs-chat-copy"></div><small class="hs-chat-model">Connection status</small></div>`;
+    const role = row.querySelector('.hs-chat-role');
+    const copy = row.querySelector('.hs-chat-copy');
+    if (role) role.textContent = agentName;
+    if (copy) copy.textContent = String(text);
+    messages.appendChild(row);
+    messages.scrollTop = messages.scrollHeight;
+    return true;
+  }
+
+  function handleCloudPresence(event) {
+    const state = String(event?.detail?.state || '').toLowerCase();
+    if (!state || state === 'checking') return;
+    let previous = '';
+    try { previous = sessionStorage.getItem(presenceStorageKey) || ''; } catch (_error) {}
+    if (previous === state) return;
+    const text = presenceCopy(state, previous);
+    try { sessionStorage.setItem(presenceStorageKey, state); } catch (_error) {}
+    if (!text) return;
+    if (!appendPresenceMessage(text, state)) return;
+    const voice = window.HomeServerConversationVoice;
+    if (voice?.isEnabled?.()) voice.speakStatus?.(text);
+  }
+
   function closeMenus() {
     byId('sidebarUserMenu')?.classList.add('hidden');
     byId('sidebarUserButton')?.setAttribute('aria-expanded', 'false');
@@ -316,6 +368,8 @@
       byId('connectionModalBackdrop')?.classList.add('hidden');
     }
   });
+
+  window.addEventListener('homeserver:cloud-presence', handleCloudPresence);
 
   ensureStyles();
   ensureContextEngine();

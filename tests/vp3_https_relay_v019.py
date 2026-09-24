@@ -17,7 +17,7 @@ pairing_service = read("app/services/pairing.py")
 installer = read("installer/HomeServer.iss")
 
 checks = [
-    ("HomeServer release is v2.1", 'version: str = "2.1"' in config and '#define MyAppVersion "2.1"' in installer),
+    ("HomeServer release is v2.2", 'version: str = "2.2"' in config and '#define MyAppVersion "2.2"' in installer),
     ("migration adds a first-class transport and HTTPS endpoint without removing broker_url",
      "ADD COLUMN transport" in migration and "ADD COLUMN https_endpoint" in migration and "broker_url" in bridge),
     ("HTTPS session credential is stored in protected local storage",

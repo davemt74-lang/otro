@@ -885,6 +885,17 @@
     if (context) new MutationObserver(scheduleDrawerRefresh).observe(context, {childList: true, subtree: true, characterData: true});
   }
 
+  window.HomeServerConversationVoice = Object.freeze({
+    isEnabled: () => Boolean(conversationMode),
+    speakStatus: text => {
+      const message = String(text || '').trim();
+      if (!conversationMode || !message) return false;
+      speakAgentReply(message);
+      return true;
+    },
+    stop: () => stopConversationMode(''),
+  });
+
   window.addEventListener('beforeunload', () => {
     conversationStarting = false;
     conversationMode = false;
