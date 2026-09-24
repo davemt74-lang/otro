@@ -13,10 +13,7 @@ from .pairing import create_pairing_request, approve_pairing_request, revoke_pai
 from .remote_identity import load_or_create_remote_identity
 from .https_bridge_session import save_https_session
 from .remote_bridge import (
-    bridge_status,
     dispatch_remote_request,
-    normalize_broker_url,
-    save_bridge_settings,
     save_vp3_https_settings,
 )
 
@@ -29,7 +26,6 @@ _PAIRING_TOKEN = re.compile(r"^VP3-(?:[A-F0-9]{8}-){7}[A-F0-9]{8}$")
 _DEVICE_ID = re.compile(r"^hs-[a-f0-9]{24}$")
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _DEFAULT_PAIRING_ENDPOINT = "https://vp3.me/api/homeserver-https-pair-v1300.php"
-_DEFAULT_BOOTSTRAP_ENDPOINT = "https://vp3.me/api/homeserver-relay-bootstrap-v1210.php"
 
 
 def _validated_cloud_endpoint(raw: str, label: str) -> str:
@@ -62,43 +58,11 @@ def _resolved_poll_endpoint(pairing_endpoint: str, poll_url: str) -> str:
     return endpoint
 
 
-def vp3_bootstrap_endpoint() -> str:
-    return _validated_cloud_endpoint(
-        str(os.environ.get("HOMESERVER_VP3_BOOTSTRAP_URL") or _DEFAULT_BOOTSTRAP_ENDPOINT),
-        "relay bootstrap",
-    )
-
-
 def normalize_pairing_token(value: str) -> str:
     token = str(value or "").strip().upper()
     if not _PAIRING_TOKEN.fullmatch(token):
         raise CloudPairingError("Enter the VP3 pairing token generated in your Cloud account.")
     return token
-
-
-def bootstrap_vp3_remote_bridge() -> dict[str, Any]:
-    endpoint = vp3_bootstrap_endpoint()
-    try:
-        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
-            response = client.get(endpoint, headers={"Accept": "application/json"})
-    except httpx.HTTPError as exc:
-        raise CloudPairingError("VP3 Cloud could not provide the relay configuration.") from exc
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise CloudPairingError("VP3 Cloud returned an invalid relay bootstrap response.") from exc
-    if not isinstance(payload, dict) or response.status_code < 200 or response.status_code >= 300 or not payload.get("ok"):
-        raise CloudPairingError("VP3 Cloud relay bootstrap is unavailable.")
-    if str(payload.get("pairing_protocol") or "") != "account-token-v1":
-        raise CloudPairingError("VP3 Cloud returned an unsupported pairing protocol.")
-
-    try:
-        broker_url = normalize_broker_url(str(payload.get("relay_websocket_url") or ""))
-        settings = save_bridge_settings(True, broker_url)
-    except Exception as exc:
-        raise CloudPairingError("VP3 Cloud returned an invalid relay WebSocket endpoint.") from exc
-    return {"configured": True, "settings": settings}
 
 
 _VP3_PERMISSIONS = [
