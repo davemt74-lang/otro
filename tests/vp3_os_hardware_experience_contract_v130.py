@@ -177,9 +177,9 @@ assert "push:" not in v120_workflow
 for required in (
     "dist/RELEASE.json",
     "vp3-os-release-v1",
-    "version = '2.0'",
+    "version = '2.1'",
     "channel = 'stable'",
-    "minimum_schema_version = 30",
+    "minimum_schema_version = 31",
 ):
     assert required in homeserver_ci, required
 
