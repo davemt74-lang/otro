@@ -15,6 +15,7 @@ from .services.connected_apps_pairing import ConnectedAppsPairingError, approve_
 from .services.remote_bridge import (
     RemoteBridgeError,
     bridge_status,
+    cloud_connection_status,
     list_bridge_events,
     save_bridge_settings,
 )
@@ -52,6 +53,11 @@ def remote_bridge_workspace():
     if not page.is_file():
         raise HTTPException(status_code=503, detail="Remote bridge workspace is unavailable")
     return FileResponse(page)
+
+
+@router.get("/api/v1/control/cloud-connection")
+def control_cloud_connection() -> dict:
+    return cloud_connection_status()
 
 
 @router.get("/api/v1/control/remote-bridge")
