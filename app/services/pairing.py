@@ -254,6 +254,38 @@ def pairing_status(request_id: str, claim_token: str) -> dict | None:
         }
 
 
+def touch_paired_app(app_key: str) -> None:
+    key = str(app_key or "").strip()
+    if not key:
+        return
+    with db() as connection:
+        connection.execute(
+            "UPDATE paired_apps SET last_seen_at=CURRENT_TIMESTAMP WHERE app_key=? AND status='active'",
+            (key,),
+        )
+
+
+def revoke_paired_app(app_key: str) -> None:
+    key = str(app_key or "").strip()
+    if not key:
+        return
+    with db() as connection:
+        row = connection.execute(
+            "SELECT id FROM paired_apps WHERE app_key=? LIMIT 1",
+            (key,),
+        ).fetchone()
+        if row is None:
+            return
+        connection.execute(
+            "UPDATE paired_apps SET status='revoked' WHERE id=?",
+            (row["id"],),
+        )
+        connection.execute(
+            "UPDATE app_permissions SET allowed=0, updated_at=CURRENT_TIMESTAMP WHERE paired_app_id=?",
+            (row["id"],),
+        )
+
+
 def authenticate(raw_token: str) -> dict | None:
     with db() as connection:
         row = connection.execute(
