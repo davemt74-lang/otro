@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-tasks-") as data_dir:
     with TestClient(app) as client:
         assert scheduler._thread is not None and scheduler._thread.is_alive()
         scheduler.stop()
-        assert client.get("/api/v1/health").json()["version"] == "2.0"
+        assert client.get("/api/v1/health").json()["version"] == "2.1"
         assert client.get("/api/v1/status").json()["schema_version"] >= 20
         assert client.get("/api/v1/control/tasks").status_code == 401
         assert client.get("/api/v1/control/task-notifications").status_code == 401
