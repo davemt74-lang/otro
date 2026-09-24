@@ -486,7 +486,7 @@ class RuntimeController:
                     pystray.MenuItem("Open HomeServer", self.open_control_center, default=True),
                     pystray.MenuItem("Tasks & Notifications", self.open_tasks, enabled=not self.recovery_mode),
                     pystray.MenuItem("Setup & Diagnostics", self.open_system),
-                    pystray.MenuItem("Remote Bridge", self.open_remote_bridge, enabled=not self.recovery_mode),
+                    pystray.MenuItem("VP3 Cloud / Remote Bridge", self.open_remote_bridge, enabled=not self.recovery_mode),
                     pystray.MenuItem("Open Data Folder", self.open_data_folder),
                     pystray.MenuItem("Create Backup", self.create_backup, enabled=not self.recovery_mode),
                     pystray.MenuItem("API Docs", self.open_api_docs, enabled=not self.recovery_mode),
