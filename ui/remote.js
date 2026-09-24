@@ -4,7 +4,6 @@ const remoteFmt = value => value ? new Date(value).toLocaleString() : 'Never';
 const remoteSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 let latestRemote = null;
-let pendingVp3 = null;
 
 async function remoteApi(path, options = {}) {
   const headers = {...(options.headers || {})};
@@ -24,18 +23,6 @@ function remoteFlash(message, error = false) {
   remoteFlash.timer = setTimeout(() => node.className = 'remote-flash', 4200);
 }
 
-function renderApproval() {
-  const panel = remoteById('vp3ApprovalPanel');
-  const permissions = remoteById('vp3RequestedPermissions');
-  if (!pendingVp3) {
-    panel.classList.add('hidden');
-    permissions.innerHTML = '';
-    return;
-  }
-  panel.classList.remove('hidden');
-  permissions.innerHTML = (pendingVp3.requested_permissions || []).map(permission => `<span>${remoteEsc(permission)}</span>`).join('') || '<span>No capabilities requested</span>';
-}
-
 function renderRemote(data) {
   latestRemote = data;
   const settings = data.settings || {};
@@ -43,8 +30,8 @@ function renderRemote(data) {
   const identity = data.identity || {};
   const canonical = data.cloud_connection || {};
   const cloud = canonical.cloud || {};
-  remoteById('brokerUrl').value = settings.broker_url || '';
-  remoteById('bridgeEnabled').checked = Boolean(settings.enabled);
+  remoteById('brokerUrl').value = standardHttps ? '' : (settings.broker_url || '');
+  remoteById('bridgeEnabled').checked = standardHttps ? false : Boolean(settings.enabled);
   remoteById('deviceId').textContent = identity.device_id || '—';
   remoteById('identityProtection').textContent = identity.protection || '—';
   const transport = settings.transport || data.transport || 'custom_websocket';
@@ -74,8 +61,6 @@ function renderRemote(data) {
 
   const pairButton = remoteById('pairVp3');
   if (pairButton) pairButton.disabled = paired;
-  renderApproval();
-
   const error = remoteById('remoteError');
   if (runtime.last_error) {
     error.textContent = runtime.last_error;
@@ -94,12 +79,10 @@ function renderRemote(data) {
 }
 
 async function refreshRemote() {
-  const [bridge, canonical, apps] = await Promise.all([
+  const [bridge, canonical] = await Promise.all([
     remoteApi('/api/v1/control/remote-bridge?limit=100'),
     remoteApi('/api/v1/control/cloud-connection'),
-    remoteApi('/api/v1/control/connected-apps').catch(() => ({pending: []})),
   ]);
-  pendingVp3 = (apps.pending || []).find(item => String(item.app_key || '').toLowerCase() === 'vp3') || null;
   const data = {...bridge, cloud_connection: canonical};
   renderRemote(data);
   return data;
@@ -125,7 +108,7 @@ remoteById('vp3PairingForm').addEventListener('submit', async event => {
   button.disabled = true;
   try {
     remoteById('pairingStartStatus').textContent = 'Pairing this HomeServer with VP3 Cloud…';
-    await remoteApi('/api/v1/control/remote-bridge/pair-vp3', {
+    await remoteApi('/api/v1/control/cloud-connection/pair', {
       method: 'POST',
       body: JSON.stringify({pairing_token: token}),
     });
@@ -142,26 +125,6 @@ remoteById('vp3PairingForm').addEventListener('submit', async event => {
   }
 });
 
-remoteById('approveVp3Pairing').addEventListener('click', async event => {
-  const button = event.currentTarget;
-  if (!pendingVp3?.id) return remoteFlash('No pending VP3 permission request was found.', true);
-  button.disabled = true;
-  try {
-    await remoteApi('/api/v1/control/remote-bridge/approve-vp3', {
-      method: 'POST',
-      body: JSON.stringify({pairing_id: Number(pendingVp3.id)}),
-    });
-    pendingVp3 = null;
-    renderApproval();
-    await refreshRemote();
-    remoteFlash('VP3 approved locally. VP3 Cloud will finish the connection automatically.');
-  } catch (err) {
-    remoteFlash(err.message, true);
-  } finally {
-    button.disabled = false;
-  }
-});
-
 remoteById('remoteForm').addEventListener('submit', async event => {
   event.preventDefault();
   const button = event.submitter;
@@ -169,7 +132,7 @@ remoteById('remoteForm').addEventListener('submit', async event => {
   try {
     const result = await saveRemoteSettings(remoteById('bridgeEnabled').checked);
     await refreshRemote();
-    remoteFlash(result.settings.enabled ? 'Remote Bridge enabled. The outbound worker will apply the settings locally.' : 'Remote Bridge disabled.');
+    remoteFlash(result.settings.enabled ? 'Custom WebSocket relay enabled.' : 'Custom WebSocket relay disabled.');
   } catch (err) {
     remoteFlash(err.message, true);
   } finally {
@@ -177,7 +140,7 @@ remoteById('remoteForm').addEventListener('submit', async event => {
   }
 });
 
-remoteById('refreshRemote').addEventListener('click', () => refreshRemote().then(() => remoteFlash('Remote bridge status refreshed.')).catch(err => remoteFlash(err.message, true)));
+remoteById('refreshRemote').addEventListener('click', () => refreshRemote().then(() => remoteFlash('Connection status refreshed.')).catch(err => remoteFlash(err.message, true)));
 
 refreshRemote().catch(err => remoteFlash(err.message, true));
 setInterval(() => refreshRemote().catch(() => {}), 3000);
