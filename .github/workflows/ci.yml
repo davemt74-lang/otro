@@ -76,6 +76,8 @@ jobs:
         run: python tests/remote_bridge_socket.py
       - name: VP3 account-token pairing regression
         run: python tests/vp3_account_pairing_v062.py
+      - name: VP3 HTTPS session replacement race regression
+        run: python tests/vp3_https_session_race.py
       - name: VP3 HTTPS bidirectional relay regression
         run: python tests/vp3_https_relay_v019.py
       - name: Smoke test API, pairing, Agent Brain and tools
