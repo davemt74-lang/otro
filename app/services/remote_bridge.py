@@ -462,7 +462,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
         if op == "agent.chat":
             continuity = body.get("_continuity")
             if isinstance(continuity, dict):
-                identity = _direct_identity(token, {"chat"})
+                identity = _direct_identity(token, {"agent.chat"})
                 chat_body = dict(body)
                 chat_body.pop("_continuity", None)
                 try:
@@ -477,14 +477,14 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                 return {"status": 200, "ok": True, "payload": payload_out}
             return _local_response(client.post("/api/v1/chat", json=body, headers=headers))
         if op == "work.continuity.status":
-            _direct_identity(token, {"chat"})
+            _direct_identity(token, {"agent.chat"})
             try:
                 payload_out = work_continuity.status(str(body.get("key") or ""))
             except work_continuity.WorkContinuityError as exc:
                 raise RemoteBridgeError(str(exc)) from exc
             return {"status": 200, "ok": True, "payload": payload_out}
         if op == "work.continuity.cancel":
-            _direct_identity(token, {"chat"})
+            _direct_identity(token, {"agent.chat"})
             try:
                 payload_out = work_continuity.cancel(str(body.get("key") or ""))
             except work_continuity.WorkContinuityError as exc:
