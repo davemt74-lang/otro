@@ -260,7 +260,12 @@ def touch_paired_app(app_key: str) -> None:
         return
     with db() as connection:
         connection.execute(
-            "UPDATE paired_apps SET last_seen_at=CURRENT_TIMESTAMP WHERE app_key=? AND status='active'",
+            """
+            UPDATE paired_apps
+            SET last_seen_at=CURRENT_TIMESTAMP
+            WHERE app_key=? AND status='active'
+              AND (last_seen_at IS NULL OR last_seen_at < datetime('now','-5 seconds'))
+            """,
             (key,),
         )
 
