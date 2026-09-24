@@ -351,6 +351,18 @@ def _local_response(response: httpx.Response) -> dict:
     }
 
 
+def _successful_local_payload(response: httpx.Response) -> dict:
+    result = _local_response(response)
+    if not result["ok"]:
+        payload = result.get("payload") if isinstance(result.get("payload"), dict) else {}
+        detail = str(payload.get("detail") or payload.get("error") or "HomeServer local execution failed.")
+        raise RemoteBridgeError(detail[:1000])
+    payload = result.get("payload")
+    if not isinstance(payload, dict):
+        raise RemoteBridgeError("HomeServer local execution returned an invalid payload.")
+    return payload
+
+
 def _direct_identity(token: str, required_permissions: set[str] | None = None) -> dict:
     identity = authenticate(token)
     if identity is None:
@@ -457,7 +469,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     payload_out = work_continuity.execute(
                         continuity,
                         "agent.chat",
-                        lambda: _local_response(client.post("/api/v1/chat", json=chat_body, headers=headers))["payload"],
+                        lambda: _successful_local_payload(client.post("/api/v1/chat", json=chat_body, headers=headers)),
                         source_app_key=str(identity.get("app_key") or "vp3"),
                     )
                 except work_continuity.WorkContinuityError as exc:
