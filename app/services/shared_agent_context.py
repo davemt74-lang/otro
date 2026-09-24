@@ -199,6 +199,23 @@ def _local_memory(query: str, limit: int = 40) -> list[dict[str, Any]]:
     return out
 
 
+def _fit_datasets(datasets: dict[str, list[dict[str, Any]]], max_bytes: int = 170_000) -> dict[str, list[dict[str, Any]]]:
+    order = ("notifications", "tasks", "contacts", "knowledge", "memory")
+    while True:
+        encoded = json.dumps(datasets, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        if len(encoded) <= max_bytes:
+            return datasets
+        removed = False
+        for dataset in order:
+            rows = datasets.get(dataset) or []
+            if len(rows) > 5:
+                rows.pop()
+                removed = True
+                break
+        if not removed:
+            return datasets
+
+
 def local_snapshot(query: str = "") -> dict[str, Any]:
     text = _text(query, 240)
     memory_rows = _local_memory(text)
@@ -289,13 +306,13 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
         for index, row in enumerate(tasks.list_notifications(unread_only=False, include_dismissed=False, limit=50)[:50])
         if isinstance(row, dict)
     ]
-    datasets = {
+    datasets = _fit_datasets({
         "memory": memory_rows,
         "knowledge": knowledge_rows,
         "contacts": contact_rows,
         "tasks": task_rows,
         "notifications": notification_rows,
-    }
+    })
     canonical = json.dumps(datasets, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return {
         "version": SHARED_AGENT_CONTEXT_VERSION,
