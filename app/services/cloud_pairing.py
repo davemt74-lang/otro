@@ -9,7 +9,7 @@ import httpx
 
 from ..config import settings
 from ..database import db
-from .pairing import create_pairing_request, approve_pairing_request
+from .pairing import create_pairing_request, approve_pairing_request, revoke_paired_app
 from .remote_identity import load_or_create_remote_identity
 from .https_bridge_session import save_https_session
 from .remote_bridge import (
@@ -122,11 +122,7 @@ _VP3_PERMISSIONS = [
 
 def _revoke_local_vp3_pairing() -> None:
     try:
-        with db() as connection:
-            app = connection.execute("SELECT id FROM paired_apps WHERE app_key='vp3' LIMIT 1").fetchone()
-            if app is not None:
-                connection.execute("UPDATE paired_apps SET status='revoked' WHERE id=?", (app["id"],))
-                connection.execute("UPDATE app_permissions SET allowed=0, updated_at=CURRENT_TIMESTAMP WHERE paired_app_id=?", (app["id"],))
+        revoke_paired_app("vp3")
     except Exception:
         pass
 
