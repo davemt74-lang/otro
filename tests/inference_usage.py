@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
 
         health = client.get("/api/v1/health")
         assert health.status_code == 200
-        assert health.json()["version"] == "0.19.4"
+        assert health.json()["version"] == "19.5"
         status = client.get("/api/v1/status")
         assert status.status_code == 200
         assert status.json()["schema_version"] >= 17

@@ -61,6 +61,20 @@ def load_https_session() -> dict | None:
         return None
 
 
+def https_session_matches(session_token: str) -> bool:
+    current = load_https_session()
+    if not current:
+        return False
+    return str(current.get("session_token") or "") == str(session_token or "").strip()
+
+
+def clear_https_session_if_matches(session_token: str) -> bool:
+    if not https_session_matches(session_token):
+        return False
+    clear_https_session()
+    return True
+
+
 def clear_https_session() -> None:
     try:
         settings.remote_https_session_path.unlink(missing_ok=True)

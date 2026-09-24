@@ -15,7 +15,7 @@ from websockets.sync.client import connect
 from ..config import settings
 from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
-from .https_bridge_session import load_https_session, clear_https_session, normalize_https_endpoint
+from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import revoke_paired_app, touch_paired_app
 from . import providers
 
@@ -584,6 +584,7 @@ class RemoteBridgeWorker:
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
             "X-VP3-HomeServer-Session": token,
             "X-HomeServer-Device": identity["device_id"],
         }
@@ -608,18 +609,29 @@ class RemoteBridgeWorker:
                         "results": pending_results,
                     },
                 )
-                if response.status_code in {401, 403, 410}:
-                    clear_https_session()
-                    disable_vp3_https_settings()
-                    revoke_paired_app("vp3")
-                    _set_state(
-                        stage="revoked",
-                        connected=False,
-                        claimed=False,
-                        last_error="VP3 HTTPS session was revoked. Generate a new pairing key and pair again.",
-                    )
-                    _event("bridge.disconnected", "revoked", metadata={"transport": "vp3_https"})
+                if response.status_code == 410:
+                    # Only an explicit Gone response means this exact session was
+                    # intentionally revoked. Never let a stale worker destroy a
+                    # replacement session that was saved after this loop started.
+                    if clear_https_session_if_matches(token):
+                        disable_vp3_https_settings()
+                        revoke_paired_app("vp3")
+                        _set_state(
+                            stage="revoked",
+                            connected=False,
+                            claimed=False,
+                            last_error="VP3 pairing was explicitly revoked. Save a new pairing key to connect again.",
+                        )
+                        _event("bridge.disconnected", "revoked", metadata={"transport": "vp3_https"})
                     return
+                if response.status_code in {401, 403}:
+                    # Authentication failures are retryable and must never erase
+                    # the saved pairing. If a newer pairing replaced this token,
+                    # stop this stale worker immediately so the reload can take over.
+                    if not https_session_matches(token):
+                        _event("bridge.worker", "superseded", metadata={"transport": "vp3_https"})
+                        return
+                    raise RemoteBridgeError(f"VP3 HTTPS authentication returned HTTP {response.status_code}.")
                 if response.status_code < 200 or response.status_code >= 300:
                     raise RemoteBridgeError(f"VP3 HTTPS relay returned HTTP {response.status_code}.")
                 try:
