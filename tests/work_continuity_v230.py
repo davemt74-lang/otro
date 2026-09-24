@@ -25,7 +25,7 @@ checks = [
     ("schema 032 persists stable Cloud run/action receipts", "CREATE TABLE IF NOT EXISTS cloud_work_continuity" in static["migration"] and "continuity_key TEXT PRIMARY KEY" in static["migration"]),
     ("receipt service uses stable v2.3 contract and conservative stale recovery", 'WORK_CONTINUITY_VERSION = "2.3"' in static["service"] and "STALE_RUNNING_SECONDS = 300" in static["service"]),
     ("remote Agent chat consumes continuity metadata", 'body.get("_continuity")' in static["bridge"] and "work_continuity.execute" in static["bridge"]),
-    ("remote status and cancel operations are paired-app protected", 'if op == "work.continuity.status"' in static["bridge"] and 'if op == "work.continuity.cancel"' in static["bridge"] and '{"chat"}' in static["bridge"]),
+    ("remote status and cancel operations are paired-app protected", 'if op == "work.continuity.status"' in static["bridge"] and 'if op == "work.continuity.cancel"' in static["bridge"] and '{"agent.chat"}' in static["bridge"]),
     ("capability registry advertises durable work continuity", '"work_continuity"' in static["capabilities"] and '"work.continuity.v1"' in static["capabilities"] and '"result_replay": True' in static["capabilities"]),
     ("local Agent context can reason over Cloud work receipts", "work_continuity.list_recent" in static["context"] and "work_continuity" in static["context"]),
     ("local owner API exposes continuity history and cancel", "/api/v1/control/work-continuity" in static["main"] and "control_work_continuity_cancel" in static["main"]),
