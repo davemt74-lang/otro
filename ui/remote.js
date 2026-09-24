@@ -41,31 +41,39 @@ function renderRemote(data) {
   const settings = data.settings || {};
   const runtime = data.runtime || {};
   const identity = data.identity || {};
+  const canonical = data.cloud_connection || {};
+  const cloud = canonical.cloud || {};
   remoteById('brokerUrl').value = settings.broker_url || '';
   remoteById('bridgeEnabled').checked = Boolean(settings.enabled);
   remoteById('deviceId').textContent = identity.device_id || '—';
   remoteById('identityProtection').textContent = identity.protection || '—';
   const transport = settings.transport || data.transport || 'custom_websocket';
-  remoteById('connectedState').textContent = runtime.connected ? 'Connected' : (settings.enabled ? 'Disconnected' : 'Disabled');
-  remoteById('transportMode').textContent = transport === 'vp3_https' ? 'VP3 HTTPS Relay' : 'Custom WebSocket Relay';
-  remoteById('pairingState').textContent = runtime.claimed ? 'Paired with VP3 Cloud' : 'Not paired';
-  remoteById('lastConnected').textContent = remoteFmt(runtime.last_connected_at);
+  const standardHttps = transport === 'vp3_https';
+  const connected = standardHttps ? Boolean(cloud.connected) : Boolean(runtime.connected);
+  const paired = standardHttps ? Boolean(cloud.paired) : Boolean(runtime.claimed);
+  const stateLabel = standardHttps
+    ? (cloud.connected ? 'Connected' : cloud.state === 'reconnecting' ? 'Reconnecting' : cloud.paired ? 'Offline' : 'Not connected')
+    : (runtime.connected ? 'Connected' : settings.enabled ? 'Disconnected' : 'Disabled');
+  remoteById('connectedState').textContent = stateLabel;
+  remoteById('transportMode').textContent = standardHttps ? (cloud.transport_label || 'VP3 HTTPS Relay') : 'Custom WebSocket Relay';
+  remoteById('pairingState').textContent = paired ? 'Paired with VP3 Cloud' : 'Not paired';
+  remoteById('lastConnected').textContent = remoteFmt(standardHttps ? cloud.last_seen_at : runtime.last_connected_at);
 
   const status = remoteById('remoteStatus');
-  status.textContent = runtime.connected ? 'Connected' : (settings.enabled ? 'Disconnected' : 'Disabled');
-  status.className = `remote-status${runtime.connected ? ' connected' : settings.enabled ? ' warning' : ''}`;
+  status.textContent = stateLabel;
+  status.className = `remote-status${connected ? ' connected' : (paired || settings.enabled) ? ' warning' : ''}`;
 
   const pairingStatus = remoteById('pairingStartStatus');
-  if (runtime.claimed && runtime.connected) {
+  if (paired && connected) {
     pairingStatus.textContent = 'Connected to VP3 Cloud. HomeServer is maintaining the secure HTTPS command and heartbeat channel automatically.';
-  } else if (runtime.claimed) {
+  } else if (paired) {
     pairingStatus.textContent = 'Paired with VP3 Cloud. HomeServer is reconnecting automatically.';
   } else {
     pairingStatus.textContent = 'Paste the pairing key from VP3 and click Pair. Everything else is configured automatically.';
   }
 
   const pairButton = remoteById('pairVp3');
-  if (pairButton) pairButton.disabled = Boolean(runtime.claimed);
+  if (pairButton) pairButton.disabled = paired;
   renderApproval();
 
   const error = remoteById('remoteError');
