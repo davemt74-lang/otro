@@ -76,6 +76,8 @@ jobs:
         run: python tests/remote_bridge_socket.py
       - name: VP3 account-token pairing regression
         run: python tests/vp3_account_pairing_v062.py
+      - name: VP3 HTTPS bidirectional relay regression
+        run: python tests/vp3_https_relay_v019.py
       - name: Smoke test API, pairing, Agent Brain and tools
         run: python tests/smoke.py
       - name: Tool audit privacy regression
@@ -109,7 +111,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.18.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.19.0') {
                   $healthy = $true
                   break
                 }
@@ -120,7 +122,7 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.18.0' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.19.0' }
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
@@ -141,7 +143,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.18.0') { $healthy = $true; break }
+                if ($response.ok -eq $true -and $response.version -eq '0.19.0') { $healthy = $true; break }
               } catch {}
             }
             if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
@@ -252,7 +254,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '0.18.0') {
+                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '0.19.0') {
                   $recovery = $true
                   break
                 }
@@ -283,7 +285,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.18.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.19.0') {
                   $healthy = $true
                   break
                 }
@@ -354,9 +356,9 @@ jobs:
             format = 'vp3-os-release-v1'
             version = 'v1.3'
             channel = 'stable'
-            minimum_schema_version = 29
+            minimum_schema_version = 30
             files = $hashMap
-            release_notes = 'VP3 OS v1.3 Hardware Experience Runtime'
+            release_notes = 'HomeServer v0.19 HTTPS Remote Bridge'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution

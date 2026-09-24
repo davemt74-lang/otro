@@ -15,6 +15,7 @@ from websockets.sync.client import connect
 from ..config import settings
 from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
+from .https_bridge_session import load_https_session, clear_https_session, normalize_https_endpoint
 
 
 class RemoteBridgeError(RuntimeError):
@@ -78,13 +79,15 @@ def _broker_proxy(broker_url: str):
 def get_bridge_settings() -> dict:
     with db() as connection:
         row = connection.execute(
-            "SELECT enabled, broker_url, updated_at FROM remote_bridge_settings WHERE id=1 LIMIT 1"
+            "SELECT enabled, broker_url, transport, https_endpoint, updated_at FROM remote_bridge_settings WHERE id=1 LIMIT 1"
         ).fetchone()
     if row is None:
-        return {"enabled": False, "broker_url": "", "updated_at": None}
+        return {"enabled": False, "broker_url": "", "transport": "custom_websocket", "https_endpoint": "", "updated_at": None}
     return {
         "enabled": bool(row["enabled"]),
         "broker_url": str(row["broker_url"] or ""),
+        "transport": str(row["transport"] or "custom_websocket"),
+        "https_endpoint": str(row["https_endpoint"] or ""),
         "updated_at": row["updated_at"],
     }
 
@@ -96,14 +99,45 @@ def save_bridge_settings(enabled: bool, broker_url: str) -> dict:
     with db() as connection:
         connection.execute(
             """
-            INSERT INTO remote_bridge_settings(id, enabled, broker_url)
-            VALUES (1, ?, ?)
+            INSERT INTO remote_bridge_settings(id, enabled, broker_url, transport, https_endpoint)
+            VALUES (1, ?, ?, 'custom_websocket', '')
             ON CONFLICT(id) DO UPDATE SET
                 enabled=excluded.enabled,
                 broker_url=excluded.broker_url,
+                transport='custom_websocket',
+                https_endpoint='',
                 updated_at=CURRENT_TIMESTAMP
             """,
             (1 if enabled else 0, normalized),
+        )
+    clear_https_session()
+    _RELOAD_EVENT.set()
+    return get_bridge_settings()
+
+
+def save_vp3_https_settings(endpoint: str, enabled: bool = True) -> dict:
+    normalized = normalize_https_endpoint(endpoint)
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO remote_bridge_settings(id, enabled, broker_url, transport, https_endpoint)
+            VALUES (1, ?, '', 'vp3_https', ?)
+            ON CONFLICT(id) DO UPDATE SET
+                enabled=excluded.enabled,
+                transport='vp3_https',
+                https_endpoint=excluded.https_endpoint,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (1 if enabled else 0, normalized),
+        )
+    _RELOAD_EVENT.set()
+    return get_bridge_settings()
+
+
+def disable_vp3_https_settings() -> dict:
+    with db() as connection:
+        connection.execute(
+            "UPDATE remote_bridge_settings SET enabled=0, updated_at=CURRENT_TIMESTAMP WHERE id=1 AND transport='vp3_https'"
         )
     _RELOAD_EVENT.set()
     return get_bridge_settings()
@@ -126,11 +160,13 @@ def bridge_status() -> dict:
     identity = remote_identity_metadata()
     with _STATE_LOCK:
         runtime = dict(_STATE)
+    transport = str(configured.get("transport") or "custom_websocket")
     return {
         "settings": configured,
         "identity": identity,
         "runtime": runtime,
-        "trust_model": "trusted-wss-relay",
+        "transport": transport,
+        "trust_model": "vp3-https-outbound" if transport == "vp3_https" else "trusted-wss-relay",
         "end_to_end_payload_encryption": False,
     }
 
@@ -448,6 +484,114 @@ class RemoteBridgeWorker:
             self._stop.wait(0.3)
         return False
 
+    def _run_https(self, configured: dict) -> None:
+        session = load_https_session()
+        if not session:
+            raise RemoteBridgeError("VP3 HTTPS session is unavailable. Pair HomeServer with VP3 again.")
+        identity = load_or_create_remote_identity()
+        endpoint = str(session.get("endpoint") or configured.get("https_endpoint") or "").strip()
+        token = str(session.get("session_token") or "").strip()
+        if not endpoint or len(token) < 32:
+            raise RemoteBridgeError("VP3 HTTPS session is incomplete. Pair HomeServer with VP3 again.")
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-VP3-HomeServer-Session": token,
+            "X-HomeServer-Device": identity["device_id"],
+        }
+        pending_results: list[dict] = []
+        announced = False
+        _set_state(stage="connecting", connected=False, claimed=True, claim_code=None, last_error=None)
+        _event("bridge.connection", "attempting", metadata={"stage": "connecting", "transport": "vp3_https"})
+
+        with httpx.Client(timeout=20.0, follow_redirects=False) as client:
+            while not self._stop.is_set() and not _RELOAD_EVENT.is_set():
+                capability_result = dispatch_remote_request("capabilities", {}, None)
+                capabilities = capability_result.get("payload") if capability_result.get("ok") else {}
+                if not isinstance(capabilities, dict):
+                    capabilities = {}
+
+                response = client.post(
+                    endpoint,
+                    headers=headers,
+                    json={
+                        "version": settings.version,
+                        "capabilities": capabilities,
+                        "results": pending_results,
+                    },
+                )
+                if response.status_code in {401, 403, 410}:
+                    clear_https_session()
+                    disable_vp3_https_settings()
+                    _set_state(
+                        stage="revoked",
+                        connected=False,
+                        claimed=False,
+                        last_error="VP3 HTTPS session was revoked. Generate a new pairing key and pair again.",
+                    )
+                    _event("bridge.disconnected", "revoked", metadata={"transport": "vp3_https"})
+                    return
+                if response.status_code < 200 or response.status_code >= 300:
+                    raise RemoteBridgeError(f"VP3 HTTPS relay returned HTTP {response.status_code}.")
+                try:
+                    data = response.json()
+                except ValueError as exc:
+                    raise RemoteBridgeError("VP3 HTTPS relay returned invalid JSON.") from exc
+                if not isinstance(data, dict) or not data.get("ok"):
+                    raise RemoteBridgeError("VP3 HTTPS relay rejected the exchange.")
+
+                now = _iso_now()
+                _set_state(
+                    stage="ready",
+                    connected=True,
+                    claimed=True,
+                    claim_code=None,
+                    connection_id=identity["device_id"],
+                    last_connected_at=now if not announced else _STATE.get("last_connected_at"),
+                    last_message_at=now,
+                    last_error=None,
+                )
+                if not announced:
+                    announced = True
+                    _event("bridge.connected", "completed", metadata={"device_id": identity["device_id"], "transport": "vp3_https"})
+
+                pending_results = []
+                requests = data.get("requests") if isinstance(data.get("requests"), list) else []
+                for message in requests:
+                    if not isinstance(message, dict):
+                        continue
+                    request_id = str(message.get("request_id") or "")
+                    operation = str(message.get("operation") or "")
+                    if not _REQUEST_ID.fullmatch(request_id):
+                        _event("bridge.request", "rejected", operation=operation, metadata={"reason": "invalid-request-id"})
+                        continue
+                    started = time.monotonic()
+                    try:
+                        result = dispatch_remote_request(
+                            operation,
+                            message.get("payload") if isinstance(message.get("payload"), dict) else {},
+                            str(message.get("bearer_token") or "") or None,
+                        )
+                    except RemoteBridgeError as exc:
+                        result = {"status": 400, "ok": False, "payload": {"detail": str(exc)}}
+                    duration_ms = int((time.monotonic() - started) * 1000)
+                    _event(
+                        "bridge.request",
+                        "completed" if result.get("ok") else "denied",
+                        operation=operation,
+                        request_id=request_id,
+                        metadata={"http_status": int(result.get("status") or 500), "duration_ms": duration_ms, "transport": "vp3_https"},
+                    )
+                    pending_results.append({"request_id": request_id, **result})
+
+                poll_after = data.get("poll_after_ms", 900)
+                try:
+                    wait_seconds = max(0.25, min(float(poll_after) / 1000.0, 5.0))
+                except (TypeError, ValueError):
+                    wait_seconds = 0.9
+                self._stop.wait(wait_seconds)
+
     def _run(self) -> None:
         _set_state(running=True, stage="starting", last_error=None)
         _event("bridge.worker", "started", metadata={"stage": "starting"})
@@ -462,7 +606,13 @@ class RemoteBridgeWorker:
                 self._stop.wait(2.0)
                 continue
 
-            if not configured["enabled"] or not configured["broker_url"]:
+            transport = str(configured.get("transport") or "custom_websocket")
+            missing_transport_endpoint = (
+                transport == "vp3_https" and not configured.get("https_endpoint")
+            ) or (
+                transport != "vp3_https" and not configured.get("broker_url")
+            )
+            if not configured["enabled"] or missing_transport_endpoint:
                 _set_state(
                     stage="disabled",
                     connected=False,
@@ -473,6 +623,32 @@ class RemoteBridgeWorker:
                 )
                 _RELOAD_EVENT.clear()
                 self._stop.wait(1.0)
+                continue
+
+            if transport == "vp3_https":
+                if not self._wait_local_api():
+                    break
+                _RELOAD_EVENT.clear()
+                try:
+                    self._run_https(configured)
+                    backoff = 1.0
+                except (httpx.HTTPError, OSError, TimeoutError, RemoteBridgeError) as exc:
+                    reconnect_count = _increment_reconnect_count()
+                    _set_state(
+                        stage="retrying",
+                        connected=False,
+                        claimed=True,
+                        claim_code=None,
+                        connection_id=None,
+                        last_error=f"{type(exc).__name__}: VP3 HTTPS relay unavailable",
+                        reconnect_count=reconnect_count,
+                    )
+                    _event("bridge.disconnected", "failed", metadata={"error_type": type(exc).__name__, "stage": "retrying", "transport": "vp3_https"})
+                if _RELOAD_EVENT.is_set():
+                    backoff = 1.0
+                    continue
+                self._stop.wait(backoff)
+                backoff = min(backoff * 2.0, 30.0)
                 continue
 
             metadata = _broker_metadata(configured["broker_url"])
