@@ -26,7 +26,10 @@ checks = [
     ("pairing posts device identity, local bearer, version and capabilities to Cloud",
      all(x in pairing for x in ['"device_id": device_id','"homeserver_token": local_token','"version": settings.version','"capabilities": capabilities'])),
     ("Cloud response installs the official HTTPS session automatically",
-     "save_https_session(poll_url, session_token)" in pairing and "save_vp3_https_settings(poll_url, True)" in pairing),
+     "save_https_session(poll_endpoint, session_token)" in pairing and "save_vp3_https_settings(poll_endpoint, True)" in pairing),
+    ("relative poll URLs are resolved against the trusted pairing endpoint and pinned to the same host",
+     "urljoin(pairing_endpoint, str(poll_url or \"\").strip())" in pairing and
+     "if pairing_host != poll_host" in pairing),
     ("HTTPS worker is outbound-only and authenticated with device/session headers",
      'client.post(' in bridge and '"X-VP3-HomeServer-Session"' in bridge and '"X-HomeServer-Device"' in bridge),
     ("same HTTPS exchange sends heartbeat/capabilities/results to Cloud",
