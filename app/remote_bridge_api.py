@@ -10,7 +10,6 @@ from .services.cloud_pairing import (
     CloudPairingError,
     redeem_vp3_pairing_token,
 )
-from .services.connected_apps_pairing import ConnectedAppsPairingError, approve_pending_pairing
 from .services.remote_bridge import (
     RemoteBridgeError,
     bridge_status,
@@ -31,10 +30,6 @@ class RemoteBridgeSettingsUpdate(BaseModel):
 
 class Vp3CloudPairingRequest(BaseModel):
     pairing_token: str = Field(min_length=72, max_length=100)
-
-
-class Vp3CloudApprovalRequest(BaseModel):
-    pairing_id: int = Field(gt=0)
 
 
 def _control_bridge_status() -> dict:
@@ -80,18 +75,10 @@ def control_remote_bridge_update(payload: RemoteBridgeSettingsUpdate) -> dict:
     }
 
 
-@router.post("/api/v1/control/remote-bridge/pair-vp3")
-def control_remote_bridge_pair_vp3(payload: Vp3CloudPairingRequest) -> dict:
+@router.post("/api/v1/control/cloud-connection/pair")
+def control_cloud_connection_pair(payload: Vp3CloudPairingRequest) -> dict:
     try:
         result = redeem_vp3_pairing_token(payload.pairing_token)
     except CloudPairingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return result
-
-
-@router.post("/api/v1/control/remote-bridge/approve-vp3")
-def control_remote_bridge_approve_vp3(payload: Vp3CloudApprovalRequest) -> dict:
-    try:
-        return approve_pending_pairing(payload.pairing_id)
-    except ConnectedAppsPairingError as exc:
-        raise HTTPException(status_code=409 if "no longer pending" in str(exc) else 404, detail=str(exc)) from exc
