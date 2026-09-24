@@ -64,7 +64,7 @@ checks = [
      "/api/v1/control/cloud-connection" in api and
      "shellApi('/api/v1/control/cloud-connection')" in shell and
      "api('/api/v1/control/cloud-connection')" in app_ui and
-     "remoteApi('/api/v1/control/cloud-connection')" in ui),
+     "api('/api/v1/control/cloud-connection')" in ui),
     ("normal connection UI no longer derives status from legacy Remote Bridge fields",
      "VP3 cloud fallback required" not in shell and
      "<span>Remote bridge</span>" not in shell and
