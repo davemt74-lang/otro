@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, hardware_adapters, hardware_experience, local_automation, physical_agent, physical_meeting
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, hardware_adapters, hardware_experience, local_automation, physical_agent, physical_meeting, work_continuity
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -418,6 +418,29 @@ def control_activity(limit: int = Query(default=100, ge=1, le=500)) -> dict:
             item.pop("metadata_json", None)
         items.append(item)
     return {"items": items}
+
+
+@app.get("/api/v1/control/work-continuity")
+def control_work_continuity(limit: int = Query(default=100, ge=1, le=250)) -> dict:
+    return {"version": work_continuity.WORK_CONTINUITY_VERSION, "items": work_continuity.list_recent(limit)}
+
+
+@app.get("/api/v1/control/work-continuity/{continuity_key}")
+def control_work_continuity_status(continuity_key: str) -> dict:
+    try:
+        return work_continuity.status(continuity_key)
+    except work_continuity.WorkContinuityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/control/work-continuity/{continuity_key}/cancel")
+def control_work_continuity_cancel(continuity_key: str) -> dict:
+    try:
+        result = work_continuity.cancel(continuity_key)
+    except work_continuity.WorkContinuityError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _log("cloud_work.cancel", "cloud_work", continuity_key, {"status": result.get("status")})
+    return result
 
 
 @app.get("/api/v1/control/notifications")

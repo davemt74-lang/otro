@@ -20,7 +20,7 @@ PORT = 4377
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HomeServerMock/2.1"
+    server_version = "HomeServerMock/2.2"
 
     def _json(self, status: int, payload: dict, *, cookie: str | None = None) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -34,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/v1/health":
-            self._json(200, {"ok": True, "version": "2.1"})
+            self._json(200, {"ok": True, "version": "2.2"})
             return
         self._json(404, {"detail": "Not found"})
 

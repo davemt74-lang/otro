@@ -12,6 +12,7 @@ from . import (
     context_engine,
     knowledge_collection_policy,
     shared_agent_context,
+    work_continuity,
 )
 
 CANONICAL_CONTEXT_VERSION = "v4.30"
@@ -269,6 +270,39 @@ def _base_context(
                 )
                 sources.append(context_engine._source("cloud_contact", item, title))
                 remaining -= len(excerpt)
+
+    if (owner or source_app_key == "app:vp3") and remaining >= MIN_FRAGMENT_CHARS:
+        try:
+            for item in work_continuity.list_recent(8):
+                if remaining < MIN_FRAGMENT_CHARS:
+                    break
+                state = str(item.get("status") or "")
+                title = f"[VP3 Work] Job {item.get('cloud_run_id') or ''} · {state or 'unknown'}"
+                summary = str(item.get("summary") or "")
+                error = str(item.get("error_class") or "")
+                text = " · ".join(
+                    part for part in (
+                        f"Cloud run {item.get('cloud_run_id')}",
+                        f"action {item.get('cloud_action_id')}",
+                        f"status {state}",
+                        summary,
+                        f"error {error}" if error else "",
+                    ) if part
+                )
+                excerpt = context_engine._take_excerpt(text, min(1100, remaining))
+                if not excerpt:
+                    continue
+                row = {
+                    "id": abs(hash(str(item.get("continuity_key") or ""))) % 2_000_000_000 + 1,
+                    "title": title,
+                    "content": excerpt,
+                    "updated_at": item.get("updated_at"),
+                }
+                memories.append(row)
+                sources.append(context_engine._source("work_continuity", row, title))
+                remaining -= len(excerpt)
+        except Exception:
+            pass
 
     return context_engine.ContextBundle(
         memory=memories,
