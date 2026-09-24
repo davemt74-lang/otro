@@ -134,7 +134,7 @@ jobs:
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
             throw 'Packaged smoke left a HomeServer listener on port 4377'
           }
-      - name: Verify packaged upgrade replaces older running HomeServer
+      - name: Verify packaged v19.5 to v2.0 upgrade takeover
         shell: pwsh
         run: |
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
@@ -149,7 +149,7 @@ jobs:
               Start-Sleep -Milliseconds 300
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
-                if ($response.version -eq '0.18.0') { $oldHealthy = $true; break }
+                if ($response.version -eq '19.5') { $oldHealthy = $true; break }
               } catch {}
             }
             if (-not $oldHealthy) { throw 'Old HomeServer fixture did not become healthy' }
