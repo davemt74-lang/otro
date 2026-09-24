@@ -43,16 +43,21 @@ checks = [
      "clear_https_session()" in bridge and "disable_vp3_https_settings()" in bridge),
     ("custom WebSocket transport remains available only as an explicit advanced mode",
      "custom_websocket" in bridge and "normalize_broker_url" in bridge and "ADVANCED RELAY SETTINGS · OPTIONAL" in html),
-    ("normal pairing UI no longer bootstraps or waits for WebSocket proof",
-     "bootstrap-vp3" not in ui and "waitForRelayProof" not in ui),
+    ("normal pairing stack has no WebSocket bootstrap or second approval path",
+     "bootstrap-vp3" not in ui and "bootstrap-vp3" not in api and
+     "bootstrap_vp3_remote_bridge" not in pairing and "approve-vp3" not in api and
+     "approveVp3Pairing" not in ui and "waitForRelayProof" not in ui),
     ("normal UI is paste key and Pair with automatic reconnection wording",
      "Paste the pairing key from VP3 and click Pair" in ui and "reconnection are automatic" in ui),
-    ("control API still exposes custom relay settings separately from normal pairing",
-     "save_bridge_settings" in api and "pair-vp3" in api),
-    ("owner shell uses one canonical VP3 Cloud connection endpoint",
+    ("canonical Cloud API owns normal pairing while custom relay settings remain separate",
+     '"/api/v1/control/cloud-connection/pair"' in api and
+     "'/api/v1/control/cloud-connection/pair'" in ui and
+     "save_bridge_settings" in api and "remote-bridge/pair-vp3" not in api),
+    ("all normal owner surfaces use one canonical VP3 Cloud connection endpoint",
      "/api/v1/control/cloud-connection" in api and
      "shellApi('/api/v1/control/cloud-connection')" in shell and
-     "api('/api/v1/control/cloud-connection')" in app_ui),
+     "api('/api/v1/control/cloud-connection')" in app_ui and
+     "remoteApi('/api/v1/control/cloud-connection')" in ui),
     ("normal connection UI no longer derives status from legacy Remote Bridge fields",
      "VP3 cloud fallback required" not in shell and
      "<span>Remote bridge</span>" not in shell and
