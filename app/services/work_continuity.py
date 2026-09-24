@@ -8,6 +8,7 @@ from typing import Any, Callable
 from ..database import db
 
 WORK_CONTINUITY_VERSION = "2.3"
+STALE_RUNNING_SECONDS = 300
 _STABLE_KEY = re.compile(r"^[a-f0-9]{64}$")
 _TERMINAL = {"completed", "failed", "cancelled"}
 
@@ -26,6 +27,29 @@ def _iso_now() -> str:
 
 def _clean(value: Any, limit: int = 1000) -> str:
     return " ".join(str(value or "").split())[:limit]
+
+
+def _parse_db_time(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _running_is_stale(item: dict[str, Any]) -> bool:
+    heartbeat = _parse_db_time(item.get("heartbeat_at") or item.get("updated_at"))
+    if heartbeat is None:
+        return True
+    return (datetime.now(timezone.utc) - heartbeat).total_seconds() >= STALE_RUNNING_SECONDS
 
 
 def _require_key(value: Any) -> str:
@@ -155,10 +179,22 @@ def _claim(
             if current == "cancelled" or current == "cancel_requested":
                 connection.commit()
                 raise WorkContinuityError("This HomeServer work item was cancelled.")
-            if current == "running":
+            if current == "running" and not _running_is_stale(item):
                 connection.commit()
                 _activity("cloud_work.pending", key, {"cloud_run_id": item.get("cloud_run_id"), "cloud_action_id": item.get("cloud_action_id")})
                 return "pending", item
+            if current == "running":
+                connection.execute(
+                    """
+                    UPDATE cloud_work_continuity
+                    SET status='failed', error_class='stale_running_recovered',
+                        summary='Recovered an interrupted HomeServer execution after restart or lost worker.',
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE continuity_key=?
+                    """,
+                    (key,),
+                )
+                _activity("cloud_work.stale_recovered", key, {"cloud_run_id": item.get("cloud_run_id"), "cloud_action_id": item.get("cloud_action_id")})
             connection.execute(
                 """
                 UPDATE cloud_work_continuity
