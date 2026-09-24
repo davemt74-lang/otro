@@ -11,6 +11,7 @@ from . import (
     awareness_context,
     context_engine,
     knowledge_collection_policy,
+    shared_agent_context,
 )
 
 CANONICAL_CONTEXT_VERSION = "v4.30"
@@ -134,6 +135,31 @@ def _base_context(
             sources.append(context_engine._source("memory", item, title))
             remaining -= len(excerpt)
 
+        if owner or source_app_key == "app:vp3":
+            cloud_memory = [
+                *shared_agent_context.cloud_candidates("memory", query, limit=6),
+                *shared_agent_context.cloud_candidates("tasks", query, limit=4),
+                *shared_agent_context.cloud_candidates("notifications", query, limit=4),
+            ]
+            for item in cloud_memory:
+                if remaining < MIN_FRAGMENT_CHARS:
+                    break
+                excerpt = context_engine._take_excerpt(item.get("content"), min(1100, remaining))
+                if not excerpt:
+                    continue
+                title = context_engine._take_excerpt("[VP3 Cloud] " + str(item.get("title") or "Agent context"), 180)
+                memories.append(
+                    {
+                        "id": int(item["id"]),
+                        "title": title,
+                        "content": excerpt,
+                        "importance": 0.8,
+                        "updated_at": item.get("updated_at"),
+                    }
+                )
+                sources.append(context_engine._source("cloud_memory", item, title))
+                remaining -= len(excerpt)
+
     if settings["include_knowledge"] and remaining >= MIN_FRAGMENT_CHARS:
         candidates = context_engine._knowledge_candidates(
             query,
@@ -174,6 +200,26 @@ def _base_context(
             sources.append(context_engine._source("knowledge", item, title))
             remaining -= len(excerpt)
 
+        if owner or source_app_key == "app:vp3":
+            for item in shared_agent_context.cloud_candidates("knowledge", query, limit=6):
+                if remaining < MIN_FRAGMENT_CHARS:
+                    break
+                excerpt = context_engine._take_excerpt(item.get("content"), min(1800, remaining))
+                if not excerpt:
+                    continue
+                title = context_engine._take_excerpt("[VP3 Cloud] " + str(item.get("title") or "Knowledge"), 240)
+                knowledge.append(
+                    {
+                        "id": int(item["id"]),
+                        "title": title,
+                        "content": excerpt,
+                        "kind": "vp3_cloud",
+                        "updated_at": item.get("updated_at"),
+                    }
+                )
+                sources.append(context_engine._source("cloud_knowledge", item, title))
+                remaining -= len(excerpt)
+
     if settings["include_contacts"] and remaining >= MIN_FRAGMENT_CHARS:
         for item in context_engine._contact_candidates(query):
             if remaining < MIN_FRAGMENT_CHARS:
@@ -204,6 +250,25 @@ def _base_context(
             )
             sources.append(context_engine._source("contact", item, title))
             remaining -= len(excerpt)
+
+        if owner or source_app_key == "app:vp3":
+            for item in shared_agent_context.cloud_candidates("contacts", query, limit=6):
+                if remaining < MIN_FRAGMENT_CHARS:
+                    break
+                excerpt = context_engine._take_excerpt(item.get("content"), min(1400, remaining))
+                if not excerpt:
+                    continue
+                title = _bounded_text("[VP3 Cloud] " + str(item.get("title") or "Contact"), 240)
+                contacts.append(
+                    {
+                        "id": int(item["id"]),
+                        "title": title,
+                        "content": excerpt,
+                        "updated_at": item.get("updated_at"),
+                    }
+                )
+                sources.append(context_engine._source("cloud_contact", item, title))
+                remaining -= len(excerpt)
 
     return context_engine.ContextBundle(
         memory=memories,
