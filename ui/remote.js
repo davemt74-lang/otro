@@ -94,13 +94,15 @@ function renderRemote(data) {
 }
 
 async function refreshRemote() {
-  const [bridge, apps] = await Promise.all([
+  const [bridge, canonical, apps] = await Promise.all([
     remoteApi('/api/v1/control/remote-bridge?limit=100'),
+    remoteApi('/api/v1/control/cloud-connection'),
     remoteApi('/api/v1/control/connected-apps').catch(() => ({pending: []})),
   ]);
   pendingVp3 = (apps.pending || []).find(item => String(item.app_key || '').toLowerCase() === 'vp3') || null;
-  renderRemote(bridge);
-  return bridge;
+  const data = {...bridge, cloud_connection: canonical};
+  renderRemote(data);
+  return data;
 }
 
 async function saveRemoteSettings(enabled) {
@@ -136,7 +138,7 @@ remoteById('vp3PairingForm').addEventListener('submit', async event => {
     remoteFlash(err.message, true);
     await refreshRemote().catch(() => {});
   } finally {
-    button.disabled = Boolean(latestRemote?.runtime?.claimed);
+    button.disabled = Boolean(latestRemote?.cloud_connection?.cloud?.paired || latestRemote?.runtime?.claimed);
   }
 });
 
