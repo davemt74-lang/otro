@@ -224,7 +224,7 @@
         <button type="button" data-view="activity">Activity</button>
         <div class="menu-label">System</div>
         <a href="/tasks">Tasks & Notifications</a>
-        <a href="/remote">Remote Bridge</a>
+        <a href="/remote">VP3 Cloud & Advanced Relay</a>
         <a href="/system">Setup & Diagnostics</a>
         <a href="/docs" target="_blank" rel="noreferrer">API Documentation</a>
       </div>
