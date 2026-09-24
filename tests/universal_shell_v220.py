@@ -17,8 +17,8 @@ config=read("app/config.py")
 installer=read("installer/HomeServer.iss")
 
 checks=[
- ("product version is 2.2",
-  'version: str = "2.2"' in config and '#define MyAppVersion "2.2"' in installer),
+ ("product version is 2.3",
+  'version: str = "2.3"' in config and '#define MyAppVersion "2.3"' in installer),
  ("Cloud visual dimensions are preserved in the HomeServer shell",
   "--hs-v220-sidebar:272px" in css and "--hs-v220-topbar:58px" in css and "--hs-v220-canvas:790px" in css),
  ("Cloud visual tokens are used",
@@ -40,10 +40,10 @@ checks=[
   "HomeServerConversationVoice" in voice and "isEnabled" in voice and "speakStatus" in voice and
   "voice?.isEnabled?.()" in legacy_shell),
  ("HomeServer advertises unified execution routing",
-  '"unified_execution"' in bridge and '"version": "2.2"' in bridge and
+  '"unified_execution"' in bridge and '"version": "2.3"' in bridge and
   '"unified.execution.routing.v1"' in bridge and '"local_domains"' in bridge),
- ("shared Agent context remains federated under v2.2",
-  '"shared_agent_context"' in bridge and '"mode": "federated"' in bridge and '"version": "2.2"' in bridge),
+ ("shared Agent context remains federated under v2.3",
+  '"shared_agent_context"' in bridge and '"mode": "federated"' in bridge and '"version": "2.3"' in bridge),
 ]
 
 for name,ok in checks:
