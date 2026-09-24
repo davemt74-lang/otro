@@ -110,6 +110,7 @@ def save_bridge_settings(enabled: bool, broker_url: str) -> dict:
             """,
             (1 if enabled else 0, normalized),
         )
+    clear_https_session()
     _RELOAD_EVENT.set()
     return get_bridge_settings()
 
