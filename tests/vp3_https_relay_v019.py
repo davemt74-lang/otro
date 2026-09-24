@@ -14,7 +14,7 @@ html = read("ui/remote.html")
 installer = read("installer/HomeServer.iss")
 
 checks = [
-    ("HomeServer release is v0.19.1", 'version: str = "0.19.1"' in config and '#define MyAppVersion "0.19.1"' in installer),
+    ("HomeServer release is v0.19.2", 'version: str = "0.19.2"' in config and '#define MyAppVersion "0.19.2"' in installer),
     ("migration adds a first-class transport and HTTPS endpoint without removing broker_url",
      "ADD COLUMN transport" in migration and "ADD COLUMN https_endpoint" in migration and "broker_url" in bridge),
     ("HTTPS session credential is stored in protected local storage",

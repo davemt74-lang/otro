@@ -121,6 +121,26 @@ function ensureKnowledgeControls() {
   }
 }
 
+async function refreshVp3CloudState() {
+  const node = $('vp3CloudState');
+  const label = $('vp3CloudStateLabel');
+  if (!node || !label) return;
+  try {
+    const data = await api('/api/v1/control/remote-bridge?limit=1');
+    const runtime = data.runtime || {};
+    const settings = data.settings || {};
+    const transport = settings.transport || data.transport || 'custom_websocket';
+    node.dataset.state = runtime.connected ? 'connected' : (runtime.claimed ? 'reconnecting' : 'offline');
+    label.textContent = runtime.connected
+      ? 'VP3 Cloud connected'
+      : (runtime.claimed ? 'VP3 Cloud reconnecting…' : 'VP3 Cloud not connected');
+    node.title = transport === 'vp3_https' ? 'VP3 HTTPS Relay' : 'Custom WebSocket Relay';
+  } catch (_) {
+    node.dataset.state = 'offline';
+    label.textContent = 'VP3 Cloud status unavailable';
+  }
+}
+
 async function loadOverview() {
   const [data, status] = await Promise.all([api('/api/v1/control/overview'), api('/api/v1/status')]);
   $('heroAgentName').textContent = data.agent?.name || 'HomeServer Agent';
@@ -316,3 +336,6 @@ window.addEventListener('hashchange', () => { const next = location.hash.replace
 ensureKnowledgeControls();
 const initial = location.hash.replace('#','') || 'dashboard';
 openView(viewNames.includes(initial) ? initial : 'dashboard');
+
+refreshVp3CloudState();
+setInterval(()=>{if(document.visibilityState==='visible')refreshVp3CloudState();},3000);
