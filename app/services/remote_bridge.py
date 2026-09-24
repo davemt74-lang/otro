@@ -16,8 +16,8 @@ from ..config import settings
 from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
-from .pairing import revoke_paired_app, touch_paired_app
-from . import providers
+from .pairing import authenticate, revoke_paired_app, touch_paired_app
+from . import providers, shared_agent_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -351,6 +351,18 @@ def _local_response(response: httpx.Response) -> dict:
     }
 
 
+def _direct_identity(token: str, required_permissions: set[str] | None = None) -> dict:
+    identity = authenticate(token)
+    if identity is None:
+        raise RemoteBridgeError("HomeServer paired-app authorization is invalid or revoked.")
+    granted = set(identity.get("permissions") or [])
+    required = set(required_permissions or set())
+    missing = sorted(required - granted)
+    if missing:
+        raise RemoteBridgeError("HomeServer shared context permission is unavailable: " + ", ".join(missing))
+    return identity
+
+
 def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: str | None = None) -> dict:
     requested_op = str(operation or "").strip()
     op = _REMOTE_OPERATION_ALIASES.get(requested_op, requested_op)
@@ -366,6 +378,35 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
     with httpx.Client(base_url=base_url, timeout=125.0, trust_env=False) as client:
         if op == "capabilities":
             return _local_response(client.get("/api/v1/capabilities"))
+        if op == "system.ping":
+            identity = _direct_identity(token)
+            remote = load_or_create_remote_identity()
+            return {
+                "status": 200,
+                "ok": True,
+                "payload": {
+                    "pong": True,
+                    "version": settings.version,
+                    "device_id": remote["device_id"],
+                    "received_at": _iso_now(),
+                    "echo": body.get("nonce") or body.get("echo") or "",
+                    "app": identity["app_key"],
+                },
+            }
+        if op == "shared.context.exchange":
+            _direct_identity(
+                token,
+                {"memory.read", "knowledge.search", "contacts.read", "tasks.read", "notifications.read"},
+            )
+            cloud_snapshot = body.get("cloud_snapshot")
+            if not isinstance(cloud_snapshot, dict):
+                raise RemoteBridgeError("shared.context.exchange requires cloud_snapshot.")
+            query = str(body.get("query") or "")[:240]
+            try:
+                payload_out = shared_agent_context.exchange(cloud_snapshot, query)
+            except shared_agent_context.SharedAgentContextError as exc:
+                raise RemoteBridgeError(str(exc)) from exc
+            return {"status": 200, "ok": True, "payload": payload_out}
         if op == "capability.registry":
             return _local_response(client.get("/api/v1/capability-registry", headers=headers))
         if op == "vp3.os.status":
