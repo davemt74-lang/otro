@@ -113,7 +113,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '19.5') {
+                if ($response.ok -eq $true -and $response.version -eq '2.0') {
                   $healthy = $true
                   break
                 }
@@ -124,7 +124,7 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v19.5' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v2.0' }
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
@@ -160,7 +160,7 @@ jobs:
               Start-Sleep -Milliseconds 500
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
-                if ($response.version -eq '19.5') { $newHealthy = $true; break }
+                if ($response.version -eq '2.0') { $newHealthy = $true; break }
               } catch {
                 $new.Refresh()
                 if ($new.HasExited) { throw "New HomeServer exited during takeover with code $($new.ExitCode)" }
@@ -190,7 +190,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '19.5') { $healthy = $true; break }
+                if ($response.ok -eq $true -and $response.version -eq '2.0') { $healthy = $true; break }
               } catch {}
             }
             if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
@@ -301,7 +301,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '19.5') {
+                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '2.0') {
                   $recovery = $true
                   break
                 }
@@ -332,7 +332,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '19.5') {
+                if ($response.ok -eq $true -and $response.version -eq '2.0') {
                   $healthy = $true
                   break
                 }
@@ -401,11 +401,11 @@ jobs:
           $lines | Set-Content -Encoding ascii 'dist/SHA256SUMS.txt'
           $manifest = [ordered]@{
             format = 'vp3-os-release-v1'
-            version = 'v1.3'
+            version = '2.0'
             channel = 'stable'
             minimum_schema_version = 30
             files = $hashMap
-            release_notes = 'HomeServer v19.5 Upgrade Launch Recovery'
+            release_notes = 'HomeServer v2.0 shared Cloud/HomeServer release'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
