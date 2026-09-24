@@ -34,8 +34,12 @@ assert "def _schedule_initial_open(self) -> None:" in launcher
 assert "self._schedule_initial_open()" in launcher
 assert "threading.Timer(0.6, self.open_control_center).start()" in launcher
 assert "threading.Timer(0.6, self.open_system).start()" in launcher
-assert 'if "--headless" in sys.argv or "--background" in sys.argv:' in launcher
+assert '("--headless" in sys.argv or "--background" in sys.argv) and "--replace-running" not in sys.argv' in launcher
 assert "_open(_path_for_health(health))" in launcher
+assert "def _request_existing_shutdown() -> bool:" in launcher
+assert "_wait_until_listening(require_current_version=False" in launcher
+assert '"--replace-running"' in launcher
+assert "if instance.acquire():" in launcher
 
 # Windows sign-in startup stays background-only rather than opening a browser
 # every login, while normal shortcuts/post-install launches remain interactive.

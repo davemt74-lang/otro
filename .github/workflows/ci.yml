@@ -111,7 +111,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.19.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.19.1') {
                   $healthy = $true
                   break
                 }
@@ -122,7 +122,7 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.19.0' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v0.19.1' }
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
@@ -132,6 +132,51 @@ jobs:
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
             throw 'Packaged smoke left a HomeServer listener on port 4377'
           }
+      - name: Verify packaged upgrade replaces older running HomeServer
+        shell: pwsh
+        run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is occupied before the upgrade-takeover smoke test'
+          }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-upgrade-takeover'
+          Remove-Item -Recurse -Force $env:HOMESERVER_DATA_DIR -ErrorAction SilentlyContinue
+          $old = Start-Process -FilePath 'python' -ArgumentList 'tests/mock_old_homeserver.py' -PassThru
+          try {
+            $oldHealthy = $false
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              Start-Sleep -Milliseconds 300
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
+                if ($response.version -eq '0.18.0') { $oldHealthy = $true; break }
+              } catch {}
+            }
+            if (-not $oldHealthy) { throw 'Old HomeServer fixture did not become healthy' }
+
+            $new = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless','--replace-running' -PassThru
+            $newHealthy = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              Start-Sleep -Milliseconds 500
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
+                if ($response.version -eq '0.19.1') { $newHealthy = $true; break }
+              } catch {
+                $new.Refresh()
+                if ($new.HasExited) { throw "New HomeServer exited during takeover with code $($new.ExitCode)" }
+              }
+            }
+            if (-not $newHealthy) { throw 'New HomeServer did not replace the old running instance' }
+
+            $old.Refresh()
+            if (-not $old.HasExited) { throw 'Old HomeServer process remained alive after upgrade takeover' }
+          } finally {
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            if ($old -and -not $old.HasExited) { Stop-Process -Id $old.Id -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Upgrade-takeover smoke left a HomeServer listener on port 4377'
+          }
+
       - name: Verify packaged single-instance enforcement
         shell: pwsh
         run: |
@@ -143,7 +188,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.19.0') { $healthy = $true; break }
+                if ($response.ok -eq $true -and $response.version -eq '0.19.1') { $healthy = $true; break }
               } catch {}
             }
             if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
@@ -254,7 +299,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '0.19.0') {
+                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '0.19.1') {
                   $recovery = $true
                   break
                 }
@@ -285,7 +330,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '0.19.0') {
+                if ($response.ok -eq $true -and $response.version -eq '0.19.1') {
                   $healthy = $true
                   break
                 }
@@ -358,7 +403,7 @@ jobs:
             channel = 'stable'
             minimum_schema_version = 30
             files = $hashMap
-            release_notes = 'HomeServer v0.19 HTTPS Remote Bridge'
+            release_notes = 'HomeServer v0.19.1 Upgrade Launch Recovery'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution

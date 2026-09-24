@@ -30,6 +30,7 @@ import threading  # noqa: E402
 import time  # noqa: E402
 import urllib.parse  # noqa: E402
 import urllib.request  # noqa: E402
+import http.cookiejar  # noqa: E402
 import webbrowser  # noqa: E402
 
 import pystray  # noqa: E402
@@ -88,17 +89,70 @@ def _path_for_health(health: dict) -> str:
     return _recovery_path() if health.get("recovery") is True else _authorized_path("/")
 
 
-def _wait_until_listening() -> dict | None:
+def _probe_health() -> dict | None:
     url = f"http://{settings.host}:{settings.port}/api/v1/health"
-    for _ in range(60):
-        try:
-            with urllib.request.urlopen(url, timeout=0.5) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-                if isinstance(payload, dict) and payload.get("version") == settings.version:
-                    return payload
-        except Exception:
-            time.sleep(0.2)
+    try:
+        with urllib.request.urlopen(url, timeout=0.5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _wait_until_listening(*, require_current_version: bool = True, attempts: int = 60) -> dict | None:
+    for _ in range(max(1, int(attempts))):
+        payload = _probe_health()
+        if payload is not None:
+            if not require_current_version or payload.get("version") == settings.version:
+                return payload
+        time.sleep(0.2)
     return None
+
+
+def _request_existing_shutdown() -> bool:
+    """Gracefully stop an older HomeServer that owns this data directory."""
+    base = f"http://{settings.host}:{settings.port}"
+    cookies = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookies))
+    try:
+        session_request = urllib.request.Request(
+            f"{base}/__owner/session",
+            data=b"",
+            method="POST",
+            headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN},
+        )
+        with opener.open(session_request, timeout=2.0) as response:
+            if response.status != 200:
+                return False
+
+        shutdown_request = urllib.request.Request(
+            f"{base}/api/v1/control/system/shutdown",
+            data=b"{}",
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with opener.open(shutdown_request, timeout=3.0) as response:
+            if response.status != 200:
+                return False
+    except Exception:
+        return False
+
+    deadline = time.time() + 15.0
+    while time.time() < deadline:
+        if _probe_health() is None:
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def _show_launch_error(message: str) -> None:
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, message, "HomeServer", 0x10)
+            return
+        except Exception:
+            pass
 
 
 def _apply_staged_restore_before_server() -> None:
@@ -193,7 +247,7 @@ def _register_watchdog_failure(max_failures: int) -> bool:
 
 
 def _restart_command() -> list[str]:
-    args = [arg for arg in sys.argv[1:] if arg != "--restart-child"]
+    args = [arg for arg in sys.argv[1:] if arg not in {"--restart-child", "--replace-running"}]
     if getattr(sys, "frozen", False):
         return [sys.executable, *args, "--restart-child"]
     return [sys.executable, str(Path(__file__).resolve()), *args, "--restart-child"]
@@ -452,17 +506,40 @@ class RuntimeController:
 
 def main() -> None:
     instance = SingleInstance(settings.data_dir)
-    if not instance.acquire():
+    acquired = instance.acquire()
+    if not acquired:
         # Background/headless starts preserve the historical process-contract
-        # exit code. An explicit user launch acts as "Open HomeServer" when the
-        # server is already alive instead of failing silently behind the mutex.
-        if "--headless" in sys.argv or "--background" in sys.argv:
+        # exit code. An explicit user launch opens the current instance when it
+        # is the same version, or cleanly replaces an older running version.
+        if ("--headless" in sys.argv or "--background" in sys.argv) and "--replace-running" not in sys.argv:
             raise SystemExit(EXIT_ALREADY_RUNNING)
-        health = _wait_until_listening()
-        if health is not None:
+
+        health = _wait_until_listening(require_current_version=False, attempts=20)
+        if health is not None and str(health.get("version") or "") == settings.version:
             _open(_path_for_health(health))
             return
-        raise SystemExit(EXIT_ALREADY_RUNNING)
+
+        if health is not None and _request_existing_shutdown():
+            deadline = time.time() + 15.0
+            while time.time() < deadline:
+                if instance.acquire():
+                    acquired = True
+                    break
+                time.sleep(0.2)
+
+        if not acquired:
+            if health is not None:
+                _open(_path_for_health(health))
+                _show_launch_error(
+                    "An older HomeServer is still running and could not be upgraded automatically. "
+                    "HomeServer opened the existing instance instead."
+                )
+                return
+            _show_launch_error(
+                "HomeServer is already running but its local service is not responding. "
+                "Restart HomeServer from the tray or Windows sign-in session."
+            )
+            raise SystemExit(EXIT_ALREADY_RUNNING)
 
     restart_requested = False
     update_requested = False
