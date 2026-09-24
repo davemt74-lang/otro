@@ -10,12 +10,15 @@ from .services.cloud_pairing import (
     CloudPairingError,
     redeem_vp3_pairing_token,
 )
+from .services.https_bridge_session import clear_https_session
+from .services.pairing import revoke_paired_app
 from .services.remote_bridge import (
     RemoteBridgeError,
     bridge_status,
     cloud_connection_status,
     list_bridge_events,
     save_bridge_settings,
+    disable_vp3_https_settings,
 )
 
 
@@ -82,3 +85,11 @@ def control_cloud_connection_pair(payload: Vp3CloudPairingRequest) -> dict:
     except CloudPairingError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return result
+
+
+@router.delete("/api/v1/control/cloud-connection")
+def control_cloud_connection_disconnect() -> dict:
+    clear_https_session()
+    disable_vp3_https_settings()
+    revoke_paired_app("vp3")
+    return {"ok": True, "status": cloud_connection_status()}
