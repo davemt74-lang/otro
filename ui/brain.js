@@ -75,6 +75,22 @@
     </article>`;
   }
 
+  function chatMessageMarkup(message = {}) {
+    const role = String(message.role || 'assistant') === 'user' ? 'user' : 'assistant';
+    const assistantName = String(byId('sidebarAgentName')?.textContent || 'HomeServer Agent').trim() || 'HomeServer Agent';
+    const label = role === 'user' ? 'You' : assistantName;
+    const avatar = role === 'user' ? 'Y' : '✦';
+    const model = message.model ? `<small class="hs-chat-model">${escapeHtml(message.model)}</small>` : '';
+    return `<div class="chat-message ${role}">
+      <div class="hs-chat-avatar" aria-hidden="true">${avatar}</div>
+      <div class="hs-chat-message-body">
+        <div class="hs-chat-role">${escapeHtml(label)}</div>
+        <div class="hs-chat-copy">${escapeHtml(message.content || '')}</div>
+        ${model}
+      </div>
+    </div>`;
+  }
+
   function renderMessages(data) {
     const node = byId('chatMessages');
     if (!node) return;
@@ -85,7 +101,7 @@
     }
     node.innerHTML = messages.map(message => {
       if (message?.card?.card_type === 'meeting') return renderMeetingCard(message.card);
-      return `<div class="chat-message ${escapeHtml(message.role)}">${escapeHtml(message.content)}${message.model ? `<small>${escapeHtml(message.model)}</small>` : ''}</div>`;
+      return chatMessageMarkup(message);
     }).join('');
     node.scrollTop = node.scrollHeight;
   }
@@ -359,7 +375,7 @@
     input.disabled = true;
     const existing = byId('chatMessages');
     if (existing && existing.querySelector('.chat-empty')) existing.innerHTML = '';
-    existing?.insertAdjacentHTML('beforeend', `<div class="chat-message user">${escapeHtml(message)}</div>`);
+    existing?.insertAdjacentHTML('beforeend', chatMessageMarkup({role:'user',content:message}));
     input.value = '';
     input.style.height = 'auto';
     try {
@@ -376,7 +392,7 @@
       }
       if (data.tools?.action_request_ids?.length) brainFlash('Agent created a pending action. Review it in Approvals.');
     } catch (err) {
-      existing?.insertAdjacentHTML('beforeend', `<div class="chat-message assistant">${escapeHtml(err.message)}</div>`);
+      existing?.insertAdjacentHTML('beforeend', chatMessageMarkup({role:'assistant',content:err.message}));
       brainFlash(err.message, true);
     } finally {
       submit.disabled = false;
