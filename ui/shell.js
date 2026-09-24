@@ -106,28 +106,48 @@
     const button = byId('homeServerConnectionButton');
     if (body) body.innerHTML = '<div class="empty-state">Loading connection details…</div>';
     try {
-      const [status, apps, bridge, inference] = await Promise.all([
-        shellApi('/api/v1/status'),
-        shellApi('/api/v1/control/apps'),
-        shellApi('/api/v1/control/remote-bridge?limit=10').catch(() => null),
-        shellApi('/api/v1/control/inference').catch(() => null),
-      ]);
-      button?.classList.add('online');
-      const runtime = bridge?.runtime || {};
-      const selected = inference?.selected_provider ? `${inference.selected_provider}${inference.model ? ` · ${inference.model}` : ''}` : 'No inference provider ready';
-      const compute = inference?.compute_source === 'homeserver_local' ? 'Local HomeServer' : inference?.compute_source === 'user_provider' ? 'User provider' : 'VP3 cloud fallback required';
-      const appRows = (apps.apps || []).map(app => `<div class="connection-app"><span><strong>${esc(app.name)}</strong><br><small>${esc(app.app_key)}</small></span><span>${esc(app.status)} · last seen ${esc(fmt(app.last_seen_at))}</span></div>`).join('') || '<div class="empty-state">No paired apps yet.</div>';
+      const status = await shellApi('/api/v1/control/cloud-connection');
+      const service = status.service || {};
+      const cloud = status.cloud || {};
+      const compute = status.compute || {};
+      const vp3App = status.vp3_app || null;
+
+      button?.classList.toggle('online', Boolean(cloud.connected));
+      const cloudLabel = cloud.connected
+        ? 'Connected'
+        : cloud.state === 'reconnecting'
+        ? 'Reconnecting'
+        : cloud.state === 'offline'
+        ? 'Offline'
+        : 'Not connected';
+      const providerLabel = compute.model
+        ? `${compute.provider || 'Provider'} · ${compute.model}`
+        : (compute.provider || '—');
+      const appState = vp3App
+        ? `${vp3App.status || 'unknown'} · last heartbeat ${fmt(cloud.last_seen_at || vp3App.last_seen_at)}`
+        : 'Not paired';
+
       if (body) body.innerHTML = `
         <div class="connection-modal-grid">
-          <div class="connection-stat"><span>HomeServer</span><strong>Online · v${esc(status.version)}</strong></div>
-          <div class="connection-stat"><span>Remote bridge</span><strong>${bridge ? esc(runtime.connected ? 'Connected' : runtime.stage || 'Disconnected') : 'Unavailable'}</strong></div>
-          <div class="connection-stat"><span>Agent compute</span><strong>${esc(compute)}</strong></div>
-          <div class="connection-stat"><span>Provider</span><strong>${esc(selected)}</strong></div>
+          <div class="connection-stat"><span>HomeServer</span><strong>${service.online ? 'Online' : 'Offline'} · v${esc(service.version || '—')}</strong></div>
+          <div class="connection-stat"><span>VP3 Cloud</span><strong>${esc(cloudLabel)}</strong></div>
+          <div class="connection-stat"><span>Transport</span><strong>${esc(cloud.transport_label || '—')}</strong></div>
+          <div class="connection-stat"><span>Last cloud contact</span><strong>${esc(fmt(cloud.last_seen_at))}</strong></div>
+          <div class="connection-stat"><span>Agent compute</span><strong>${esc(compute.source_label || 'No inference route ready')}</strong></div>
+          <div class="connection-stat"><span>Provider</span><strong>${esc(providerLabel)}</strong></div>
         </div>
-        <p class="eyebrow">APP CONNECTIONS</p>
-        <div class="connection-apps">${appRows}</div>
-        <div class="connection-update"><strong>Update tracking</strong><br>HomeServer v${esc(status.version)} is reporting its installed version. VP3 cloud update notifications can plug into this status surface when the cloud integration is enabled.</div>
-        <div class="form-actions"><a class="button secondary" href="/remote">Remote Bridge</a><button class="button secondary" type="button" data-view="apps">Manage Apps</button></div>`;
+        <p class="eyebrow">VP3 AUTHORIZATION</p>
+        <div class="connection-apps">
+          <div class="connection-app"><span><strong>VP3</strong><br><small>vp3</small></span><span>${esc(appState)}</span></div>
+        </div>
+        <div class="connection-update"><strong>Connection truth</strong><br>${
+          cloud.connected
+            ? `HomeServer v${esc(service.version || '—')} is actively maintaining the VP3 HTTPS heartbeat and command channel.`
+            : cloud.paired
+            ? 'The pairing is saved locally and HomeServer is attempting to reconnect to VP3 Cloud.'
+            : 'This HomeServer is not currently paired with VP3 Cloud.'
+        }</div>
+        <div class="form-actions"><a class="button secondary" href="/remote">VP3 Cloud & Advanced Relay</a><button class="button secondary" type="button" data-view="apps">Connected Apps</button></div>`;
     } catch (err) {
       button?.classList.remove('online');
       if (body) body.innerHTML = `<div class="empty-state">${esc(err.message)}</div>`;
