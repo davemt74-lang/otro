@@ -126,15 +126,13 @@ async function refreshVp3CloudState() {
   const label = $('vp3CloudStateLabel');
   if (!node || !label) return;
   try {
-    const data = await api('/api/v1/control/remote-bridge?limit=1');
-    const runtime = data.runtime || {};
-    const settings = data.settings || {};
-    const transport = settings.transport || data.transport || 'custom_websocket';
-    node.dataset.state = runtime.connected ? 'connected' : (runtime.claimed ? 'reconnecting' : 'offline');
-    label.textContent = runtime.connected
+    const data = await api('/api/v1/control/cloud-connection');
+    const cloud = data.cloud || {};
+    node.dataset.state = cloud.state || 'not_connected';
+    label.textContent = cloud.connected
       ? 'VP3 Cloud connected'
-      : (runtime.claimed ? 'VP3 Cloud reconnecting…' : 'VP3 Cloud not connected');
-    node.title = transport === 'vp3_https' ? 'VP3 HTTPS Relay' : 'Custom WebSocket Relay';
+      : (cloud.state === 'reconnecting' ? 'VP3 Cloud reconnecting…' : 'VP3 Cloud not connected');
+    node.title = cloud.transport_label || 'VP3 Cloud';
   } catch (_) {
     node.dataset.state = 'offline';
     label.textContent = 'VP3 Cloud status unavailable';

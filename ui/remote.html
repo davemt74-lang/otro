@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Remote Bridge · HomeServer</title>
+  <title>VP3 Cloud Connection · HomeServer</title>
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/remote.css">
 </head>
 <body class="remote-body">
   <main class="remote-shell">
     <header class="remote-header">
-      <div><a class="back-link" href="/">← HomeServer</a><p class="eyebrow">OUTBOUND PAIRING NODE</p><h1>Remote Bridge</h1><p>Pair this HomeServer with your VP3 Cloud account through the secure outbound relay. No inbound port is opened on this PC.</p></div>
+      <div><a class="back-link" href="/">← HomeServer</a><p class="eyebrow">OUTBOUND CLOUD CONNECTION</p><h1>VP3 Cloud Connection</h1><p>Pair this HomeServer with your VP3 Cloud account through the secure outbound relay. No inbound port is opened on this PC.</p></div>
       <span id="remoteStatus" class="remote-status">Disabled</span>
     </header>
 
@@ -44,21 +44,12 @@
       </article>
     </section>
 
-    <section class="panel remote-card hidden" id="vp3ApprovalPanel">
-      <p class="eyebrow">LOCAL PERMISSION REVIEW</p>
-      <h2>Approve VP3 on this HomeServer</h2>
-      <p>The VP3 account token matched this HomeServer. Review the capabilities VP3 is requesting before granting access.</p>
-      <div id="vp3RequestedPermissions" class="operation-list"></div>
-      <p class="muted">Approval is local. VP3 Cloud cannot approve itself, and this action never grants access beyond the listed HomeServer permissions and later resource scopes.</p>
-      <div class="form-actions"><button id="approveVp3Pairing" class="button primary" type="button">Approve VP3</button><a class="button secondary" href="/#apps">Connected Apps</a></div>
-    </section>
-
     <section class="panel remote-card">
       <p class="eyebrow">ADVANCED RELAY SETTINGS · OPTIONAL</p>
       <h2>Custom WebSocket relay</h2>
       <form id="remoteForm">
         <label>Broker WebSocket URL<input id="brokerUrl" type="url" placeholder="wss://…" autocomplete="off" spellcheck="false"></label>
-        <label class="switch-line"><input id="bridgeEnabled" type="checkbox"><span>Enable outbound Remote Bridge</span></label>
+        <label class="switch-line"><input id="bridgeEnabled" type="checkbox"><span>Enable custom WebSocket relay</span></label>
         <p class="muted">Normal VP3 pairing does not use this field. Change it only when deliberately switching to a custom/development WebSocket relay. Production custom relays must use <code>wss://</code>; plain <code>ws://</code> is accepted only for loopback development.</p>
         <button class="button secondary" type="submit">Save bridge settings</button>
       </form>

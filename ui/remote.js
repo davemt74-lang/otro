@@ -4,7 +4,6 @@ const remoteFmt = value => value ? new Date(value).toLocaleString() : 'Never';
 const remoteSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 let latestRemote = null;
-let pendingVp3 = null;
 
 async function remoteApi(path, options = {}) {
   const headers = {...(options.headers || {})};
@@ -24,53 +23,48 @@ function remoteFlash(message, error = false) {
   remoteFlash.timer = setTimeout(() => node.className = 'remote-flash', 4200);
 }
 
-function renderApproval() {
-  const panel = remoteById('vp3ApprovalPanel');
-  const permissions = remoteById('vp3RequestedPermissions');
-  if (!pendingVp3) {
-    panel.classList.add('hidden');
-    permissions.innerHTML = '';
-    return;
-  }
-  panel.classList.remove('hidden');
-  permissions.innerHTML = (pendingVp3.requested_permissions || []).map(permission => `<span>${remoteEsc(permission)}</span>`).join('') || '<span>No capabilities requested</span>';
-}
-
 function renderRemote(data) {
   latestRemote = data;
   const settings = data.settings || {};
   const runtime = data.runtime || {};
   const identity = data.identity || {};
-  remoteById('brokerUrl').value = settings.broker_url || '';
-  remoteById('bridgeEnabled').checked = Boolean(settings.enabled);
+  const canonical = data.cloud_connection || {};
+  const cloud = canonical.cloud || {};
+  const transport = settings.transport || data.transport || 'custom_websocket';
+  const standardHttps = transport === 'vp3_https';
+  remoteById('brokerUrl').value = standardHttps ? '' : (settings.broker_url || '');
+  remoteById('bridgeEnabled').checked = standardHttps ? false : Boolean(settings.enabled);
   remoteById('deviceId').textContent = identity.device_id || '—';
   remoteById('identityProtection').textContent = identity.protection || '—';
-  const transport = settings.transport || data.transport || 'custom_websocket';
-  remoteById('connectedState').textContent = runtime.connected ? 'Connected' : (settings.enabled ? 'Disconnected' : 'Disabled');
-  remoteById('transportMode').textContent = transport === 'vp3_https' ? 'VP3 HTTPS Relay' : 'Custom WebSocket Relay';
-  remoteById('pairingState').textContent = runtime.claimed ? 'Paired with VP3 Cloud' : 'Not paired';
-  remoteById('lastConnected').textContent = remoteFmt(runtime.last_connected_at);
+  const connected = standardHttps ? Boolean(cloud.connected) : Boolean(runtime.connected);
+  const paired = standardHttps ? Boolean(cloud.paired) : Boolean(runtime.claimed);
+  const stateLabel = standardHttps
+    ? (cloud.connected ? 'Connected' : cloud.state === 'reconnecting' ? 'Reconnecting' : cloud.paired ? 'Offline' : 'Not connected')
+    : (runtime.connected ? 'Connected' : settings.enabled ? 'Disconnected' : 'Disabled');
+  remoteById('connectedState').textContent = stateLabel;
+  remoteById('transportMode').textContent = standardHttps ? (cloud.transport_label || 'VP3 HTTPS Relay') : 'Custom WebSocket Relay';
+  remoteById('pairingState').textContent = paired ? 'Paired with VP3 Cloud' : 'Not paired';
+  remoteById('lastConnected').textContent = remoteFmt(standardHttps ? cloud.last_seen_at : runtime.last_connected_at);
 
   const status = remoteById('remoteStatus');
-  status.textContent = runtime.connected ? 'Connected' : (settings.enabled ? 'Disconnected' : 'Disabled');
-  status.className = `remote-status${runtime.connected ? ' connected' : settings.enabled ? ' warning' : ''}`;
+  status.textContent = stateLabel;
+  status.className = `remote-status${connected ? ' connected' : (paired || settings.enabled) ? ' warning' : ''}`;
 
   const pairingStatus = remoteById('pairingStartStatus');
-  if (runtime.claimed && runtime.connected) {
+  if (paired && connected) {
     pairingStatus.textContent = 'Connected to VP3 Cloud. HomeServer is maintaining the secure HTTPS command and heartbeat channel automatically.';
-  } else if (runtime.claimed) {
+  } else if (paired) {
     pairingStatus.textContent = 'Paired with VP3 Cloud. HomeServer is reconnecting automatically.';
   } else {
     pairingStatus.textContent = 'Paste the pairing key from VP3 and click Pair. Everything else is configured automatically.';
   }
 
   const pairButton = remoteById('pairVp3');
-  if (pairButton) pairButton.disabled = Boolean(runtime.claimed);
-  renderApproval();
-
+  if (pairButton) pairButton.disabled = paired;
   const error = remoteById('remoteError');
-  if (runtime.last_error) {
-    error.textContent = runtime.last_error;
+  const connectionError = standardHttps ? (cloud.last_error || '') : (runtime.last_error || '');
+  if (connectionError) {
+    error.textContent = connectionError;
     error.classList.remove('hidden');
   } else {
     error.textContent = '';
@@ -86,13 +80,13 @@ function renderRemote(data) {
 }
 
 async function refreshRemote() {
-  const [bridge, apps] = await Promise.all([
+  const [bridge, canonical] = await Promise.all([
     remoteApi('/api/v1/control/remote-bridge?limit=100'),
-    remoteApi('/api/v1/control/connected-apps').catch(() => ({pending: []})),
+    remoteApi('/api/v1/control/cloud-connection'),
   ]);
-  pendingVp3 = (apps.pending || []).find(item => String(item.app_key || '').toLowerCase() === 'vp3') || null;
-  renderRemote(bridge);
-  return bridge;
+  const data = {...bridge, cloud_connection: canonical};
+  renderRemote(data);
+  return data;
 }
 
 async function saveRemoteSettings(enabled) {
@@ -115,7 +109,7 @@ remoteById('vp3PairingForm').addEventListener('submit', async event => {
   button.disabled = true;
   try {
     remoteById('pairingStartStatus').textContent = 'Pairing this HomeServer with VP3 Cloud…';
-    await remoteApi('/api/v1/control/remote-bridge/pair-vp3', {
+    await remoteApi('/api/v1/control/cloud-connection/pair', {
       method: 'POST',
       body: JSON.stringify({pairing_token: token}),
     });
@@ -128,27 +122,7 @@ remoteById('vp3PairingForm').addEventListener('submit', async event => {
     remoteFlash(err.message, true);
     await refreshRemote().catch(() => {});
   } finally {
-    button.disabled = Boolean(latestRemote?.runtime?.claimed);
-  }
-});
-
-remoteById('approveVp3Pairing').addEventListener('click', async event => {
-  const button = event.currentTarget;
-  if (!pendingVp3?.id) return remoteFlash('No pending VP3 permission request was found.', true);
-  button.disabled = true;
-  try {
-    await remoteApi('/api/v1/control/remote-bridge/approve-vp3', {
-      method: 'POST',
-      body: JSON.stringify({pairing_id: Number(pendingVp3.id)}),
-    });
-    pendingVp3 = null;
-    renderApproval();
-    await refreshRemote();
-    remoteFlash('VP3 approved locally. VP3 Cloud will finish the connection automatically.');
-  } catch (err) {
-    remoteFlash(err.message, true);
-  } finally {
-    button.disabled = false;
+    button.disabled = Boolean(latestRemote?.cloud_connection?.cloud?.paired);
   }
 });
 
@@ -159,7 +133,7 @@ remoteById('remoteForm').addEventListener('submit', async event => {
   try {
     const result = await saveRemoteSettings(remoteById('bridgeEnabled').checked);
     await refreshRemote();
-    remoteFlash(result.settings.enabled ? 'Remote Bridge enabled. The outbound worker will apply the settings locally.' : 'Remote Bridge disabled.');
+    remoteFlash(result.settings.enabled ? 'Custom WebSocket relay enabled.' : 'Custom WebSocket relay disabled.');
   } catch (err) {
     remoteFlash(err.message, true);
   } finally {
@@ -167,7 +141,7 @@ remoteById('remoteForm').addEventListener('submit', async event => {
   }
 });
 
-remoteById('refreshRemote').addEventListener('click', () => refreshRemote().then(() => remoteFlash('Remote bridge status refreshed.')).catch(err => remoteFlash(err.message, true)));
+remoteById('refreshRemote').addEventListener('click', () => refreshRemote().then(() => remoteFlash('Connection status refreshed.')).catch(err => remoteFlash(err.message, true)));
 
 refreshRemote().catch(err => remoteFlash(err.message, true));
 setInterval(() => refreshRemote().catch(() => {}), 3000);
