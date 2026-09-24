@@ -17,7 +17,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import providers, shared_agent_context
+from . import providers, shared_agent_context, work_continuity
 
 
 class RemoteBridgeError(RuntimeError):
@@ -448,7 +448,36 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
         if op == "pair.status":
             return _local_response(client.post("/api/v1/pairing/status", json=body))
         if op == "agent.chat":
+            continuity = body.get("_continuity")
+            if isinstance(continuity, dict):
+                identity = _direct_identity(token, {"chat"})
+                chat_body = dict(body)
+                chat_body.pop("_continuity", None)
+                try:
+                    payload_out = work_continuity.execute(
+                        continuity,
+                        "agent.chat",
+                        lambda: _local_response(client.post("/api/v1/chat", json=chat_body, headers=headers))["payload"],
+                        source_app_key=str(identity.get("app_key") or "vp3"),
+                    )
+                except work_continuity.WorkContinuityError as exc:
+                    raise RemoteBridgeError(str(exc)) from exc
+                return {"status": 200, "ok": True, "payload": payload_out}
             return _local_response(client.post("/api/v1/chat", json=body, headers=headers))
+        if op == "work.continuity.status":
+            _direct_identity(token, {"chat"})
+            try:
+                payload_out = work_continuity.status(str(body.get("key") or ""))
+            except work_continuity.WorkContinuityError as exc:
+                raise RemoteBridgeError(str(exc)) from exc
+            return {"status": 200, "ok": True, "payload": payload_out}
+        if op == "work.continuity.cancel":
+            _direct_identity(token, {"chat"})
+            try:
+                payload_out = work_continuity.cancel(str(body.get("key") or ""))
+            except work_continuity.WorkContinuityError as exc:
+                raise RemoteBridgeError(str(exc)) from exc
+            return {"status": 200, "ok": True, "payload": payload_out}
         if op == "conversations.list":
             return _local_response(client.get("/api/v1/conversations", headers=headers))
         if op == "conversation.get":
