@@ -15,7 +15,7 @@
     </header>
 
     <section class="remote-warning">
-      <strong>Relay trust model:</strong> WSS encrypts traffic between HomeServer and the configured relay, but the relay can see relayed application payloads. This release does not claim end-to-end payload encryption.
+      <strong>Connection model:</strong> Normal VP3 pairing uses an outbound HTTPS session maintained automatically by HomeServer. No inbound port or broker URL is required. Custom WebSocket relay settings remain available below for advanced deployments.
     </section>
 
     <section class="remote-grid">
@@ -27,7 +27,7 @@
           <label>VP3 pairing token<input id="vp3PairingToken" type="text" placeholder="VP3-XXXXXXXX-…" maxlength="100" autocomplete="off" spellcheck="false" required></label>
           <button id="pairVp3" class="button primary" type="submit">Pair with VP3 Cloud</button>
         </form>
-        <p id="pairingStartStatus" class="muted">HomeServer uses its private relay identity as the device proof and automatically loads the official VP3 relay. You never need to copy a relay claim code or configure infrastructure.</p>
+        <p id="pairingStartStatus" class="muted">Paste the key and click Pair. HomeServer configures the secure VP3 HTTPS connection, local authorization, heartbeat, reconnection, and Cloud command channel automatically.</p>
       </article>
 
       <article class="panel remote-card">
@@ -36,8 +36,9 @@
         <dl class="remote-details">
           <dt>Device ID</dt><dd id="deviceId">—</dd>
           <dt>Credential protection</dt><dd id="identityProtection">—</dd>
-          <dt>Relay</dt><dd id="connectedState">—</dd>
-          <dt>Cloud claim</dt><dd id="pairingState">—</dd>
+          <dt>Connection</dt><dd id="connectedState">—</dd>
+          <dt>Transport</dt><dd id="transportMode">—</dd>
+          <dt>Cloud pairing</dt><dd id="pairingState">—</dd>
           <dt>Last connection</dt><dd id="lastConnected">—</dd>
         </dl>
       </article>
@@ -53,12 +54,12 @@
     </section>
 
     <section class="panel remote-card">
-      <p class="eyebrow">ADVANCED RELAY SETTINGS</p>
-      <h2>Connection</h2>
+      <p class="eyebrow">ADVANCED RELAY SETTINGS · OPTIONAL</p>
+      <h2>Custom WebSocket relay</h2>
       <form id="remoteForm">
         <label>Broker WebSocket URL<input id="brokerUrl" type="url" placeholder="wss://…" autocomplete="off" spellcheck="false"></label>
         <label class="switch-line"><input id="bridgeEnabled" type="checkbox"><span>Enable outbound Remote Bridge</span></label>
-        <p class="muted">Normal VP3 pairing configures the official relay automatically. Change this only for a custom or development relay. Production relays must use <code>wss://</code>; plain <code>ws://</code> is accepted only for loopback development.</p>
+        <p class="muted">Normal VP3 pairing does not use this field. Change it only when deliberately switching to a custom/development WebSocket relay. Production custom relays must use <code>wss://</code>; plain <code>ws://</code> is accepted only for loopback development.</p>
         <button class="button secondary" type="submit">Save bridge settings</button>
       </form>
     </section>
