@@ -50,4 +50,4 @@ for name,ok in checks:
     if not ok:
         raise AssertionError(name)
     print("PASS:",name)
-print(f"HomeServer v2.2 universal Agent shell: {len(checks)}/{len(checks)} passed")
+print(f"HomeServer v2.3 universal Agent shell: {len(checks)}/{len(checks)} passed")
