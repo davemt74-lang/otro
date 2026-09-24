@@ -193,7 +193,10 @@ jobs:
             }
             if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
             $secondary = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
-            Wait-Process -Id $secondary.Id -Timeout 10
+            # PyInstaller one-file startup can spend >10s unpacking on a loaded Windows runner
+            # before HomeServer reaches the mutex guard. The behavior under test is the exit code,
+            # not bootloader extraction speed.
+            Wait-Process -Id $secondary.Id -Timeout 30
             $secondary.Refresh()
             if (-not $secondary.HasExited) { throw 'Second HomeServer instance did not exit' }
             if ($secondary.ExitCode -ne 23) { throw "Second HomeServer instance exited with $($secondary.ExitCode), expected 23" }
