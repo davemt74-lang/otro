@@ -411,6 +411,7 @@ jobs:
       # exactly one root file named HomeServer.exe. Do not upload loose EXEs,
       # wrapper launchers, installers, or alternate package shapes here.
       - name: Build canonical HomeServer Windows ZIP
+        id: windows_package
         shell: pwsh
         run: |
           $version = python -c "from app.config import settings; print(settings.version)"
@@ -442,6 +443,8 @@ jobs:
           }
 
           $zipHash = (Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLower()
+          "package_path=$zipPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "package_name=HomeServer-v$version-Windows.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "Canonical package: $zipPath"
           Write-Host "SHA-256: $zipHash"
 
@@ -449,7 +452,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HomeServer-Windows
-          path: dist/HomeServer-v0.19.4-Windows.zip
+          path: ${{ steps.windows_package.outputs.package_path }}
           if-no-files-found: error
           retention-days: 14
 
