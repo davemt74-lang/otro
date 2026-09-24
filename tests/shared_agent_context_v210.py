@@ -47,12 +47,9 @@ for name,ok in checks:
 print(f"HomeServer v2.1 shared Agent context: {len(checks)}/{len(checks)} passed")
 
 
-from __future__ import annotations
-
 import os
 import sys
 import tempfile
-from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
