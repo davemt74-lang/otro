@@ -132,6 +132,51 @@ jobs:
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
             throw 'Packaged smoke left a HomeServer listener on port 4377'
           }
+      - name: Verify packaged upgrade replaces older running HomeServer
+        shell: pwsh
+        run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is occupied before the upgrade-takeover smoke test'
+          }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-upgrade-takeover'
+          Remove-Item -Recurse -Force $env:HOMESERVER_DATA_DIR -ErrorAction SilentlyContinue
+          $old = Start-Process -FilePath 'python' -ArgumentList 'tests/mock_old_homeserver.py' -PassThru
+          try {
+            $oldHealthy = $false
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              Start-Sleep -Milliseconds 300
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
+                if ($response.version -eq '0.18.0') { $oldHealthy = $true; break }
+              } catch {}
+            }
+            if (-not $oldHealthy) { throw 'Old HomeServer fixture did not become healthy' }
+
+            $new = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless','--replace-running' -PassThru
+            $newHealthy = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              Start-Sleep -Milliseconds 500
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
+                if ($response.version -eq '0.19.1') { $newHealthy = $true; break }
+              } catch {
+                $new.Refresh()
+                if ($new.HasExited) { throw "New HomeServer exited during takeover with code $($new.ExitCode)" }
+              }
+            }
+            if (-not $newHealthy) { throw 'New HomeServer did not replace the old running instance' }
+
+            $old.Refresh()
+            if (-not $old.HasExited) { throw 'Old HomeServer process remained alive after upgrade takeover' }
+          } finally {
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            if ($old -and -not $old.HasExited) { Stop-Process -Id $old.Id -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Upgrade-takeover smoke left a HomeServer listener on port 4377'
+          }
+
       - name: Verify packaged single-instance enforcement
         shell: pwsh
         run: |
