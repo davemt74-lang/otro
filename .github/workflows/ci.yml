@@ -403,15 +403,61 @@ jobs:
             channel = 'stable'
             minimum_schema_version = 30
             files = $hashMap
-            release_notes = 'HomeServer v0.19.4 Upgrade Launch Recovery'
+            release_notes = 'HomeServer v0.19.4 Canonical VP3 Cloud Connection Core'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
-      - name: Upload Windows distribution
+      # USER RELEASE CONTRACT:
+      # HomeServer is always handed off as exactly one normal ZIP containing
+      # exactly one root file named HomeServer.exe. Do not upload loose EXEs,
+      # wrapper launchers, installers, or alternate package shapes here.
+      - name: Build canonical HomeServer Windows ZIP
+        shell: pwsh
+        run: |
+          $version = python -c "from app.config import settings; print(settings.version)"
+          if (-not $version) { throw 'Could not resolve HomeServer version' }
+          $zipPath = "dist/HomeServer-v$version-Windows.zip"
+          Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path 'dist/HomeServer.exe' -DestinationPath $zipPath -CompressionLevel Optimal
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $zipPath))
+          try {
+            if ($archive.Entries.Count -ne 1) {
+              throw "Canonical HomeServer ZIP must contain exactly one file; found $($archive.Entries.Count)"
+            }
+            $entry = $archive.Entries[0]
+            if ($entry.FullName -ne 'HomeServer.exe') {
+              throw "Canonical HomeServer ZIP root entry must be HomeServer.exe; found $($entry.FullName)"
+            }
+            if ($entry.Length -le 0) {
+              throw 'Canonical HomeServer.exe entry is empty'
+            }
+          } finally {
+            $archive.Dispose()
+          }
+
+          $exeHeader = Get-Content 'dist/HomeServer.exe' -Encoding Byte -TotalCount 2
+          if ($exeHeader.Count -ne 2 -or $exeHeader[0] -ne 0x4D -or $exeHeader[1] -ne 0x5A) {
+            throw 'Canonical HomeServer.exe is not a Windows PE executable'
+          }
+
+          $zipHash = (Get-FileHash -Algorithm SHA256 $zipPath).Hash.ToLower()
+          Write-Host "Canonical package: $zipPath"
+          Write-Host "SHA-256: $zipHash"
+
+      - name: Upload canonical Windows package
         uses: actions/upload-artifact@v4
         with:
           name: HomeServer-Windows
+          path: dist/HomeServer-v0.19.4-Windows.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload internal release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeServer-Windows-Admin
           path: |
-            dist/HomeServer.exe
             dist/HomeServerSetup.exe
             dist/SHA256SUMS.txt
             dist/RELEASE.json
