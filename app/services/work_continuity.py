@@ -83,7 +83,6 @@ def _decode(value: Any) -> dict[str, Any]:
 
 def get(continuity_key: str) -> dict[str, Any] | None:
     key = _require_key(continuity_key)
-    stale_recovered = False
     with db() as connection:
         row = connection.execute(
             "SELECT * FROM cloud_work_continuity WHERE continuity_key=? LIMIT 1",
@@ -163,6 +162,7 @@ def _claim(
     operation: str,
 ) -> tuple[str, dict[str, Any] | None]:
     key = _require_key(continuity_key)
+    stale_recovered = False
     with db() as connection:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
