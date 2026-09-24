@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
     from app.services import remote_bridge  # noqa: E402
     from app.services.remote_identity import load_or_create_remote_identity, remote_identity_metadata  # noqa: E402
 
-    assert settings.version == "0.19.3"
+    assert settings.version == "0.19.4"
     assert remote_bridge.normalize_broker_url("wss://bridge.example.test/homeserver") == "wss://bridge.example.test/homeserver"
     assert remote_bridge.normalize_broker_url("ws://127.0.0.1:8765/bridge") == "ws://127.0.0.1:8765/bridge"
     for invalid in (
@@ -251,6 +251,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
     with TestClient(app) as client:
         assert client.get("/remote").status_code == 401
         assert client.get("/api/v1/control/remote-bridge").status_code == 401
+        assert client.get("/api/v1/control/cloud-connection").status_code == 401
         bootstrap = client.post("/__owner/session", headers={"X-HomeServer-Owner": OWNER_CONTROL_TOKEN})
         assert bootstrap.status_code == 200
         workspace = client.get("/remote")
@@ -263,6 +264,14 @@ with tempfile.TemporaryDirectory(prefix="homeserver-remote-bridge-") as data_dir
         assert payload["trust_model"] == "trusted-wss-relay"
         assert payload["end_to_end_payload_encryption"] is False
         assert "device_secret" not in json.dumps(payload)
+
+        cloud_status = client.get("/api/v1/control/cloud-connection")
+        assert cloud_status.status_code == 200
+        cloud_payload = cloud_status.json()
+        assert cloud_payload["service"]["version"] == settings.version
+        assert cloud_payload["cloud"]["connected"] is False
+        assert cloud_payload["cloud"]["state"] == "not_connected"
+        assert cloud_payload["cloud"]["transport_label"] in {"VP3 HTTPS Relay", "Custom WebSocket Relay"}
 
         invalid = client.put(
             "/api/v1/control/remote-bridge",
