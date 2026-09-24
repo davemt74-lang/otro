@@ -9,7 +9,7 @@ from typing import Any
 from ..database import db
 from . import contacts, knowledge, tasks
 
-SHARED_AGENT_CONTEXT_VERSION = "2.1"
+SHARED_AGENT_CONTEXT_VERSION = "2.2"
 MAX_SNAPSHOT_BYTES = 196_608
 MAX_RECORDS_PER_DATASET = 100
 _DATASETS = ("memory", "knowledge", "contacts", "tasks", "notifications")
