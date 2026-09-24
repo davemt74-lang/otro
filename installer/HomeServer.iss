@@ -1,5 +1,5 @@
 #define MyAppName "HomeServer"
-#define MyAppVersion "19.5"
+#define MyAppVersion "2.0"
 #define MyAppPublisher "HomeServer"
 #define MyAppExeName "HomeServer.exe"
 
