@@ -83,6 +83,7 @@ def _decode(value: Any) -> dict[str, Any]:
 
 def get(continuity_key: str) -> dict[str, Any] | None:
     key = _require_key(continuity_key)
+    stale_recovered = False
     with db() as connection:
         row = connection.execute(
             "SELECT * FROM cloud_work_continuity WHERE continuity_key=? LIMIT 1",
@@ -194,7 +195,7 @@ def _claim(
                     """,
                     (key,),
                 )
-                _activity("cloud_work.stale_recovered", key, {"cloud_run_id": item.get("cloud_run_id"), "cloud_action_id": item.get("cloud_action_id")})
+                stale_recovered = True
             connection.execute(
                 """
                 UPDATE cloud_work_continuity
@@ -223,6 +224,8 @@ def _claim(
                 ),
             )
         connection.commit()
+    if stale_recovered:
+        _activity("cloud_work.stale_recovered", key, {"cloud_run_id": cloud_run_id, "cloud_action_id": cloud_action_id})
     _activity("cloud_work.claimed", key, {"cloud_run_id": cloud_run_id, "cloud_action_id": cloud_action_id, "operation": operation})
     return "execute", None
 
