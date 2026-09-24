@@ -35,6 +35,20 @@ def _require_key(value: Any) -> str:
     return key
 
 
+def _activity(action: str, key: str, metadata: dict[str, Any] | None = None) -> None:
+    try:
+        with db() as connection:
+            connection.execute(
+                """
+                INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json)
+                VALUES ('app','vp3',?,'cloud_work',?,?)
+                """,
+                (str(action)[:120], str(key)[:190], json.dumps(metadata or {}, separators=(",", ":"))),
+            )
+    except Exception:
+        return
+
+
 def _decode(value: Any) -> dict[str, Any]:
     try:
         decoded = json.loads(str(value or "{}"))
@@ -93,7 +107,26 @@ def cancel(continuity_key: str) -> dict[str, Any]:
             """,
             (next_status, next_status, key),
         )
-    return status(key)
+    item = status(key)
+    _activity("cloud_work.cancel_requested" if item.get("status") == "cancel_requested" else "cloud_work.cancelled", key, {"status": item.get("status")})
+    return item
+
+
+def list_recent(limit: int = 100) -> list[dict[str, Any]]:
+    limit = max(1, min(250, int(limit)))
+    with db() as connection:
+        rows = connection.execute(
+            "SELECT * FROM cloud_work_continuity ORDER BY updated_at DESC, created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["result"] = _decode(item.pop("result_json", None))
+        item["version"] = WORK_CONTINUITY_VERSION
+        item["terminal"] = str(item.get("status") or "") in _TERMINAL
+        items.append(item)
+    return items
 
 
 def _claim(
@@ -117,12 +150,14 @@ def _claim(
             if current == "completed":
                 connection.commit()
                 item["result"] = _decode(item.get("result_json"))
+                _activity("cloud_work.replayed", key, {"cloud_run_id": item.get("cloud_run_id"), "cloud_action_id": item.get("cloud_action_id")})
                 return "replay", item
             if current == "cancelled" or current == "cancel_requested":
                 connection.commit()
                 raise WorkContinuityError("This HomeServer work item was cancelled.")
             if current == "running":
                 connection.commit()
+                _activity("cloud_work.pending", key, {"cloud_run_id": item.get("cloud_run_id"), "cloud_action_id": item.get("cloud_action_id")})
                 return "pending", item
             connection.execute(
                 """
@@ -152,6 +187,7 @@ def _claim(
                 ),
             )
         connection.commit()
+    _activity("cloud_work.claimed", key, {"cloud_run_id": cloud_run_id, "cloud_action_id": cloud_action_id, "operation": operation})
     return "execute", None
 
 
@@ -168,6 +204,7 @@ def _finish(continuity_key: str, result: dict[str, Any], summary: str = "") -> N
             """,
             (encoded, _clean(summary, 1000), _require_key(continuity_key)),
         )
+    _activity("cloud_work.completed", _require_key(continuity_key), {"summary": _clean(summary, 300)})
 
 
 def _fail(continuity_key: str, error_class: str, summary: str) -> None:
@@ -182,6 +219,7 @@ def _fail(continuity_key: str, error_class: str, summary: str) -> None:
             """,
             (_clean(error_class, 120), _clean(summary, 1000), _require_key(continuity_key)),
         )
+    _activity("cloud_work.failed", _require_key(continuity_key), {"error_class": _clean(error_class, 120), "summary": _clean(summary, 300)})
 
 
 def execute(
