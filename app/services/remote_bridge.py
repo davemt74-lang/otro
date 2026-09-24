@@ -15,6 +15,7 @@ from websockets.sync.client import connect
 from ..config import settings
 from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
+from .https_bridge_session import load_https_session, clear_https_session, normalize_https_endpoint
 
 
 class RemoteBridgeError(RuntimeError):
@@ -78,13 +79,15 @@ def _broker_proxy(broker_url: str):
 def get_bridge_settings() -> dict:
     with db() as connection:
         row = connection.execute(
-            "SELECT enabled, broker_url, updated_at FROM remote_bridge_settings WHERE id=1 LIMIT 1"
+            "SELECT enabled, broker_url, transport, https_endpoint, updated_at FROM remote_bridge_settings WHERE id=1 LIMIT 1"
         ).fetchone()
     if row is None:
-        return {"enabled": False, "broker_url": "", "updated_at": None}
+        return {"enabled": False, "broker_url": "", "transport": "custom_websocket", "https_endpoint": "", "updated_at": None}
     return {
         "enabled": bool(row["enabled"]),
         "broker_url": str(row["broker_url"] or ""),
+        "transport": str(row["transport"] or "custom_websocket"),
+        "https_endpoint": str(row["https_endpoint"] or ""),
         "updated_at": row["updated_at"],
     }
 
@@ -96,14 +99,44 @@ def save_bridge_settings(enabled: bool, broker_url: str) -> dict:
     with db() as connection:
         connection.execute(
             """
-            INSERT INTO remote_bridge_settings(id, enabled, broker_url)
-            VALUES (1, ?, ?)
+            INSERT INTO remote_bridge_settings(id, enabled, broker_url, transport, https_endpoint)
+            VALUES (1, ?, ?, 'custom_websocket', '')
             ON CONFLICT(id) DO UPDATE SET
                 enabled=excluded.enabled,
                 broker_url=excluded.broker_url,
+                transport='custom_websocket',
+                https_endpoint='',
                 updated_at=CURRENT_TIMESTAMP
             """,
             (1 if enabled else 0, normalized),
+        )
+    _RELOAD_EVENT.set()
+    return get_bridge_settings()
+
+
+def save_vp3_https_settings(endpoint: str, enabled: bool = True) -> dict:
+    normalized = normalize_https_endpoint(endpoint)
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO remote_bridge_settings(id, enabled, broker_url, transport, https_endpoint)
+            VALUES (1, ?, '', 'vp3_https', ?)
+            ON CONFLICT(id) DO UPDATE SET
+                enabled=excluded.enabled,
+                transport='vp3_https',
+                https_endpoint=excluded.https_endpoint,
+                updated_at=CURRENT_TIMESTAMP
+            """,
+            (1 if enabled else 0, normalized),
+        )
+    _RELOAD_EVENT.set()
+    return get_bridge_settings()
+
+
+def disable_vp3_https_settings() -> dict:
+    with db() as connection:
+        connection.execute(
+            "UPDATE remote_bridge_settings SET enabled=0, updated_at=CURRENT_TIMESTAMP WHERE id=1 AND transport='vp3_https'"
         )
     _RELOAD_EVENT.set()
     return get_bridge_settings()
@@ -126,11 +159,13 @@ def bridge_status() -> dict:
     identity = remote_identity_metadata()
     with _STATE_LOCK:
         runtime = dict(_STATE)
+    transport = str(configured.get("transport") or "custom_websocket")
     return {
         "settings": configured,
         "identity": identity,
         "runtime": runtime,
-        "trust_model": "trusted-wss-relay",
+        "transport": transport,
+        "trust_model": "vp3-https-outbound" if transport == "vp3_https" else "trusted-wss-relay",
         "end_to_end_payload_encryption": False,
     }
 
