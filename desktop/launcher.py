@@ -247,7 +247,7 @@ def _register_watchdog_failure(max_failures: int) -> bool:
 
 
 def _restart_command() -> list[str]:
-    args = [arg for arg in sys.argv[1:] if arg != "--restart-child"]
+    args = [arg for arg in sys.argv[1:] if arg not in {"--restart-child", "--replace-running"}]
     if getattr(sys, "frozen", False):
         return [sys.executable, *args, "--restart-child"]
     return [sys.executable, str(Path(__file__).resolve()), *args, "--restart-child"]
@@ -511,7 +511,7 @@ def main() -> None:
         # Background/headless starts preserve the historical process-contract
         # exit code. An explicit user launch opens the current instance when it
         # is the same version, or cleanly replaces an older running version.
-        if "--headless" in sys.argv or "--background" in sys.argv:
+        if ("--headless" in sys.argv or "--background" in sys.argv) and "--replace-running" not in sys.argv:
             raise SystemExit(EXIT_ALREADY_RUNNING)
 
         health = _wait_until_listening(require_current_version=False, attempts=20)
