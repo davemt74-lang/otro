@@ -3,72 +3,67 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>VP3 Cloud Connection · HomeServer</title>
+  <title>VP3 Cloud Pairing · HomeServer</title>
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/remote.css">
 </head>
 <body class="remote-body">
-  <main class="remote-shell">
-    <header class="remote-header">
-      <div><a class="back-link" href="/">← HomeServer</a><p class="eyebrow">OUTBOUND CLOUD CONNECTION</p><h1>VP3 Cloud Connection</h1><p>Pair this HomeServer with your VP3 Cloud account through the secure outbound relay. No inbound port is opened on this PC.</p></div>
-      <span id="remoteStatus" class="remote-status">Disabled</span>
+  <main class="pairing-shell">
+    <header class="pairing-header">
+      <div>
+        <a class="back-link" href="/">← HomeServer</a>
+        <p class="eyebrow">VP3 CLOUD</p>
+        <h1>HomeServer Pairing</h1>
+        <p>Connect this HomeServer to your VP3 account with one pairing key.</p>
+      </div>
+      <span id="connectionBadge" class="pairing-badge">Checking…</span>
     </header>
 
-    <section class="remote-warning">
-      <strong>Connection model:</strong> Normal VP3 pairing uses an outbound HTTPS session maintained automatically by HomeServer. No inbound port or broker URL is required. Custom WebSocket relay settings remain available below for advanced deployments.
-    </section>
+    <section id="pairingError" class="pairing-error" hidden></section>
 
-    <section class="remote-grid">
-      <article class="panel remote-card">
-        <p class="eyebrow">PAIR WITH VP3 CLOUD</p>
-        <h2>Enter your VP3 pairing token</h2>
-        <p>In your signed-in VP3 Cloud account, open Settings → HomeServer and choose <strong>Generate Pairing Token</strong>. Paste that one-time token here.</p>
-        <form id="vp3PairingForm">
-          <label>VP3 pairing token<input id="vp3PairingToken" type="text" placeholder="VP3-XXXXXXXX-…" maxlength="100" autocomplete="off" spellcheck="false" required></label>
-          <button id="pairVp3" class="button primary" type="submit">Pair with VP3 Cloud</button>
-        </form>
-        <p id="pairingStartStatus" class="muted">Paste the key and click Pair. HomeServer configures the secure VP3 HTTPS connection, local authorization, heartbeat, reconnection, and Cloud command channel automatically.</p>
-      </article>
-
-      <article class="panel remote-card">
-        <p class="eyebrow">DEVICE</p>
-        <h2>This HomeServer</h2>
-        <dl class="remote-details">
-          <dt>Device ID</dt><dd id="deviceId">—</dd>
-          <dt>Credential protection</dt><dd id="identityProtection">—</dd>
-          <dt>Connection</dt><dd id="connectedState">—</dd>
-          <dt>Transport</dt><dd id="transportMode">—</dd>
-          <dt>Cloud pairing</dt><dd id="pairingState">—</dd>
-          <dt>Last connection</dt><dd id="lastConnected">—</dd>
-        </dl>
-      </article>
-    </section>
-
-    <section class="panel remote-card">
-      <p class="eyebrow">ADVANCED RELAY SETTINGS · OPTIONAL</p>
-      <h2>Custom WebSocket relay</h2>
-      <form id="remoteForm">
-        <label>Broker WebSocket URL<input id="brokerUrl" type="url" placeholder="wss://…" autocomplete="off" spellcheck="false"></label>
-        <label class="switch-line"><input id="bridgeEnabled" type="checkbox"><span>Enable custom WebSocket relay</span></label>
-        <p class="muted">Normal VP3 pairing does not use this field. Change it only when deliberately switching to a custom/development WebSocket relay. Production custom relays must use <code>wss://</code>; plain <code>ws://</code> is accepted only for loopback development.</p>
-        <button class="button secondary" type="submit">Save bridge settings</button>
+    <section id="pairingFormCard" class="panel pairing-card">
+      <p class="eyebrow">PAIR WITH VP3</p>
+      <h2>Paste your pairing key</h2>
+      <p>In VP3 Cloud, open <strong>Settings → HomeServer</strong>, generate a pairing key, paste it below, and click <strong>Save pairing</strong>.</p>
+      <form id="vp3PairingForm" class="pairing-form">
+        <label for="vp3PairingToken">VP3 pairing key</label>
+        <input id="vp3PairingToken" type="text" placeholder="VP3-XXXXXXXX-…" maxlength="100" autocomplete="off" spellcheck="false" required>
+        <div class="pairing-actions">
+          <button id="savePairing" class="button primary" type="submit">Save pairing</button>
+          <button id="cancelReplace" class="button secondary" type="button" hidden>Cancel</button>
+        </div>
       </form>
+      <p id="pairingHelp" class="muted">The pairing key is used once. HomeServer securely stores the resulting VP3 session, not the one-time key.</p>
     </section>
 
-    <section class="panel operations-card">
-      <div><p class="eyebrow">ALLOWLIST</p><h2>What the relay may request</h2><p>Remote messages name an operation, never a local URL. Protected operations still require the paired app's bearer token and its existing permissions.</p></div>
-      <div class="operation-list">
-        <span>Pair request/status</span><span>Agent chat</span><span>Conversations</span><span>Contacts search</span><span>Knowledge search</span><span>Memory read/write</span><span>Skills & tools</span><span>Action status</span>
+    <section id="savedPairingCard" class="panel pairing-card" hidden>
+      <div class="saved-head">
+        <div>
+          <p class="eyebrow">SAVED PAIRING</p>
+          <h2 id="savedPairingTitle">Paired with VP3</h2>
+        </div>
+        <span id="savedPairingState" class="pairing-badge">Checking…</span>
       </div>
-      <p class="muted"><strong>Never relayed:</strong> owner control, pairing approval, backups, restore, Windows lifecycle, data-folder access, recovery mode, arbitrary HTTP, shell, PowerShell, or unrestricted files.</p>
-    </section>
 
-    <section class="panel events-card">
-      <div class="events-head"><div><p class="eyebrow">LOCAL AUDIT</p><h2>Bridge activity</h2></div><button id="refreshRemote" class="button secondary" type="button">Refresh</button></div>
-      <div id="remoteError" class="remote-error hidden"></div>
-      <div id="remoteEvents" class="remote-events"><p class="muted">No bridge events yet.</p></div>
+      <dl class="pairing-details">
+        <dt>Connection</dt><dd id="connectionState">—</dd>
+        <dt>Device ID</dt><dd id="deviceId">—</dd>
+        <dt>Transport</dt><dd id="transportMode">—</dd>
+        <dt>Last successful contact</dt><dd id="lastConnected">—</dd>
+        <dt>HomeServer version</dt><dd id="homeServerVersion">—</dd>
+        <dt>Credential protection</dt><dd id="identityProtection">—</dd>
+      </dl>
+
+      <p id="connectionMessage" class="pairing-message">Checking VP3 Cloud connection…</p>
+
+      <div class="pairing-actions">
+        <button id="replacePairing" class="button secondary" type="button">Replace pairing</button>
+        <button id="disconnectPairing" class="button danger" type="button">Disconnect</button>
+        <button id="refreshPairing" class="button secondary" type="button">Refresh</button>
+      </div>
     </section>
   </main>
+
   <div id="remoteFlash" class="remote-flash"></div>
   <script src="/assets/remote.js"></script>
 </body>
