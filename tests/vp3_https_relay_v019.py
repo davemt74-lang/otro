@@ -14,7 +14,7 @@ html = read("ui/remote.html")
 installer = read("installer/HomeServer.iss")
 
 checks = [
-    ("HomeServer release is v0.19.2", 'version: str = "0.19.2"' in config and '#define MyAppVersion "0.19.2"' in installer),
+    ("HomeServer release is v0.19.3", 'version: str = "0.19.3"' in config and '#define MyAppVersion "0.19.3"' in installer),
     ("migration adds a first-class transport and HTTPS endpoint without removing broker_url",
      "ADD COLUMN transport" in migration and "ADD COLUMN https_endpoint" in migration and "broker_url" in bridge),
     ("HTTPS session credential is stored in protected local storage",
@@ -26,7 +26,10 @@ checks = [
     ("pairing posts device identity, local bearer, version and capabilities to Cloud",
      all(x in pairing for x in ['"device_id": device_id','"homeserver_token": local_token','"version": settings.version','"capabilities": capabilities'])),
     ("Cloud response installs the official HTTPS session automatically",
-     "save_https_session(poll_url, session_token)" in pairing and "save_vp3_https_settings(poll_url, True)" in pairing),
+     "save_https_session(poll_endpoint, session_token)" in pairing and "save_vp3_https_settings(poll_endpoint, True)" in pairing),
+    ("relative poll URLs are resolved against the trusted pairing endpoint and pinned to the same host",
+     "urljoin(pairing_endpoint, str(poll_url or \"\").strip())" in pairing and
+     "if pairing_host != poll_host" in pairing),
     ("HTTPS worker is outbound-only and authenticated with device/session headers",
      'client.post(' in bridge and '"X-VP3-HomeServer-Session"' in bridge and '"X-HomeServer-Device"' in bridge),
     ("same HTTPS exchange sends heartbeat/capabilities/results to Cloud",

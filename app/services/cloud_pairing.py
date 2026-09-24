@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -50,6 +50,16 @@ def vp3_pairing_endpoint() -> str:
         str(os.environ.get("HOMESERVER_VP3_PAIRING_URL") or _DEFAULT_PAIRING_ENDPOINT),
         "pairing",
     )
+
+
+def _resolved_poll_endpoint(pairing_endpoint: str, poll_url: str) -> str:
+    resolved = urljoin(pairing_endpoint, str(poll_url or "").strip())
+    endpoint = _validated_cloud_endpoint(resolved, "HTTPS relay")
+    pairing_host = (urlparse(pairing_endpoint).hostname or "").lower()
+    poll_host = (urlparse(endpoint).hostname or "").lower()
+    if pairing_host != poll_host:
+        raise CloudPairingError("VP3 Cloud returned a relay endpoint on an unexpected host.")
+    return endpoint
 
 
 def vp3_bootstrap_endpoint() -> str:
@@ -180,8 +190,9 @@ def redeem_vp3_pairing_token(pairing_token: str) -> dict[str, Any]:
         raise CloudPairingError("VP3 Cloud returned an invalid HTTPS relay session.")
 
     try:
-        save_https_session(poll_url, session_token)
-        save_vp3_https_settings(poll_url, True)
+        poll_endpoint = _resolved_poll_endpoint(endpoint, poll_url)
+        save_https_session(poll_endpoint, session_token)
+        save_vp3_https_settings(poll_endpoint, True)
     except Exception as exc:
         _revoke_local_vp3_pairing()
         raise CloudPairingError("HomeServer could not save the VP3 HTTPS session.") from exc
