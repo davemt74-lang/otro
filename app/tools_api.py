@@ -66,6 +66,12 @@ def _approval_or_http(tool_key: str, source: str, arguments: dict[str, Any]) -> 
             return approvals.create_contact_update_request(source, arguments, owner=False)
         if tool_key == "contacts.delete":
             return approvals.create_contact_delete_request(source, arguments, owner=False)
+        if tool_key == "knowledge.create":
+            return approvals.create_knowledge_create_request(source, arguments, owner=False)
+        if tool_key == "knowledge.update":
+            return approvals.create_knowledge_update_request(source, arguments, owner=False)
+        if tool_key == "knowledge.delete":
+            return approvals.create_knowledge_delete_request(source, arguments, owner=False)
         if tool_key == "memory.write":
             return approvals.create_memory_write_request(source, arguments, owner=False)
         if tool_key == "tasks.create":
