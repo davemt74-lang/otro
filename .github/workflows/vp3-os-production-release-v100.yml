@@ -49,6 +49,7 @@ jobs:
           tests/vp3_os_release_api_v100.py
           tests/vp3_os_soak_v100.py
           tests/vp3_os_release_contract_v100.py
+          tests/homeserver_v23_release_acceptance.py
       - name: Verify v0.10 platform contract
         run: python tests/vp3_os_v010.py
       - name: Verify v0.20 hardware adapter contract
@@ -87,6 +88,8 @@ jobs:
         run: python tests/vp3_os_soak_v100.py
       - name: Verify v1.0 release contract
         run: python tests/vp3_os_release_contract_v100.py
+      - name: Verify HomeServer 2.3 unified execution release acceptance
+        run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify backup integrity
         run: python tests/backups.py
       - name: Verify backup security

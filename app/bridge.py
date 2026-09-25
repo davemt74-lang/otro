@@ -151,7 +151,7 @@ def capabilities() -> dict:
             "version": "v0.41",
             "owner_api": True,
             "local_only": True,
-            "operations": ["speech.transcribe", "speech.synthesize"],
+            "operations": ["speech.status", "speech.transcribe", "speech.synthesize"],
         },
         "agent_personas": {
             "version": "v0.46",
@@ -298,7 +298,7 @@ def capabilities() -> dict:
             "cloud_mirror_owner_scoped": True,
         },
         "unified_execution": {
-            "version": "2.2",
+            "version": "2.3",
             "authority": "existing_home_server_services",
             "capability_source": "/api/v1/capabilities",
             "cloud_routeable": True,
