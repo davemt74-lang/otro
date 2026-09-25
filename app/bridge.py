@@ -305,9 +305,10 @@ def capabilities() -> dict:
             "operations": [
                 "agent.chat", "capabilities", "capability.registry",
                 "knowledge.search", "files.list", "files.read",
-                "tools.list", "tools.execute", "tasks.list",
+                "tools.list", "tool.execute", "tools.execute", "tasks.list",
                 "notifications.list", "shared.context.exchange",
                 "system.ping", "speech.transcribe", "speech.synthesize",
+                "action.list", "action.status", "action.approve", "action.deny",
             ],
             "local_domains": ["inference", "files", "knowledge", "tools", "plugins", "voice", "devices"],
             "approval_boundaries_preserved": True,
