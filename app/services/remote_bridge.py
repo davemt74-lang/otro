@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import re
 import threading
@@ -17,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import providers, shared_agent_context
+from . import agent_voice_profiles, local_voice, providers, shared_agent_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -34,6 +36,66 @@ _REMOTE_OPERATION_ALIASES = {
     "usage.cloud": "usage.write",
     "tools.execute": "tool.execute",
 }
+
+_REMOTE_VOICE_MAX_AUDIO_BYTES = 150 * 1024
+_REMOTE_VOICE_MAX_TTS_CHARS = 220
+_REMOTE_INFER_MAX_MESSAGES = 24
+_REMOTE_INFER_MAX_CONTENT_CHARS = 28000
+
+
+def _bounded_remote_messages(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list) or not value or len(value) > _REMOTE_INFER_MAX_MESSAGES:
+        raise RemoteBridgeError("agent.infer.local requires a bounded messages array.")
+    out: list[dict[str, str]] = []
+    total = 0
+    for item in value:
+        if not isinstance(item, dict):
+            raise RemoteBridgeError("agent.infer.local messages must be objects.")
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"system", "user", "assistant"}:
+            raise RemoteBridgeError("agent.infer.local message role is invalid.")
+        content = str(item.get("content") or "").strip()
+        if not content:
+            raise RemoteBridgeError("agent.infer.local message content is required.")
+        if len(content) > 8000:
+            raise RemoteBridgeError("agent.infer.local message is too large.")
+        total += len(content)
+        if total > _REMOTE_INFER_MAX_CONTENT_CHARS:
+            raise RemoteBridgeError("agent.infer.local context is too large.")
+        out.append({"role": role, "content": content})
+    return out
+
+
+def _decode_remote_wav(value: Any) -> bytes:
+    encoded = str(value or "").strip()
+    if not encoded or len(encoded) > ((_REMOTE_VOICE_MAX_AUDIO_BYTES * 4 // 3) + 16):
+        raise RemoteBridgeError("speech.transcribe audio payload is too large.")
+    try:
+        audio = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise RemoteBridgeError("speech.transcribe audio must be valid base64 WAV data.") from exc
+    if not audio or len(audio) > _REMOTE_VOICE_MAX_AUDIO_BYTES:
+        raise RemoteBridgeError("speech.transcribe audio payload is too large.")
+    return audio
+
+
+def _remote_voice_profile() -> dict[str, Any]:
+    try:
+        agent_id = agent_voice_profiles.primary_agent_id()
+        profile = agent_voice_profiles.get_profile(agent_id)
+    except agent_voice_profiles.AgentVoiceProfileError as exc:
+        raise RemoteBridgeError(str(exc)) from exc
+    effective = profile.get("effective") if isinstance(profile.get("effective"), dict) else {}
+    return {
+        "agent_id": int(agent_id),
+        "voice": str(effective.get("voice") or ""),
+        "voice_source": str(effective.get("voice_source") or ""),
+        "speaking_rate": effective.get("speaking_rate"),
+        "sentence_silence": effective.get("sentence_silence"),
+        "ready": bool(effective.get("ready")),
+        "fallback": bool(effective.get("fallback")),
+        "warning": str(effective.get("warning") or ""),
+    }
 _RELOAD_EVENT = threading.Event()
 _STATE_LOCK = threading.Lock()
 _STATE: dict[str, Any] = {
@@ -450,6 +512,101 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             return _local_response(client.post("/api/v1/pairing/status", json=body))
         if op == "agent.chat":
             return _local_response(client.post("/api/v1/chat", json=body, headers=headers))
+        if op == "agent.infer.local":
+            _direct_identity(token, {"agent.chat"})
+            messages = _bounded_remote_messages(body.get("messages"))
+            try:
+                generated = providers.generate_ollama(messages)
+            except providers.ProviderError as exc:
+                return {"status": 503, "ok": False, "payload": {"detail": str(exc)}}
+            return {
+                "status": 200,
+                "ok": True,
+                "payload": {
+                    "reply": str(generated.get("content") or "").strip(),
+                    "provider": str(generated.get("provider") or "ollama"),
+                    "model": str(generated.get("model") or ""),
+                    "compute_source": "homeserver_local",
+                    "usage": generated.get("usage") if isinstance(generated.get("usage"), dict) else {},
+                    "stateless": True,
+                    "tools_enabled": False,
+                },
+            }
+        if op == "speech.status":
+            _direct_identity(token, {"agent.chat"})
+            profile = _remote_voice_profile()
+            status = local_voice.status()
+            return {
+                "status": 200,
+                "ok": True,
+                "payload": {
+                    "available": bool(status.get("tts", {}).get("available")) if isinstance(status.get("tts"), dict) else False,
+                    "transcription_available": bool(status.get("stt", {}).get("available")) if isinstance(status.get("stt"), dict) else False,
+                    "provider": "piper",
+                    "transcription_provider": "whisper.cpp",
+                    "voice_profile": profile,
+                    "max_text_chars": _REMOTE_VOICE_MAX_TTS_CHARS,
+                    "max_audio_bytes": _REMOTE_VOICE_MAX_AUDIO_BYTES,
+                    "local": True,
+                },
+            }
+        if op == "speech.synthesize":
+            _direct_identity(token, {"agent.chat"})
+            text = str(body.get("text") or "").strip()
+            if not text:
+                raise RemoteBridgeError("speech.synthesize text is required.")
+            if len(text) > _REMOTE_VOICE_MAX_TTS_CHARS:
+                raise RemoteBridgeError(
+                    f"speech.synthesize text exceeds the {_REMOTE_VOICE_MAX_TTS_CHARS}-character relay limit."
+                )
+            profile = _remote_voice_profile()
+            if not profile["ready"]:
+                return {"status": 503, "ok": False, "payload": {"detail": profile["warning"] or "Local voice is unavailable."}}
+            try:
+                audio = local_voice.synthesize(
+                    text,
+                    voice_key=profile["voice"] or None,
+                    speaking_rate=profile["speaking_rate"],
+                    sentence_silence=profile["sentence_silence"],
+                )
+            except local_voice.LocalVoiceError as exc:
+                return {"status": int(exc.status_code), "ok": False, "payload": {"detail": str(exc)}}
+            if len(audio) > _REMOTE_VOICE_MAX_AUDIO_BYTES:
+                return {
+                    "status": 413,
+                    "ok": False,
+                    "payload": {"detail": "Local voice audio exceeds the relay chunk limit. Use a shorter speech chunk."},
+                }
+            return {
+                "status": 200,
+                "ok": True,
+                "payload": {
+                    "audio_base64": base64.b64encode(audio).decode("ascii"),
+                    "content_type": "audio/wav",
+                    "bytes": len(audio),
+                    "provider": "piper",
+                    "voice": profile["voice"],
+                    "voice_source": profile["voice_source"],
+                    "local": True,
+                },
+            }
+        if op == "speech.transcribe":
+            _direct_identity(token, {"agent.chat"})
+            audio = _decode_remote_wav(body.get("audio_base64"))
+            try:
+                transcript = local_voice.transcribe(audio)
+            except local_voice.LocalVoiceError as exc:
+                return {"status": int(exc.status_code), "ok": False, "payload": {"detail": str(exc)}}
+            return {
+                "status": 200,
+                "ok": True,
+                "payload": {
+                    "text": str(transcript.get("text") or ""),
+                    "provider": str(transcript.get("provider") or "whisper.cpp"),
+                    "model": str(transcript.get("model") or ""),
+                    "local": True,
+                },
+            }
         if op == "conversations.list":
             return _local_response(client.get("/api/v1/conversations", headers=headers))
         if op == "conversation.get":
