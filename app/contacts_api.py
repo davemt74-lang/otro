@@ -49,8 +49,6 @@ def control_contacts(
         if remaining:
             for row in shared_agent_context.cloud_candidates("contacts", q, min(remaining, 100)):
                 key = str(row.get("key") or row.get("authority_key") or "")
-                if "agent:" in key:
-                    continue
                 cloud_items.append({
                     "id": row.get("id"),
                     "display_name": row.get("title") or "VP3 Cloud contact",
@@ -59,7 +57,7 @@ def control_contacts(
                     "organization": None,
                     "email": None,
                     "phone": None,
-                    "relationship": "VP3 Cloud",
+                    "relationship": "VP3 Cloud · " + (key.split(":",1)[0].replace("_"," ") if ":" in key else "relationship"),
                     "notes": row.get("content") or "",
                     "created_at": None,
                     "updated_at": row.get("updated_at"),
