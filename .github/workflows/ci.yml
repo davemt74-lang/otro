@@ -82,6 +82,8 @@ jobs:
         run: python tests/vp3_https_relay_v019.py
       - name: Shared Agent fabric, ping and context regression
         run: python tests/shared_agent_context_v210.py
+      - name: Federated data authority v2.4 regression
+        run: python tests/federated_data_authority_v240.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
