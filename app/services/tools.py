@@ -46,7 +46,9 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "phone": {"type": ["string", "null"], "maxLength": 80},
                 "relationship": {"type": ["string", "null"], "maxLength": 160},
                 "notes": {"type": "string", "maxLength": 50000},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
             },
+            "required": ["mutation_id"],
             "additionalProperties": False,
         },
     },
@@ -68,8 +70,10 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "phone": {"type": ["string", "null"], "maxLength": 80},
                 "relationship": {"type": ["string", "null"], "maxLength": 160},
                 "notes": {"type": "string", "maxLength": 50000},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
             },
-            "required": ["canonical_id"],
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
             "additionalProperties": False,
         },
     },
@@ -83,8 +87,10 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {
                 "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
             },
-            "required": ["canonical_id"],
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
             "additionalProperties": False,
         },
     },
@@ -512,10 +518,13 @@ def _contacts_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[st
     return {"items": items, "count": len(items)}, {"count": len(items), "federation_version": "2.4"}
 
 
-def _contacts_create(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _contacts_create(
+    arguments: dict[str, Any],
+    source_app_key: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         normalized = contacts.normalize_contact_create_arguments(arguments)
-        item = contacts.create_federated_contact(normalized)
+        item = contacts.create_federated_contact(normalized, source_app_key=source_app_key)
     except contacts.ContactError as exc:
         raise ToolError(str(exc), exc.status_code) from exc
     result = _contact_tool_item(item)
@@ -525,11 +534,14 @@ def _contacts_create(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[st
     }
 
 
-def _contacts_update(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _contacts_update(
+    arguments: dict[str, Any],
+    source_app_key: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         normalized = contacts.normalize_contact_update_arguments(arguments)
         canonical = str(normalized.pop("canonical_id"))
-        item = contacts.update_federated_contact(canonical, normalized)
+        item = contacts.update_federated_contact(canonical, normalized, source_app_key=source_app_key)
     except contacts.ContactError as exc:
         raise ToolError(str(exc), exc.status_code) from exc
     result = _contact_tool_item(item)
@@ -539,11 +551,19 @@ def _contacts_update(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[st
     }
 
 
-def _contacts_delete(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _contacts_delete(
+    arguments: dict[str, Any],
+    source_app_key: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         normalized = contacts.normalize_contact_delete_arguments(arguments)
         canonical = str(normalized["canonical_id"])
-        deleted = contacts.delete_federated_contact(canonical)
+        deleted = contacts.delete_federated_contact(
+            canonical,
+            mutation_id=str(normalized["mutation_id"]),
+            expected_revision=str(normalized["expected_revision"]),
+            source_app_key=source_app_key,
+        )
     except contacts.ContactError as exc:
         raise ToolError(str(exc), exc.status_code) from exc
     if not deleted:
@@ -834,11 +854,11 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
         if tool["key"] == "contacts.search":
             result, result_meta = _contacts_search(payload)
         elif tool["key"] == "contacts.create":
-            result, result_meta = _contacts_create(payload)
+            result, result_meta = _contacts_create(payload, source)
         elif tool["key"] == "contacts.update":
-            result, result_meta = _contacts_update(payload)
+            result, result_meta = _contacts_update(payload, source)
         elif tool["key"] == "contacts.delete":
-            result, result_meta = _contacts_delete(payload)
+            result, result_meta = _contacts_delete(payload, source)
         elif tool["key"] == "files.list":
             result, result_meta = _files_list(payload, source, owner=owner)
         elif tool["key"] == "files.read":
