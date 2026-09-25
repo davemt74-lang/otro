@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS federated_sync_cursors (
     peer_source TEXT NOT NULL,
     dataset TEXT NOT NULL,
     revision TEXT NOT NULL DEFAULT '',
-    cursor TEXT NOT NULL DEFAULT '',
+    sync_cursor TEXT NOT NULL DEFAULT '',
     last_sync_at TEXT,
     last_success_at TEXT,
     last_error TEXT NOT NULL DEFAULT '',
