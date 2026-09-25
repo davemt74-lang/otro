@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, knowledge, tasks
+from . import contacts, federated_data, knowledge, tasks
 
 SHARED_AGENT_CONTEXT_VERSION = "2.2"
 MAX_SNAPSHOT_BYTES = 196_608
@@ -34,25 +34,25 @@ def _mirror_id(source: str, dataset: str, key: str) -> int:
 
 
 def _sanitize_record(source: str, dataset: str, record: dict[str, Any], index: int) -> dict[str, Any]:
-    key = _text(record.get("key") or record.get("id") or f"{dataset}:{index}", 180)
-    title = _text(record.get("title") or record.get("subject") or record.get("name") or dataset.title(), 240)
-    content = _text(
-        record.get("content")
-        or record.get("text")
-        or record.get("body")
-        or record.get("description")
-        or record.get("notes")
-        or "",
-        6000,
+    item = federated_data.normalize_envelope(
+        record,
+        default_source=source,
+        dataset=dataset,
+        index=index,
     )
-    updated_at = _text(record.get("updated_at") or record.get("last_seen_at") or record.get("created_at") or "", 80)
     return {
-        "id": _mirror_id(source, dataset, key),
-        "key": key,
-        "title": title,
-        "content": content,
-        "updated_at": updated_at or None,
-        "authoritative_source": source,
+        "id": _mirror_id(item["authority_source"], dataset, item["authority_key"]),
+        "key": item["authority_key"],
+        "title": item["title"],
+        "content": item["content"],
+        "updated_at": item["updated_at"],
+        "authoritative_source": item["authority_source"],
+        "authority_source": item["authority_source"],
+        "authority_key": item["authority_key"],
+        "canonical_id": item["canonical_id"],
+        "record_revision": item["record_revision"],
+        "federation_version": item["federation_version"],
+        "mirror_only": item["mirror_only"],
         "dataset": dataset,
     }
 
@@ -80,6 +80,7 @@ def _sanitize_snapshot(snapshot: dict[str, Any], source: str) -> dict[str, Any]:
         "revision": revision,
         "generated_at": _text(snapshot.get("generated_at") or _iso_now(), 80),
         "authoritative_source": source,
+        "federation_version": federated_data.FEDERATED_DATA_VERSION,
         "datasets": clean,
     }
 
@@ -91,6 +92,9 @@ def apply_cloud_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     encoded = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
     if len(encoded.encode("utf-8")) > MAX_SNAPSHOT_BYTES:
         raise SharedAgentContextError("Cloud Agent snapshot is too large.")
+    federated_data.observe_snapshot(clean, observed_source="homeserver")
+    for dataset in _DATASETS:
+        federated_data.update_cursor("vp3_cloud", dataset, revision=clean["revision"], success=True)
     with db() as connection:
         connection.execute(
             """
@@ -314,13 +318,16 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
         "notifications": notification_rows,
     })
     canonical = json.dumps(datasets, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return {
+    snapshot = {
         "version": SHARED_AGENT_CONTEXT_VERSION,
         "revision": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
         "generated_at": _iso_now(),
         "authoritative_source": "homeserver",
+        "federation_version": federated_data.FEDERATED_DATA_VERSION,
         "datasets": datasets,
     }
+    federated_data.observe_snapshot(snapshot, observed_source="homeserver")
+    return snapshot
 
 
 def exchange(cloud: dict[str, Any], query: str = "") -> dict[str, Any]:

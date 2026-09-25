@@ -1,0 +1,46 @@
+name: HomeServer v2.4 Data Continuity
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: homeserver-v24-continuity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  federation:
+    name: Federated authority · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile v2.4 continuity surfaces
+        run: >-
+          python -m py_compile
+          app/services/federated_data.py
+          app/services/shared_agent_context.py
+          app/services/remote_bridge.py
+          app/bridge.py
+          tests/federated_data_authority_v240.py
+      - name: Verify migration chain
+        run: python tests/migrations.py
+      - name: Verify existing shared Agent fabric
+        run: python tests/shared_agent_context_v210.py
+      - name: Verify v2.4 federated authority and canonical identity
+        run: python tests/federated_data_authority_v240.py
