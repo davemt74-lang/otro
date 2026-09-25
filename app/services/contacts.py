@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..database import db
+from . import federated_data
 
 
 class ContactError(RuntimeError):
@@ -191,3 +192,56 @@ def delete_contact(contact_id: int) -> bool:
             (str(contact_id),),
         )
     return True
+
+
+
+def federated_contact(record: dict[str, Any]) -> dict[str, Any]:
+    contact_id = int(record.get("id") or 0)
+    if contact_id < 1:
+        raise ContactError("Contact identity is invalid.", 500)
+    content = " · ".join(
+        value for value in (
+            str(record.get("organization") or "").strip(),
+            str(record.get("relationship") or "").strip(),
+            str(record.get("email") or "").strip(),
+            str(record.get("phone") or "").strip(),
+            str(record.get("notes") or "").strip(),
+        ) if value
+    )
+    envelope = federated_data.envelope(
+        "homeserver",
+        "contacts",
+        str(contact_id),
+        title=str(record.get("display_name") or "Contact"),
+        content=content,
+        updated_at=str(record.get("updated_at") or record.get("created_at") or ""),
+    )
+    out = dict(record)
+    out.update({
+        "authority_source": "homeserver",
+        "authority_key": str(contact_id),
+        "canonical_id": envelope["canonical_id"],
+        "record_revision": envelope["record_revision"],
+        "federation_version": envelope["federation_version"],
+        "mirror_only": False,
+        "read_only": False,
+        "source_label": "HomeServer",
+    })
+    return out
+
+
+def list_federated_contacts(query: str = "", limit: int = 100) -> list[dict[str, Any]]:
+    return [federated_contact(row) for row in list_contacts(query, limit)]
+
+
+def get_federated_contact(contact_id: int) -> dict[str, Any] | None:
+    row = get_contact(contact_id)
+    return federated_contact(row) if row else None
+
+
+def create_federated_contact(payload: dict[str, Any]) -> dict[str, Any]:
+    return federated_contact(create_contact(payload))
+
+
+def update_federated_contact(contact_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    return federated_contact(update_contact(contact_id, payload))
