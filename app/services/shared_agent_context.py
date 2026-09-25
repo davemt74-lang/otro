@@ -47,6 +47,7 @@ def _sanitize_record(source: str, dataset: str, record: dict[str, Any], index: i
         "content": item["content"],
         "updated_at": item["updated_at"],
         "authoritative_source": item["authority_source"],
+        "authority_source": item["authority_source"],
         "authority_key": item["authority_key"],
         "canonical_id": item["canonical_id"],
         "record_revision": item["record_revision"],
@@ -79,6 +80,7 @@ def _sanitize_snapshot(snapshot: dict[str, Any], source: str) -> dict[str, Any]:
         "revision": revision,
         "generated_at": _text(snapshot.get("generated_at") or _iso_now(), 80),
         "authoritative_source": source,
+        "federation_version": federated_data.FEDERATED_DATA_VERSION,
         "datasets": clean,
     }
 
