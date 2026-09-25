@@ -33,6 +33,9 @@ _TOOL_PERMISSION_BY_KEY = {
     "devices.list": "devices.read",
     "devices.command": "devices.control",
     "knowledge.search": "knowledge.search",
+    "knowledge.create": "knowledge.write",
+    "knowledge.update": "knowledge.write",
+    "knowledge.delete": "knowledge.write",
     "memory.list": "memory.read",
     "memory.write": "memory.write",
     "notifications.list": "notifications.read",
@@ -200,6 +203,7 @@ def scoped_tool_permissions(scope: dict[str, Any], permissions: set[str] | None)
         result.discard("memory.write")
     if normalized["knowledge_kinds"]:
         result.discard("knowledge.search")
+        result.discard("knowledge.write")
 
     plugin_keys = normalized["plugin_keys"]
     if plugin_keys:
