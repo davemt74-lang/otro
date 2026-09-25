@@ -239,3 +239,34 @@ def registry() -> dict[str, Any]:
         "mirror_link_count": link_count,
         "sync_cursors": cursor_rows,
     }
+
+
+
+def mark_tombstone(
+    authority_source: str,
+    dataset: str,
+    authority_key: Any,
+    *,
+    observed_source: str,
+) -> None:
+    source = validate_source(authority_source)
+    name = validate_dataset(dataset)
+    observed = validate_source(observed_source)
+    key = _text(authority_key, MAX_KEY_CHARS)
+    canonical = canonical_id(source, name, key)
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO federated_record_links(
+                authority_source,dataset,authority_key,canonical_id,observed_source,
+                record_hash,source_updated_at,tombstoned,last_seen_at
+            ) VALUES (?,?,?,?,?,'',NULL,1,CURRENT_TIMESTAMP)
+            ON CONFLICT(authority_source,dataset,authority_key,observed_source) DO UPDATE SET
+                canonical_id=excluded.canonical_id,
+                record_hash='',
+                source_updated_at=NULL,
+                tombstoned=1,
+                last_seen_at=CURRENT_TIMESTAMP
+            """,
+            (source,name,key,canonical,observed),
+        )
