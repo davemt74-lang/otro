@@ -292,6 +292,104 @@ jobs:
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
             throw 'Remote bridge smoke left a HomeServer listener on port 4377'
           }
+      - name: Verify packaged VP3 HTTPS session survives process restart
+        shell: pwsh
+        run: |
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Port 4377 is occupied before the HTTPS reconnect smoke test'
+          }
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-https-reconnect'
+          $env:HOMESERVER_HTTPS_RECONNECT_PORT = '48766'
+          $config = Join-Path $env:RUNNER_TEMP 'homeserver-https-reconnect-config.json'
+          $marker = Join-Path $env:RUNNER_TEMP 'homeserver-https-reconnect-marker.json'
+          $progress = Join-Path $env:RUNNER_TEMP 'homeserver-https-reconnect-progress.txt'
+          $restartFlag = Join-Path $env:RUNNER_TEMP 'homeserver-https-reconnect-restart.flag'
+          Remove-Item -Recurse -Force $env:HOMESERVER_DATA_DIR -ErrorAction SilentlyContinue
+          Remove-Item $config,$marker,$progress,$restartFlag -ErrorAction SilentlyContinue
+          $env:HOMESERVER_HTTPS_RECONNECT_CONFIG = $config
+          $env:HOMESERVER_HTTPS_RECONNECT_MARKER = $marker
+          $env:HOMESERVER_HTTPS_RECONNECT_PROGRESS = $progress
+          $env:HOMESERVER_HTTPS_RECONNECT_RESTART_FLAG = $restartFlag
+
+          python tests/https_packaged_reconnect_setup.py
+          if ($LASTEXITCODE -ne 0) { throw 'Could not configure packaged VP3 HTTPS reconnect fixture' }
+
+          $relay = Start-Process -FilePath 'python' -ArgumentList 'tests/mock_https_relay_reconnect.py' -PassThru
+          Start-Sleep -Milliseconds 600
+          $first = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+          $second = $null
+          try {
+            $pingComplete = $false
+            for ($attempt = 0; $attempt -lt 60; $attempt++) {
+              Start-Sleep -Milliseconds 500
+              if (Test-Path $progress) {
+                $stage = (Get-Content $progress -Raw).Trim()
+                if ($stage -eq 'ping-complete') { $pingComplete = $true; break }
+                if ($stage -eq 'failed') { break }
+              }
+              $first.Refresh()
+              if ($first.HasExited) { throw "HomeServer exited before the first HTTPS round trip with code $($first.ExitCode)" }
+              $relay.Refresh()
+              if ($relay.HasExited) { throw "Mock HTTPS relay exited before the first round trip with code $($relay.ExitCode)" }
+            }
+            if (-not $pingComplete) {
+              $stage = if (Test-Path $progress) { (Get-Content $progress -Raw).Trim() } else { 'unknown' }
+              $detail = if (Test-Path $marker) { Get-Content $marker -Raw } else { '' }
+              throw "Initial Cloud -> HomeServer -> Cloud ping did not complete. Stage: $stage $detail"
+            }
+
+            & taskkill.exe /PID $first.Id /T /F | Out-Null
+            Wait-Process -Id $first.Id -Timeout 10 -ErrorAction SilentlyContinue
+            for ($attempt = 0; $attempt -lt 20; $attempt++) {
+              if (-not (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue)) { break }
+              Start-Sleep -Milliseconds 250
+            }
+            if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+              throw 'First packaged HomeServer listener remained active after simulated process restart'
+            }
+
+            Set-Content -Encoding ascii $restartFlag 'restart-now'
+            $second = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
+            $completed = $false
+            for ($attempt = 0; $attempt -lt 70; $attempt++) {
+              Start-Sleep -Milliseconds 500
+              if (Test-Path $marker) {
+                $raw = Get-Content $marker -Raw
+                $result = $raw | ConvertFrom-Json
+                if ($result.ok -eq $true -and $result.stage -eq 'complete') { $completed = $true; break }
+                if ($result.ok -eq $false) { throw "HTTPS reconnect fixture failed: $raw" }
+              }
+              $second.Refresh()
+              if ($second.HasExited) { throw "HomeServer exited after restart before reconnect completed with code $($second.ExitCode)" }
+              $relay.Refresh()
+              if ($relay.HasExited) { throw "Mock HTTPS relay exited before reconnect completed with code $($relay.ExitCode)" }
+            }
+            if (-not $completed) {
+              $stage = if (Test-Path $progress) { (Get-Content $progress -Raw).Trim() } else { 'unknown' }
+              throw "HomeServer did not reconnect and resume shared context after restart. Stage: $stage"
+            }
+
+            $result = (Get-Content $marker -Raw) | ConvertFrom-Json
+            if ($result.ping_verified -ne $true -or $result.shared_verified -ne $true) {
+              throw 'Packaged HTTPS reconnect proof did not validate ping and shared context'
+            }
+            $sessionPath = Join-Path $env:HOMESERVER_DATA_DIR 'security\vp3-https-session.dat'
+            if (-not (Test-Path $sessionPath)) { throw 'VP3 HTTPS session was not preserved across restart' }
+          } finally {
+            if ($second) {
+              $second.Refresh()
+              if (-not $second.HasExited) { & taskkill.exe /PID $second.Id /T /F | Out-Null }
+            }
+            $first.Refresh()
+            if (-not $first.HasExited) { & taskkill.exe /PID $first.Id /T /F | Out-Null }
+            $relay.Refresh()
+            if (-not $relay.HasExited) { & taskkill.exe /PID $relay.Id /T /F | Out-Null }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'HTTPS reconnect smoke left a HomeServer listener on port 4377'
+          }
       - name: Smoke test packaged recovery mode
         shell: pwsh
         run: |
@@ -386,6 +484,38 @@ jobs:
           if ($second.ExitCode -ne 0) { throw "Upgrade install failed with $($second.ExitCode)" }
           if ((Get-Content (Join-Path $privateDir 'upgrade-sentinel.txt') -Raw).Trim() -ne 'preserve-me') {
             throw 'Installer upgrade modified private HomeServer data'
+          }
+
+          $installedExe = Join-Path $installDir 'HomeServer.exe'
+          $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-installed-launch'
+          Remove-Item -Recurse -Force $env:HOMESERVER_DATA_DIR -ErrorAction SilentlyContinue
+          $installed = Start-Process -FilePath $installedExe -ArgumentList '--headless' -PassThru
+          $installedHealthy = $false
+          try {
+            for ($attempt = 0; $attempt -lt 30; $attempt++) {
+              Start-Sleep -Seconds 1
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
+                if ($response.ok -eq $true -and $response.version -eq '2.2') {
+                  $installedHealthy = $true
+                  break
+                }
+              } catch {
+                $installed.Refresh()
+                if ($installed.HasExited) {
+                  throw "Installed HomeServer.exe exited before becoming healthy with code $($installed.ExitCode)"
+                }
+              }
+            }
+            if (-not $installedHealthy) { throw 'Installed HomeServer.exe did not launch successfully from the Inno Setup installation directory' }
+          } finally {
+            $installed.Refresh()
+            if (-not $installed.HasExited) { & taskkill.exe /PID $installed.Id /T /F | Out-Null }
+            Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Milliseconds 750
+          }
+          if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
+            throw 'Installed HomeServer launch smoke left a listener on port 4377'
           }
       - name: Verify distribution files
         shell: pwsh
