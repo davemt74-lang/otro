@@ -1,0 +1,51 @@
+name: HomeServer 2.3 Release Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: homeserver-v23-release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: Release acceptance · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile v2.3 execution release surfaces
+        run: >-
+          python -m py_compile
+          app/config.py
+          app/bridge.py
+          app/services/remote_bridge.py
+          app/services/local_voice.py
+          app/services/agent_voice_profiles.py
+          tests/homeserver_v23_release_acceptance.py
+          tests/voice_profile_execution_v235.py
+          tests/governed_actions_v230.py
+      - name: Verify HomeServer 2.3 unified execution release acceptance
+        run: python tests/homeserver_v23_release_acceptance.py
+      - name: Verify governed local actions
+        run: python tests/governed_actions_v230.py
+      - name: Verify local voice and Profile Agent-safe execution
+        run: python tests/voice_profile_execution_v235.py
+      - name: Verify installer version and private-data contract
+        run: python tests/installer_contract.py
