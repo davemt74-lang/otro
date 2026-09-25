@@ -16,6 +16,7 @@ DEFAULT_PERMISSIONS = {
     "commerce.order",
     "commerce.fulfill",
     "contacts.read",
+    "contacts.write",
     "devices.read",
     "devices.control",
     "events.read",

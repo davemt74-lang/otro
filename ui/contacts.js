@@ -64,7 +64,11 @@
         contact.email ? `<span>${esc(contact.email)}</span>` : '',
         contact.phone ? `<span>${esc(contact.phone)}</span>` : '',
       ].filter(Boolean).join('');
-      return `<article class="panel contact-card" data-contact-id="${contact.id}"><div><h3>${esc(contact.display_name)}</h3><div class="contact-lines">${lines}</div>${contact.notes ? `<p class="contact-notes">${esc(contact.notes)}</p>` : ''}</div><div class="contact-actions"><button type="button" class="text-button" data-edit-contact="${contact.id}">Edit</button><button type="button" class="text-button danger" data-delete-contact="${contact.id}">Delete</button></div></article>`;
+      const source=contact.source_label||((contact.authority_source||'homeserver')==='vp3_cloud'?'VP3 Cloud':'HomeServer');
+      const actions=contact.read_only
+        ? `<div class="contact-actions"><span class="muted">Read-only mirror · ${esc(source)}</span></div>`
+        : `<div class="contact-actions"><button type="button" class="text-button" data-edit-contact="${contact.id}">Edit</button><button type="button" class="text-button danger" data-delete-contact="${contact.id}">Delete</button></div>`;
+      return `<article class="panel contact-card" data-contact-id="${contact.id}" data-authority="${esc(contact.authority_source||'homeserver')}"><div><h3>${esc(contact.display_name)} <small>${esc(source)}</small></h3><div class="contact-lines">${lines}</div>${contact.notes ? `<p class="contact-notes">${esc(contact.notes)}</p>` : ''}</div>${actions}</article>`;
     }).join('') : '<div class="panel empty-state">No contacts found.</div>';
     list.dataset.contacts = JSON.stringify(data.items);
   }
@@ -88,12 +92,13 @@
     const edit = event.target.closest('[data-edit-contact]');
     if (edit) {
       const contact = currentContact(edit.dataset.editContact);
-      if (contact) fillForm(contact);
+      if (contact && !contact.read_only) fillForm(contact);
     }
 
     const remove = event.target.closest('[data-delete-contact]');
     if (remove) {
       const contact = currentContact(remove.dataset.deleteContact);
+      if (contact?.read_only) { flash('Cloud contacts are read-only on HomeServer. Edit them in VP3 Cloud.', true); return; }
       if (!confirm(`Delete ${contact?.display_name || 'this contact'}?`)) return;
       try {
         await api(`/api/v1/control/contacts/${encodeURIComponent(remove.dataset.deleteContact)}`, {method:'DELETE'});

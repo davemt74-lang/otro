@@ -617,9 +617,10 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             if not _OPAQUE_ID.fullmatch(conversation_id):
                 raise RemoteBridgeError("conversation_id must be a valid opaque conversation identifier.")
             return _local_response(client.get(f"/api/v1/conversations/{conversation_id}", headers=headers))
-        if op == "contacts.search":
+        if op in {"contacts.search", "contacts.list"}:
             query = str(body.get("query") or "")[:240]
-            return _local_response(client.get("/api/v1/contacts", params={"q": query}, headers=headers))
+            limit = _bounded_int(body.get("limit"), default=100, minimum=1, maximum=250, name="limit")
+            return _local_response(client.get("/api/v1/contacts", params={"q": query, "limit": limit}, headers=headers))
         if op == "knowledge.search":
             query = str(body.get("query") or "")[:240]
             return _local_response(client.get("/api/v1/knowledge", params={"q": query}, headers=headers))

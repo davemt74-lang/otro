@@ -5,8 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, knowledge_collection_policy, local_files, room_device_automation
-from .contacts import list_contacts
+from . import app_scopes, contacts, knowledge_collection_policy, local_files, room_device_automation
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -27,6 +26,71 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20},
             },
             "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+    "contacts.create": {
+        "key": "contacts.create",
+        "name": "Create HomeServer Contact",
+        "description": "Propose creation of one HomeServer-native address-book contact.",
+        "mode": "write",
+        "required_permissions": ["contacts.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "display_name": {"type": ["string", "null"], "maxLength": 240},
+                "first_name": {"type": ["string", "null"], "maxLength": 120},
+                "last_name": {"type": ["string", "null"], "maxLength": 120},
+                "organization": {"type": ["string", "null"], "maxLength": 240},
+                "email": {"type": ["string", "null"], "maxLength": 320},
+                "phone": {"type": ["string", "null"], "maxLength": 80},
+                "relationship": {"type": ["string", "null"], "maxLength": 160},
+                "notes": {"type": "string", "maxLength": 50000},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+            },
+            "required": ["mutation_id"],
+            "additionalProperties": False,
+        },
+    },
+    "contacts.update": {
+        "key": "contacts.update",
+        "name": "Update HomeServer Contact",
+        "description": "Propose changes to one HomeServer-native address-book contact by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["contacts.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "display_name": {"type": ["string", "null"], "maxLength": 240},
+                "first_name": {"type": ["string", "null"], "maxLength": 120},
+                "last_name": {"type": ["string", "null"], "maxLength": 120},
+                "organization": {"type": ["string", "null"], "maxLength": 240},
+                "email": {"type": ["string", "null"], "maxLength": 320},
+                "phone": {"type": ["string", "null"], "maxLength": 80},
+                "relationship": {"type": ["string", "null"], "maxLength": 160},
+                "notes": {"type": "string", "maxLength": 50000},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+            },
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    "contacts.delete": {
+        "key": "contacts.delete",
+        "name": "Delete HomeServer Contact",
+        "description": "Propose deletion of one HomeServer-native address-book contact by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["contacts.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+            },
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
             "additionalProperties": False,
         },
     },
@@ -213,7 +277,7 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "key": "relationship.context",
         "name": "Relationship Context",
         "description": "Search private contacts and relationship notes through an explicit read capability.",
-        "tools": ["contacts.search"],
+        "tools": ["contacts.search", "contacts.create", "contacts.update", "contacts.delete"],
     },
     {
         "key": "memory.manager",
@@ -322,6 +386,8 @@ def _safe_numeric(value: Any, default: int | float | None = None) -> int | float
 
 
 def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if tool_key in {"contacts.create", "contacts.update", "contacts.delete"}:
+        return contacts.safe_contact_mutation_meta(tool_key, arguments)
     if tool_key in {"contacts.search", "knowledge.search", "tasks.list", "files.list"}:
         query = str(arguments.get("query") or "")
         return {"query_length": len(query), "limit": _safe_numeric(arguments.get("limit"), 8)}
@@ -416,6 +482,24 @@ def _bounded_int(value: Any, default: int, minimum: int, maximum: int, label: st
     return parsed
 
 
+def _contact_tool_item(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "canonical_id": row.get("canonical_id"),
+        "authority_source": row.get("authority_source"),
+        "authority_key": row.get("authority_key"),
+        "contact_class": row.get("contact_class") or "address_book",
+        "display_name": row.get("display_name"),
+        "organization": row.get("organization"),
+        "email": row.get("email"),
+        "phone": row.get("phone"),
+        "relationship": row.get("relationship"),
+        "notes": str(row.get("notes") or "")[:1600],
+        "updated_at": row.get("updated_at"),
+        "allowed_mutations": list(row.get("allowed_mutations") or []),
+    }
+
+
 def _contacts_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     unknown = set(arguments) - {"query", "limit"}
     if unknown:
@@ -426,9 +510,68 @@ def _contacts_search(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[st
     if len(query) > 240:
         raise ToolError("contacts.search query exceeds 240 characters.")
     limit = _bounded_int(arguments.get("limit"), 8, 1, 20, "limit")
-    rows = list_contacts(query, limit=limit)
-    items = [{"id": row["id"], "display_name": row["display_name"], "organization": row.get("organization"), "email": row.get("email"), "phone": row.get("phone"), "relationship": row.get("relationship"), "notes": str(row.get("notes") or "")[:1600]} for row in rows]
-    return {"items": items, "count": len(items)}, {"count": len(items)}
+    try:
+        rows = contacts.list_federated_contacts(query, limit=limit)
+    except contacts.ContactError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    items = [_contact_tool_item(row) for row in rows]
+    return {"items": items, "count": len(items)}, {"count": len(items), "federation_version": "2.4"}
+
+
+def _contacts_create(
+    arguments: dict[str, Any],
+    source_app_key: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        normalized = contacts.normalize_contact_create_arguments(arguments)
+        item = contacts.create_federated_contact(normalized, source_app_key=source_app_key)
+    except contacts.ContactError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    result = _contact_tool_item(item)
+    return {"contact": result, "created": True}, {
+        "canonical_id": str(item.get("canonical_id") or "")[:45],
+        "contact_class": "address_book",
+    }
+
+
+def _contacts_update(
+    arguments: dict[str, Any],
+    source_app_key: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        normalized = contacts.normalize_contact_update_arguments(arguments)
+        canonical = str(normalized.pop("canonical_id"))
+        item = contacts.update_federated_contact(canonical, normalized, source_app_key=source_app_key)
+    except contacts.ContactError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    result = _contact_tool_item(item)
+    return {"contact": result, "updated": True}, {
+        "canonical_id": str(item.get("canonical_id") or "")[:45],
+        "contact_class": "address_book",
+    }
+
+
+def _contacts_delete(
+    arguments: dict[str, Any],
+    source_app_key: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        normalized = contacts.normalize_contact_delete_arguments(arguments)
+        canonical = str(normalized["canonical_id"])
+        deleted = contacts.delete_federated_contact(
+            canonical,
+            mutation_id=str(normalized["mutation_id"]),
+            expected_revision=str(normalized["expected_revision"]),
+            source_app_key=source_app_key,
+        )
+    except contacts.ContactError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    if not deleted:
+        raise ToolError("HomeServer contact not found.", 404)
+    return {"deleted": True, "canonical_id": canonical}, {
+        "canonical_id": canonical[:45],
+        "contact_class": "address_book",
+    }
 
 
 def _file_identity(source_app_key: str, *, owner: bool) -> dict[str, Any] | None:
@@ -710,6 +853,12 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
     try:
         if tool["key"] == "contacts.search":
             result, result_meta = _contacts_search(payload)
+        elif tool["key"] == "contacts.create":
+            result, result_meta = _contacts_create(payload, source)
+        elif tool["key"] == "contacts.update":
+            result, result_meta = _contacts_update(payload, source)
+        elif tool["key"] == "contacts.delete":
+            result, result_meta = _contacts_delete(payload, source)
         elif tool["key"] == "files.list":
             result, result_meta = _files_list(payload, source, owner=owner)
         elif tool["key"] == "files.read":

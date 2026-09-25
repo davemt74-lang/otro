@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import room_device_automation, tools
+from . import contacts, room_device_automation, tools
 
 
 LOCAL_OWNER_ONLY_ACTIONS = {"devices.command"}
@@ -245,6 +245,57 @@ def _validate_device_command(arguments: dict[str, Any] | None) -> dict[str, Any]
     }
 
 
+def _contact_request(
+    source_app_key: str,
+    action_key: str,
+    arguments: dict[str, Any] | None,
+    *,
+    owner: bool = False,
+) -> dict[str, Any]:
+    source = source_app_key.strip() or ("owner" if owner else "app:unknown")
+    actor_type = "owner" if owner else "app"
+    raw_meta = contacts.safe_contact_mutation_meta(action_key, arguments)
+    required = [] if owner else ["contacts.write", "tools.execute"]
+    try:
+        if action_key == "contacts.create":
+            normalized = contacts.normalize_contact_create_arguments(arguments)
+        elif action_key == "contacts.update":
+            normalized = contacts.normalize_contact_update_arguments(arguments)
+            existing = contacts.get_federated_contact_by_canonical(str(normalized["canonical_id"]))
+            if existing is None:
+                raise contacts.ContactError("HomeServer contact not found.", 404)
+        elif action_key == "contacts.delete":
+            normalized = contacts.normalize_contact_delete_arguments(arguments)
+            existing = contacts.get_federated_contact_by_canonical(str(normalized["canonical_id"]))
+            if existing is None:
+                raise contacts.ContactError("HomeServer contact not found.", 404)
+        else:
+            raise contacts.ContactError("Unsupported contact action.")
+    except contacts.ContactError as exc:
+        run_id = _record_failed_proposal(source, actor_type, action_key, required, raw_meta, str(exc))
+        raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
+    meta = contacts.safe_contact_mutation_meta(action_key, normalized)
+    return _create_action_request(source, actor_type, action_key, normalized, meta, required)
+
+
+def create_contact_create_request(
+    source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False
+) -> dict[str, Any]:
+    return _contact_request(source_app_key, "contacts.create", arguments, owner=owner)
+
+
+def create_contact_update_request(
+    source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False
+) -> dict[str, Any]:
+    return _contact_request(source_app_key, "contacts.update", arguments, owner=owner)
+
+
+def create_contact_delete_request(
+    source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False
+) -> dict[str, Any]:
+    return _contact_request(source_app_key, "contacts.delete", arguments, owner=owner)
+
+
 def create_memory_write_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
@@ -401,7 +452,10 @@ def approve_request(request_id: str) -> dict[str, Any]:
     request = _request_for_owner(request_id)
     if request["status"] != "pending":
         raise ApprovalError(f"Action request is already {request['status']}.", 409)
-    if request["action_key"] not in {"memory.write", "tasks.create", "devices.command"}:
+    if request["action_key"] not in {
+        "memory.write", "tasks.create", "devices.command",
+        "contacts.create", "contacts.update", "contacts.delete",
+    }:
         raise ApprovalError("Action type is not approved for local execution.", 403)
     with db() as connection:
         reserved = connection.execute(
