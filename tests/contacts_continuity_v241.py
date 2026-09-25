@@ -28,11 +28,15 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
     assert versions == list(range(1, 34))
 
     migration = (ROOT / "database" / "migrations" / "033_governed_contact_actions.sql").read_text(encoding="utf-8")
-    assert "contacts.create" in migration
-    assert "contacts.update" in migration
-    assert "contacts.delete" in migration
-    assert "app_permissions" not in migration
-    assert "contacts.write" not in migration
+    migration_sql = "\n".join(
+        line for line in migration.splitlines()
+        if not line.lstrip().startswith("--")
+    )
+    assert "contacts.create" in migration_sql
+    assert "contacts.update" in migration_sql
+    assert "contacts.delete" in migration_sql
+    assert "app_permissions" not in migration_sql
+    assert "contacts.write" not in migration_sql
 
     contacts_api = (ROOT / "app" / "contacts_api.py").read_text(encoding="utf-8")
     assert '@router.post("/api/v1/contacts")' not in contacts_api
