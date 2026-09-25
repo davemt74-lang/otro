@@ -621,9 +621,6 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             query = str(body.get("query") or "")[:240]
             limit = _bounded_int(body.get("limit"), default=100, minimum=1, maximum=250, name="limit")
             return _local_response(client.get("/api/v1/contacts", params={"q": query, "limit": limit}, headers=headers))
-        if op == "contacts.get":
-            contact_id = _bounded_int(body.get("contact_id"), default=0, minimum=1, maximum=2147483647, name="contact_id")
-            return _local_response(client.get(f"/api/v1/contacts/{contact_id}", headers=headers))
         if op == "knowledge.search":
             query = str(body.get("query") or "")[:240]
             return _local_response(client.get("/api/v1/knowledge", params={"q": query}, headers=headers))
