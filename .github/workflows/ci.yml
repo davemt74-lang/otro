@@ -121,7 +121,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '2.2') {
+                if ($response.ok -eq $true -and $response.version -eq '2.3') {
                   $healthy = $true
                   break
                 }
@@ -132,7 +132,7 @@ jobs:
                 }
               }
             }
-            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v2.2' }
+            if (-not $healthy) { throw 'HomeServer.exe did not become healthy on 127.0.0.1:4377 as v2.3' }
           } finally {
             $process.Refresh()
             if (-not $process.HasExited) { & taskkill.exe /PID $process.Id /T /F | Out-Null }
@@ -142,7 +142,7 @@ jobs:
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
             throw 'Packaged smoke left a HomeServer listener on port 4377'
           }
-      - name: Verify packaged v2.1 to v2.2 upgrade takeover
+      - name: Verify packaged v2.1 to v2.3 upgrade takeover
         shell: pwsh
         run: |
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
@@ -168,7 +168,7 @@ jobs:
               Start-Sleep -Milliseconds 500
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
-                if ($response.version -eq '2.2') { $newHealthy = $true; break }
+                if ($response.version -eq '2.3') { $newHealthy = $true; break }
               } catch {
                 $new.Refresh()
                 if ($new.HasExited) { throw "New HomeServer exited during takeover with code $($new.ExitCode)" }
@@ -198,7 +198,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '2.2') { $healthy = $true; break }
+                if ($response.ok -eq $true -and $response.version -eq '2.3') { $healthy = $true; break }
               } catch {}
             }
             if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
@@ -407,7 +407,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '2.2') {
+                if ($response.recovery -eq $true -and $response.ok -eq $false -and $response.version -eq '2.3') {
                   $recovery = $true
                   break
                 }
@@ -438,7 +438,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '2.2') {
+                if ($response.ok -eq $true -and $response.version -eq '2.3') {
                   $healthy = $true
                   break
                 }
@@ -500,7 +500,7 @@ jobs:
               Start-Sleep -Seconds 1
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 2
-                if ($response.ok -eq $true -and $response.version -eq '2.2') {
+                if ($response.ok -eq $true -and $response.version -eq '2.3') {
                   $installedHealthy = $true
                   break
                 }
@@ -539,11 +539,11 @@ jobs:
           $lines | Set-Content -Encoding ascii 'dist/SHA256SUMS.txt'
           $manifest = [ordered]@{
             format = 'vp3-os-release-v1'
-            version = '2.2'
+            version = '2.3'
             channel = 'stable'
             minimum_schema_version = 31
             files = $hashMap
-            release_notes = 'HomeServer v2.2 unified Agent presence, execution routing and Cloud-aligned UI shell'
+            release_notes = 'HomeServer v2.3 unified execution, local reads, compute receipts, governed actions, local voice and Profile Agent parity'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
