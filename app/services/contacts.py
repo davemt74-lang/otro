@@ -195,10 +195,37 @@ def delete_contact(contact_id: int) -> bool:
 
 
 
+def _authority_key(contact_id: int) -> str:
+    if int(contact_id) < 1:
+        raise ContactError("Contact identity is invalid.", 500)
+    return f"address_book:{int(contact_id)}"
+
+
+def _contact_id_from_canonical(canonical_id_value: str) -> int:
+    key = federated_data.resolve_authority_key(
+        canonical_id_value,
+        authority_source="homeserver",
+        dataset="contacts",
+        observed_source="homeserver",
+    )
+    if not key or not key.startswith("address_book:"):
+        raise ContactError("HomeServer contact not found.", 404)
+    raw = key.split(":", 1)[1]
+    try:
+        contact_id = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ContactError("HomeServer contact identity is invalid.", 404) from exc
+    if contact_id < 1:
+        raise ContactError("HomeServer contact identity is invalid.", 404)
+    expected = federated_data.canonical_id("homeserver", "contacts", _authority_key(contact_id))
+    if expected != str(canonical_id_value or "").strip():
+        raise ContactError("HomeServer contact identity does not match its authority.", 409)
+    return contact_id
+
+
 def federated_contact(record: dict[str, Any]) -> dict[str, Any]:
     contact_id = int(record.get("id") or 0)
-    if contact_id < 1:
-        raise ContactError("Contact identity is invalid.", 500)
+    key = _authority_key(contact_id)
     content = " · ".join(
         value for value in (
             str(record.get("organization") or "").strip(),
@@ -211,21 +238,24 @@ def federated_contact(record: dict[str, Any]) -> dict[str, Any]:
     envelope = federated_data.envelope(
         "homeserver",
         "contacts",
-        str(contact_id),
+        key,
         title=str(record.get("display_name") or "Contact"),
         content=content,
         updated_at=str(record.get("updated_at") or record.get("created_at") or ""),
     )
+    federated_data.observe(envelope, observed_source="homeserver")
     out = dict(record)
     out.update({
+        "contact_class": "address_book",
         "authority_source": "homeserver",
-        "authority_key": str(contact_id),
+        "authority_key": key,
         "canonical_id": envelope["canonical_id"],
         "record_revision": envelope["record_revision"],
         "federation_version": envelope["federation_version"],
         "mirror_only": False,
         "read_only": False,
         "source_label": "HomeServer",
+        "allowed_mutations": ["update", "delete"],
     })
     return out
 
@@ -239,9 +269,45 @@ def get_federated_contact(contact_id: int) -> dict[str, Any] | None:
     return federated_contact(row) if row else None
 
 
+def get_federated_contact_by_canonical(canonical_id_value: str) -> dict[str, Any] | None:
+    try:
+        contact_id = _contact_id_from_canonical(canonical_id_value)
+    except ContactError as exc:
+        if exc.status_code == 404:
+            return None
+        raise
+    row = get_contact(contact_id)
+    return federated_contact(row) if row else None
+
+
 def create_federated_contact(payload: dict[str, Any]) -> dict[str, Any]:
     return federated_contact(create_contact(payload))
 
 
-def update_federated_contact(contact_id: int, payload: dict[str, Any]) -> dict[str, Any]:
-    return federated_contact(update_contact(contact_id, payload))
+def update_federated_contact(canonical_id_value: str, payload: dict[str, Any]) -> dict[str, Any]:
+    contact_id = _contact_id_from_canonical(canonical_id_value)
+    current = get_contact(contact_id)
+    if current is None:
+        raise ContactError("HomeServer contact not found.", 404)
+    merged = {
+        key: payload[key] if key in payload else current.get(key)
+        for key in (
+            "display_name","first_name","last_name","organization",
+            "email","phone","relationship","notes"
+        )
+    }
+    return federated_contact(update_contact(contact_id, merged))
+
+
+def delete_federated_contact(canonical_id_value: str) -> bool:
+    contact_id = _contact_id_from_canonical(canonical_id_value)
+    key = _authority_key(contact_id)
+    if not delete_contact(contact_id):
+        return False
+    federated_data.mark_tombstone(
+        "homeserver",
+        "contacts",
+        key,
+        observed_source="homeserver",
+    )
+    return True
