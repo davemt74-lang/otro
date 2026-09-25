@@ -316,7 +316,7 @@ def capabilities() -> dict:
             "cloud_routeable": True,
             "operations": [
                 "agent.chat", "agent.infer.local", "capabilities", "capability.registry", "federation.registry",
-                "knowledge.search", "files.list", "files.read",
+                "knowledge.search", "contacts.list", "contacts.get", "contacts.create", "contacts.update", "contacts.delete", "files.list", "files.read",
                 "tools.list", "tool.execute", "tools.execute", "tasks.list",
                 "notifications.list", "shared.context.exchange",
                 "system.ping", "speech.status", "speech.transcribe", "speech.synthesize",
