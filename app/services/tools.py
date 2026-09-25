@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, contacts, knowledge_collection_policy, local_files, room_device_automation
+from . import app_scopes, contacts, knowledge as knowledge_service, knowledge_collection_policy, local_files, room_device_automation
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -139,6 +139,63 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20},
             },
             "required": ["query"],
+            "additionalProperties": False,
+        },
+    },
+    "knowledge.create": {
+        "key": "knowledge.create",
+        "name": "Create HomeServer Knowledge",
+        "description": "Propose creation of one direct HomeServer-native Knowledge item.",
+        "mode": "write",
+        "required_permissions": ["knowledge.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "collection_key": {"type": "string", "maxLength": 64},
+                "title": {"type": "string", "minLength": 1, "maxLength": 240},
+                "content": {"type": "string", "minLength": 1, "maxLength": 250000},
+                "kind": {"type": "string", "maxLength": 40},
+            },
+            "required": ["mutation_id", "title", "content"],
+            "additionalProperties": False,
+        },
+    },
+    "knowledge.update": {
+        "key": "knowledge.update",
+        "name": "Update HomeServer Knowledge",
+        "description": "Propose changes to one direct HomeServer-native Knowledge item by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["knowledge.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+                "collection_key": {"type": "string", "maxLength": 64},
+                "title": {"type": "string", "minLength": 1, "maxLength": 240},
+                "content": {"type": "string", "minLength": 1, "maxLength": 250000},
+                "kind": {"type": "string", "maxLength": 40},
+            },
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    "knowledge.delete": {
+        "key": "knowledge.delete",
+        "name": "Delete HomeServer Knowledge",
+        "description": "Propose deletion of one direct HomeServer-native Knowledge item by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["knowledge.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+            },
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
             "additionalProperties": False,
         },
     },
@@ -388,6 +445,8 @@ def _safe_numeric(value: Any, default: int | float | None = None) -> int | float
 def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if tool_key in {"contacts.create", "contacts.update", "contacts.delete"}:
         return contacts.safe_contact_mutation_meta(tool_key, arguments)
+    if tool_key in {"knowledge.create", "knowledge.update", "knowledge.delete"}:
+        return knowledge_service.safe_knowledge_mutation_meta(tool_key, arguments)
     if tool_key in {"contacts.search", "knowledge.search", "tasks.list", "files.list"}:
         query = str(arguments.get("query") or "")
         return {"query_length": len(query), "limit": _safe_numeric(arguments.get("limit"), 8)}
@@ -672,6 +731,77 @@ def _knowledge_search(
     return {"items": items, "count": len(items)}, {"count": len(items)}
 
 
+def _knowledge_tool_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(item.get("id") or 0),
+        "title": str(item.get("title") or "")[:240],
+        "kind": str(item.get("kind") or "")[:40],
+        "collection_key": str(item.get("collection_key") or "general")[:64],
+        "source_type": str(item.get("source_type") or "local_item")[:40],
+        "updated_at": item.get("updated_at"),
+        "authority_source": "homeserver",
+        "authority_key": str(item.get("authority_key") or "")[:180],
+        "canonical_id": str(item.get("canonical_id") or "")[:45],
+        "record_revision": str(item.get("record_revision") or "")[:64],
+        "federation_version": str(item.get("federation_version") or "2.4")[:20],
+        "read_only": bool(item.get("read_only")),
+        "mutation_route": str(item.get("mutation_route") or "")[:40],
+        "allowed_mutations": list(item.get("allowed_mutations") or []),
+    }
+
+
+def _knowledge_create(arguments: dict[str, Any], source_app_key: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        normalized = knowledge_service.normalize_knowledge_create_arguments(arguments)
+        item = knowledge_service.create_federated_knowledge(normalized, source_app_key=source_app_key)
+    except knowledge_service.FederatedKnowledgeError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    safe = _knowledge_tool_item(item)
+    return {"knowledge": safe, "created": True}, {
+        "canonical_id": safe["canonical_id"],
+        "collection_key": safe["collection_key"],
+        "kind": safe["kind"],
+    }
+
+
+def _knowledge_update(arguments: dict[str, Any], source_app_key: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        normalized = knowledge_service.normalize_knowledge_update_arguments(arguments)
+        canonical = str(normalized.pop("canonical_id"))
+        item = knowledge_service.update_federated_knowledge(
+            canonical,
+            normalized,
+            source_app_key=source_app_key,
+        )
+    except knowledge_service.FederatedKnowledgeError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    safe = _knowledge_tool_item(item)
+    return {"knowledge": safe, "updated": True}, {
+        "canonical_id": safe["canonical_id"],
+        "collection_key": safe["collection_key"],
+        "kind": safe["kind"],
+    }
+
+
+def _knowledge_delete(arguments: dict[str, Any], source_app_key: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        normalized = knowledge_service.normalize_knowledge_delete_arguments(arguments)
+        canonical = str(normalized["canonical_id"])
+        deleted = knowledge_service.delete_federated_knowledge(
+            canonical,
+            mutation_id=str(normalized["mutation_id"]),
+            expected_revision=str(normalized["expected_revision"]),
+            source_app_key=source_app_key,
+        )
+    except knowledge_service.FederatedKnowledgeError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    if not deleted:
+        raise ToolError("HomeServer Knowledge item not found.", 404)
+    return {"deleted": True, "canonical_id": canonical}, {
+        "canonical_id": canonical[:45],
+    }
+
+
 def _memory_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     unknown = set(arguments) - {"limit"}
     if unknown:
@@ -865,6 +995,12 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _files_read(payload, source, owner=owner)
         elif tool["key"] == "knowledge.search":
             result, result_meta = _knowledge_search(payload, source, owner=owner)
+        elif tool["key"] == "knowledge.create":
+            result, result_meta = _knowledge_create(payload, source)
+        elif tool["key"] == "knowledge.update":
+            result, result_meta = _knowledge_update(payload, source)
+        elif tool["key"] == "knowledge.delete":
+            result, result_meta = _knowledge_delete(payload, source)
         elif tool["key"] == "memory.list":
             result, result_meta = _memory_list(payload)
         elif tool["key"] == "memory.write":
