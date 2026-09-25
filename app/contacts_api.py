@@ -48,41 +48,6 @@ def client_contact_get(
     return {"contact": item, "app": identity["app_key"]}
 
 
-@router.post("/api/v1/contacts")
-def client_contact_create(
-    payload: ContactPayload,
-    identity: dict = Depends(require("contacts.write")),
-) -> dict:
-    try:
-        item = contacts.create_federated_contact(_payload_dict(payload))
-    except contacts.ContactError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    return {"contact": item, "created": True, "app": identity["app_key"]}
-
-
-@router.put("/api/v1/contacts/{contact_id}")
-def client_contact_update(
-    contact_id: int,
-    payload: ContactPayload,
-    identity: dict = Depends(require("contacts.write")),
-) -> dict:
-    try:
-        item = contacts.update_federated_contact(contact_id, _payload_dict(payload))
-    except contacts.ContactError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    return {"contact": item, "updated": True, "app": identity["app_key"]}
-
-
-@router.delete("/api/v1/contacts/{contact_id}")
-def client_contact_delete(
-    contact_id: int,
-    identity: dict = Depends(require("contacts.write")),
-) -> dict:
-    if not contacts.delete_contact(contact_id):
-        raise HTTPException(status_code=404, detail="Contact not found")
-    return {"deleted": True, "contact_id": contact_id, "app": identity["app_key"]}
-
-
 @router.get("/api/v1/control/contacts")
 def control_contacts(
     q: str = Query(default="", max_length=240),
