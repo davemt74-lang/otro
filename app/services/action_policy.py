@@ -15,6 +15,7 @@ APPROVAL_ONLY_WRITE_TOOLS = {
     "files.update",
     "files.delete",
     "devices.command",
+    "contacts.delete",
     "vp3.booking.create",
     "vp3.booking.reschedule",
     "vp3.booking.cancel",
