@@ -54,3 +54,22 @@ ON CONFLICT(tool_key) DO NOTHING;
 INSERT INTO tool_policies(tool_key, enabled)
 VALUES ('contacts.delete', 1)
 ON CONFLICT(tool_key) DO NOTHING;
+
+
+-- Idempotent federated contact mutation receipts.
+-- A mutation_id is scoped to the calling app; replaying the same mutation with
+-- identical arguments returns the original result, while changing arguments
+-- under the same mutation_id fails closed.
+CREATE TABLE IF NOT EXISTS federated_contact_mutations (
+    source_app_key TEXT NOT NULL,
+    mutation_id TEXT NOT NULL,
+    action_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    canonical_id TEXT,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(source_app_key, mutation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_federated_contact_mutations_created
+ON federated_contact_mutations(created_at DESC);
