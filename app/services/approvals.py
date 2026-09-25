@@ -347,7 +347,7 @@ def _knowledge_request(
             )
         else:
             raise knowledge_service.FederatedKnowledgeError("Unsupported Knowledge action.")
-    except knowledge_service.FederatedKnowledgeError as exc:
+    except (knowledge_service.FederatedKnowledgeError, tools.ToolError) as exc:
         run_id = _record_failed_proposal(
             source, actor_type, action_key, required, raw_meta, str(exc)
         )
