@@ -187,11 +187,11 @@ def update_cursor(
         connection.execute(
             """
             INSERT INTO federated_sync_cursors(
-                peer_source,dataset,revision,cursor,last_sync_at,last_success_at,last_error
+                peer_source,dataset,revision,sync_cursor,last_sync_at,last_success_at,last_error
             ) VALUES (?,?,?,?,CURRENT_TIMESTAMP,CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,?)
             ON CONFLICT(peer_source,dataset) DO UPDATE SET
                 revision=excluded.revision,
-                cursor=excluded.cursor,
+                sync_cursor=excluded.sync_cursor,
                 last_sync_at=CURRENT_TIMESTAMP,
                 last_success_at=CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE federated_sync_cursors.last_success_at END,
                 last_error=excluded.last_error
@@ -206,7 +206,7 @@ def registry() -> dict[str, Any]:
             "SELECT source_id,source_type,authority_scope,writable,priority,capabilities_json,updated_at FROM federated_data_sources ORDER BY priority DESC,source_id"
         ).fetchall()]
         cursor_rows = [dict(row) for row in connection.execute(
-            "SELECT peer_source,dataset,revision,cursor,last_sync_at,last_success_at,last_error FROM federated_sync_cursors ORDER BY peer_source,dataset"
+            "SELECT peer_source,dataset,revision,sync_cursor,last_sync_at,last_success_at,last_error FROM federated_sync_cursors ORDER BY peer_source,dataset"
         ).fetchall()]
         link_count = int(connection.execute("SELECT COUNT(*) AS c FROM federated_record_links").fetchone()["c"])
     clean_sources = []
