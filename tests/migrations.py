@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 33))
+        assert versions == list(range(1, 34))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -250,7 +250,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0] == 0
         policies = migrated.execute("SELECT tool_key, enabled FROM tool_policies ORDER BY tool_key").fetchall()
         assert [(row["tool_key"], row["enabled"]) for row in policies] == [
+            ("contacts.create", 1),
+            ("contacts.delete", 1),
             ("contacts.search", 1),
+            ("contacts.update", 1),
             ("devices.command", 1),
             ("devices.list", 1),
             ("files.delete", 1),
@@ -400,6 +403,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         for action_key in (
             "memory.write", "tasks.create", "files.update", "files.delete",
             "vp3.booking.create", "vp3.booking.reschedule", "vp3.booking.cancel",
+            "contacts.create", "contacts.update", "contacts.delete",
         ):
             assert f"'{action_key}'" in action_schema
         proposal_checks = (
@@ -409,6 +413,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ("vp3-booking-create-check", "vp3.booking.create", '{"kind":"personal","target_id":1,"start_at_utc":"2099-01-01T18:00:00Z","guest_name":"Test"}', '{"kind":"personal"}'),
             ("vp3-booking-reschedule-check", "vp3.booking.reschedule", '{"booking_id":1,"start_at_utc":"2099-01-02T18:00:00Z"}', '{"booking_id":1}'),
             ("vp3-booking-cancel-check", "vp3.booking.cancel", '{"kind":"personal","booking_id":1}', '{"booking_id":1}'),
+            ("contacts-create-check", "contacts.create", '{"display_name":"Test Contact"}', '{"field_count":1}'),
+            ("contacts-update-check", "contacts.update", '{"canonical_id":"fd24_0123456789abcdef0123456789abcdef01234567","display_name":"Updated"}', '{"field_count":1}'),
+            ("contacts-delete-check", "contacts.delete", '{"canonical_id":"fd24_0123456789abcdef0123456789abcdef01234567"}', '{"field_count":0}'),
         )
         for request_id, action_key, arguments_json, arguments_meta_json in proposal_checks:
             migrated.execute(
@@ -446,12 +453,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 33))
+        assert versions_again == list(range(1, 34))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 11
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 14
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_intelligence_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_context_events").fetchone()[0] == 0
