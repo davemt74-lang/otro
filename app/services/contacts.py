@@ -11,6 +11,74 @@ class ContactError(RuntimeError):
         super().__init__(message)
         self.status_code = status_code
 
+CONTACT_FIELDS = (
+    "display_name", "first_name", "last_name", "organization",
+    "email", "phone", "relationship", "notes",
+)
+
+
+def _canonical(value: Any) -> str:
+    canonical = str(value or "").strip().lower()
+    if len(canonical) != 45 or not canonical.startswith("fd24_"):
+        raise ContactError("HomeServer contact canonical_id is invalid.")
+    suffix = canonical[5:]
+    if any(ch not in "0123456789abcdef" for ch in suffix):
+        raise ContactError("HomeServer contact canonical_id is invalid.")
+    return canonical
+
+
+def normalize_contact_create_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    unknown = set(raw) - set(CONTACT_FIELDS)
+    if unknown:
+        raise ContactError(f"Unsupported contacts.create argument: {sorted(unknown)[0]}")
+    return normalize_contact(raw)
+
+
+def normalize_contact_update_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    unknown = set(raw) - {"canonical_id", *CONTACT_FIELDS}
+    if unknown:
+        raise ContactError(f"Unsupported contacts.update argument: {sorted(unknown)[0]}")
+    canonical = _canonical(raw.get("canonical_id"))
+    fields = {key: raw[key] for key in CONTACT_FIELDS if key in raw}
+    if not fields:
+        raise ContactError("contacts.update requires at least one contact field.")
+    for key, value in fields.items():
+        if key == "notes":
+            if len(str(value or "")) > 50000:
+                raise ContactError("Contact notes exceed 50,000 characters.")
+            continue
+        limits = {
+            "display_name": 240, "first_name": 120, "last_name": 120,
+            "organization": 240, "email": 320, "phone": 80, "relationship": 160,
+        }
+        _clean(value, limits[key])
+    return {"canonical_id": canonical, **fields}
+
+
+def normalize_contact_delete_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    unknown = set(raw) - {"canonical_id"}
+    if unknown:
+        raise ContactError(f"Unsupported contacts.delete argument: {sorted(unknown)[0]}")
+    return {"canonical_id": _canonical(raw.get("canonical_id"))}
+
+
+def safe_contact_mutation_meta(action: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    canonical = str(raw.get("canonical_id") or "")
+    fields = sorted(key for key in CONTACT_FIELDS if key in raw)
+    return {
+        "action": str(action or "")[:32],
+        "canonical_id_present": bool(canonical),
+        "canonical_id_prefix": canonical[:5] if canonical else "",
+        "field_names": fields,
+        "field_count": len(fields),
+        "has_notes": "notes" in raw,
+    }
+
+
 
 def _clean(value: Any, max_length: int) -> str | None:
     if value is None:
