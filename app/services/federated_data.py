@@ -270,3 +270,37 @@ def mark_tombstone(
             """,
             (source,name,key,canonical,observed),
         )
+
+
+def resolve_authority_key(
+    canonical_id_value: str,
+    *,
+    authority_source: str,
+    dataset: str,
+    observed_source: str = "homeserver",
+    include_tombstoned: bool = False,
+) -> str | None:
+    canonical = _text(canonical_id_value, 80)
+    if not canonical.startswith("fd24_") or len(canonical) != 45:
+        return None
+    source = validate_source(authority_source)
+    name = validate_dataset(dataset)
+    observed = validate_source(observed_source)
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT authority_key,tombstoned
+            FROM federated_record_links
+            WHERE canonical_id=? AND authority_source=? AND dataset=? AND observed_source=?
+            ORDER BY last_seen_at DESC LIMIT 1
+            """,
+            (canonical, source, name, observed),
+        ).fetchone()
+    if row is None:
+        return None
+    if bool(row["tombstoned"]) and not include_tombstoned:
+        return None
+    key = _text(row["authority_key"], MAX_KEY_CHARS)
+    if not key or canonical_id(source, name, key) != canonical:
+        return None
+    return key
