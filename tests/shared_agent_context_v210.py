@@ -12,11 +12,11 @@ config=read("app/config.py")
 installer=read("installer/HomeServer.iss")
 
 checks=[
- ("release version is 2.3", 'version: str = "2.3"' in config and '#define MyAppVersion "2.3"' in installer),
+ ("release version is 2.2", 'version: str = "2.2"' in config and '#define MyAppVersion "2.2"' in installer),
  ("migration creates the shared Cloud mirror cache",
   "CREATE TABLE IF NOT EXISTS shared_agent_snapshots" in migration and "snapshot_json" in migration),
- ("shared fabric is v2.3 and covers all five datasets",
-  'SHARED_AGENT_CONTEXT_VERSION = "2.3"' in shared and
+ ("shared fabric is v2.2 and covers all five datasets",
+  'SHARED_AGENT_CONTEXT_VERSION = "2.2"' in shared and
   all(name in shared for name in ('"memory"', '"knowledge"', '"contacts"', '"tasks"', '"notifications"'))),
  ("shared payloads are bounded below the relay message ceiling",
   "MAX_SNAPSHOT_BYTES = 196_608" in shared and "max_bytes: int = 170_000" in shared),
@@ -44,7 +44,7 @@ for name,ok in checks:
     if not ok:
         raise AssertionError(name)
     print("PASS:",name)
-print(f"HomeServer v2.3 shared Agent context: {len(checks)}/{len(checks)} passed")
+print(f"HomeServer v2.2 shared Agent context: {len(checks)}/{len(checks)} passed")
 
 
 import os
@@ -63,14 +63,14 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
     from app.services import pairing, remote_bridge, shared_agent_context
 
     initialize_database()
-    assert settings.version=="2.3"
+    assert settings.version=="2.2"
 
     with db() as connection:
         assert connection.execute("SELECT 1 FROM schema_migrations WHERE version=31").fetchone() is not None
         assert connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='shared_agent_snapshots'").fetchone() is not None
 
     cloud_snapshot={
-        "version":"2.3",
+        "version":"2.2",
         "revision":"cloud-revision-1",
         "generated_at":"2026-09-24T17:00:00Z",
         "datasets":{
@@ -102,7 +102,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
     assert ping["ok"] is True
     assert ping["payload"]["pong"] is True
     assert ping["payload"]["echo"]=="roundtrip-v21"
-    assert ping["payload"]["version"]=="2.3"
+    assert ping["payload"]["version"]=="2.2"
     assert ping["payload"]["app"]=="vp3"
 
     exchanged=remote_bridge.dispatch_remote_request(
@@ -111,7 +111,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
         token,
     )
     assert exchanged["ok"] is True
-    assert exchanged["payload"]["version"]=="2.3"
+    assert exchanged["payload"]["version"]=="2.2"
     assert exchanged["payload"]["cloud_mirror"]["revision"]=="cloud-revision-1"
     assert exchanged["payload"]["homeserver_snapshot"]["authoritative_source"]=="homeserver"
     assert set(exchanged["payload"]["homeserver_snapshot"]["datasets"])=={
@@ -136,4 +136,4 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
     except remote_bridge.RemoteBridgeError:
         pass
 
-print("HomeServer v2.3 shared Agent runtime exchange passed")
+print("HomeServer v2.2 shared Agent runtime exchange passed")
