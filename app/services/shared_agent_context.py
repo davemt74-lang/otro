@@ -244,10 +244,14 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
             "contacts",
             {
                 "id": row.get("id"),
+                "authority_source": row.get("authority_source") or "homeserver",
+                "authority_key": row.get("authority_key"),
+                "canonical_id": row.get("canonical_id"),
                 "title": row.get("display_name") or "Contact",
                 "content": "; ".join(
                     value
                     for value in (
+                        "class: " + _text(row.get("contact_class"), 60) if row.get("contact_class") else "",
                         _text(row.get("organization"), 240),
                         _text(row.get("relationship"), 160),
                         _text(row.get("email"), 320),
@@ -260,7 +264,7 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
             },
             index,
         )
-        for index, row in enumerate(contacts.list_contacts(text, 60)[:60])
+        for index, row in enumerate(contacts.list_federated_contacts(text, 60)[:60])
         if isinstance(row, dict)
     ]
     task_rows = [
