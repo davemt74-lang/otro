@@ -49,6 +49,7 @@ jobs:
           tests/vp3_os_release_api_v100.py
           tests/vp3_os_soak_v100.py
           tests/vp3_os_release_contract_v100.py
+          tests/homeserver_v23_release_acceptance.py
       - name: Verify v0.10 platform contract
         run: python tests/vp3_os_v010.py
       - name: Verify v0.20 hardware adapter contract
