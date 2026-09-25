@@ -37,17 +37,6 @@ def client_contacts(
     return {"items": items, "app": identity["app_key"], "query": q.strip()}
 
 
-@router.get("/api/v1/contacts/{contact_id}")
-def client_contact_get(
-    contact_id: int,
-    identity: dict = Depends(require("contacts.read")),
-) -> dict:
-    item = contacts.get_federated_contact(contact_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="Contact not found")
-    return {"contact": item, "app": identity["app_key"]}
-
-
 @router.get("/api/v1/control/contacts")
 def control_contacts(
     q: str = Query(default="", max_length=240),
