@@ -394,31 +394,21 @@ def search_for_app(identity: dict[str, Any], query: str, limit: int = 20) -> dic
                 char_end=int(row["char_end"] or 0),
                 provenance=provenance,
             )
-            authority_key = f"knowledge_item:{item_id}"
-            canonical = federated_data.canonical_id("homeserver", "knowledge", authority_key)
-            content_hash = str(row["content_hash"] or "")
-            revision = content_hash if re.fullmatch(r"[0-9a-fA-F]{64}", content_hash) else federated_data.record_revision(
-                str(row["title"] or ""),
-                str(row["snippet"] or ""),
-                str(row["updated_at"] or ""),
+            from . import knowledge as knowledge_service
+            state = knowledge_service._knowledge_state(item_id)
+            if state is None:
+                continue
+            projection = knowledge_service.federated_knowledge_item(
+                state,
+                snippet=str(row["snippet"] or ""),
             )
-            items.append(
+            projection.update(
                 {
-                    "id": item_id,
-                    "title": str(row["title"] or ""),
-                    "kind": str(row["kind"] or ""),
-                    "snippet": str(row["snippet"] or ""),
-                    "updated_at": row["updated_at"],
                     "score": float(row["score"] or 0.0),
                     "citation": citation,
-                    "authority_source": "homeserver",
-                    "authority_key": authority_key,
-                    "canonical_id": canonical,
-                    "record_revision": revision.lower(),
-                    "federation_version": federated_data.FEDERATED_DATA_VERSION,
-                    "mirror_only": False,
                 }
             )
+            items.append(projection)
             if len(items) >= bounded:
                 break
 
