@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, local_voice, providers, shared_agent_context
+from . import agent_voice_profiles, federated_data, local_voice, providers, shared_agent_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -512,6 +512,9 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             return _local_response(client.post("/api/v1/pairing/status", json=body))
         if op == "agent.chat":
             return _local_response(client.post("/api/v1/chat", json=body, headers=headers))
+        if op == "federation.registry":
+            _direct_identity(token, {"agent.chat"})
+            return {"status": 200, "ok": True, "payload": federated_data.registry()}
         if op == "agent.infer.local":
             _direct_identity(token, {"agent.chat"})
             messages = _bounded_remote_messages(body.get("messages"))
