@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from ..database import db
+from . import federated_data
 
 DEFAULT_COLLECTION_KEY = "general"
 _COLLECTION_KEY = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
@@ -393,6 +394,14 @@ def search_for_app(identity: dict[str, Any], query: str, limit: int = 20) -> dic
                 char_end=int(row["char_end"] or 0),
                 provenance=provenance,
             )
+            authority_key = f"knowledge_item:{item_id}"
+            canonical = federated_data.canonical_id("homeserver", "knowledge", authority_key)
+            content_hash = str(row["content_hash"] or "")
+            revision = content_hash if re.fullmatch(r"[0-9a-fA-F]{64}", content_hash) else federated_data.record_revision(
+                str(row["title"] or ""),
+                str(row["snippet"] or ""),
+                str(row["updated_at"] or ""),
+            )
             items.append(
                 {
                     "id": item_id,
@@ -402,6 +411,12 @@ def search_for_app(identity: dict[str, Any], query: str, limit: int = 20) -> dic
                     "updated_at": row["updated_at"],
                     "score": float(row["score"] or 0.0),
                     "citation": citation,
+                    "authority_source": "homeserver",
+                    "authority_key": authority_key,
+                    "canonical_id": canonical,
+                    "record_revision": revision.lower(),
+                    "federation_version": federated_data.FEDERATED_DATA_VERSION,
+                    "mirror_only": False,
                 }
             )
             if len(items) >= bounded:
