@@ -310,6 +310,11 @@ def _knowledge_request(
     try:
         if action_key == "knowledge.create":
             normalized = knowledge_service.normalize_knowledge_create_arguments(arguments)
+            tools._knowledge_mutation_scope(
+                source,
+                kind=str(normalized["kind"]),
+                collection_key=str(normalized["collection_key"]),
+            )
         elif action_key == "knowledge.update":
             normalized = knowledge_service.normalize_knowledge_update_arguments(arguments)
             existing = knowledge_service.get_federated_knowledge_by_canonical(
@@ -320,6 +325,11 @@ def _knowledge_request(
                     "HomeServer Knowledge item not found.", 404
                 )
             knowledge_service._assert_mutable_direct_item(existing)
+            tools._knowledge_mutation_scope(
+                source,
+                kind=str(normalized.get("kind") or existing.get("kind") or "note"),
+                collection_key=str(normalized.get("collection_key") or existing.get("collection_key") or "general"),
+            )
         elif action_key == "knowledge.delete":
             normalized = knowledge_service.normalize_knowledge_delete_arguments(arguments)
             existing = knowledge_service.get_federated_knowledge_by_canonical(
@@ -330,6 +340,11 @@ def _knowledge_request(
                     "HomeServer Knowledge item not found.", 404
                 )
             knowledge_service._assert_mutable_direct_item(existing)
+            tools._knowledge_mutation_scope(
+                source,
+                kind=str(existing.get("kind") or "note"),
+                collection_key=str(existing.get("collection_key") or "general"),
+            )
         else:
             raise knowledge_service.FederatedKnowledgeError("Unsupported Knowledge action.")
     except knowledge_service.FederatedKnowledgeError as exc:
