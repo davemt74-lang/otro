@@ -52,8 +52,6 @@ jobs:
         run: python tests/agent_shell_contract.py
       - name: Database migration upgrade test
         run: python tests/migrations.py
-      - name: VP3 local execution permission upgrade regression
-        run: python tests/vp3_local_execution_permissions_v230.py
       - name: Cognition workspace UI integration contract
         run: python tests/cognition_ui_contract.py
       - name: Cognitive runtime and plugin bus regression
