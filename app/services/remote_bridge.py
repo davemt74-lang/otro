@@ -32,6 +32,7 @@ _EVENT_TYPE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
 _REMOTE_OPERATION_ALIASES = {
     "chat": "agent.chat",
     "usage.cloud": "usage.write",
+    "tools.execute": "tool.execute",
 }
 _RELOAD_EVENT = threading.Event()
 _STATE_LOCK = threading.Lock()
