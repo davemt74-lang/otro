@@ -889,6 +889,11 @@ def update_federated_knowledge(
     kind = str(normalized.get("kind", state["kind"]))
     content = _normalize_text(str(normalized.get("content", state["content"])))
     digest = hashlib.sha256(content.encode("utf-8")).hexdigest() if content else None
+    if "collection_key" in normalized:
+        try:
+            knowledge_collections._collection_row(str(normalized["collection_key"]))
+        except knowledge_collections.KnowledgeCollectionError as exc:
+            raise FederatedKnowledgeError(str(exc), exc.status_code) from exc
     with db() as connection:
         connection.execute(
             """
