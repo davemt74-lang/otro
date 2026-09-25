@@ -48,6 +48,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
     assert action_policy.default_mode("contacts.create") == action_policy.APPROVAL_REQUIRED
     assert action_policy.default_mode("contacts.update") == action_policy.APPROVAL_REQUIRED
     assert action_policy.default_mode("contacts.delete") == action_policy.APPROVAL_REQUIRED
+    assert action_policy.SAFE_AUTOMATIC not in action_policy.allowed_modes("contacts.delete")
 
     tool_items = {
         item["key"]: item
