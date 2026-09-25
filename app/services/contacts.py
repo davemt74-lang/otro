@@ -16,6 +16,25 @@ CONTACT_FIELDS = (
     "email", "phone", "relationship", "notes",
 )
 
+MUTATION_ID_MAX = 128
+
+
+def _mutation_id(value: Any) -> str:
+    mutation_id = str(value or "").strip()
+    if len(mutation_id) < 8 or len(mutation_id) > MUTATION_ID_MAX:
+        raise ContactError("Contact mutation_id must be 8 to 128 characters.")
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-")
+    if any(ch not in allowed for ch in mutation_id):
+        raise ContactError("Contact mutation_id contains unsupported characters.")
+    return mutation_id
+
+
+def _expected_revision(value: Any) -> str:
+    revision = str(value or "").strip().lower()
+    if len(revision) != 64 or any(ch not in "0123456789abcdef" for ch in revision):
+        raise ContactError("Contact expected_revision must be a 64-character SHA-256 value.")
+    return revision
+
 
 def _canonical(value: Any) -> str:
     canonical = str(value or "").strip().lower()
@@ -29,18 +48,22 @@ def _canonical(value: Any) -> str:
 
 def normalize_contact_create_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(payload or {})
-    unknown = set(raw) - set(CONTACT_FIELDS)
+    unknown = set(raw) - {"mutation_id", *CONTACT_FIELDS}
     if unknown:
         raise ContactError(f"Unsupported contacts.create argument: {sorted(unknown)[0]}")
-    return normalize_contact(raw)
+    mutation_id = _mutation_id(raw.get("mutation_id"))
+    contact = normalize_contact({key: raw.get(key) for key in CONTACT_FIELDS if key in raw})
+    return {"mutation_id": mutation_id, **contact}
 
 
 def normalize_contact_update_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(payload or {})
-    unknown = set(raw) - {"canonical_id", *CONTACT_FIELDS}
+    unknown = set(raw) - {"canonical_id", "mutation_id", "expected_revision", *CONTACT_FIELDS}
     if unknown:
         raise ContactError(f"Unsupported contacts.update argument: {sorted(unknown)[0]}")
     canonical = _canonical(raw.get("canonical_id"))
+    mutation_id = _mutation_id(raw.get("mutation_id"))
+    expected_revision = _expected_revision(raw.get("expected_revision"))
     fields = {key: raw[key] for key in CONTACT_FIELDS if key in raw}
     if not fields:
         raise ContactError("contacts.update requires at least one contact field.")
@@ -54,25 +77,38 @@ def normalize_contact_update_arguments(payload: dict[str, Any] | None) -> dict[s
             "organization": 240, "email": 320, "phone": 80, "relationship": 160,
         }
         _clean(value, limits[key])
-    return {"canonical_id": canonical, **fields}
+    return {
+        "canonical_id": canonical,
+        "mutation_id": mutation_id,
+        "expected_revision": expected_revision,
+        **fields,
+    }
 
 
 def normalize_contact_delete_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(payload or {})
-    unknown = set(raw) - {"canonical_id"}
+    unknown = set(raw) - {"canonical_id", "mutation_id", "expected_revision"}
     if unknown:
         raise ContactError(f"Unsupported contacts.delete argument: {sorted(unknown)[0]}")
-    return {"canonical_id": _canonical(raw.get("canonical_id"))}
+    return {
+        "canonical_id": _canonical(raw.get("canonical_id")),
+        "mutation_id": _mutation_id(raw.get("mutation_id")),
+        "expected_revision": _expected_revision(raw.get("expected_revision")),
+    }
 
 
 def safe_contact_mutation_meta(action: str, payload: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(payload or {})
     canonical = str(raw.get("canonical_id") or "")
+    mutation_id = str(raw.get("mutation_id") or "")
+    expected_revision = str(raw.get("expected_revision") or "")
     fields = sorted(key for key in CONTACT_FIELDS if key in raw)
     return {
         "action": str(action or "")[:32],
         "canonical_id_present": bool(canonical),
         "canonical_id_prefix": canonical[:5] if canonical else "",
+        "mutation_id_present": bool(mutation_id),
+        "expected_revision_present": bool(expected_revision),
         "field_names": fields,
         "field_count": len(fields),
         "has_notes": "notes" in raw,
@@ -348,27 +384,162 @@ def get_federated_contact_by_canonical(canonical_id_value: str) -> dict[str, Any
     return federated_contact(row) if row else None
 
 
-def create_federated_contact(payload: dict[str, Any]) -> dict[str, Any]:
-    return federated_contact(create_contact(payload))
+def _mutation_hash(action_key: str, payload: dict[str, Any]) -> str:
+    import hashlib
+    import json
+    encoded = json.dumps(
+        {"action": action_key, "payload": payload},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def update_federated_contact(canonical_id_value: str, payload: dict[str, Any]) -> dict[str, Any]:
-    contact_id = _contact_id_from_canonical(canonical_id_value)
-    current = get_contact(contact_id)
+def _mutation_replay(
+    source_app_key: str,
+    mutation_id: str,
+    action_key: str,
+    request_hash: str,
+) -> dict[str, Any] | None:
+    import json
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT action_key,request_hash,canonical_id,result_json
+            FROM federated_contact_mutations
+            WHERE source_app_key=? AND mutation_id=? LIMIT 1
+            """,
+            (source_app_key, mutation_id),
+        ).fetchone()
+    if row is None:
+        return None
+    if str(row["action_key"]) != action_key or str(row["request_hash"]) != request_hash:
+        raise ContactError("Contact mutation_id was already used with different arguments.", 409)
+    try:
+        result = json.loads(row["result_json"] or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        result = {}
+    if not isinstance(result, dict):
+        result = {}
+    result["idempotent_replay"] = True
+    return result
+
+
+def _record_mutation(
+    source_app_key: str,
+    mutation_id: str,
+    action_key: str,
+    request_hash: str,
+    canonical_id: str | None,
+    result: dict[str, Any],
+) -> None:
+    import json
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO federated_contact_mutations(
+                source_app_key,mutation_id,action_key,request_hash,canonical_id,result_json
+            ) VALUES (?,?,?,?,?,?)
+            """,
+            (
+                source_app_key,
+                mutation_id,
+                action_key,
+                request_hash,
+                canonical_id,
+                json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+            ),
+        )
+
+
+def _assert_expected_revision(item: dict[str, Any], expected_revision: str) -> None:
+    current = str(item.get("record_revision") or "").strip().lower()
+    if not current or current != expected_revision:
+        raise ContactError("HomeServer contact changed after this edit was prepared. Refresh and try again.", 409)
+
+
+def create_federated_contact(
+    payload: dict[str, Any],
+    *,
+    source_app_key: str = "owner",
+) -> dict[str, Any]:
+    normalized = normalize_contact_create_arguments(payload)
+    mutation_id = str(normalized.pop("mutation_id"))
+    request_hash = _mutation_hash("contacts.create", normalized)
+    replay = _mutation_replay(source_app_key, mutation_id, "contacts.create", request_hash)
+    if replay is not None:
+        contact = replay.get("contact")
+        if isinstance(contact, dict):
+            return contact
+        raise ContactError("Stored contact mutation result is unavailable.", 500)
+    item = federated_contact(create_contact(normalized))
+    _record_mutation(
+        source_app_key, mutation_id, "contacts.create", request_hash,
+        str(item.get("canonical_id") or ""), {"contact": item},
+    )
+    return item
+
+
+def update_federated_contact(
+    canonical_id_value: str,
+    payload: dict[str, Any],
+    *,
+    source_app_key: str = "owner",
+) -> dict[str, Any]:
+    normalized = normalize_contact_update_arguments({"canonical_id": canonical_id_value, **payload})
+    canonical = str(normalized.pop("canonical_id"))
+    mutation_id = str(normalized.pop("mutation_id"))
+    expected_revision = str(normalized.pop("expected_revision"))
+    request_hash = _mutation_hash(
+        "contacts.update",
+        {"canonical_id": canonical, "expected_revision": expected_revision, **normalized},
+    )
+    replay = _mutation_replay(source_app_key, mutation_id, "contacts.update", request_hash)
+    if replay is not None:
+        contact = replay.get("contact")
+        if isinstance(contact, dict):
+            return contact
+        raise ContactError("Stored contact mutation result is unavailable.", 500)
+    contact_id = _contact_id_from_canonical(canonical)
+    current = get_federated_contact(contact_id)
     if current is None:
         raise ContactError("HomeServer contact not found.", 404)
+    _assert_expected_revision(current, expected_revision)
     merged = {
-        key: payload[key] if key in payload else current.get(key)
-        for key in (
-            "display_name","first_name","last_name","organization",
-            "email","phone","relationship","notes"
-        )
+        key: normalized[key] if key in normalized else current.get(key)
+        for key in CONTACT_FIELDS
     }
-    return federated_contact(update_contact(contact_id, merged))
+    item = federated_contact(update_contact(contact_id, merged))
+    _record_mutation(
+        source_app_key, mutation_id, "contacts.update", request_hash,
+        canonical, {"contact": item},
+    )
+    return item
 
 
-def delete_federated_contact(canonical_id_value: str) -> bool:
-    contact_id = _contact_id_from_canonical(canonical_id_value)
+def delete_federated_contact(
+    canonical_id_value: str,
+    *,
+    mutation_id: str,
+    expected_revision: str,
+    source_app_key: str = "owner",
+) -> bool:
+    canonical = _canonical(canonical_id_value)
+    mutation_id = _mutation_id(mutation_id)
+    expected_revision = _expected_revision(expected_revision)
+    request_hash = _mutation_hash(
+        "contacts.delete",
+        {"canonical_id": canonical, "expected_revision": expected_revision},
+    )
+    replay = _mutation_replay(source_app_key, mutation_id, "contacts.delete", request_hash)
+    if replay is not None:
+        return bool(replay.get("deleted"))
+    contact_id = _contact_id_from_canonical(canonical)
+    current = get_federated_contact(contact_id)
+    if current is None:
+        raise ContactError("HomeServer contact not found.", 404)
+    _assert_expected_revision(current, expected_revision)
     key = _authority_key(contact_id)
     if not delete_contact(contact_id):
         return False
@@ -377,5 +548,9 @@ def delete_federated_contact(canonical_id_value: str) -> bool:
         "contacts",
         key,
         observed_source="homeserver",
+    )
+    _record_mutation(
+        source_app_key, mutation_id, "contacts.delete", request_hash,
+        canonical, {"deleted": True, "canonical_id": canonical},
     )
     return True
