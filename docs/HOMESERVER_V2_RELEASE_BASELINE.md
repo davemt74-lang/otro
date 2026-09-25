@@ -19,7 +19,7 @@ The v13.06 Cloud fix is part of the baseline: schema/DDL work must stay outside 
 
 Starting with this release, the HomeServer application and the VP3 Cloud HomeServer package use one shared product version.
 
-Current shared version: **2.0**
+Current shared version: **2.3**
 
 Protocol and schema identifiers such as `v1300`, `v1200`, migration numbers, API filenames, and database schema versions remain independent internal compatibility identifiers. They are not product release numbers and must not be renamed merely to match the product version.
 
