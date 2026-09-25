@@ -750,9 +750,33 @@ def _knowledge_tool_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _knowledge_mutation_scope(
+    source_app_key: str,
+    *,
+    kind: str,
+    collection_key: str,
+) -> None:
+    if not source_app_key.startswith("app:"):
+        return
+    app_id = knowledge_collection_policy.app_id_for_source(source_app_key)
+    if app_id is None:
+        raise ToolError("Connected application is unavailable.", 403)
+    scope = app_scopes.get_scope(app_id)
+    if not app_scopes.knowledge_kind_allowed(scope, kind):
+        raise ToolError("Knowledge kind is outside this application's allowed scope.", 403)
+    allowed = knowledge_collection_policy.allowed_collection_keys(app_id)
+    if allowed is not None and collection_key not in allowed:
+        raise ToolError("Knowledge collection is outside this application's allowed scope.", 403)
+
+
 def _knowledge_create(arguments: dict[str, Any], source_app_key: str) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         normalized = knowledge_service.normalize_knowledge_create_arguments(arguments)
+        _knowledge_mutation_scope(
+            source_app_key,
+            kind=str(normalized["kind"]),
+            collection_key=str(normalized["collection_key"]),
+        )
         item = knowledge_service.create_federated_knowledge(normalized, source_app_key=source_app_key)
     except knowledge_service.FederatedKnowledgeError as exc:
         raise ToolError(str(exc), exc.status_code) from exc
@@ -768,6 +792,14 @@ def _knowledge_update(arguments: dict[str, Any], source_app_key: str) -> tuple[d
     try:
         normalized = knowledge_service.normalize_knowledge_update_arguments(arguments)
         canonical = str(normalized.pop("canonical_id"))
+        current = knowledge_service.get_federated_knowledge_by_canonical(canonical)
+        if current is None:
+            raise knowledge_service.FederatedKnowledgeError("HomeServer Knowledge item not found.", 404)
+        _knowledge_mutation_scope(
+            source_app_key,
+            kind=str(normalized.get("kind") or current.get("kind") or "note"),
+            collection_key=str(normalized.get("collection_key") or current.get("collection_key") or "general"),
+        )
         item = knowledge_service.update_federated_knowledge(
             canonical,
             normalized,
@@ -787,6 +819,14 @@ def _knowledge_delete(arguments: dict[str, Any], source_app_key: str) -> tuple[d
     try:
         normalized = knowledge_service.normalize_knowledge_delete_arguments(arguments)
         canonical = str(normalized["canonical_id"])
+        current = knowledge_service.get_federated_knowledge_by_canonical(canonical)
+        if current is None:
+            raise knowledge_service.FederatedKnowledgeError("HomeServer Knowledge item not found.", 404)
+        _knowledge_mutation_scope(
+            source_app_key,
+            kind=str(current.get("kind") or "note"),
+            collection_key=str(current.get("collection_key") or "general"),
+        )
         deleted = knowledge_service.delete_federated_knowledge(
             canonical,
             mutation_id=str(normalized["mutation_id"]),
