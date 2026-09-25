@@ -14,8 +14,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile Phase 18.9 meeting intelligence runtime
-        run: python -m py_compile app/services/meeting_intelligence.py app/services/meeting_intelligence_remote.py app/capability_registry_api.py tests/meeting_intelligence_v1890.py
+        run: python -m py_compile app/services/meeting_intelligence.py app/services/meeting_intelligence_remote.py app/capability_registry_api.py tests/meeting_intelligence_v1890.py tests/meeting_intelligence_mode_cache_v1891.py
       - name: Phase 18.9 private meeting intelligence contract
         run: python tests/meeting_intelligence_v1890.py
+      - name: Phase 18.9 live-to-final cache regression
+        run: python tests/meeting_intelligence_mode_cache_v1891.py
       - name: Verify local-only inference seam
         run: python -c "from app.services import meeting_intelligence; import inspect; source=inspect.getsource(meeting_intelligence.analyze); assert 'providers.generate_ollama' in source and 'providers.generate(' not in source; print('Phase 18.9 local-only inference seam passed')"
