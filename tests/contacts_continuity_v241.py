@@ -69,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
     assert "contacts.write" in read_only_items["contacts.create"]["missing_permissions"]
 
     seed = contacts.create_federated_contact({
+        "mutation_id": "seed-contact-ada-001",
         "display_name": "Ada Lovelace",
         "organization": "Analytical Engines",
         "email": "ada@example.test",
@@ -97,7 +98,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
     federated_data.observe(cloud_contact, observed_source="homeserver")
     try:
         contacts.update_federated_contact(
-            cloud_contact["canonical_id"], {"display_name": "Must not write"}
+            cloud_contact["canonical_id"],
+            {
+                "mutation_id": "cloud-write-block-001",
+                "expected_revision": cloud_contact["record_revision"],
+                "display_name": "Must not write",
+            },
+            source_app_key="app:vp3",
         )
         raise AssertionError("Cloud canonical ID was accepted by HomeServer mutation path")
     except contacts.ContactError as exc:
@@ -106,6 +113,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
     create_request = approvals.create_contact_create_request(
         "app:vp3",
         {
+            "mutation_id": "grace-create-001",
             "display_name": "Grace Hopper",
             "email": "grace@example.test",
             "organization": "US Navy",
@@ -132,11 +140,28 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
     grace = contacts.list_federated_contacts("Grace Hopper", 20)
     assert len(grace) == 1
     grace_canonical = str(grace[0]["canonical_id"])
+    grace_revision = str(grace[0]["record_revision"])
+
+    duplicate_create = approvals.create_contact_create_request(
+        "app:vp3",
+        {
+            "mutation_id": "grace-create-001",
+            "display_name": "Grace Hopper",
+            "email": "grace@example.test",
+            "organization": "US Navy",
+            "notes": "Private notes must not enter audit metadata.",
+        },
+    )
+    duplicate_approved = approvals.approve_request(str(duplicate_create["result"]["request_id"]))
+    assert duplicate_approved["status"] == "executed"
+    assert len(contacts.list_federated_contacts("Grace Hopper", 20)) == 1
 
     update_request = approvals.create_contact_update_request(
         "app:vp3",
         {
             "canonical_id": grace_canonical,
+            "mutation_id": "grace-update-001",
+            "expected_revision": grace_revision,
             "organization": "Compiler Pioneer",
             "relationship": "colleague",
         },
@@ -149,10 +174,34 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
     assert updated is not None
     assert updated["organization"] == "Compiler Pioneer"
     assert updated["relationship"] == "colleague"
+    updated_revision = str(updated["record_revision"])
+    assert updated_revision != grace_revision
+
+    stale_request = approvals.create_contact_update_request(
+        "app:vp3",
+        {
+            "canonical_id": grace_canonical,
+            "mutation_id": "grace-update-stale-001",
+            "expected_revision": grace_revision,
+            "organization": "Stale overwrite",
+        },
+    )
+    try:
+        approvals.approve_request(str(stale_request["result"]["request_id"]))
+        raise AssertionError("stale contact revision was accepted")
+    except approvals.ApprovalError as exc:
+        assert exc.status_code == 409
+    still_current = contacts.get_federated_contact_by_canonical(grace_canonical)
+    assert still_current is not None
+    assert still_current["organization"] == "Compiler Pioneer"
 
     delete_request = approvals.create_contact_delete_request(
         "app:vp3",
-        {"canonical_id": grace_canonical},
+        {
+            "canonical_id": grace_canonical,
+            "mutation_id": "grace-delete-001",
+            "expected_revision": updated_revision,
+        },
     )
     approved_delete = approvals.approve_request(
         str(delete_request["result"]["request_id"])
