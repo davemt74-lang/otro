@@ -35,6 +35,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v246-reconcile-") as data_di
             "federation_version": "2.4",
             "authoritative_source": "vp3_cloud",
             "snapshot_mode": "full",
+            "covered_datasets": list(datasets),
             "revision": revision,
             "datasets": datasets,
         }
@@ -253,6 +254,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v246-reconcile-") as data_di
             {
                 "authoritative_source": "vp3_cloud",
                 "snapshot_mode": "full",
+                "covered_datasets": ["knowledge", "contacts"],
                 "revision": "rev-incomplete",
                 "datasets": {"knowledge": []},
             },
