@@ -78,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-vp3-pairing-") as data_dir:
     cloud_pairing.dispatch_remote_request = lambda operation, payload, bearer: {
         "ok": True,
         "status": 200,
-        "payload": {"version": "2.3", "features": ["agent.chat"]},
+        "payload": {"version": "2.4", "features": ["agent.chat"]},
     }
     cloud_pairing.save_https_session = lambda endpoint, token: sessions.append((endpoint, token)) or {"configured": True}
     cloud_pairing.save_vp3_https_settings = lambda endpoint, enabled=True: settings.append((endpoint, enabled)) or {
@@ -92,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-vp3-pairing-") as data_dir:
         assert sent["pairing_token"] == account_token
         assert sent["device_id"] == local_device
         assert sent["homeserver_token"] == local_token
-        assert sent["version"] == "2.3"
+        assert sent["version"] == "2.4"
         assert "relay_claim" not in sent
         assert calls[-1]["path"] == "https://vp3.me/api/homeserver-https-pair-v1300.php"
         assert sessions[-1] == ("https://vp3.me/api/homeserver-https-poll-v1300.php", cloud_session)
