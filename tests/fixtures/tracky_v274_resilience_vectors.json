@@ -1,0 +1,73 @@
+{
+  "version": "tracky-v2.74",
+  "protocol": "physical_context.v1",
+  "active_perception_protocol": "active_perception.v1",
+  "scenarios": [
+    {
+      "id": "replay_same_event",
+      "expected": "idempotent_duplicate"
+    },
+    {
+      "id": "sequence_conflict",
+      "expected": "reject_conflict"
+    },
+    {
+      "id": "cloud_outage_backoff",
+      "expected_backoff_seconds": [
+        5,
+        10,
+        20,
+        40,
+        80,
+        160,
+        300
+      ]
+    },
+    {
+      "id": "stale_request_after_restart",
+      "expected_status": "failed",
+      "expected_reason": "request_recovered_after_interruption"
+    },
+    {
+      "id": "correlation_supersession",
+      "expected_prior_status": "superseded"
+    },
+    {
+      "id": "provider_timeout",
+      "expected_status": "failed",
+      "expected_reason": "provider_timeout"
+    },
+    {
+      "id": "privacy_denied",
+      "expected_status": "denied",
+      "expected_reason": "privacy_engaged"
+    },
+    {
+      "id": "reconciliation_pending",
+      "expected_status": "unable",
+      "expected_reason": "homeserver_reconciliation_pending"
+    },
+    {
+      "id": "protocol_mismatch",
+      "expected": "refuse_fresh_verification"
+    },
+    {
+      "id": "wrong_site",
+      "expected": "reject_site_mismatch"
+    },
+    {
+      "id": "backlog_warning",
+      "pending_events": 500,
+      "expected_state": "degraded"
+    },
+    {
+      "id": "backlog_critical",
+      "pending_events": 2000,
+      "expected_state": "critical"
+    },
+    {
+      "id": "fresh_projection_identity_mismatch",
+      "expected": "reject_before_ingest"
+    }
+  ]
+}
