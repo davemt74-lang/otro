@@ -27,8 +27,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v242-knowledge-") as data_di
     assert versions == list(range(1, 35))
 
     migration = (ROOT / "database" / "migrations" / "034_governed_knowledge_actions.sql").read_text(encoding="utf-8")
-    migration_sql = "
-".join(
+    migration_sql = "\\n".join(
         line for line in migration.splitlines()
         if not line.lstrip().startswith("--")
     )
