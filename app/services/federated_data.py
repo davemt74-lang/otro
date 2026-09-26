@@ -238,7 +238,9 @@ def note_peer_connected(peer_source: str) -> dict[str, Any]:
             (peer,),
         )
     after = reconciliation_state(peer)
-    after["reconnected"] = bool(before.get("needs_reconciliation"))
+    after["reconnected"] = bool(
+        before.get("needs_reconciliation") and before.get("last_disconnect_at")
+    )
     return after
 
 
