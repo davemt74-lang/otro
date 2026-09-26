@@ -78,6 +78,21 @@ def _sanitize_snapshot(snapshot: dict[str, Any], source: str) -> dict[str, Any]:
     mode = _text(snapshot.get("snapshot_mode") or "filtered", 20).lower()
     if mode not in {"full", "filtered"}:
         raise SharedAgentContextError("Shared Agent snapshot mode is invalid.")
+    covered_raw = snapshot.get("covered_datasets")
+    if covered_raw is None:
+        covered = list(_DATASETS)
+    elif isinstance(covered_raw, list):
+        covered = []
+        for value in covered_raw:
+            name = str(value or "").strip().lower()
+            if name not in _DATASETS:
+                raise SharedAgentContextError("Shared Agent snapshot coverage contains an unsupported dataset.")
+            if name not in covered:
+                covered.append(name)
+    else:
+        raise SharedAgentContextError("Shared Agent snapshot covered_datasets must be a list.")
+    if not covered:
+        raise SharedAgentContextError("Shared Agent snapshot coverage is empty.")
     return {
         "version": SHARED_AGENT_CONTEXT_VERSION,
         "revision": revision,
@@ -85,6 +100,7 @@ def _sanitize_snapshot(snapshot: dict[str, Any], source: str) -> dict[str, Any]:
         "authoritative_source": source,
         "federation_version": federated_data.FEDERATED_DATA_VERSION,
         "snapshot_mode": mode,
+        "covered_datasets": covered,
         "datasets": clean,
     }
 
@@ -402,6 +418,7 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
         "authoritative_source": "homeserver",
         "federation_version": federated_data.FEDERATED_DATA_VERSION,
         "snapshot_mode": "full" if not text else "filtered",
+        "covered_datasets": list(_DATASETS),
         "datasets": datasets,
     }
     federated_data.observe_snapshot(snapshot, observed_source="homeserver")
