@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 37))
+        assert versions == list(range(1, 38))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -221,6 +221,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='federated_file_mutations'"
         ).fetchone() is not None
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='federated_memory_mutations'"
+        ).fetchone() is not None
         cursor = migrated.execute("SELECT cursor_value FROM cognition_cursors WHERE cursor_key='activity_log_id'").fetchone()
         assert cursor is not None and cursor["cursor_value"] == "0"
         source_delete_trigger = migrated.execute(
@@ -269,7 +272,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ("knowledge.delete", 1),
             ("knowledge.search", 1),
             ("knowledge.update", 1),
+            ("memory.delete", 1),
             ("memory.list", 1),
+            ("memory.update", 1),
             ("memory.write", 1),
             ("notifications.list", 1),
             ("tasks.create", 1),
@@ -413,7 +418,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='action_requests'"
         ).fetchone()[0].replace(" ", "").replace("\n", "")
         for action_key in (
-            "memory.write", "tasks.create", "tasks.update", "tasks.delete", "files.update", "files.delete",
+            "memory.write", "memory.update", "memory.delete",
+            "tasks.create", "tasks.update", "tasks.delete", "files.update", "files.delete",
             "vp3.booking.create", "vp3.booking.reschedule", "vp3.booking.cancel",
             "contacts.create", "contacts.update", "contacts.delete",
             "knowledge.create", "knowledge.update", "knowledge.delete",
@@ -421,6 +427,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         ):
             assert f"'{action_key}'" in action_schema
         proposal_checks = (
+            ("memory-update-check", "memory.update", '{"canonical_id":"fd24_0123456789abcdef0123456789abcdef01234567","mutation_id":"memory-update-check","expected_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","content":"test"}', '{"content_length":4}'),
+            ("memory-delete-check", "memory.delete", '{"canonical_id":"fd24_0123456789abcdef0123456789abcdef01234567","mutation_id":"memory-delete-check","expected_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}', '{"content_length":0}'),
             ("task-proposal-check", "tasks.create", '{"title":"test"}', '{"title_length":4}'),
             ("file-update-proposal-check", "files.update", '{"ref":"hsf-1-0123456789abcdef","content":"test"}', '{"content_length":4}'),
             ("file-delete-proposal-check", "files.delete", '{"ref":"hsf-1-0123456789abcdef"}', '{"ref_length":22}'),
@@ -467,12 +475,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 37))
+        assert versions_again == list(range(1, 38))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 23
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 25
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_intelligence_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_context_events").fetchone()[0] == 0
