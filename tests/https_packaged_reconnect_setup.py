@@ -30,7 +30,7 @@ initialize_database()
 pair = create_pairing_request(
     "vp3",
     "VP3",
-    ["memory.read", "knowledge.search", "contacts.read", "tasks.read", "notifications.read"],
+    ["memory.read", "knowledge.search", "contacts.read", "tasks.read", "events.read", "notifications.read"],
 )
 approved = approve_pairing_request(pair["request_id"])
 assert approved is not None
