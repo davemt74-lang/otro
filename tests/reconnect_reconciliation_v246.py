@@ -262,4 +262,18 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v246-reconcile-") as data_di
     except federated_data.FederatedDataError:
         pass
 
+remote_bridge_source = (ROOT / "app" / "services" / "remote_bridge.py").read_text(encoding="utf-8")
+shared_source = (ROOT / "app" / "services" / "shared_agent_context.py").read_text(encoding="utf-8")
+capabilities = (ROOT / "app" / "bridge.py").read_text(encoding="utf-8")
+
+assert 'note_peer_disconnected("vp3_cloud"' in remote_bridge_source
+assert 'note_peer_connected("vp3_cloud")' in remote_bridge_source
+assert '"bridge.reconnected" if peer_state.get("reconnected") else "bridge.connected"' in remote_bridge_source
+assert '"reconciliation": federated_data.reconciliation_state("vp3_cloud")' in remote_bridge_source
+assert '"snapshot_mode": "full" if not text else "filtered"' in shared_source
+assert "federated_data.reconcile_snapshot(" in shared_source
+assert '"disconnect_reconnect_reconciliation"' in capabilities
+assert '"absence_tombstones_full_snapshots_only": True' in capabilities
+assert '"filtered_snapshots_never_delete": True' in capabilities
+
 print("HomeServer v2.4 Section 7 Disconnect/Reconnect reconciliation: PASS")
