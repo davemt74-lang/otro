@@ -326,7 +326,12 @@ def _record_mutation(table: str, source_app_key: str, mutation_id: str, action_k
         )
 
 
-def create_federated_task(payload: dict[str, Any], *, source_app_key: str) -> dict[str, Any]:
+def create_federated_task(
+    payload: dict[str, Any],
+    *,
+    source_app_key: str,
+    created_by_type: str = "app",
+) -> dict[str, Any]:
     normalized = normalize_task_create_arguments(payload)
     mutation = str(normalized.pop("mutation_id"))
     request_hash = _mutation_hash("tasks.create", normalized)
@@ -337,7 +342,14 @@ def create_federated_task(payload: dict[str, Any], *, source_app_key: str) -> di
             return item
         raise TaskCalendarContinuityError("Stored task mutation result is unavailable.", 500)
     try:
-        created = task_service.create_task(normalized, source_app_key=source_app_key.removeprefix("app:"), created_by_type="app")
+        actor = str(created_by_type or "app").strip().lower()
+        if actor not in {"owner", "app", "agent", "system"}:
+            actor = "app"
+        created = task_service.create_task(
+            normalized,
+            source_app_key=source_app_key.removeprefix("app:"),
+            created_by_type=actor,
+        )
     except task_service.TaskError as exc:
         raise TaskCalendarContinuityError(str(exc), exc.status_code) from exc
     item = federated_task_item(created)
