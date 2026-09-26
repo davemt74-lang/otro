@@ -268,8 +268,9 @@ remote_bridge_source = (ROOT / "app" / "services" / "remote_bridge.py").read_tex
 shared_source = (ROOT / "app" / "services" / "shared_agent_context.py").read_text(encoding="utf-8")
 capabilities = (ROOT / "app" / "bridge.py").read_text(encoding="utf-8")
 
-assert 'note_peer_disconnected("vp3_cloud"' in remote_bridge_source
-assert 'note_peer_connected("vp3_cloud")' in remote_bridge_source
+assert 'federated_data.note_peer_disconnected(' in remote_bridge_source
+assert '"vp3_cloud"' in remote_bridge_source
+assert 'federated_data.note_peer_connected("vp3_cloud")' in remote_bridge_source
 assert '"bridge.reconnected" if peer_state.get("reconnected") else "bridge.connected"' in remote_bridge_source
 assert '"reconciliation": federated_data.reconciliation_state("vp3_cloud")' in remote_bridge_source
 assert '"snapshot_mode": "full" if not text else "filtered"' in shared_source
