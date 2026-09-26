@@ -50,6 +50,7 @@ jobs:
           tests/file_document_continuity_v244.py
           tests/agent_brain_memory_continuity_v245.py
           tests/reconnect_reconciliation_v246.py
+          tests/homeserver_v24_release_acceptance.py
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify existing shared Agent fabric
@@ -68,3 +69,5 @@ jobs:
         run: python tests/agent_brain_memory_continuity_v245.py
       - name: Verify v2.4 Disconnect/Reconnect reconciliation
         run: python tests/reconnect_reconciliation_v246.py
+      - name: Verify v2.4 final release acceptance
+        run: python tests/homeserver_v24_release_acceptance.py
