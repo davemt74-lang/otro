@@ -107,6 +107,11 @@ def normalize_envelope(record: dict[str, Any], *, default_source: str, dataset: 
     supplied = _text(record.get("canonical_id"), 80)
     if supplied and supplied != item["canonical_id"]:
         raise FederatedDataError("Federated record canonical identity does not match its authority tuple.")
+    supplied_revision = _text(record.get("record_revision"), 64).lower()
+    if supplied_revision:
+        if not re.fullmatch(r"[0-9a-f]{64}", supplied_revision):
+            raise FederatedDataError("Federated record revision must be a SHA-256 value.")
+        item["record_revision"] = supplied_revision
     return item
 
 
