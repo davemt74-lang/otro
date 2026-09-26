@@ -277,6 +277,12 @@ def reconcile_snapshot(
     mode = _text(snapshot.get("snapshot_mode") or "filtered", 20).lower()
     if mode not in {"full", "filtered"}:
         raise FederatedDataError("Federated snapshot mode must be full or filtered.")
+    if mode == "full":
+        missing = [name for name in DATASETS if not isinstance(datasets.get(name), list)]
+        if missing:
+            raise FederatedDataError(
+                "Full reconciliation snapshot is missing datasets: " + ", ".join(missing)
+            )
     revision = _text(snapshot.get("revision"), 128)
     run_id = uuid.uuid4().hex
     trigger = _text(trigger_reason, 120) or "exchange"
