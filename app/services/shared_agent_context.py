@@ -7,12 +7,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, federated_data, knowledge, tasks
+from . import contacts, federated_data, knowledge, task_calendar_continuity as continuity, tasks
 
 SHARED_AGENT_CONTEXT_VERSION = "2.2"
 MAX_SNAPSHOT_BYTES = 196_608
 MAX_RECORDS_PER_DATASET = 100
-_DATASETS = ("memory", "knowledge", "contacts", "tasks", "notifications")
+_DATASETS = ("memory", "knowledge", "contacts", "tasks", "calendar", "notifications")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_@.+-]+")
 
 
@@ -204,7 +204,7 @@ def _local_memory(query: str, limit: int = 40) -> list[dict[str, Any]]:
 
 
 def _fit_datasets(datasets: dict[str, list[dict[str, Any]]], max_bytes: int = 170_000) -> dict[str, list[dict[str, Any]]]:
-    order = ("notifications", "tasks", "contacts", "knowledge", "memory")
+    order = ("notifications", "calendar", "tasks", "contacts", "knowledge", "memory")
     while True:
         encoded = json.dumps(datasets, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(encoded) <= max_bytes:
@@ -273,6 +273,10 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
             "tasks",
             {
                 "id": row.get("id"),
+                "authority_source": row.get("authority_source") or "homeserver",
+                "authority_key": row.get("authority_key"),
+                "canonical_id": row.get("canonical_id"),
+                "record_revision": row.get("record_revision"),
                 "title": row.get("title") or "Task",
                 "content": " · ".join(
                     value
@@ -289,7 +293,33 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
             },
             index,
         )
-        for index, row in enumerate(tasks.list_tasks(q=text, limit=50)[:50])
+        for index, row in enumerate(continuity.list_federated_tasks(q=text, limit=50)[:50])
+        if isinstance(row, dict)
+    ]
+    calendar_rows = [
+        _sanitize_record(
+            "homeserver",
+            "calendar",
+            {
+                "id": row.get("id"),
+                "authority_source": row.get("authority_source") or "homeserver",
+                "authority_key": row.get("authority_key"),
+                "canonical_id": row.get("canonical_id"),
+                "record_revision": row.get("record_revision"),
+                "title": row.get("title") or "Calendar event",
+                "content": " · ".join(
+                    value for value in (
+                        _text(row.get("description"), 1600),
+                        f"starts: {_text(row.get('start_at'), 80)}" if row.get("start_at") else "",
+                        f"ends: {_text(row.get('end_at'), 80)}" if row.get("end_at") else "",
+                        f"location: {_text(row.get('location'), 500)}" if row.get("location") else "",
+                    ) if value
+                ),
+                "updated_at": row.get("updated_at"),
+            },
+            index,
+        )
+        for index, row in enumerate(continuity.list_federated_calendar(limit=50)[:50])
         if isinstance(row, dict)
     ]
     notification_rows = [
@@ -319,6 +349,7 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
         "knowledge": knowledge_rows,
         "contacts": contact_rows,
         "tasks": task_rows,
+        "calendar": calendar_rows,
         "notifications": notification_rows,
     })
     canonical = json.dumps(datasets, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
