@@ -33,7 +33,8 @@ from .main import app
 from .release_readiness_api import router as release_readiness_router
 from .remote_bridge_api import router as remote_bridge_router
 from .room_device_api import router as room_device_router
-from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, vp3_os
+from .tracky_api import router as tracky_router
+from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -106,6 +107,7 @@ app.include_router(local_voice_router)
 app.include_router(capability_registry_router)
 app.include_router(vp3_os_router)
 app.include_router(room_device_router)
+app.include_router(tracky_router)
 app.include_router(local_automation_router)
 app.include_router(automation_intelligence_router)
 app.include_router(ambient_orchestration_router)
@@ -139,6 +141,7 @@ def capabilities() -> dict:
         "vp3_os_physical_meeting": physical_meeting.public_capability(),
         "vp3_os_ambient_agent": ambient_agent.public_capability(),
         "vp3_os_room_device_automation": room_device_automation.public_capability(),
+        "tracky_physical_context": tracky_physical_context.public_capability(),
         "vp3_os_local_automation": local_automation.public_capability(),
         "vp3_os_automation_intelligence": automation_intelligence.public_capability(),
         "vp3_os_ambient_orchestration": ambient_orchestration.public_capability(),
@@ -439,8 +442,10 @@ def capabilities() -> dict:
                 "notifications.list", "shared.context.exchange",
                 "system.ping", "speech.status", "speech.transcribe", "speech.synthesize",
                 "action.list", "action.status", "action.approve", "action.deny",
+                "physical_context.capabilities", "physical_context.current",
+                "physical_context.active_perception", "physical_context.request_status", "physical_context.sync",
             ],
-            "local_domains": ["inference", "files", "knowledge", "contacts", "tools", "plugins", "voice", "devices"],
+            "local_domains": ["inference", "files", "knowledge", "contacts", "tools", "plugins", "voice", "devices", "physical_context"],
             "approval_boundaries_preserved": True,
             "profile_safe_local_inference": {
                 "operation": "agent.infer.local",
