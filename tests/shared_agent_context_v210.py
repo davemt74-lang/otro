@@ -17,7 +17,7 @@ checks=[
   "CREATE TABLE IF NOT EXISTS shared_agent_snapshots" in migration and "snapshot_json" in migration),
  ("shared fabric is v2.2 and covers all five datasets",
   'SHARED_AGENT_CONTEXT_VERSION = "2.2"' in shared and
-  all(name in shared for name in ('"memory"', '"knowledge"', '"contacts"', '"tasks"', '"notifications"'))),
+  all(name in shared for name in ('"memory"', '"knowledge"', '"contacts"', '"tasks"', '"calendar"', '"notifications"'))),
  ("shared payloads are bounded below the relay message ceiling",
   "MAX_SNAPSHOT_BYTES = 196_608" in shared and "max_bytes: int = 170_000" in shared),
  ("Cloud mirror remains source-labelled rather than replacing native records",
@@ -26,15 +26,15 @@ checks=[
   'if op == "system.ping"' in bridge and "_direct_identity(token)" in bridge and '"pong": True' in bridge),
  ("shared context exchange is authenticated and permission gated",
   'if op == "shared.context.exchange"' in bridge and
-  '{"memory.read", "knowledge.search", "contacts.read", "tasks.read", "notifications.read"}' in bridge and
+  '{"memory.read", "knowledge.search", "contacts.read", "tasks.read", "events.read", "notifications.read"}' in bridge and
   "shared_agent_context.exchange" in bridge),
  ("Cloud mirror is visible only to local owner context or the VP3 paired app",
   'if owner or source_app_key == "app:vp3"' in context and
   context.count('if owner or source_app_key == "app:vp3"') >= 3),
- ("Cloud mirror contributes memory knowledge contacts and task/notification context",
+ ("Cloud mirror contributes memory knowledge contacts task calendar and notification context",
   'cloud_candidates("memory"' in context and 'cloud_candidates("knowledge"' in context and
   'cloud_candidates("contacts"' in context and 'cloud_candidates("tasks"' in context and
-  'cloud_candidates("notifications"' in context),
+  'cloud_candidates("calendar"' in context and 'cloud_candidates("notifications"' in context),
  ("capabilities advertise shared context and ping",
   '"shared.agent.context.v1"' in capabilities and '"system.ping.v1"' in capabilities and
   '"operation": "shared.context.exchange"' in capabilities),
@@ -78,6 +78,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
             "knowledge":[{"id":"cloud-knowledge-1","title":"Cloud note","content":"Knowledge shared from Cloud","updated_at":"2026-09-24T17:00:00Z"}],
             "contacts":[{"id":"cloud-contact-1","title":"Cloud contact","content":"Relationship context","updated_at":"2026-09-24T17:00:00Z"}],
             "tasks":[{"id":"cloud-task-1","title":"Cloud task","content":"status: open","updated_at":"2026-09-24T17:00:00Z"}],
+            "calendar":[{"id":"cloud-calendar-1","title":"Cloud calendar","content":"starts: 2026-09-25T18:00:00Z","updated_at":"2026-09-24T17:00:00Z"}],
             "notifications":[{"id":"cloud-notification-1","title":"Cloud notice","content":"unread","updated_at":"2026-09-24T17:00:00Z"}],
         },
     }
@@ -92,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
     request=pairing.create_pairing_request(
         "vp3",
         "VP3",
-        ["memory.read","knowledge.search","contacts.read","tasks.read","notifications.read"],
+        ["memory.read","knowledge.search","contacts.read","tasks.read","events.read","notifications.read"],
     )
     approved=pairing.approve_pairing_request(request["request_id"])
     assert approved is not None
@@ -115,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
     assert exchanged["payload"]["cloud_mirror"]["revision"]=="cloud-revision-1"
     assert exchanged["payload"]["homeserver_snapshot"]["authoritative_source"]=="homeserver"
     assert set(exchanged["payload"]["homeserver_snapshot"]["datasets"])=={
-        "memory","knowledge","contacts","tasks","notifications"
+        "memory","knowledge","contacts","tasks","calendar","notifications"
     }
 
     try:
