@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import queue
 import re
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 from urllib.parse import urlparse, urlunparse
 
@@ -17,10 +18,16 @@ from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
 
-TRACKY_PHYSICAL_VERSION = "2.73"
+TRACKY_PHYSICAL_VERSION = "2.74"
 PHYSICAL_CONTEXT_PROTOCOL = "physical_context.v1"
 ACTIVE_PERCEPTION_PROTOCOL = "active_perception.v1"
 CLOUD_SYNC_PATH = "/api/tracky-sync-v270.php"
+TRACKY_SYNC_BACKOFF_BASE_SECONDS = 5
+TRACKY_SYNC_BACKOFF_MAX_SECONDS = 300
+TRACKY_PROVIDER_TIMEOUT_SECONDS = 12
+TRACKY_STALE_REQUEST_SECONDS = 120
+TRACKY_BACKLOG_WARN_EVENTS = 500
+TRACKY_BACKLOG_CRITICAL_EVENTS = 2000
 
 _ALLOWED_REQUEST_TYPES = {
     "refresh_current_view",
@@ -81,6 +88,170 @@ def _confidence(value: Any) -> float:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return 0.0
+
+def _parse_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _sync_backoff_seconds(failures: int) -> int:
+    failures = max(1, int(failures))
+    return min(TRACKY_SYNC_BACKOFF_MAX_SECONDS, TRACKY_SYNC_BACKOFF_BASE_SECONDS * (2 ** min(failures - 1, 8)))
+
+
+def _record_sync_failure(error: str) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    with db() as connection:
+        row = connection.execute(
+            "SELECT consecutive_failures FROM tracky_cloud_sync_state WHERE id=1"
+        ).fetchone()
+        failures = int(row["consecutive_failures"] or 0) + 1 if row is not None else 1
+        delay = _sync_backoff_seconds(failures)
+        retry_at = (now + timedelta(seconds=delay)).isoformat()
+        pending = int(connection.execute(
+            "SELECT COUNT(*) FROM tracky_physical_events WHERE cloud_synced=0"
+        ).fetchone()[0])
+        connection.execute(
+            """
+            UPDATE tracky_cloud_sync_state
+            SET consecutive_failures=?,next_retry_at=?,last_failure_at=?,last_error=?,
+                last_backlog_count=?,updated_at=CURRENT_TIMESTAMP
+            WHERE id=1
+            """,
+            (failures, retry_at, now.isoformat(), error[:300], pending),
+        )
+    return {"failures": failures, "delay_seconds": delay, "next_retry_at": retry_at}
+
+
+def _record_sync_success(last_sequence: int, cursor: str, synced_events: int) -> None:
+    now = _now_iso()
+    with db() as connection:
+        pending = int(connection.execute(
+            "SELECT COUNT(*) FROM tracky_physical_events WHERE cloud_synced=0"
+        ).fetchone()[0])
+        connection.execute(
+            """
+            UPDATE tracky_cloud_sync_state
+            SET last_sequence=?,sync_cursor=?,last_success_at=?,last_error='',
+                consecutive_failures=0,next_retry_at=NULL,last_backlog_count=?,
+                last_success_sequence=?,updated_at=CURRENT_TIMESTAMP
+            WHERE id=1
+            """,
+            (max(0, int(last_sequence)), str(cursor or ""), now, pending, max(0, int(last_sequence))),
+        )
+
+
+def recover_stale_requests(max_age_seconds: int = TRACKY_STALE_REQUEST_SECONDS) -> int:
+    max_age_seconds = max(30, min(int(max_age_seconds), 3600))
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+    with db() as connection:
+        rows = connection.execute(
+            """
+            SELECT request_id FROM tracky_active_perception_requests
+            WHERE status IN ('requested','accepted','observing')
+              AND updated_at < ?
+            """,
+            (cutoff.strftime("%Y-%m-%d %H:%M:%S"),),
+        ).fetchall()
+    for row in rows:
+        _set_request_status(
+            str(row["request_id"]),
+            "failed",
+            result={"reason": "request_recovered_after_interruption"},
+            error="Active perception request expired after a process interruption.",
+            completed=True,
+        )
+    return len(rows)
+
+
+def _invoke_provider_with_timeout(
+    provider: Callable[[dict[str, Any]], dict[str, Any]],
+    request: dict[str, Any],
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    timeout_seconds = max(2.0, min(float(timeout_seconds), 30.0))
+    outcome: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
+
+    def runner() -> None:
+        try:
+            outcome.put(("ok", provider(request)))
+        except Exception as exc:
+            outcome.put(("error", exc))
+
+    thread = threading.Thread(target=runner, name="tracky-perception-provider", daemon=True)
+    thread.start()
+    thread.join(timeout_seconds)
+    if thread.is_alive():
+        raise TrackyPhysicalError("Tracky perception provider timed out.", 504)
+    try:
+        kind, value = outcome.get_nowait()
+    except queue.Empty as exc:
+        raise TrackyPhysicalError("Tracky perception provider returned no result.", 502) from exc
+    if kind == "error":
+        raise value
+    return value
+
+
+def sync_due(now: datetime | None = None) -> bool:
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    status = sync_status()
+    if int(status.get("pending_events") or 0) < 1:
+        return False
+    retry_at = _parse_datetime(status.get("next_retry_at"))
+    return retry_at is None or retry_at <= now
+
+
+def resilience_status() -> dict[str, Any]:
+    recover_stale_requests()
+    status = sync_status()
+    pending = int(status.get("pending_events") or 0)
+    failures = int(status.get("consecutive_failures") or 0)
+    retry_at = _parse_datetime(status.get("next_retry_at"))
+    now = datetime.now(timezone.utc)
+    backoff_active = retry_at is not None and retry_at > now
+    with db() as connection:
+        active = int(connection.execute(
+            "SELECT COUNT(*) FROM tracky_active_perception_requests WHERE status IN ('requested','accepted','observing')"
+        ).fetchone()[0])
+        oldest = connection.execute(
+            "SELECT MIN(created_at) AS oldest FROM tracky_physical_events WHERE cloud_synced=0"
+        ).fetchone()
+    oldest_at = _parse_datetime(oldest["oldest"] if oldest is not None else None)
+    oldest_age = max(0, int((now - oldest_at).total_seconds())) if oldest_at else 0
+    if pending >= TRACKY_BACKLOG_CRITICAL_EVENTS:
+        state = "critical"
+    elif pending >= TRACKY_BACKLOG_WARN_EVENTS or failures >= 3:
+        state = "degraded"
+    elif backoff_active or pending > 0:
+        state = "recovering"
+    else:
+        state = "healthy"
+    return {
+        "state": state,
+        "pending_events": pending,
+        "oldest_pending_age_seconds": oldest_age,
+        "consecutive_sync_failures": failures,
+        "next_retry_at": status.get("next_retry_at"),
+        "backoff_active": backoff_active,
+        "active_requests": active,
+        "last_success_at": status.get("last_success_at"),
+        "last_error": status.get("last_error"),
+        "provider_timeout_seconds": TRACKY_PROVIDER_TIMEOUT_SECONDS,
+        "backlog_warn_events": TRACKY_BACKLOG_WARN_EVENTS,
+        "backlog_critical_events": TRACKY_BACKLOG_CRITICAL_EVENTS,
+    }
+
 
 
 def _assert_governed(value: Any, path: str = "payload", depth: int = 0) -> None:
@@ -322,6 +493,7 @@ def public_capability() -> dict[str, Any]:
             "reconciliation_required": bool(reconciliation.get("needs_reconciliation")),
             "active_perception_blocked_during_reconciliation": True,
         },
+        "reliability": resilience_status(),
     }
 
 
@@ -623,7 +795,17 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     }
 
 
-def sync_cloud(*, timeout: float = 12.0) -> dict[str, Any]:
+def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
+    if not force and not sync_due():
+        status = sync_status()
+        return {
+            "ok": True,
+            "protocol": PHYSICAL_CONTEXT_PROTOCOL,
+            "deferred": True,
+            "reason": "retry_backoff" if int(status.get("pending_events") or 0) else "nothing_pending",
+            "pending_events": int(status.get("pending_events") or 0),
+            "next_retry_at": status.get("next_retry_at"),
+        }
     session = load_https_session()
     if not session:
         raise TrackyPhysicalError("VP3 Cloud is not paired.", 503)
@@ -656,18 +838,10 @@ def sync_cloud(*, timeout: float = 12.0) -> dict[str, Any]:
             detail = str((body or {}).get("error") or (body or {}).get("detail") or f"HTTP {response.status_code}")[:300]
             raise TrackyPhysicalError(f"VP3 Tracky sync failed: {detail}", 503)
     except (httpx.HTTPError, OSError) as exc:
-        with db() as connection:
-            connection.execute(
-                "UPDATE tracky_cloud_sync_state SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=1",
-                (f"{type(exc).__name__}: Cloud sync unavailable"[:300],),
-            )
+        _record_sync_failure(f"{type(exc).__name__}: Cloud sync unavailable")
         raise TrackyPhysicalError("VP3 Tracky sync is temporarily unavailable.", 503) from exc
     except TrackyPhysicalError as exc:
-        with db() as connection:
-            connection.execute(
-                "UPDATE tracky_cloud_sync_state SET last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=1",
-                (str(exc)[:300],),
-            )
+        _record_sync_failure(str(exc))
         raise
 
     with db() as connection:
@@ -676,20 +850,16 @@ def sync_cloud(*, timeout: float = 12.0) -> dict[str, Any]:
                 "UPDATE tracky_physical_events SET cloud_synced=1,cloud_synced_at=? WHERE event_id=?",
                 (now, event_id),
             )
-        connection.execute(
-            """
-            UPDATE tracky_cloud_sync_state
-            SET last_sequence=?,sync_cursor=?,last_success_at=?,last_error='',updated_at=CURRENT_TIMESTAMP
-            WHERE id=1
-            """,
-            (int(body.get("last_sequence") or package["max_sequence"]), str(body.get("cursor") or package["cursor"]), now),
-        )
+    last_sequence = int(body.get("last_sequence") or package["max_sequence"])
+    cursor = str(body.get("cursor") or package["cursor"])
+    _record_sync_success(last_sequence, cursor, len(package["event_ids"]))
     return {
         "ok": True,
         "protocol": PHYSICAL_CONTEXT_PROTOCOL,
         "cloud": body,
         "synced_events": len(package["event_ids"]),
-        "cursor": str(body.get("cursor") or package["cursor"]),
+        "cursor": cursor,
+        "resilience": resilience_status(),
     }
 
 
@@ -723,6 +893,7 @@ def _request_row(request_id: str) -> dict[str, Any] | None:
 
 
 def request_status(request_id: str) -> dict[str, Any]:
+    recover_stale_requests()
     request_id = _bounded_text(request_id, 128, required=True, label="request_id")
     if not _REQUEST_ID.fullmatch(request_id):
         raise TrackyPhysicalError("Active perception request_id is invalid.")
@@ -765,6 +936,7 @@ def active_perception(
     reason: str = "",
     requested_by: str = "vp3_cloud",
 ) -> dict[str, Any]:
+    recover_stale_requests()
     request_type = _bounded_text(request_type, 60, required=True, label="request_type").lower()
     if request_type not in _ALLOWED_REQUEST_TYPES:
         raise TrackyPhysicalError("Active perception request_type is unsupported.")
@@ -801,15 +973,40 @@ def active_perception(
         return {"protocol": ACTIVE_PERCEPTION_PROTOCOL, "request": existing, "idempotent": True}
 
     with db() as connection:
+        prior = connection.execute(
+            """
+            SELECT request_id FROM tracky_active_perception_requests
+            WHERE correlation_id=? AND request_id<>?
+              AND status IN ('requested','accepted','observing')
+            ORDER BY created_at DESC
+            """,
+            (correlation_id, request_id),
+        ).fetchall()
+        for row in prior:
+            connection.execute(
+                """
+                UPDATE tracky_active_perception_requests
+                SET status='superseded',superseded_by=?,result_json=?,error='',
+                    completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP),updated_at=CURRENT_TIMESTAMP
+                WHERE request_id=?
+                """,
+                (
+                    request_id,
+                    _json({"reason": "superseded_by_new_request", "superseded_by": request_id}),
+                    str(row["request_id"]),
+                ),
+            )
+        deadline = (datetime.now(timezone.utc) + timedelta(seconds=TRACKY_PROVIDER_TIMEOUT_SECONDS)).isoformat()
         connection.execute(
             """
             INSERT INTO tracky_active_perception_requests(
-                request_id,correlation_id,request_type,site_id,target_json,reason,status,requested_by
-            ) VALUES (?,?,?,?,?,?,?,?)
+                request_id,correlation_id,request_type,site_id,target_json,reason,status,requested_by,deadline_at
+            ) VALUES (?,?,?,?,?,?,?,?,?)
             """,
             (
                 request_id, correlation_id, request_type, canonical_site, _json(safe_target),
                 _bounded_text(reason, 500), "requested", _bounded_text(requested_by, 80) or "vp3_cloud",
+                deadline,
             ),
         )
 
@@ -860,9 +1057,11 @@ def active_perception(
         "target": safe_target,
         "reason": _bounded_text(reason, 500),
         "rooms": canonical_rooms(),
+        "deadline_at": (datetime.now(timezone.utc) + timedelta(seconds=TRACKY_PROVIDER_TIMEOUT_SECONDS)).isoformat(),
     }
     try:
-        provider_result = provider(provider_request)
+        timeout_seconds = provider_caps.get("timeout_seconds", TRACKY_PROVIDER_TIMEOUT_SECONDS)
+        provider_result = _invoke_provider_with_timeout(provider, provider_request, timeout_seconds)
         if not isinstance(provider_result, dict):
             raise TrackyPhysicalError("Tracky perception provider returned an invalid result.", 502)
         _assert_governed(provider_result, "provider_result")
@@ -888,10 +1087,11 @@ def active_perception(
         }
         _set_request_status(request_id, "completed", result=result, completed=True)
     except TrackyPhysicalError as exc:
+        reason = "provider_timeout" if exc.status_code == 504 else "provider_failed"
         _set_request_status(
             request_id,
             "failed",
-            result={"reason": "provider_failed"},
+            result={"reason": reason},
             error=str(exc),
             completed=True,
         )
