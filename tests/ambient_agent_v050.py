@@ -284,10 +284,13 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v050-ambient-") as data_dir:
             time.sleep(0.2)
             assert len(synth_calls) == 1
 
-            ambient_event = next(
-                item for item in cognitive_events
-                if item.get("event_type") == "ambient.notification_announced"
-            )
+            ambient_event = wait_for(lambda: next(
+                (
+                    item for item in cognitive_events
+                    if item.get("event_type") == "ambient.notification_announced"
+                ),
+                None,
+            ))
             event_encoded = json.dumps(ambient_event, ensure_ascii=False)
             assert secret_title not in event_encoded
             assert secret_body not in event_encoded

@@ -135,11 +135,25 @@ with tempfile.TemporaryDirectory(prefix="homeserver-tasks-") as data_dir:
         app_created = client.post(
             "/api/v1/tasks",
             headers=writer_headers,
-            json={"title": "Synthetic app-created task", "priority": "normal"},
+            json={
+                "mutation_id": "task-writer-create-001",
+                "title": "Synthetic app-created task",
+                "priority": "normal",
+            },
         )
         assert app_created.status_code == 200
-        assert app_created.json()["task"]["source_app_key"] == "task-writer"
-        assert app_created.json()["task"]["created_by_type"] == "app"
+        assert app_created.json()["approval_required"] is True
+        request_id = app_created.json()["result"]["request_id"]
+        assert client.post(
+            f"/api/v1/control/action-requests/{request_id}/approve"
+        ).status_code == 200
+        owner_tasks = client.get(
+            "/api/v1/control/tasks",
+            params={"q": "Synthetic app-created task"},
+        ).json()["items"]
+        created = next(item for item in owner_tasks if item["title"] == "Synthetic app-created task")
+        assert created["source_app_key"] == "task-writer"
+        assert created["created_by_type"] == "app"
         assert client.get("/api/v1/tasks", headers=writer_headers).status_code == 403
 
         assert client.put(

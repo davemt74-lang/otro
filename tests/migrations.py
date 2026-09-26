@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 35))
+        assert versions == list(range(1, 36))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -250,6 +250,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0] == 0
         policies = migrated.execute("SELECT tool_key, enabled FROM tool_policies ORDER BY tool_key").fetchall()
         assert [(row["tool_key"], row["enabled"]) for row in policies] == [
+            ("calendar.create", 1),
+            ("calendar.delete", 1),
+            ("calendar.list", 1),
+            ("calendar.update", 1),
             ("contacts.create", 1),
             ("contacts.delete", 1),
             ("contacts.search", 1),
@@ -266,7 +270,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ("memory.write", 1),
             ("notifications.list", 1),
             ("tasks.create", 1),
+            ("tasks.delete", 1),
             ("tasks.list", 1),
+            ("tasks.update", 1),
         ]
         runtime_settings = migrated.execute(
             "SELECT enabled,poll_seconds,max_actions_per_run,max_rule_fires_per_minute FROM automation_runtime_settings WHERE id=1"
@@ -404,9 +410,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='action_requests'"
         ).fetchone()[0].replace(" ", "").replace("\n", "")
         for action_key in (
-            "memory.write", "tasks.create", "files.update", "files.delete",
+            "memory.write", "tasks.create", "tasks.update", "tasks.delete", "files.update", "files.delete",
             "vp3.booking.create", "vp3.booking.reschedule", "vp3.booking.cancel",
             "contacts.create", "contacts.update", "contacts.delete",
+            "knowledge.create", "knowledge.update", "knowledge.delete",
+            "calendar.create", "calendar.update", "calendar.delete",
         ):
             assert f"'{action_key}'" in action_schema
         proposal_checks = (
@@ -456,12 +464,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 35))
+        assert versions_again == list(range(1, 36))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 17
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 23
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_intelligence_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_context_events").fetchone()[0] == 0

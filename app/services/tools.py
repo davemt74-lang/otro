@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, contacts, knowledge as knowledge_service, knowledge_collection_policy, local_files, room_device_automation
+from . import app_scopes, contacts, knowledge as knowledge_service, knowledge_collection_policy, local_files, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -310,8 +310,132 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "recurrence": {"type": "string", "enum": ["none", "daily", "weekly", "monthly"]},
                 "recurrence_interval": {"type": "integer", "minimum": 1, "maximum": 365},
                 "contact_id": {"type": ["integer", "null"], "minimum": 1},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
             },
             "required": ["title"],
+            "additionalProperties": False,
+        },
+    },
+    "tasks.update": {
+        "key": "tasks.update",
+        "name": "Update HomeServer Task",
+        "description": "Propose changes to one HomeServer-native task by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["tasks.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+                "title": {"type": "string", "maxLength": 240},
+                "description": {"type": "string", "maxLength": 20000},
+                "status": {"type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"]},
+                "priority": {"type": "string", "enum": ["low", "normal", "high", "urgent"]},
+                "due_at": {"type": ["string", "null"]},
+                "remind_at": {"type": ["string", "null"]},
+                "recurrence": {"type": "string", "enum": ["none", "daily", "weekly", "monthly"]},
+                "recurrence_interval": {"type": "integer", "minimum": 1, "maximum": 365},
+                "contact_id": {"type": ["integer", "null"], "minimum": 1},
+            },
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    "tasks.delete": {
+        "key": "tasks.delete",
+        "name": "Delete HomeServer Task",
+        "description": "Propose deletion of one HomeServer-native task by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["tasks.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+            },
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    "calendar.list": {
+        "key": "calendar.list",
+        "name": "Read HomeServer Calendar",
+        "description": "Read bounded HomeServer-native calendar events.",
+        "mode": "read",
+        "required_permissions": ["events.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "from_at": {"type": ["string", "null"]},
+                "to_at": {"type": ["string", "null"]},
+                "query": {"type": "string", "maxLength": 240},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            "additionalProperties": False,
+        },
+    },
+    "calendar.create": {
+        "key": "calendar.create",
+        "name": "Create HomeServer Calendar Event",
+        "description": "Propose creation of one HomeServer-native calendar event.",
+        "mode": "write",
+        "required_permissions": ["events.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "title": {"type": "string", "minLength": 1, "maxLength": 240},
+                "description": {"type": "string", "maxLength": 20000},
+                "location": {"type": "string", "maxLength": 500},
+                "start_at": {"type": "string"},
+                "end_at": {"type": "string"},
+                "timezone": {"type": "string", "maxLength": 80},
+                "all_day": {"type": "boolean"},
+            },
+            "required": ["mutation_id", "title", "start_at", "end_at"],
+            "additionalProperties": False,
+        },
+    },
+    "calendar.update": {
+        "key": "calendar.update",
+        "name": "Update HomeServer Calendar Event",
+        "description": "Propose changes to one HomeServer-native calendar event by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["events.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+                "title": {"type": "string", "minLength": 1, "maxLength": 240},
+                "description": {"type": "string", "maxLength": 20000},
+                "location": {"type": "string", "maxLength": 500},
+                "start_at": {"type": "string"},
+                "end_at": {"type": "string"},
+                "timezone": {"type": "string", "maxLength": 80},
+                "all_day": {"type": "boolean"},
+            },
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    "calendar.delete": {
+        "key": "calendar.delete",
+        "name": "Delete HomeServer Calendar Event",
+        "description": "Propose cancellation of one HomeServer-native calendar event by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["events.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+            },
+            "required": ["canonical_id", "mutation_id", "expected_revision"],
             "additionalProperties": False,
         },
     },
@@ -447,7 +571,11 @@ def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[st
         return contacts.safe_contact_mutation_meta(tool_key, arguments)
     if tool_key in {"knowledge.create", "knowledge.update", "knowledge.delete"}:
         return knowledge_service.safe_knowledge_mutation_meta(tool_key, arguments)
-    if tool_key in {"contacts.search", "knowledge.search", "tasks.list", "files.list"}:
+    if tool_key in {"tasks.create", "tasks.update", "tasks.delete"}:
+        return continuity.safe_task_mutation_meta(tool_key, arguments)
+    if tool_key in {"calendar.create", "calendar.update", "calendar.delete"}:
+        return continuity.safe_calendar_mutation_meta(tool_key, arguments)
+    if tool_key in {"contacts.search", "knowledge.search", "tasks.list", "calendar.list", "files.list"}:
         query = str(arguments.get("query") or "")
         return {"query_length": len(query), "limit": _safe_numeric(arguments.get("limit"), 8)}
     if tool_key == "files.read":
@@ -894,10 +1022,9 @@ def _tasks_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
     query = str(arguments.get("query") or "").strip()
     limit = _bounded_int(arguments.get("limit"), 20, 1, 50, "limit")
     try:
-        rows = list_tasks(status=status, q=query, limit=limit)
-    except TaskError as exc:
-        raise ToolError(str(exc), exc.status_code) from exc
-    items = [{key: row.get(key) for key in ("id", "title", "description", "status", "priority", "due_at", "remind_at", "recurrence", "recurrence_interval", "contact_id", "contact_name", "created_at", "updated_at")} for row in rows]
+        items = continuity.list_federated_tasks(status=status, q=query, limit=limit)
+    except (TaskError, continuity.TaskCalendarContinuityError) as exc:
+        raise ToolError(str(exc), getattr(exc, "status_code", 422)) from exc
     return {"items": items, "count": len(items)}, {"count": len(items)}
 
 
@@ -984,12 +1111,74 @@ def _devices_command(
 
 
 def _tasks_create(arguments: dict[str, Any], source: str, created_by_type: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    source_key = source.removeprefix("app:") if source.startswith("app:") else (None if source == "owner" else source)
     try:
-        task = create_task(arguments, source_app_key=source_key, created_by_type=created_by_type)
-    except TaskError as exc:
+        if "mutation_id" in arguments or source.startswith("app:"):
+            task = continuity.create_federated_task(
+                arguments,
+                source_app_key=source,
+                created_by_type=created_by_type,
+            )
+        else:
+            source_key = source.removeprefix("app:") if source.startswith("app:") else (None if source == "owner" else source)
+            task = continuity.federated_task_item(create_task(arguments, source_app_key=source_key, created_by_type=created_by_type))
+    except (TaskError, continuity.TaskCalendarContinuityError) as exc:
+        raise ToolError(str(exc), getattr(exc, "status_code", 422)) from exc
+    return {"created": True, "task": task}, {"created": True, "canonical_id": task.get("canonical_id")}
+
+
+def _tasks_update(arguments: dict[str, Any], source: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        task = continuity.update_federated_task(arguments, source_app_key=source)
+    except continuity.TaskCalendarContinuityError as exc:
         raise ToolError(str(exc), exc.status_code) from exc
-    return {"created": True, "task": task}, {"created": True, "id": task["id"]}
+    return {"updated": True, "task": task}, {"updated": True, "canonical_id": task.get("canonical_id")}
+
+
+def _tasks_delete(arguments: dict[str, Any], source: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        deleted = continuity.delete_federated_task(arguments, source_app_key=source)
+    except continuity.TaskCalendarContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return {"deleted": deleted, "canonical_id": arguments.get("canonical_id")}, {"deleted": deleted}
+
+
+def _calendar_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown = set(arguments) - {"from_at", "to_at", "query", "limit"}
+    if unknown:
+        raise ToolError(f"Unsupported calendar.list argument: {sorted(unknown)[0]}")
+    try:
+        items = continuity.list_federated_calendar(
+            from_at=arguments.get("from_at"), to_at=arguments.get("to_at"),
+            q=str(arguments.get("query") or ""),
+            limit=_bounded_int(arguments.get("limit"), 50, 1, 100, "limit"),
+        )
+    except continuity.TaskCalendarContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return {"items": items, "count": len(items)}, {"count": len(items)}
+
+
+def _calendar_create(arguments: dict[str, Any], source: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        event = continuity.create_federated_calendar(arguments, source_app_key=source)
+    except continuity.TaskCalendarContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return {"created": True, "event": event}, {"created": True, "canonical_id": event.get("canonical_id")}
+
+
+def _calendar_update(arguments: dict[str, Any], source: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        event = continuity.update_federated_calendar(arguments, source_app_key=source)
+    except continuity.TaskCalendarContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return {"updated": True, "event": event}, {"updated": True, "canonical_id": event.get("canonical_id")}
+
+
+def _calendar_delete(arguments: dict[str, Any], source: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        deleted = continuity.delete_federated_calendar(arguments, source_app_key=source)
+    except continuity.TaskCalendarContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return {"deleted": deleted, "canonical_id": arguments.get("canonical_id")}, {"deleted": deleted}
 
 
 def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
@@ -1047,6 +1236,8 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _memory_write(payload)
         elif tool["key"] == "tasks.list":
             result, result_meta = _tasks_list(payload)
+        elif tool["key"] == "calendar.list":
+            result, result_meta = _calendar_list(payload)
         elif tool["key"] == "notifications.list":
             result, result_meta = _notifications_list(payload)
         elif tool["key"] == "devices.list":
@@ -1058,8 +1249,19 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
                 approval_request_id=approval_request_id,
             )
         elif tool["key"] == "tasks.create":
-            task_creator = "agent" if owner and source.startswith("app:") else actor_type
+            fallback_creator = "agent" if owner and source.startswith("app:") else actor_type
+            task_creator = continuity.current_task_creator_provenance(fallback_creator)
             result, result_meta = _tasks_create(payload, source, task_creator)
+        elif tool["key"] == "tasks.update":
+            result, result_meta = _tasks_update(payload, source)
+        elif tool["key"] == "tasks.delete":
+            result, result_meta = _tasks_delete(payload, source)
+        elif tool["key"] == "calendar.create":
+            result, result_meta = _calendar_create(payload, source)
+        elif tool["key"] == "calendar.update":
+            result, result_meta = _calendar_update(payload, source)
+        elif tool["key"] == "calendar.delete":
+            result, result_meta = _calendar_delete(payload, source)
         else:
             raise ToolError("Tool implementation is unavailable.", 503)
     except ToolError as exc:

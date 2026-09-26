@@ -76,6 +76,16 @@ def _approval_or_http(tool_key: str, source: str, arguments: dict[str, Any]) -> 
             return approvals.create_memory_write_request(source, arguments, owner=False)
         if tool_key == "tasks.create":
             return approvals.create_task_create_request(source, arguments, owner=False)
+        if tool_key == "tasks.update":
+            return approvals.create_task_update_request(source, arguments, owner=False)
+        if tool_key == "tasks.delete":
+            return approvals.create_task_delete_request(source, arguments, owner=False)
+        if tool_key == "calendar.create":
+            return approvals.create_calendar_create_request(source, arguments, owner=False)
+        if tool_key == "calendar.update":
+            return approvals.create_calendar_update_request(source, arguments, owner=False)
+        if tool_key == "calendar.delete":
+            return approvals.create_calendar_delete_request(source, arguments, owner=False)
         if tool_key == "devices.command":
             return approvals.create_device_command_request(source, arguments, owner=False)
         if tool_key == "files.update":

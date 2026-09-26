@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, knowledge as knowledge_service, room_device_automation, tools
+from . import contacts, knowledge as knowledge_service, room_device_automation, task_calendar_continuity as continuity, tools
 
 
 LOCAL_OWNER_ONLY_ACTIONS = {"devices.command"}
@@ -390,18 +390,104 @@ def create_memory_write_request(source_app_key: str, arguments: dict[str, Any] |
     return _create_action_request(source, actor_type, "memory.write", normalized, meta, required)
 
 
-def create_task_create_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+def create_task_create_request(
+    source_app_key: str,
+    arguments: dict[str, Any] | None,
+    *,
+    owner: bool = False,
+    created_by_type: str | None = None,
+) -> dict[str, Any]:
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
-    raw_meta = _safe_task_meta(arguments)
+    provenance = str(created_by_type or ("owner" if owner else "app")).strip().lower()
+    if provenance not in {"owner", "app", "agent", "system"}:
+        provenance = "app"
+    proposal = dict(arguments or {})
+    if not owner and not str(proposal.get("mutation_id") or "").strip():
+        proposal["mutation_id"] = uuid.uuid4().hex
+    raw_meta = continuity.safe_task_mutation_meta("tasks.create", proposal)
     required = [] if owner else ["tasks.write", "tools.execute"]
     try:
-        normalized = _validate_task_create(arguments)
-    except ApprovalError as exc:
+        normalized = continuity.normalize_task_create_arguments(proposal, require_mutation=not owner)
+    except continuity.TaskCalendarContinuityError as exc:
         run_id = _record_failed_proposal(source, actor_type, "tasks.create", required, raw_meta, str(exc))
         raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
-    meta = _safe_task_meta(normalized)
+    meta = continuity.safe_task_mutation_meta("tasks.create", normalized)
+    meta["created_by_type"] = provenance
     return _create_action_request(source, actor_type, "tasks.create", normalized, meta, required)
+
+
+def _task_continuity_request(source_app_key: str, action_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+    source = source_app_key.strip() or ("owner" if owner else "app:unknown")
+    actor_type = "owner" if owner else "app"
+    raw_meta = continuity.safe_task_mutation_meta(action_key, arguments)
+    required = [] if owner else ["tasks.write", "tools.execute"]
+    try:
+        if action_key == "tasks.update":
+            normalized = continuity.normalize_task_update_arguments(arguments)
+            existing = continuity.get_federated_task_by_canonical(str(normalized["canonical_id"]))
+            if existing is None:
+                raise continuity.TaskCalendarContinuityError("HomeServer task not found.", 404)
+        elif action_key == "tasks.delete":
+            normalized = continuity.normalize_task_delete_arguments(arguments)
+            existing = continuity.get_federated_task_by_canonical(str(normalized["canonical_id"]))
+            if existing is None:
+                raise continuity.TaskCalendarContinuityError("HomeServer task not found.", 404)
+        else:
+            raise continuity.TaskCalendarContinuityError("Unsupported task action.")
+    except continuity.TaskCalendarContinuityError as exc:
+        run_id = _record_failed_proposal(source, actor_type, action_key, required, raw_meta, str(exc))
+        raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
+    return _create_action_request(
+        source, actor_type, action_key, normalized,
+        continuity.safe_task_mutation_meta(action_key, normalized), required,
+    )
+
+
+def create_task_update_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+    return _task_continuity_request(source_app_key, "tasks.update", arguments, owner=owner)
+
+
+def create_task_delete_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+    return _task_continuity_request(source_app_key, "tasks.delete", arguments, owner=owner)
+
+
+def _calendar_continuity_request(source_app_key: str, action_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+    source = source_app_key.strip() or ("owner" if owner else "app:unknown")
+    actor_type = "owner" if owner else "app"
+    raw_meta = continuity.safe_calendar_mutation_meta(action_key, arguments)
+    required = [] if owner else ["events.write", "tools.execute"]
+    try:
+        if action_key == "calendar.create":
+            proposal = dict(arguments or {})
+            if not str(proposal.get("mutation_id") or "").strip():
+                proposal["mutation_id"] = uuid.uuid4().hex
+            normalized = continuity.normalize_calendar_create_arguments(proposal)
+        elif action_key == "calendar.update":
+            normalized = continuity.normalize_calendar_update_arguments(arguments)
+        elif action_key == "calendar.delete":
+            normalized = continuity.normalize_calendar_delete_arguments(arguments)
+        else:
+            raise continuity.TaskCalendarContinuityError("Unsupported calendar action.")
+    except continuity.TaskCalendarContinuityError as exc:
+        run_id = _record_failed_proposal(source, actor_type, action_key, required, raw_meta, str(exc))
+        raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
+    return _create_action_request(
+        source, actor_type, action_key, normalized,
+        continuity.safe_calendar_mutation_meta(action_key, normalized), required,
+    )
+
+
+def create_calendar_create_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+    return _calendar_continuity_request(source_app_key, "calendar.create", arguments, owner=owner)
+
+
+def create_calendar_update_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+    return _calendar_continuity_request(source_app_key, "calendar.update", arguments, owner=owner)
+
+
+def create_calendar_delete_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+    return _calendar_continuity_request(source_app_key, "calendar.delete", arguments, owner=owner)
 
 
 def create_device_command_request(
@@ -533,9 +619,10 @@ def approve_request(request_id: str) -> dict[str, Any]:
     if request["status"] != "pending":
         raise ApprovalError(f"Action request is already {request['status']}.", 409)
     if request["action_key"] not in {
-        "memory.write", "tasks.create", "devices.command",
+        "memory.write", "tasks.create", "tasks.update", "tasks.delete", "devices.command",
         "contacts.create", "contacts.update", "contacts.delete",
         "knowledge.create", "knowledge.update", "knowledge.delete",
+        "calendar.create", "calendar.update", "calendar.delete",
     }:
         raise ApprovalError("Action type is not approved for local execution.", 403)
     with db() as connection:
@@ -557,13 +644,19 @@ def approve_request(request_id: str) -> dict[str, Any]:
                 approval_request_id=request["id"],
             )
         else:
-            execution = tools.execute_tool(
-                request["source_app_key"],
-                request["action_key"],
-                request["arguments"],
-                set(),
-                owner=True,
+            creator = (
+                str((request.get("arguments_meta") or {}).get("created_by_type") or "").strip().lower()
+                if request["action_key"] == "tasks.create"
+                else None
             )
+            with continuity.task_creator_provenance(creator):
+                execution = tools.execute_tool(
+                    request["source_app_key"],
+                    request["action_key"],
+                    request["arguments"],
+                    set(),
+                    owner=True,
+                )
     except tools.ToolError as exc:
         execution_run_id = _extract_run_id(str(exc))
         with db() as connection:

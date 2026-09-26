@@ -139,6 +139,7 @@ def _base_context(
             cloud_memory = [
                 *shared_agent_context.cloud_candidates("memory", query, limit=6),
                 *shared_agent_context.cloud_candidates("tasks", query, limit=4),
+                *shared_agent_context.cloud_candidates("calendar", query, limit=4),
                 *shared_agent_context.cloud_candidates("notifications", query, limit=4),
             ]
             for item in cloud_memory:
