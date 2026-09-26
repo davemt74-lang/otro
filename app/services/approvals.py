@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, room_device_automation, tools
+from . import contacts, knowledge as knowledge_service, room_device_automation, tools
 
 
 LOCAL_OWNER_ONLY_ACTIONS = {"devices.command"}
@@ -296,6 +296,86 @@ def create_contact_delete_request(
     return _contact_request(source_app_key, "contacts.delete", arguments, owner=owner)
 
 
+def _knowledge_request(
+    source_app_key: str,
+    action_key: str,
+    arguments: dict[str, Any] | None,
+    *,
+    owner: bool = False,
+) -> dict[str, Any]:
+    source = source_app_key.strip() or ("owner" if owner else "app:unknown")
+    actor_type = "owner" if owner else "app"
+    raw_meta = knowledge_service.safe_knowledge_mutation_meta(action_key, arguments)
+    required = [] if owner else ["knowledge.write", "tools.execute"]
+    try:
+        if action_key == "knowledge.create":
+            normalized = knowledge_service.normalize_knowledge_create_arguments(arguments)
+            tools._knowledge_mutation_scope(
+                source,
+                kind=str(normalized["kind"]),
+                collection_key=str(normalized["collection_key"]),
+            )
+        elif action_key == "knowledge.update":
+            normalized = knowledge_service.normalize_knowledge_update_arguments(arguments)
+            existing = knowledge_service.get_federated_knowledge_by_canonical(
+                str(normalized["canonical_id"])
+            )
+            if existing is None:
+                raise knowledge_service.FederatedKnowledgeError(
+                    "HomeServer Knowledge item not found.", 404
+                )
+            knowledge_service._assert_mutable_direct_item(existing)
+            tools._knowledge_mutation_scope(
+                source,
+                kind=str(normalized.get("kind") or existing.get("kind") or "note"),
+                collection_key=str(normalized.get("collection_key") or existing.get("collection_key") or "general"),
+            )
+        elif action_key == "knowledge.delete":
+            normalized = knowledge_service.normalize_knowledge_delete_arguments(arguments)
+            existing = knowledge_service.get_federated_knowledge_by_canonical(
+                str(normalized["canonical_id"])
+            )
+            if existing is None:
+                raise knowledge_service.FederatedKnowledgeError(
+                    "HomeServer Knowledge item not found.", 404
+                )
+            knowledge_service._assert_mutable_direct_item(existing)
+            tools._knowledge_mutation_scope(
+                source,
+                kind=str(existing.get("kind") or "note"),
+                collection_key=str(existing.get("collection_key") or "general"),
+            )
+        else:
+            raise knowledge_service.FederatedKnowledgeError("Unsupported Knowledge action.")
+    except (knowledge_service.FederatedKnowledgeError, tools.ToolError) as exc:
+        run_id = _record_failed_proposal(
+            source, actor_type, action_key, required, raw_meta, str(exc)
+        )
+        raise ApprovalError(
+            f"{exc} Run {run_id} was recorded.", exc.status_code
+        ) from exc
+    meta = knowledge_service.safe_knowledge_mutation_meta(action_key, normalized)
+    return _create_action_request(source, actor_type, action_key, normalized, meta, required)
+
+
+def create_knowledge_create_request(
+    source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False
+) -> dict[str, Any]:
+    return _knowledge_request(source_app_key, "knowledge.create", arguments, owner=owner)
+
+
+def create_knowledge_update_request(
+    source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False
+) -> dict[str, Any]:
+    return _knowledge_request(source_app_key, "knowledge.update", arguments, owner=owner)
+
+
+def create_knowledge_delete_request(
+    source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False
+) -> dict[str, Any]:
+    return _knowledge_request(source_app_key, "knowledge.delete", arguments, owner=owner)
+
+
 def create_memory_write_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
@@ -455,6 +535,7 @@ def approve_request(request_id: str) -> dict[str, Any]:
     if request["action_key"] not in {
         "memory.write", "tasks.create", "devices.command",
         "contacts.create", "contacts.update", "contacts.delete",
+        "knowledge.create", "knowledge.update", "knowledge.delete",
     }:
         raise ApprovalError("Action type is not approved for local execution.", 403)
     with db() as connection:

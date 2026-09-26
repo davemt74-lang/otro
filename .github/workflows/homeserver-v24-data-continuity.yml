@@ -39,6 +39,7 @@ jobs:
           app/bridge.py
           tests/federated_data_authority_v240.py
           tests/contacts_continuity_v241.py
+          tests/knowledge_continuity_v242.py
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify existing shared Agent fabric
@@ -47,3 +48,5 @@ jobs:
         run: python tests/federated_data_authority_v240.py
       - name: Verify v2.4 contacts continuity
         run: python tests/contacts_continuity_v241.py
+      - name: Verify v2.4 Knowledge continuity
+        run: python tests/knowledge_continuity_v242.py

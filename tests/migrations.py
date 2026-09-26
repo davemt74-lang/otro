@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 34))
+        assert versions == list(range(1, 35))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -258,7 +258,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ("devices.list", 1),
             ("files.delete", 1),
             ("files.update", 1),
+            ("knowledge.create", 1),
+            ("knowledge.delete", 1),
             ("knowledge.search", 1),
+            ("knowledge.update", 1),
             ("memory.list", 1),
             ("memory.write", 1),
             ("notifications.list", 1),
@@ -453,12 +456,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 34))
+        assert versions_again == list(range(1, 35))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 14
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 17
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_intelligence_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_context_events").fetchone()[0] == 0

@@ -14,6 +14,7 @@ from pypdf import PdfReader
 
 from ..config import settings
 from ..database import db
+from . import federated_data
 
 SUPPORTED_EXTENSIONS = {
     ".txt",
@@ -465,4 +466,495 @@ def delete_knowledge_item(item_id: int) -> bool:
             target.unlink(missing_ok=True)
         except OSError:
             pass
+    return True
+
+
+# HomeServer v2.4 Section 3 — federated Knowledge continuity.
+_SAFE_FEDERATED_KIND = re.compile(r"^[a-z0-9_.:-]{1,40}$")
+_MUTATION_ID = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+_CANONICAL_ID = re.compile(r"^fd24_[0-9a-f]{40}$")
+_REVISION = re.compile(r"^[0-9a-f]{64}$")
+
+
+class FederatedKnowledgeError(RuntimeError):
+    def __init__(self, message: str, status_code: int = 422):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _knowledge_authority_key(item_id: int) -> str:
+    value = int(item_id)
+    if value < 1:
+        raise FederatedKnowledgeError("Knowledge identity is invalid.", 500)
+    return f"knowledge_item:{value}"
+
+
+def _knowledge_state(item_id: int) -> dict[str, Any] | None:
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT ki.id,ki.title,ki.kind,ki.source_path,COALESCE(ki.content,'') AS content,
+                   COALESCE(ki.content_hash,'') AS content_hash,ki.created_at,ki.updated_at,
+                   COALESCE(kc.collection_key,'general') AS collection_key,
+                   CASE WHEN ksf.knowledge_item_id IS NULL THEN 'local_item' ELSE 'watched_folder' END AS source_type
+            FROM knowledge_items ki
+            LEFT JOIN knowledge_collection_items kci ON kci.knowledge_item_id=ki.id
+            LEFT JOIN knowledge_collections kc ON kc.id=kci.collection_id
+            LEFT JOIN knowledge_source_files ksf ON ksf.knowledge_item_id=ki.id
+            WHERE ki.id=? LIMIT 1
+            """,
+            (int(item_id),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def _knowledge_revision(record: dict[str, Any]) -> str:
+    content_hash = str(record.get("content_hash") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
+        content_hash = hashlib.sha256(
+            _normalize_text(str(record.get("content") or "")).encode("utf-8")
+        ).hexdigest()
+    payload = {
+        "title": str(record.get("title") or "").strip()[:240],
+        "kind": str(record.get("kind") or "").strip().lower()[:40],
+        "content_hash": content_hash,
+        "collection_key": str(record.get("collection_key") or "general").strip()[:64],
+        "source_type": str(record.get("source_type") or "local_item").strip()[:40],
+        "updated_at": str(record.get("updated_at") or "")[:80],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def federated_knowledge_item(record: dict[str, Any], *, snippet: str | None = None) -> dict[str, Any]:
+    item_id = int(record.get("id") or 0)
+    key = _knowledge_authority_key(item_id)
+    title = str(record.get("title") or "Knowledge item").strip()[:240]
+    content = _normalize_text(str(record.get("content") or ""))
+    collection_key = str(record.get("collection_key") or "general").strip()[:64] or "general"
+    source_type = str(record.get("source_type") or "local_item").strip()[:40]
+    envelope = federated_data.envelope(
+        "homeserver",
+        "knowledge",
+        key,
+        title=title,
+        content=content,
+        updated_at=str(record.get("updated_at") or ""),
+    )
+    revision = _knowledge_revision(record)
+    observed = dict(envelope)
+    observed["record_revision"] = revision
+    federated_data.observe(observed, observed_source="homeserver")
+    return {
+        "id": item_id,
+        "title": title,
+        "kind": str(record.get("kind") or "note").strip().lower()[:40],
+        "snippet": None if snippet is None else str(snippet)[:6000],
+        "collection_key": collection_key,
+        "source_type": source_type,
+        "updated_at": record.get("updated_at"),
+        "authority_source": "homeserver",
+        "authority_key": key,
+        "canonical_id": envelope["canonical_id"],
+        "record_revision": revision,
+        "federation_version": federated_data.FEDERATED_DATA_VERSION,
+        "mirror_only": False,
+        "read_only": source_type != "local_item" or bool(str(record.get("source_path") or "").strip()),
+        "mutation_route": (
+            "homeserver_governed"
+            if source_type == "local_item" and not str(record.get("source_path") or "").strip()
+            else "source_managed_read_only"
+        ),
+        "allowed_mutations": (
+            ["update", "delete"]
+            if source_type == "local_item" and not str(record.get("source_path") or "").strip()
+            else []
+        ),
+    }
+
+
+def get_federated_knowledge_item(item_id: int) -> dict[str, Any] | None:
+    row = _knowledge_state(item_id)
+    return federated_knowledge_item(row) if row else None
+
+
+def _item_id_from_canonical(canonical_id_value: str) -> int:
+    canonical = str(canonical_id_value or "").strip()
+    if not _CANONICAL_ID.fullmatch(canonical):
+        raise FederatedKnowledgeError("HomeServer Knowledge canonical identity is invalid.", 422)
+    key = federated_data.resolve_authority_key(
+        canonical,
+        authority_source="homeserver",
+        dataset="knowledge",
+        observed_source="homeserver",
+    )
+    if not key or not key.startswith("knowledge_item:"):
+        raise FederatedKnowledgeError("HomeServer Knowledge item not found.", 404)
+    try:
+        item_id = int(key.split(":", 1)[1])
+    except (TypeError, ValueError) as exc:
+        raise FederatedKnowledgeError("HomeServer Knowledge identity is invalid.", 404) from exc
+    expected = federated_data.canonical_id("homeserver", "knowledge", _knowledge_authority_key(item_id))
+    if expected != canonical:
+        raise FederatedKnowledgeError("HomeServer Knowledge identity does not match its authority.", 409)
+    return item_id
+
+
+def get_federated_knowledge_by_canonical(canonical_id_value: str) -> dict[str, Any] | None:
+    try:
+        item_id = _item_id_from_canonical(canonical_id_value)
+    except FederatedKnowledgeError as exc:
+        if exc.status_code == 404:
+            return None
+        raise
+    row = _knowledge_state(item_id)
+    return federated_knowledge_item(row) if row else None
+
+
+def _mutation_id(value: Any) -> str:
+    mutation_id = str(value or "").strip()
+    if not _MUTATION_ID.fullmatch(mutation_id):
+        raise FederatedKnowledgeError("Knowledge mutation_id must be 8 to 128 safe characters.")
+    return mutation_id
+
+
+def _expected_revision(value: Any) -> str:
+    revision = str(value or "").strip().lower()
+    if not _REVISION.fullmatch(revision):
+        raise FederatedKnowledgeError("Knowledge expected_revision must be a SHA-256 value.")
+    return revision
+
+
+def _clean_kind(value: Any) -> str:
+    kind = str(value or "note").strip().lower()
+    if not _SAFE_FEDERATED_KIND.fullmatch(kind):
+        raise FederatedKnowledgeError("Knowledge kind is invalid.")
+    if kind in {"document", "watched_document"}:
+        raise FederatedKnowledgeError("File-backed Knowledge kinds are source-managed and cannot be created through federated text mutations.", 409)
+    return kind
+
+
+def _clean_collection_key(value: Any) -> str:
+    from . import knowledge_collections
+    try:
+        return knowledge_collections.normalize_collection_key(str(value or "general"))
+    except knowledge_collections.KnowledgeCollectionError as exc:
+        raise FederatedKnowledgeError(str(exc), exc.status_code) from exc
+
+
+def normalize_knowledge_create_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    unknown = set(raw) - {"mutation_id", "collection_key", "title", "content", "kind"}
+    if unknown:
+        raise FederatedKnowledgeError(f"Unsupported knowledge.create argument: {sorted(unknown)[0]}")
+    title = str(raw.get("title") or "").strip()
+    content = _normalize_text(str(raw.get("content") or ""))
+    if not title:
+        raise FederatedKnowledgeError("knowledge.create requires title.")
+    if len(title) > 240:
+        raise FederatedKnowledgeError("Knowledge title exceeds 240 characters.")
+    if not content:
+        raise FederatedKnowledgeError("knowledge.create requires content.")
+    if len(content) > 250000:
+        raise FederatedKnowledgeError("Knowledge content exceeds 250,000 characters.", 413)
+    return {
+        "mutation_id": _mutation_id(raw.get("mutation_id")),
+        "collection_key": _clean_collection_key(raw.get("collection_key") or "general"),
+        "title": title,
+        "content": content,
+        "kind": _clean_kind(raw.get("kind") or "note"),
+    }
+
+
+def normalize_knowledge_update_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    unknown = set(raw) - {
+        "canonical_id", "mutation_id", "expected_revision",
+        "collection_key", "title", "content", "kind",
+    }
+    if unknown:
+        raise FederatedKnowledgeError(f"Unsupported knowledge.update argument: {sorted(unknown)[0]}")
+    canonical = str(raw.get("canonical_id") or "").strip()
+    if not _CANONICAL_ID.fullmatch(canonical):
+        raise FederatedKnowledgeError("knowledge.update requires a valid canonical_id.")
+    fields: dict[str, Any] = {}
+    if "title" in raw:
+        title = str(raw.get("title") or "").strip()
+        if not title or len(title) > 240:
+            raise FederatedKnowledgeError("Knowledge title must be 1 to 240 characters.")
+        fields["title"] = title
+    if "content" in raw:
+        content = _normalize_text(str(raw.get("content") or ""))
+        if not content:
+            raise FederatedKnowledgeError("Knowledge content cannot be empty.")
+        if len(content) > 250000:
+            raise FederatedKnowledgeError("Knowledge content exceeds 250,000 characters.", 413)
+        fields["content"] = content
+    if "kind" in raw:
+        fields["kind"] = _clean_kind(raw.get("kind"))
+    if "collection_key" in raw:
+        fields["collection_key"] = _clean_collection_key(raw.get("collection_key"))
+    if not fields:
+        raise FederatedKnowledgeError("knowledge.update requires at least one mutable field.")
+    return {
+        "canonical_id": canonical,
+        "mutation_id": _mutation_id(raw.get("mutation_id")),
+        "expected_revision": _expected_revision(raw.get("expected_revision")),
+        **fields,
+    }
+
+
+def normalize_knowledge_delete_arguments(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    unknown = set(raw) - {"canonical_id", "mutation_id", "expected_revision"}
+    if unknown:
+        raise FederatedKnowledgeError(f"Unsupported knowledge.delete argument: {sorted(unknown)[0]}")
+    canonical = str(raw.get("canonical_id") or "").strip()
+    if not _CANONICAL_ID.fullmatch(canonical):
+        raise FederatedKnowledgeError("knowledge.delete requires a valid canonical_id.")
+    return {
+        "canonical_id": canonical,
+        "mutation_id": _mutation_id(raw.get("mutation_id")),
+        "expected_revision": _expected_revision(raw.get("expected_revision")),
+    }
+
+
+def safe_knowledge_mutation_meta(action: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(payload or {})
+    return {
+        "action": str(action or "")[:32],
+        "canonical_id_present": bool(str(raw.get("canonical_id") or "")),
+        "canonical_id_prefix": str(raw.get("canonical_id") or "")[:5],
+        "mutation_id_present": bool(str(raw.get("mutation_id") or "")),
+        "expected_revision_present": bool(str(raw.get("expected_revision") or "")),
+        "title_length": len(str(raw.get("title") or "")),
+        "content_length": len(str(raw.get("content") or "")),
+        "kind": str(raw.get("kind") or "")[:40] or None,
+        "collection_key": str(raw.get("collection_key") or "")[:64] or None,
+        "argument_count": len(raw),
+    }
+
+
+def _mutation_hash(action_key: str, payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        {"action": action_key, "payload": payload},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _mutation_replay(source_app_key: str, mutation_id: str, action_key: str, request_hash: str) -> dict[str, Any] | None:
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT action_key,request_hash,canonical_id,result_json
+            FROM federated_knowledge_mutations
+            WHERE source_app_key=? AND mutation_id=? LIMIT 1
+            """,
+            (source_app_key, mutation_id),
+        ).fetchone()
+    if row is None:
+        return None
+    if str(row["action_key"]) != action_key or str(row["request_hash"]) != request_hash:
+        raise FederatedKnowledgeError("Knowledge mutation_id was already used with different arguments.", 409)
+    try:
+        result = json.loads(row["result_json"] or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        result = {}
+    if not isinstance(result, dict):
+        result = {}
+    result["idempotent_replay"] = True
+    return result
+
+
+def _record_mutation(
+    source_app_key: str,
+    mutation_id: str,
+    action_key: str,
+    request_hash: str,
+    canonical_id_value: str | None,
+    result: dict[str, Any],
+) -> None:
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO federated_knowledge_mutations(
+                source_app_key,mutation_id,action_key,request_hash,canonical_id,result_json
+            ) VALUES (?,?,?,?,?,?)
+            """,
+            (
+                source_app_key,
+                mutation_id,
+                action_key,
+                request_hash,
+                canonical_id_value,
+                json.dumps(result, ensure_ascii=False, separators=(",", ":")),
+            ),
+        )
+
+
+def _assert_mutable_direct_item(item: dict[str, Any]) -> None:
+    if bool(item.get("read_only")) or str(item.get("mutation_route") or "") != "homeserver_governed":
+        raise FederatedKnowledgeError(
+            "This Knowledge item is source-managed and cannot be mutated through federated continuity.",
+            409,
+        )
+
+
+def _assert_expected_revision(item: dict[str, Any], expected_revision: str) -> None:
+    current = str(item.get("record_revision") or "").strip().lower()
+    if not current or current != expected_revision:
+        raise FederatedKnowledgeError(
+            "HomeServer Knowledge changed after this edit was prepared. Refresh and try again.",
+            409,
+        )
+
+
+def create_federated_knowledge(
+    payload: dict[str, Any],
+    *,
+    source_app_key: str = "owner",
+) -> dict[str, Any]:
+    from . import knowledge_collections
+    normalized = normalize_knowledge_create_arguments(payload)
+    mutation_id = str(normalized.pop("mutation_id"))
+    request_hash = _mutation_hash("knowledge.create", normalized)
+    replay = _mutation_replay(source_app_key, mutation_id, "knowledge.create", request_hash)
+    if replay is not None:
+        item = replay.get("knowledge")
+        if isinstance(item, dict):
+            return item
+        raise FederatedKnowledgeError("Stored Knowledge mutation result is unavailable.", 500)
+
+    collection_key = str(normalized.pop("collection_key"))
+    created = create_knowledge_item(
+        str(normalized["title"]),
+        str(normalized["kind"]),
+        str(normalized["content"]),
+        None,
+    )
+    item_id = int(created["id"])
+    try:
+        knowledge_collections.assign_item(item_id, collection_key)
+    except knowledge_collections.KnowledgeCollectionError as exc:
+        delete_knowledge_item(item_id)
+        raise FederatedKnowledgeError(str(exc), exc.status_code) from exc
+    item = get_federated_knowledge_item(item_id)
+    if item is None:
+        raise FederatedKnowledgeError("Created HomeServer Knowledge item is unavailable.", 500)
+    _record_mutation(
+        source_app_key, mutation_id, "knowledge.create", request_hash,
+        str(item["canonical_id"]), {"knowledge": item},
+    )
+    return item
+
+
+def update_federated_knowledge(
+    canonical_id_value: str,
+    payload: dict[str, Any],
+    *,
+    source_app_key: str = "owner",
+) -> dict[str, Any]:
+    from . import knowledge_collections
+    normalized = normalize_knowledge_update_arguments(
+        {"canonical_id": canonical_id_value, **dict(payload or {})}
+    )
+    canonical = str(normalized.pop("canonical_id"))
+    mutation_id = str(normalized.pop("mutation_id"))
+    expected_revision = str(normalized.pop("expected_revision"))
+    request_hash = _mutation_hash(
+        "knowledge.update",
+        {"canonical_id": canonical, "expected_revision": expected_revision, **normalized},
+    )
+    replay = _mutation_replay(source_app_key, mutation_id, "knowledge.update", request_hash)
+    if replay is not None:
+        item = replay.get("knowledge")
+        if isinstance(item, dict):
+            return item
+        raise FederatedKnowledgeError("Stored Knowledge mutation result is unavailable.", 500)
+
+    item_id = _item_id_from_canonical(canonical)
+    current = get_federated_knowledge_item(item_id)
+    if current is None:
+        raise FederatedKnowledgeError("HomeServer Knowledge item not found.", 404)
+    _assert_mutable_direct_item(current)
+    _assert_expected_revision(current, expected_revision)
+    state = _knowledge_state(item_id)
+    if state is None:
+        raise FederatedKnowledgeError("HomeServer Knowledge item not found.", 404)
+
+    title = str(normalized.get("title", state["title"]))
+    kind = str(normalized.get("kind", state["kind"]))
+    content = _normalize_text(str(normalized.get("content", state["content"])))
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest() if content else None
+    if "collection_key" in normalized:
+        try:
+            knowledge_collections._collection_row(str(normalized["collection_key"]))
+        except knowledge_collections.KnowledgeCollectionError as exc:
+            raise FederatedKnowledgeError(str(exc), exc.status_code) from exc
+    with db() as connection:
+        connection.execute(
+            """
+            UPDATE knowledge_items
+            SET title=?,kind=?,content=?,content_hash=?,updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (title, kind, content, digest, item_id),
+        )
+        _replace_chunks(connection, item_id, title, content)
+    if "collection_key" in normalized:
+        try:
+            knowledge_collections.assign_item(item_id, str(normalized["collection_key"]))
+        except knowledge_collections.KnowledgeCollectionError as exc:
+            raise FederatedKnowledgeError(str(exc), exc.status_code) from exc
+
+    item = get_federated_knowledge_item(item_id)
+    if item is None:
+        raise FederatedKnowledgeError("Updated HomeServer Knowledge item is unavailable.", 500)
+    _record_mutation(
+        source_app_key, mutation_id, "knowledge.update", request_hash,
+        canonical, {"knowledge": item},
+    )
+    return item
+
+
+def delete_federated_knowledge(
+    canonical_id_value: str,
+    *,
+    mutation_id: str,
+    expected_revision: str,
+    source_app_key: str = "owner",
+) -> bool:
+    canonical = str(canonical_id_value or "").strip()
+    mutation_id = _mutation_id(mutation_id)
+    expected_revision = _expected_revision(expected_revision)
+    request_hash = _mutation_hash(
+        "knowledge.delete",
+        {"canonical_id": canonical, "expected_revision": expected_revision},
+    )
+    replay = _mutation_replay(source_app_key, mutation_id, "knowledge.delete", request_hash)
+    if replay is not None:
+        return bool(replay.get("deleted"))
+
+    item_id = _item_id_from_canonical(canonical)
+    current = get_federated_knowledge_item(item_id)
+    if current is None:
+        raise FederatedKnowledgeError("HomeServer Knowledge item not found.", 404)
+    _assert_mutable_direct_item(current)
+    _assert_expected_revision(current, expected_revision)
+    key = _knowledge_authority_key(item_id)
+    if not delete_knowledge_item(item_id):
+        return False
+    federated_data.mark_tombstone(
+        "homeserver",
+        "knowledge",
+        key,
+        observed_source="homeserver",
+    )
+    _record_mutation(
+        source_app_key, mutation_id, "knowledge.delete", request_hash,
+        canonical, {"deleted": True, "canonical_id": canonical},
+    )
     return True

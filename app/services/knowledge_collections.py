@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from ..database import db
+from . import federated_data
 
 DEFAULT_COLLECTION_KEY = "general"
 _COLLECTION_KEY = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
@@ -393,17 +394,21 @@ def search_for_app(identity: dict[str, Any], query: str, limit: int = 20) -> dic
                 char_end=int(row["char_end"] or 0),
                 provenance=provenance,
             )
-            items.append(
+            from . import knowledge as knowledge_service
+            state = knowledge_service._knowledge_state(item_id)
+            if state is None:
+                continue
+            projection = knowledge_service.federated_knowledge_item(
+                state,
+                snippet=str(row["snippet"] or ""),
+            )
+            projection.update(
                 {
-                    "id": item_id,
-                    "title": str(row["title"] or ""),
-                    "kind": str(row["kind"] or ""),
-                    "snippet": str(row["snippet"] or ""),
-                    "updated_at": row["updated_at"],
                     "score": float(row["score"] or 0.0),
                     "citation": citation,
                 }
             )
+            items.append(projection)
             if len(items) >= bounded:
                 break
 
