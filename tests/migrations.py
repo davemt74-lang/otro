@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 36))
+        assert versions == list(range(1, 37))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -218,6 +218,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM app_tool_execution_policies").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM action_policy_decisions").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM agent_workflow_rehydrations").fetchone()[0] == 0
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='federated_file_mutations'"
+        ).fetchone() is not None
         cursor = migrated.execute("SELECT cursor_value FROM cognition_cursors WHERE cursor_key='activity_log_id'").fetchone()
         assert cursor is not None and cursor["cursor_value"] == "0"
         source_delete_trigger = migrated.execute(
@@ -464,7 +467,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 36))
+        assert versions_again == list(range(1, 37))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1

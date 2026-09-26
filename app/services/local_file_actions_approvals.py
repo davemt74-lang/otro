@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 from ..config import settings
 from ..database import db
-from . import approvals, tools
+from . import approvals, file_continuity, tools
 
 
 _REF_RE = re.compile(r"^hsf-[0-9]+-[0-9a-f]{16}$")
@@ -15,15 +15,7 @@ _MAX_UPDATE_CHARS = 50000
 
 
 def _safe_file_meta(arguments: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(arguments or {})
-    ref = str(payload.get("ref") or "")
-    content = str(payload.get("content") or "")
-    return {
-        "ref_length": len(ref),
-        "content_length": len(content),
-        "content_bytes": len(content.encode("utf-8")),
-        "argument_count": len(payload),
-    }
+    return file_continuity.safe_file_mutation_meta("file.action", arguments)
 
 
 def _validate_ref(value: Any, action_key: str) -> str:
@@ -35,6 +27,24 @@ def _validate_ref(value: Any, action_key: str) -> str:
 
 def _validate_update(arguments: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(arguments or {})
+    canonical_mode = any(
+        key in payload for key in ("canonical_id", "mutation_id", "expected_revision")
+    )
+    if canonical_mode:
+        if "ref" in payload:
+            raise approvals.ApprovalError("Use either a HomeServer file ref or canonical identity, not both.")
+        try:
+            normalized = file_continuity.normalize_file_update_arguments(payload)
+        except file_continuity.FileContinuityError as exc:
+            raise approvals.ApprovalError(str(exc), exc.status_code) from exc
+        size = len(str(normalized["content"]).encode("utf-8"))
+        if size > settings.max_upload_bytes:
+            raise approvals.ApprovalError(
+                f"files.update proposal exceeds the {settings.max_upload_bytes // (1024 * 1024)} MB indexing limit.",
+                413,
+            )
+        return normalized
+
     unknown = set(payload) - {"ref", "content"}
     if unknown:
         raise approvals.ApprovalError(f"Unsupported files.update proposal argument: {sorted(unknown)[0]}")
@@ -59,6 +69,16 @@ def _validate_update(arguments: dict[str, Any] | None) -> dict[str, Any]:
 
 def _validate_delete(arguments: dict[str, Any] | None) -> dict[str, Any]:
     payload = dict(arguments or {})
+    canonical_mode = any(
+        key in payload for key in ("canonical_id", "mutation_id", "expected_revision")
+    )
+    if canonical_mode:
+        if "ref" in payload:
+            raise approvals.ApprovalError("Use either a HomeServer file ref or canonical identity, not both.")
+        try:
+            return file_continuity.normalize_file_delete_arguments(payload)
+        except file_continuity.FileContinuityError as exc:
+            raise approvals.ApprovalError(str(exc), exc.status_code) from exc
     unknown = set(payload) - {"ref"}
     if unknown:
         raise approvals.ApprovalError(f"Unsupported files.delete proposal argument: {sorted(unknown)[0]}")

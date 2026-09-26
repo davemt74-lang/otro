@@ -7,12 +7,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, federated_data, knowledge, task_calendar_continuity as continuity, tasks
+from . import contacts, federated_data, file_continuity, knowledge, task_calendar_continuity as continuity, tasks
 
 SHARED_AGENT_CONTEXT_VERSION = "2.2"
 MAX_SNAPSHOT_BYTES = 196_608
 MAX_RECORDS_PER_DATASET = 100
-_DATASETS = ("memory", "knowledge", "contacts", "tasks", "calendar", "notifications")
+_DATASETS = ("memory", "knowledge", "contacts", "tasks", "calendar", "files", "notifications")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_@.+-]+")
 
 
@@ -204,7 +204,7 @@ def _local_memory(query: str, limit: int = 40) -> list[dict[str, Any]]:
 
 
 def _fit_datasets(datasets: dict[str, list[dict[str, Any]]], max_bytes: int = 170_000) -> dict[str, list[dict[str, Any]]]:
-    order = ("notifications", "calendar", "tasks", "contacts", "knowledge", "memory")
+    order = ("notifications", "files", "calendar", "tasks", "contacts", "knowledge", "memory")
     while True:
         encoded = json.dumps(datasets, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         if len(encoded) <= max_bytes:
@@ -322,6 +322,36 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
         for index, row in enumerate(continuity.list_federated_calendar(limit=50)[:50])
         if isinstance(row, dict)
     ]
+    file_rows = [
+        _sanitize_record(
+            "homeserver",
+            "files",
+            {
+                "id": index + 1,
+                "authority_source": row.get("authority_source") or "homeserver",
+                "authority_key": row.get("authority_key"),
+                "canonical_id": row.get("canonical_id"),
+                "record_revision": row.get("record_revision"),
+                "title": row.get("name") or "Local file",
+                "content": " · ".join(
+                    value for value in (
+                        f"source: {_text(row.get('source_label'), 120)}" if row.get("source_label") else "",
+                        f"collection: {_text(row.get('collection_name'), 120)}" if row.get("collection_name") else "",
+                        f"kind: {_text(row.get('kind'), 80)}" if row.get("kind") else "",
+                        f"size: {int(row.get('size_bytes') or 0)} bytes",
+                        f"ref: {_text(row.get('ref'), 96)}" if row.get("ref") else "",
+                    ) if value
+                ),
+                "updated_at": row.get("updated_at"),
+            },
+            index,
+        )
+        for index, row in enumerate(
+            file_continuity.list_federated_files(None, text, limit=40, owner=True)[:40]
+        )
+        if isinstance(row, dict)
+    ]
+
     notification_rows = [
         _sanitize_record(
             "homeserver",
@@ -350,6 +380,7 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
         "contacts": contact_rows,
         "tasks": task_rows,
         "calendar": calendar_rows,
+        "files": file_rows,
         "notifications": notification_rows,
     })
     canonical = json.dumps(datasets, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

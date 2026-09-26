@@ -8,7 +8,7 @@ from typing import Any
 from ..database import db
 
 FEDERATED_DATA_VERSION = "2.4"
-DATASETS = ("memory", "knowledge", "contacts", "tasks", "calendar", "notifications", "profile_context")
+DATASETS = ("memory", "knowledge", "contacts", "tasks", "calendar", "files", "notifications", "profile_context")
 SOURCES = ("homeserver", "vp3_cloud")
 MAX_KEY_CHARS = 180
 MAX_TITLE_CHARS = 240

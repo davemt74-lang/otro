@@ -56,22 +56,62 @@ def install() -> None:
 
         body = payload if isinstance(payload, dict) else {}
         token = _token(bearer_token)
-        file_ref = _ref(body.get("ref"))
-        arguments: dict[str, object] = {"ref": file_ref}
-        if op == "files.update":
-            content = body.get("content")
-            if not isinstance(content, str) or not content.strip():
-                raise remote_bridge.RemoteBridgeError("files.update requires non-empty text content.")
-            if len(content) > _MAX_UPDATE_CHARS:
+        canonical_mode = any(
+            key in body for key in ("canonical_id", "mutation_id", "expected_revision")
+        )
+        arguments: dict[str, object]
+        if canonical_mode:
+            if "ref" in body:
                 raise remote_bridge.RemoteBridgeError(
-                    f"files.update content exceeds {_MAX_UPDATE_CHARS:,} characters."
+                    "Use either a HomeServer file ref or canonical identity, not both."
                 )
-            arguments["content"] = content
-        elif set(body) - {"ref"}:
-            raise remote_bridge.RemoteBridgeError("files.delete accepts only a HomeServer file reference.")
-
-        if op == "files.update" and set(body) - {"ref", "content"}:
-            raise remote_bridge.RemoteBridgeError("files.update accepts only ref and content.")
+            allowed = {"canonical_id", "mutation_id", "expected_revision"}
+            if op == "files.update":
+                allowed.add("content")
+            unknown = set(body) - allowed
+            if unknown:
+                raise remote_bridge.RemoteBridgeError(
+                    f"{op} received an unsupported argument: {sorted(unknown)[0]}"
+                )
+            canonical = str(body.get("canonical_id") or "").strip().lower()
+            mutation = str(body.get("mutation_id") or "").strip()
+            revision = str(body.get("expected_revision") or "").strip().lower()
+            if not re.fullmatch(r"fd24_[0-9a-f]{40}", canonical):
+                raise remote_bridge.RemoteBridgeError(f"{op} requires a valid canonical_id.")
+            if not re.fullmatch(r"[A-Za-z0-9._:-]{8,128}", mutation):
+                raise remote_bridge.RemoteBridgeError(f"{op} requires a valid mutation_id.")
+            if not re.fullmatch(r"[0-9a-f]{64}", revision):
+                raise remote_bridge.RemoteBridgeError(f"{op} requires a valid expected_revision.")
+            arguments = {
+                "canonical_id": canonical,
+                "mutation_id": mutation,
+                "expected_revision": revision,
+            }
+            if op == "files.update":
+                content = body.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    raise remote_bridge.RemoteBridgeError("files.update requires non-empty text content.")
+                if len(content) > _MAX_UPDATE_CHARS:
+                    raise remote_bridge.RemoteBridgeError(
+                        f"files.update content exceeds {_MAX_UPDATE_CHARS:,} characters."
+                    )
+                arguments["content"] = content
+        else:
+            file_ref = _ref(body.get("ref"))
+            arguments = {"ref": file_ref}
+            if op == "files.update":
+                content = body.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    raise remote_bridge.RemoteBridgeError("files.update requires non-empty text content.")
+                if len(content) > _MAX_UPDATE_CHARS:
+                    raise remote_bridge.RemoteBridgeError(
+                        f"files.update content exceeds {_MAX_UPDATE_CHARS:,} characters."
+                    )
+                arguments["content"] = content
+                if set(body) - {"ref", "content"}:
+                    raise remote_bridge.RemoteBridgeError("files.update accepts only ref and content.")
+            elif set(body) - {"ref"}:
+                raise remote_bridge.RemoteBridgeError("files.delete accepts only a HomeServer file reference.")
 
         base_url = f"http://{settings.host}:{settings.port}"
         headers = {"Authorization": f"Bearer {token}"}

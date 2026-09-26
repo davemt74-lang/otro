@@ -260,7 +260,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-file-actions-v039-") as temp
         delete_schema = next(
             item["function"] for item in schemas if item["function"]["name"] == "homeserver_file_delete_request"
         )
-        assert set(delete_schema["parameters"]["properties"]) == {"ref"}
+        assert {"ref", "canonical_id", "mutation_id", "expected_revision"}.issubset(
+            set(delete_schema["parameters"]["properties"])
+        )
 
         app_scopes.save_scope(
             app_id,

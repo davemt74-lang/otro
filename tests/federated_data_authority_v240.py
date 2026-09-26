@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v240-federation-") as data_d
 
     assert federated_data.FEDERATED_DATA_VERSION == "2.4"
     assert set(federated_data.DATASETS) == {
-        "memory", "knowledge", "contacts", "tasks", "calendar", "notifications", "profile_context"
+        "memory", "knowledge", "contacts", "tasks", "calendar", "files", "notifications", "profile_context"
     }
 
     cloud_id = federated_data.canonical_id("vp3_cloud", "contacts", "contacts:42")
@@ -61,6 +61,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v240-federation-") as data_d
             "knowledge": [],
             "contacts": [cloud_record],
             "tasks": [],
+            "calendar": [],
+            "files": [],
             "notifications": [],
         },
     }

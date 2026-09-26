@@ -5,7 +5,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from ..database import db
-from . import app_scopes, knowledge_collection_policy
+from . import app_scopes, federated_data, knowledge_collection_policy
 
 
 FILE_CAPABILITY_VERSION = "v0.38"
@@ -13,6 +13,7 @@ FILE_REF_RE = re.compile(r"^hsf-(\d+)-([0-9a-f]{16})$")
 MAX_LIST_LIMIT = 50
 MAX_READ_CHARS = 12000
 MAX_OFFSET = 10_000_000
+EDITABLE_TEXT_EXTENSIONS = {".txt", ".md", ".markdown", ".json", ".csv", ".html", ".htm"}
 
 
 class LocalFileError(RuntimeError):
@@ -150,18 +151,51 @@ def _visible_row(row: Any, allowed_collections: set[str] | None, scope: dict[str
 def _safe_metadata(row: Any) -> dict[str, Any]:
     relative_path = str(row["relative_path"] or "").replace("\\", "/").lstrip("/")[:1000]
     name = PurePosixPath(relative_path).name[:255] if relative_path else str(row["title"] or "File")[:255]
+    file_id = int(row["file_id"])
+    content_hash = str(row["file_content_hash"] or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
+        content_hash = "0" * 64
+    authority_key = f"local_file:{file_id}"
+    source_label = str(row["source_label"] or "Local folder")[:120]
+    collection_key = str(row["collection_key"] or "general")[:64]
+    collection_name = str(row["collection_name"] or "General")[:120]
+    kind = str(row["kind"] or "")[:80]
+    size_bytes = max(0, int(row["size_bytes"] or 0))
+    updated_at = row["file_updated_at"]
+    summary = f"source: {source_label} · collection: {collection_name} · kind: {kind} · size: {size_bytes} bytes"
+    envelope = federated_data.envelope(
+        "homeserver",
+        "files",
+        authority_key,
+        title=name,
+        content=summary,
+        updated_at=updated_at,
+    )
+    envelope["record_revision"] = content_hash
+    federated_data.observe(envelope, observed_source="homeserver")
+    suffix = PurePosixPath(name).suffix.lower()
+    editable = suffix in EDITABLE_TEXT_EXTENSIONS
     return {
-        "ref": _file_ref(int(row["file_id"]), row["file_content_hash"]),
+        "ref": _file_ref(file_id, content_hash),
         "name": name,
         "relative_path": relative_path,
-        "source_label": str(row["source_label"] or "Local folder")[:120],
-        "collection_key": str(row["collection_key"] or "general")[:64],
-        "collection_name": str(row["collection_name"] or "General")[:120],
-        "kind": str(row["kind"] or "")[:80],
-        "size_bytes": max(0, int(row["size_bytes"] or 0)),
+        "source_label": source_label,
+        "collection_key": collection_key,
+        "collection_name": collection_name,
+        "kind": kind,
+        "size_bytes": size_bytes,
         "status": "indexed",
-        "content_version": _version(row["file_content_hash"]),
-        "updated_at": row["file_updated_at"],
+        "content_version": _version(content_hash),
+        "updated_at": updated_at,
+        "authority_source": "homeserver",
+        "authority_key": authority_key,
+        "canonical_id": envelope["canonical_id"],
+        "record_revision": content_hash,
+        "federation_version": federated_data.FEDERATED_DATA_VERSION,
+        "mirror_only": False,
+        "mutation_route": "homeserver_owner_approval",
+        "allowed_mutations": ["update", "delete"] if editable else ["delete"],
+        "editable_text": editable,
     }
 
 
