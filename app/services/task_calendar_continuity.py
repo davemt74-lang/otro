@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import re
 from datetime import datetime, timezone
@@ -22,6 +24,32 @@ class TaskCalendarContinuityError(RuntimeError):
     def __init__(self, message: str, status_code: int = 422):
         super().__init__(message)
         self.status_code = status_code
+
+
+_TASK_CREATOR_PROVENANCE: ContextVar[str | None] = ContextVar(
+    "homeserver_task_creator_provenance",
+    default=None,
+)
+
+
+@contextmanager
+def task_creator_provenance(value: str | None):
+    creator = str(value or "").strip().lower()
+    if creator not in {"owner", "app", "agent", "system"}:
+        creator = None
+    token = _TASK_CREATOR_PROVENANCE.set(creator)
+    try:
+        yield
+    finally:
+        _TASK_CREATOR_PROVENANCE.reset(token)
+
+
+def current_task_creator_provenance(fallback: str = "app") -> str:
+    creator = _TASK_CREATOR_PROVENANCE.get()
+    if creator in {"owner", "app", "agent", "system"}:
+        return creator
+    safe = str(fallback or "app").strip().lower()
+    return safe if safe in {"owner", "app", "agent", "system"} else "app"
 
 
 def _text(value: Any, limit: int) -> str:
