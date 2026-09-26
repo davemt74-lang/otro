@@ -75,12 +75,16 @@ def _sanitize_snapshot(snapshot: dict[str, Any], source: str) -> dict[str, Any]:
     if not revision:
         encoded = json.dumps(clean, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         revision = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    mode = _text(snapshot.get("snapshot_mode") or "filtered", 20).lower()
+    if mode not in {"full", "filtered"}:
+        raise SharedAgentContextError("Shared Agent snapshot mode is invalid.")
     return {
         "version": SHARED_AGENT_CONTEXT_VERSION,
         "revision": revision,
         "generated_at": _text(snapshot.get("generated_at") or _iso_now(), 80),
         "authoritative_source": source,
         "federation_version": federated_data.FEDERATED_DATA_VERSION,
+        "snapshot_mode": mode,
         "datasets": clean,
     }
 
@@ -92,9 +96,11 @@ def apply_cloud_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     encoded = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
     if len(encoded.encode("utf-8")) > MAX_SNAPSHOT_BYTES:
         raise SharedAgentContextError("Cloud Agent snapshot is too large.")
-    federated_data.observe_snapshot(clean, observed_source="homeserver")
-    for dataset in _DATASETS:
-        federated_data.update_cursor("vp3_cloud", dataset, revision=clean["revision"], success=True)
+    reconciliation = federated_data.reconcile_snapshot(
+        clean,
+        observed_source="homeserver",
+        trigger_reason="shared-context-exchange",
+    )
     with db() as connection:
         connection.execute(
             """
@@ -113,6 +119,7 @@ def apply_cloud_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "version": SHARED_AGENT_CONTEXT_VERSION,
         "revision": clean["revision"],
         "dataset_counts": {name: len(rows) for name, rows in clean["datasets"].items()},
+        "reconciliation": reconciliation,
     }
 
 
@@ -394,6 +401,7 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
         "generated_at": _iso_now(),
         "authoritative_source": "homeserver",
         "federation_version": federated_data.FEDERATED_DATA_VERSION,
+        "snapshot_mode": "full" if not text else "filtered",
         "datasets": datasets,
     }
     federated_data.observe_snapshot(snapshot, observed_source="homeserver")
@@ -402,9 +410,14 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
 
 def exchange(cloud: dict[str, Any], query: str = "") -> dict[str, Any]:
     applied = apply_cloud_snapshot(cloud)
+    home = local_snapshot(query)
     return {
         "ok": True,
         "version": SHARED_AGENT_CONTEXT_VERSION,
         "cloud_mirror": applied,
-        "homeserver_snapshot": local_snapshot(query),
+        "homeserver_snapshot": home,
+        "reconciliation": {
+            "cloud_to_homeserver": applied.get("reconciliation"),
+            "homeserver_peer_state": federated_data.reconciliation_state("vp3_cloud"),
+        },
     }
