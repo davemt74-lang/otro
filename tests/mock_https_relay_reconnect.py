@@ -75,7 +75,7 @@ class Handler(BaseHTTPRequestHandler):
 
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            if payload.get("version") != "2.3":
+            if payload.get("version") != "2.4":
                 raise AssertionError("unexpected HomeServer version")
             if not isinstance(payload.get("capabilities"), dict):
                 raise AssertionError("capabilities were not advertised")
@@ -102,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
                     body = result.get("payload") if isinstance(result.get("payload"), dict) else {}
                     if result.get("ok") is not True or body.get("pong") is not True:
                         raise AssertionError("system.ping result was not successful")
-                    if body.get("echo") != "restart-proof-v22" or body.get("version") != "2.3":
+                    if body.get("echo") != "restart-proof-v22" or body.get("version") != "2.4":
                         raise AssertionError("system.ping round-trip proof was invalid")
                     if body.get("app") != "vp3":
                         raise AssertionError("system.ping did not authenticate as VP3")
