@@ -301,22 +301,18 @@ def reconcile_snapshot(
         "conflicts": 0,
     }
     dataset_summary: dict[str, dict[str, int]] = {}
+    normalized_datasets: dict[str, list[dict[str, Any]]] = {}
 
     try:
+        # Validate the entire snapshot before mutating mirror state. A malformed
+        # or mixed-authority full snapshot must fail atomically from the
+        # perspective of reconciliation semantics.
         for dataset in DATASETS:
             rows = datasets.get(dataset)
             if not isinstance(rows, list):
                 continue
-            summary = {
-                "created": 0,
-                "updated": 0,
-                "restored": 0,
-                "unchanged": 0,
-                "tombstoned": 0,
-                "conflicts": 0,
-            }
             seen_keys: set[str] = set()
-
+            normalized_rows: list[dict[str, Any]] = []
             for index, row in enumerate(rows):
                 if not isinstance(row, dict):
                     continue
@@ -327,19 +323,33 @@ def reconcile_snapshot(
                     index=index,
                 )
                 if normalized["authority_source"] != authority:
-                    summary["conflicts"] += 1
                     totals["conflicts"] += 1
                     raise FederatedDataError(
                         "Full reconciliation snapshot mixed native authorities."
                     )
                 key = str(normalized["authority_key"])
                 if key in seen_keys:
-                    summary["conflicts"] += 1
                     totals["conflicts"] += 1
                     raise FederatedDataError(
                         "Full reconciliation snapshot contains duplicate authority keys."
                     )
                 seen_keys.add(key)
+                normalized_rows.append(normalized)
+            normalized_datasets[dataset] = normalized_rows
+
+        for dataset, normalized_rows in normalized_datasets.items():
+            summary = {
+                "created": 0,
+                "updated": 0,
+                "restored": 0,
+                "unchanged": 0,
+                "tombstoned": 0,
+                "conflicts": 0,
+            }
+            seen_keys = {str(row["authority_key"]) for row in normalized_rows}
+
+            for normalized in normalized_rows:
+                key = str(normalized["authority_key"])
                 before = _existing_link(authority, dataset, key, observed)
                 observe(normalized, observed_source=observed)
                 if before is None:
