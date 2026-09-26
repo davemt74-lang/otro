@@ -355,7 +355,7 @@ def execute_model_tool(
             if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
                 result = approvals.create_memory_write_request(source_app_key, args, owner=owner)
             elif model_tool_name == TASK_PROPOSAL_TOOL_NAME:
-                result = approvals.create_task_create_request(source_app_key, args, owner=owner)
+                result = approvals.create_task_create_request(source_app_key, args, owner=owner, created_by_type="agent")
             else:
                 result = approvals.create_device_command_request(source_app_key, args, owner=owner)
             request_id = str(((result.get("result") or {}).get("request_id") or "")) or None
