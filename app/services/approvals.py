@@ -393,10 +393,13 @@ def create_memory_write_request(source_app_key: str, arguments: dict[str, Any] |
 def create_task_create_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
-    raw_meta = continuity.safe_task_mutation_meta("tasks.create", arguments)
+    proposal = dict(arguments or {})
+    if not owner and not str(proposal.get("mutation_id") or "").strip():
+        proposal["mutation_id"] = uuid.uuid4().hex
+    raw_meta = continuity.safe_task_mutation_meta("tasks.create", proposal)
     required = [] if owner else ["tasks.write", "tools.execute"]
     try:
-        normalized = continuity.normalize_task_create_arguments(arguments, require_mutation=not owner)
+        normalized = continuity.normalize_task_create_arguments(proposal, require_mutation=not owner)
     except continuity.TaskCalendarContinuityError as exc:
         run_id = _record_failed_proposal(source, actor_type, "tasks.create", required, raw_meta, str(exc))
         raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
@@ -446,7 +449,10 @@ def _calendar_continuity_request(source_app_key: str, action_key: str, arguments
     required = [] if owner else ["events.write", "tools.execute"]
     try:
         if action_key == "calendar.create":
-            normalized = continuity.normalize_calendar_create_arguments(arguments)
+            proposal = dict(arguments or {})
+            if not str(proposal.get("mutation_id") or "").strip():
+                proposal["mutation_id"] = uuid.uuid4().hex
+            normalized = continuity.normalize_calendar_create_arguments(proposal)
         elif action_key == "calendar.update":
             normalized = continuity.normalize_calendar_update_arguments(arguments)
         elif action_key == "calendar.delete":
