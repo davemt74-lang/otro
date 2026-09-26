@@ -136,6 +136,7 @@ class Handler(BaseHTTPRequestHandler):
                                         "contacts": [],
                                         "tasks": [],
                                         "calendar": [],
+                                        "files": [],
                                         "notifications": [],
                                     },
                                 },
@@ -152,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
                     cloud = body.get("cloud_mirror") if isinstance(body.get("cloud_mirror"), dict) else {}
                     home = body.get("homeserver_snapshot") if isinstance(body.get("homeserver_snapshot"), dict) else {}
                     datasets = home.get("datasets") if isinstance(home.get("datasets"), dict) else {}
-                    expected = {"memory", "knowledge", "contacts", "tasks", "calendar", "notifications"}
+                    expected = {"memory", "knowledge", "contacts", "tasks", "calendar", "files", "notifications"}
                     if result.get("ok") is not True or body.get("version") != "2.2":
                         raise AssertionError("shared context exchange failed after restart")
                     if cloud.get("revision") != "restart-cloud-revision-1":
