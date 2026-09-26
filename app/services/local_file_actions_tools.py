@@ -4,7 +4,7 @@ import json
 import time
 from typing import Any, Callable
 
-from . import local_file_actions, tools
+from . import file_continuity, local_file_actions, tools
 
 
 FILE_ACTION_KEYS = {"files.update", "files.delete"}
@@ -14,31 +14,44 @@ FILE_ACTION_DEFINITIONS: dict[str, dict[str, Any]] = {
     "files.update": {
         "key": "files.update",
         "name": "Update Local File",
-        "description": "Replace the text contents of an existing owner-approved tracked file by opaque HomeServer file reference.",
+        "description": "Replace text in an owner-approved tracked HomeServer file. Legacy opaque refs remain supported; v2.4 callers may use canonical identity with mutation/revision guards.",
         "mode": "write",
         "required_permissions": ["files.write"],
         "input_schema": {
             "type": "object",
             "properties": {
                 "ref": {"type": "string", "pattern": "^hsf-[0-9]+-[0-9a-f]{16}$", "maxLength": 96},
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
                 "content": {"type": "string", "minLength": 1, "maxLength": MAX_UPDATE_CHARS},
             },
-            "required": ["ref", "content"],
+            "required": ["content"],
+            "oneOf": [
+                {"required": ["ref"]},
+                {"required": ["canonical_id", "mutation_id", "expected_revision"]},
+            ],
             "additionalProperties": False,
         },
     },
     "files.delete": {
         "key": "files.delete",
         "name": "Delete Local File",
-        "description": "Delete an existing owner-approved tracked file by opaque HomeServer file reference.",
+        "description": "Delete an owner-approved tracked HomeServer file. Legacy opaque refs remain supported; v2.4 callers may use canonical identity with mutation/revision guards.",
         "mode": "write",
         "required_permissions": ["files.write"],
         "input_schema": {
             "type": "object",
             "properties": {
                 "ref": {"type": "string", "pattern": "^hsf-[0-9]+-[0-9a-f]{16}$", "maxLength": 96},
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
             },
-            "required": ["ref"],
+            "oneOf": [
+                {"required": ["ref"]},
+                {"required": ["canonical_id", "mutation_id", "expected_revision"]},
+            ],
             "additionalProperties": False,
         },
     },
@@ -52,7 +65,21 @@ FILE_ACTION_SKILL = {
 }
 
 
-def _validate_arguments(tool_key: str, arguments: dict[str, Any]) -> tuple[str, str | None]:
+def _validate_arguments(tool_key: str, arguments: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    canonical_mode = any(
+        key in arguments for key in ("canonical_id", "mutation_id", "expected_revision")
+    )
+    if canonical_mode and "ref" in arguments:
+        raise tools.ToolError("Use either a HomeServer file ref or canonical identity, not both.")
+
+    if canonical_mode:
+        try:
+            if tool_key == "files.update":
+                return "federated", file_continuity.normalize_file_update_arguments(arguments)
+            return "federated", file_continuity.normalize_file_delete_arguments(arguments)
+        except file_continuity.FileContinuityError as exc:
+            raise tools.ToolError(str(exc), exc.status_code) from exc
+
     if tool_key == "files.update":
         unknown = set(arguments) - {"ref", "content"}
         if unknown:
@@ -65,7 +92,7 @@ def _validate_arguments(tool_key: str, arguments: dict[str, Any]) -> tuple[str, 
             raise tools.ToolError("files.update requires non-empty text content.")
         if len(content) > MAX_UPDATE_CHARS:
             raise tools.ToolError(f"files.update content exceeds {MAX_UPDATE_CHARS:,} characters.", 413)
-        return ref, content
+        return "legacy", {"ref": ref, "content": content}
 
     unknown = set(arguments) - {"ref"}
     if unknown:
@@ -73,8 +100,7 @@ def _validate_arguments(tool_key: str, arguments: dict[str, Any]) -> tuple[str, 
     ref = str(arguments.get("ref") or "").strip().lower()
     if not ref:
         raise tools.ToolError("files.delete requires a HomeServer file reference.")
-    return ref, None
-
+    return "legacy", {"ref": ref}
 
 def install() -> None:
     """Register file write tools while preserving the canonical tool audit pipeline."""
@@ -94,14 +120,7 @@ def install() -> None:
 
     def safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if tool_key in FILE_ACTION_KEYS:
-            ref = str(arguments.get("ref") or "")
-            content = str(arguments.get("content") or "")
-            return {
-                "ref_length": len(ref),
-                "content_length": len(content),
-                "content_bytes": len(content.encode("utf-8")),
-                "argument_count": len(arguments),
-            }
+            return file_continuity.safe_file_mutation_meta(tool_key, arguments)
         return original_meta(tool_key, arguments)
 
     tools._safe_argument_metadata = safe_argument_metadata
@@ -168,9 +187,37 @@ def install() -> None:
 
         started = time.perf_counter()
         try:
-            ref, content = _validate_arguments(tool_key, payload)
-            if tool_key == "files.update":
-                result = local_file_actions.update_file(source, ref, content or "")
+            mode, normalized = _validate_arguments(tool_key, payload)
+            if mode == "federated":
+                if tool_key == "files.update":
+                    result = file_continuity.update_federated_file(
+                        normalized,
+                        source_app_key=source,
+                    )
+                    result_meta = {
+                        "updated": bool(result.get("updated")),
+                        "unchanged": bool(result.get("unchanged")),
+                        "canonical_id": str((result.get("file") or {}).get("canonical_id") or "")[:45],
+                        "federation_version": "2.4",
+                        "capability_version": local_file_actions.FILE_ACTION_VERSION,
+                    }
+                else:
+                    result = file_continuity.delete_federated_file(
+                        normalized,
+                        source_app_key=source,
+                    )
+                    result_meta = {
+                        "deleted": bool(result.get("deleted")),
+                        "canonical_id": str(result.get("canonical_id") or "")[:45],
+                        "federation_version": "2.4",
+                        "capability_version": local_file_actions.FILE_ACTION_VERSION,
+                    }
+            elif tool_key == "files.update":
+                result = local_file_actions.update_file(
+                    source,
+                    str(normalized["ref"]),
+                    str(normalized["content"]),
+                )
                 result_meta = {
                     "updated": bool(result.get("updated")),
                     "unchanged": bool(result.get("unchanged")),
@@ -178,7 +225,7 @@ def install() -> None:
                     "capability_version": local_file_actions.FILE_ACTION_VERSION,
                 }
             else:
-                result = local_file_actions.delete_file(source, ref)
+                result = local_file_actions.delete_file(source, str(normalized["ref"]))
                 result_meta = {
                     "deleted": bool(result.get("deleted")),
                     "capability_version": local_file_actions.FILE_ACTION_VERSION,
