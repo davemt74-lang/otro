@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v244-files-") as temp_root:
                     "SELECT version FROM schema_migrations ORDER BY version"
                 ).fetchall()
             ]
-        assert versions == list(range(1, 38))
+        assert versions == list(range(1, 39))
         assert "files" in federated_data.DATASETS
 
         created = client.post(
