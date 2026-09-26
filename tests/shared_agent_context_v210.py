@@ -12,7 +12,7 @@ config=read("app/config.py")
 installer=read("installer/HomeServer.iss")
 
 checks=[
- ("release version is 2.3", 'version: str = "2.3"' in config and '#define MyAppVersion "2.3"' in installer),
+ ("release version is 2.4", 'version: str = "2.4"' in config and '#define MyAppVersion "2.3"' in installer),
  ("migration creates the shared Cloud mirror cache",
   "CREATE TABLE IF NOT EXISTS shared_agent_snapshots" in migration and "snapshot_json" in migration),
  ("shared fabric is v2.2 and covers all federated datasets",
@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
     from app.services import pairing, remote_bridge, shared_agent_context
 
     initialize_database()
-    assert settings.version=="2.3"
+    assert settings.version=="2.4"
 
     with db() as connection:
         assert connection.execute("SELECT 1 FROM schema_migrations WHERE version=31").fetchone() is not None
@@ -103,7 +103,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-shared-agent-") as data_dir:
     assert ping["ok"] is True
     assert ping["payload"]["pong"] is True
     assert ping["payload"]["echo"]=="roundtrip-v21"
-    assert ping["payload"]["version"]=="2.3"
+    assert ping["payload"]["version"]=="2.4"
     assert ping["payload"]["app"]=="vp3"
 
     exchanged=remote_bridge.dispatch_remote_request(
