@@ -549,9 +549,9 @@ jobs:
             format = 'vp3-os-release-v1'
             version = '2.4'
             channel = 'stable'
-            minimum_schema_version = 36
+            minimum_schema_version = 37
             files = $hashMap
-            release_notes = 'HomeServer v2.4 federated continuity through Files & Documents; includes retained v2.3 execution, local reads, governed actions, local voice and Profile Agent parity'
+            release_notes = 'HomeServer v2.4 federated continuity through Agent Brain & Memory; includes Files & Documents, retained v2.3 execution, governed actions, local voice and Profile Agent parity'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
