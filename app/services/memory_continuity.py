@@ -138,17 +138,16 @@ def project_memory(row: dict[str, Any]) -> dict[str, Any]:
         "mutation_route": "homeserver_owner_approval",
         "allowed_mutations": ["update", "delete"],
     }
-    federated_data.observe(
-        federated_data.envelope(
-            "homeserver",
-            "memory",
-            authority_key,
-            title=_text(row.get("memory_key"), 240) or item["memory_type"].title() + " memory",
-            content=_text(row.get("content"), federated_data.MAX_CONTENT_CHARS),
-            updated_at=row.get("updated_at"),
-        ),
-        observed_source="homeserver",
+    envelope = federated_data.envelope(
+        "homeserver",
+        "memory",
+        authority_key,
+        title=_text(row.get("memory_key"), 240) or item["memory_type"].title() + " memory",
+        content=_text(row.get("content"), federated_data.MAX_CONTENT_CHARS),
+        updated_at=row.get("updated_at"),
     )
+    envelope["record_revision"] = revision
+    federated_data.observe(envelope, observed_source="homeserver")
     return item
 
 
@@ -220,9 +219,11 @@ def list_federated_memories(
             """
         ).fetchall()
     out: list[dict[str, Any]] = []
+    scope = _scope_for_source(source_app_key, owner)
     for raw in rows:
         row = dict(raw)
-        _assert_memory_scope(source_app_key, row.get("memory_key"), owner=owner)
+        if not owner and not app_scopes.memory_key_allowed(scope, row.get("memory_key")):
+            continue
         haystack = " ".join(
             str(row.get(key) or "")
             for key in ("memory_key", "content", "memory_type", "entity_type", "entity_key")
