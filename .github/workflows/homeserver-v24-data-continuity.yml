@@ -35,6 +35,10 @@ jobs:
           python -m py_compile
           app/services/federated_data.py
           app/services/task_calendar_continuity.py
+          app/services/file_continuity.py
+          app/services/local_files.py
+          app/services/local_file_actions_tools.py
+          app/services/local_file_actions_approvals.py
           app/services/shared_agent_context.py
           app/services/remote_bridge.py
           app/bridge.py
@@ -42,6 +46,7 @@ jobs:
           tests/contacts_continuity_v241.py
           tests/knowledge_continuity_v242.py
           tests/task_calendar_continuity_v243.py
+          tests/file_document_continuity_v244.py
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify existing shared Agent fabric
@@ -54,3 +59,5 @@ jobs:
         run: python tests/knowledge_continuity_v242.py
       - name: Verify v2.4 Tasks and Calendar continuity
         run: python tests/task_calendar_continuity_v243.py
+      - name: Verify v2.4 Files and Document continuity
+        run: python tests/file_document_continuity_v244.py
