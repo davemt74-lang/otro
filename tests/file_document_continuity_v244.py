@@ -150,8 +150,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v244-files-") as temp_root:
                 (request_id,),
             ).fetchone()
         assert queued is not None
-        assert updated_text in queued["arguments_json"]
-        assert old_canonical in queued["arguments_json"]
+        queued_arguments = json.loads(queued["arguments_json"])
+        assert queued_arguments["content"] == updated_text
+        assert queued_arguments["canonical_id"] == old_canonical
+        assert queued_arguments["mutation_id"] == proposal_payload["mutation_id"]
+        assert queued_arguments["expected_revision"] == old_revision
         assert updated_text not in queued["arguments_meta_json"]
         assert old_canonical not in queued["arguments_meta_json"]
         assert old_ref not in queued["arguments_meta_json"]
