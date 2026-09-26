@@ -41,6 +41,12 @@ _TOOL_PERMISSION_BY_KEY = {
     "notifications.list": "notifications.read",
     "tasks.list": "tasks.read",
     "tasks.create": "tasks.write",
+    "tasks.update": "tasks.write",
+    "tasks.delete": "tasks.write",
+    "calendar.list": "events.read",
+    "calendar.create": "events.write",
+    "calendar.update": "events.write",
+    "calendar.delete": "events.write",
 }
 
 _MAX_ITEMS = 32
