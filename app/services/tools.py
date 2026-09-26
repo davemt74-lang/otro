@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, contacts, knowledge as knowledge_service, knowledge_collection_policy, local_files, room_device_automation, task_calendar_continuity as continuity
+from . import app_scopes, contacts, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -201,20 +201,23 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
     },
     "memory.list": {
         "key": "memory.list",
-        "name": "Read Memory",
-        "description": "Read bounded durable memory records from the primary local agent.",
+        "name": "Read Agent Brain Memory",
+        "description": "Read bounded HomeServer-native Agent Brain memory with canonical identity and provenance.",
         "mode": "read",
         "required_permissions": ["memory.read"],
         "input_schema": {
             "type": "object",
-            "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 50}},
+            "properties": {
+                "query": {"type": "string", "maxLength": 240},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+            },
             "additionalProperties": False,
         },
     },
     "memory.write": {
         "key": "memory.write",
-        "name": "Write Memory",
-        "description": "Create one durable memory record for the primary local agent.",
+        "name": "Create Agent Brain Memory",
+        "description": "Propose creation of one HomeServer-native durable Agent Brain memory.",
         "mode": "write",
         "required_permissions": ["memory.write"],
         "input_schema": {
@@ -223,8 +226,54 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "content": {"type": "string", "maxLength": 50000},
                 "memory_key": {"type": ["string", "null"], "maxLength": 160},
                 "importance": {"type": "number", "minimum": 0, "maximum": 1},
+                "memory_type": {"type": "string", "enum": ["working","episodic","semantic","preference","relationship","procedural"]},
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "entity_type": {"type": ["string","null"], "maxLength": 160},
+                "entity_key": {"type": ["string","null"], "maxLength": 240},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
             },
             "required": ["content"],
+            "additionalProperties": False,
+        },
+    },
+    "memory.update": {
+        "key": "memory.update",
+        "name": "Update Agent Brain Memory",
+        "description": "Propose changes to one HomeServer-native Agent Brain memory by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["memory.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+                "content": {"type": "string", "maxLength": 50000},
+                "memory_key": {"type": ["string", "null"], "maxLength": 160},
+                "importance": {"type": "number", "minimum": 0, "maximum": 1},
+                "memory_type": {"type": "string", "enum": ["working","episodic","semantic","preference","relationship","procedural"]},
+                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "entity_type": {"type": ["string","null"], "maxLength": 160},
+                "entity_key": {"type": ["string","null"], "maxLength": 240},
+            },
+            "required": ["canonical_id","mutation_id","expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    "memory.delete": {
+        "key": "memory.delete",
+        "name": "Delete Agent Brain Memory",
+        "description": "Propose deletion of one HomeServer-native Agent Brain memory by canonical federated identity.",
+        "mode": "write",
+        "required_permissions": ["memory.write"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "canonical_id": {"type": "string", "pattern": "^fd24_[0-9a-f]{40}$", "maxLength": 45},
+                "mutation_id": {"type": "string", "minLength": 8, "maxLength": 128},
+                "expected_revision": {"type": "string", "pattern": "^[0-9a-f]{64}$", "maxLength": 64},
+            },
+            "required": ["canonical_id","mutation_id","expected_revision"],
             "additionalProperties": False,
         },
     },
@@ -463,8 +512,8 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
         "key": "memory.manager",
         "name": "Memory Manager",
-        "description": "Read and create durable agent memory through explicit local capabilities.",
-        "tools": ["memory.list", "memory.write"],
+        "description": "Read and govern durable Agent Brain memory through explicit local capabilities.",
+        "tools": ["memory.list", "memory.write", "memory.update", "memory.delete"],
     },
     {
         "key": "room.automation",
@@ -602,15 +651,12 @@ def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[st
     if tool_key == "notifications.list":
         return {"unread_only": bool(arguments.get("unread_only", False)), "limit": _safe_numeric(arguments.get("limit"), 20)}
     if tool_key == "memory.list":
-        return {"limit": _safe_numeric(arguments.get("limit"), 20)}
-    if tool_key == "memory.write":
-        content = str(arguments.get("content") or "")
-        key = arguments.get("memory_key")
         return {
-            "content_length": len(content),
-            "memory_key_length": len(str(key)) if key is not None else 0,
-            "importance": _safe_numeric(arguments.get("importance"), 0.5),
+            "query_length": len(str(arguments.get("query") or "")),
+            "limit": _safe_numeric(arguments.get("limit"), 20),
         }
+    if tool_key in {"memory.write", "memory.update", "memory.delete"}:
+        return memory_continuity.safe_memory_mutation_meta(tool_key, arguments)
     if tool_key == "tasks.create":
         return {
             "title_length": len(str(arguments.get("title") or "")),
@@ -970,47 +1016,92 @@ def _knowledge_delete(arguments: dict[str, Any], source_app_key: str) -> tuple[d
     }
 
 
-def _memory_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    unknown = set(arguments) - {"limit"}
+def _memory_list(
+    arguments: dict[str, Any],
+    source_app_key: str,
+    *,
+    owner: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown = set(arguments) - {"query", "limit"}
     if unknown:
         raise ToolError(f"Unsupported memory.list argument: {sorted(unknown)[0]}")
+    query = str(arguments.get("query") or "").strip()
     limit = _bounded_int(arguments.get("limit"), 20, 1, 50, "limit")
-    with db() as connection:
-        rows = connection.execute(
-            "SELECT id, agent_id, memory_key, content, importance, created_at, updated_at FROM agent_memory ORDER BY importance DESC, updated_at DESC, id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    items = [dict(row) for row in rows]
+    try:
+        items = memory_continuity.list_federated_memories(
+            query,
+            limit,
+            source_app_key=source_app_key,
+            owner=owner,
+        )
+    except memory_continuity.MemoryContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
     return {"items": items, "count": len(items)}, {"count": len(items)}
 
 
-def _memory_write(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    unknown = set(arguments) - {"content", "memory_key", "importance"}
-    if unknown:
-        raise ToolError(f"Unsupported memory.write argument: {sorted(unknown)[0]}")
-    content = str(arguments.get("content") or "").strip()
-    if not content:
-        raise ToolError("memory.write requires content.")
-    if len(content) > 50000:
-        raise ToolError("memory.write content exceeds 50,000 characters.")
-    memory_key_raw = arguments.get("memory_key")
-    memory_key = str(memory_key_raw).strip() if memory_key_raw is not None else None
-    if memory_key == "":
-        memory_key = None
-    if memory_key is not None and len(memory_key) > 160:
-        raise ToolError("memory.write memory_key exceeds 160 characters.")
+def _memory_write(
+    arguments: dict[str, Any],
+    source_app_key: str,
+    *,
+    owner: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
-        importance = float(arguments.get("importance", 0.5))
-    except (TypeError, ValueError) as exc:
-        raise ToolError("memory.write importance must be a number.") from exc
-    if importance < 0 or importance > 1:
-        raise ToolError("memory.write importance must be between 0 and 1.")
-    with db() as connection:
-        primary = connection.execute("SELECT id FROM agents WHERE is_primary=1 LIMIT 1").fetchone()
-        agent_id = primary["id"] if primary else None
-        cursor = connection.execute("INSERT INTO agent_memory(agent_id, memory_key, content, importance) VALUES (?, ?, ?, ?)", (agent_id, memory_key, content, importance))
-        memory_id = int(cursor.lastrowid)
-    return {"created": True, "id": memory_id}, {"created": True, "id": memory_id}
+        result = memory_continuity.create_federated_memory(
+            arguments,
+            source_app_key=source_app_key,
+            owner=owner,
+        )
+    except memory_continuity.MemoryContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    memory = result.get("memory") if isinstance(result.get("memory"), dict) else {}
+    return result, {
+        "created": bool(result.get("created")),
+        "canonical_id": str(memory.get("canonical_id") or "")[:45],
+        "idempotent_replay": bool(result.get("idempotent_replay")),
+    }
+
+
+def _memory_update(
+    arguments: dict[str, Any],
+    source_app_key: str,
+    *,
+    owner: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result = memory_continuity.update_federated_memory(
+            arguments,
+            source_app_key=source_app_key,
+            owner=owner,
+        )
+    except memory_continuity.MemoryContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    memory = result.get("memory") if isinstance(result.get("memory"), dict) else {}
+    return result, {
+        "updated": bool(result.get("updated")),
+        "canonical_id": str(memory.get("canonical_id") or "")[:45],
+        "idempotent_replay": bool(result.get("idempotent_replay")),
+    }
+
+
+def _memory_delete(
+    arguments: dict[str, Any],
+    source_app_key: str,
+    *,
+    owner: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result = memory_continuity.delete_federated_memory(
+            arguments,
+            source_app_key=source_app_key,
+            owner=owner,
+        )
+    except memory_continuity.MemoryContinuityError as exc:
+        raise ToolError(str(exc), exc.status_code) from exc
+    return result, {
+        "deleted": bool(result.get("deleted")),
+        "canonical_id": str(result.get("canonical_id") or "")[:45],
+        "idempotent_replay": bool(result.get("idempotent_replay")),
+    }
 
 
 def _tasks_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -1231,9 +1322,13 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
         elif tool["key"] == "knowledge.delete":
             result, result_meta = _knowledge_delete(payload, source)
         elif tool["key"] == "memory.list":
-            result, result_meta = _memory_list(payload)
+            result, result_meta = _memory_list(payload, source, owner=owner)
         elif tool["key"] == "memory.write":
-            result, result_meta = _memory_write(payload)
+            result, result_meta = _memory_write(payload, source, owner=owner)
+        elif tool["key"] == "memory.update":
+            result, result_meta = _memory_update(payload, source, owner=owner)
+        elif tool["key"] == "memory.delete":
+            result, result_meta = _memory_delete(payload, source, owner=owner)
         elif tool["key"] == "tasks.list":
             result, result_meta = _tasks_list(payload)
         elif tool["key"] == "calendar.list":

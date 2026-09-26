@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, hardware_adapters, hardware_experience, local_automation, physical_agent, physical_meeting
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -305,9 +305,19 @@ def control_knowledge_delete(item_id: int) -> dict:
 
 @app.get("/api/v1/control/memory")
 def control_memory() -> dict:
+    items = memory_continuity.list_federated_memories(
+        "",
+        100,
+        source_app_key="owner",
+        owner=True,
+    )
     with db() as connection:
-        rows = connection.execute("SELECT m.id, m.agent_id, a.name AS agent_name, m.memory_key, m.content, m.importance, m.created_at, m.updated_at FROM agent_memory m LEFT JOIN agents a ON a.id=m.agent_id ORDER BY m.importance DESC, m.id DESC LIMIT 250").fetchall()
-    return {"items": [dict(row) for row in rows]}
+        agent_rows = connection.execute("SELECT id,name FROM agents").fetchall()
+    names = {int(row["id"]): str(row["name"]) for row in agent_rows}
+    for item in items:
+        agent_id = item.get("agent_id")
+        item["agent_name"] = names.get(int(agent_id)) if agent_id is not None else None
+    return {"items": items}
 
 
 @app.post("/api/v1/control/memory")
@@ -319,18 +329,32 @@ def control_memory_create(payload: MemoryCreate) -> dict:
             agent_id = primary["id"] if primary else None
         cursor = connection.execute("INSERT INTO agent_memory(agent_id, memory_key, content, importance) VALUES (?, ?, ?, ?)", (agent_id, payload.memory_key, payload.content.strip(), payload.importance))
         memory_id = cursor.lastrowid
-    _log("memory.created", "memory", str(memory_id))
-    return {"created": True, "id": memory_id}
+    projected = memory_continuity.get_federated_memory(int(memory_id))
+    _log("memory.created", "memory", str(memory_id), {
+        "canonical_id": str((projected or {}).get("canonical_id") or "")[:45],
+    })
+    return {"created": True, "id": memory_id, "memory": projected}
 
 
 @app.delete("/api/v1/control/memory/{memory_id}")
 def control_memory_delete(memory_id: int) -> dict:
+    current = memory_continuity.get_federated_memory(memory_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="Memory item not found")
     with db() as connection:
         cursor = connection.execute("DELETE FROM agent_memory WHERE id=?", (memory_id,))
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Memory item not found")
-    _log("memory.deleted", "memory", str(memory_id))
-    return {"deleted": True}
+    federated_data.mark_tombstone(
+        "homeserver",
+        "memory",
+        str(current["authority_key"]),
+        observed_source="homeserver",
+    )
+    _log("memory.deleted", "memory", str(memory_id), {
+        "canonical_id": str(current["canonical_id"])[:45],
+    })
+    return {"deleted": True, "canonical_id": current["canonical_id"]}
 
 
 @app.get("/api/v1/control/apps")

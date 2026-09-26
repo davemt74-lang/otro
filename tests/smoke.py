@@ -173,7 +173,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "knowledge.delete",
             "knowledge.search",
             "knowledge.update",
+            "memory.delete",
             "memory.list",
+            "memory.update",
             "memory.write",
             "notifications.list",
             "tasks.create",
@@ -410,6 +412,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert by_key["knowledge.search"]["available"] is True
         assert by_key["memory.list"]["available"] is True
         assert by_key["memory.write"]["available"] is False
+        assert by_key["memory.update"]["available"] is False
+        assert by_key["memory.delete"]["available"] is False
         assert by_key["notifications.list"]["available"] is True
         assert by_key["tasks.list"]["available"] is True
         assert by_key["tasks.create"]["available"] is False

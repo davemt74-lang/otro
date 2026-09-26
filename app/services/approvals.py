@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, knowledge as knowledge_service, room_device_automation, task_calendar_continuity as continuity, tools
+from . import contacts, knowledge as knowledge_service, memory_continuity, room_device_automation, task_calendar_continuity as continuity, tools
 
 
 LOCAL_OWNER_ONLY_ACTIONS = {"devices.command"}
@@ -58,32 +58,14 @@ def _safe_task_meta(arguments: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def _validate_memory_write(arguments: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(arguments or {})
-    unknown = set(payload) - {"content", "memory_key", "importance"}
-    if unknown:
-        raise ApprovalError(f"Unsupported memory.write proposal argument: {sorted(unknown)[0]}")
-    content = str(payload.get("content") or "").strip()
-    if not content:
-        raise ApprovalError("memory.write proposal requires content.")
-    if len(content) > 50000:
-        raise ApprovalError("memory.write proposal content exceeds 50,000 characters.")
-    memory_key_raw = payload.get("memory_key")
-    memory_key = str(memory_key_raw).strip() if memory_key_raw is not None else None
-    if memory_key == "":
-        memory_key = None
-    if memory_key is not None and len(memory_key) > 160:
-        raise ApprovalError("memory.write proposal memory_key exceeds 160 characters.")
-    importance_raw = payload.get("importance", 0.5)
-    if isinstance(importance_raw, bool):
-        raise ApprovalError("memory.write proposal importance must be a number.")
+def _validate_memory_write(arguments: dict[str, Any] | None, *, require_mutation: bool = False) -> dict[str, Any]:
     try:
-        importance = float(importance_raw)
-    except (TypeError, ValueError) as exc:
-        raise ApprovalError("memory.write proposal importance must be a number.") from exc
-    if importance < 0 or importance > 1:
-        raise ApprovalError("memory.write proposal importance must be between 0 and 1.")
-    return {"content": content, "memory_key": memory_key, "importance": importance}
+        return memory_continuity.normalize_memory_create_arguments(
+            arguments,
+            require_mutation=require_mutation,
+        )
+    except memory_continuity.MemoryContinuityError as exc:
+        raise ApprovalError(str(exc), exc.status_code) from exc
 
 
 def _validate_task_create(arguments: dict[str, Any] | None) -> dict[str, Any]:
@@ -376,18 +358,102 @@ def create_knowledge_delete_request(
     return _knowledge_request(source_app_key, "knowledge.delete", arguments, owner=owner)
 
 
-def create_memory_write_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+def create_memory_write_request(
+    source_app_key: str,
+    arguments: dict[str, Any] | None,
+    *,
+    owner: bool = False,
+) -> dict[str, Any]:
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
-    raw_meta = _safe_raw_meta(arguments)
+    proposal = dict(arguments or {})
+    if not owner:
+        proposal = memory_continuity.ensure_mutation_id(proposal)
+    raw_meta = memory_continuity.safe_memory_mutation_meta("memory.write", proposal)
     required = [] if owner else ["memory.write", "tools.execute"]
     try:
-        normalized = _validate_memory_write(arguments)
-    except ApprovalError as exc:
+        normalized = _validate_memory_write(proposal, require_mutation=not owner)
+        memory_continuity._assert_memory_scope(source, normalized.get("memory_key"), owner=owner)
+    except (ApprovalError, memory_continuity.MemoryContinuityError) as exc:
         run_id = _record_failed_proposal(source, actor_type, "memory.write", required, raw_meta, str(exc))
-        raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
-    meta = {"content_length": len(normalized["content"]), "memory_key_length": len(normalized["memory_key"] or ""), "importance": normalized["importance"]}
+        raise ApprovalError(f"{exc} Run {run_id} was recorded.", getattr(exc, "status_code", 422)) from exc
+    meta = memory_continuity.safe_memory_mutation_meta("memory.write", normalized)
     return _create_action_request(source, actor_type, "memory.write", normalized, meta, required)
+
+
+def _memory_continuity_request(
+    source_app_key: str,
+    action_key: str,
+    arguments: dict[str, Any] | None,
+    *,
+    owner: bool = False,
+) -> dict[str, Any]:
+    source = source_app_key.strip() or ("owner" if owner else "app:unknown")
+    actor_type = "owner" if owner else "app"
+    raw_meta = memory_continuity.safe_memory_mutation_meta(action_key, arguments)
+    required = [] if owner else ["memory.write", "tools.execute"]
+    try:
+        if action_key == "memory.update":
+            normalized = memory_continuity.normalize_memory_update_arguments(arguments)
+            existing = memory_continuity.get_federated_memory_by_canonical(
+                str(normalized["canonical_id"])
+            )
+            if existing is None:
+                raise memory_continuity.MemoryContinuityError(
+                    "HomeServer memory not found.", 404
+                )
+            memory_continuity._assert_memory_scope(
+                source, existing.get("memory_key"), owner=owner
+            )
+            if "memory_key" in normalized:
+                memory_continuity._assert_memory_scope(
+                    source, normalized.get("memory_key"), owner=owner
+                )
+        elif action_key == "memory.delete":
+            normalized = memory_continuity.normalize_memory_delete_arguments(arguments)
+            existing = memory_continuity.get_federated_memory_by_canonical(
+                str(normalized["canonical_id"])
+            )
+            if existing is None:
+                raise memory_continuity.MemoryContinuityError(
+                    "HomeServer memory not found.", 404
+                )
+            memory_continuity._assert_memory_scope(
+                source, existing.get("memory_key"), owner=owner
+            )
+        else:
+            raise memory_continuity.MemoryContinuityError("Unsupported memory action.")
+    except memory_continuity.MemoryContinuityError as exc:
+        run_id = _record_failed_proposal(
+            source, actor_type, action_key, required, raw_meta, str(exc)
+        )
+        raise ApprovalError(
+            f"{exc} Run {run_id} was recorded.", exc.status_code
+        ) from exc
+    return _create_action_request(
+        source,
+        actor_type,
+        action_key,
+        normalized,
+        memory_continuity.safe_memory_mutation_meta(action_key, normalized),
+        required,
+    )
+
+
+def create_memory_update_request(
+    source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False
+) -> dict[str, Any]:
+    return _memory_continuity_request(
+        source_app_key, "memory.update", arguments, owner=owner
+    )
+
+
+def create_memory_delete_request(
+    source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False
+) -> dict[str, Any]:
+    return _memory_continuity_request(
+        source_app_key, "memory.delete", arguments, owner=owner
+    )
 
 
 def create_task_create_request(
@@ -619,7 +685,8 @@ def approve_request(request_id: str) -> dict[str, Any]:
     if request["status"] != "pending":
         raise ApprovalError(f"Action request is already {request['status']}.", 409)
     if request["action_key"] not in {
-        "memory.write", "tasks.create", "tasks.update", "tasks.delete", "devices.command",
+        "memory.write", "memory.update", "memory.delete",
+        "tasks.create", "tasks.update", "tasks.delete", "devices.command",
         "contacts.create", "contacts.update", "contacts.delete",
         "knowledge.create", "knowledge.update", "knowledge.delete",
         "calendar.create", "calendar.update", "calendar.delete",

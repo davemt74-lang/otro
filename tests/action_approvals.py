@@ -39,6 +39,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-approvals-") as data_dir:
         default_policy = client.get("/api/v1/control/agent-tools").json()
         assert default_policy["policy"]["allow_write_proposals"] is False
         assert "homeserver_memory_write_request" not in default_policy["available_tools"]
+        assert "homeserver_memory_update_request" not in default_policy["available_tools"]
+        assert "homeserver_memory_delete_request" not in default_policy["available_tools"]
 
         enabled = client.put(
             "/api/v1/control/agent-tools",
@@ -48,6 +50,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-approvals-") as data_dir:
         assert enabled.json()["policy"]["allow_write_proposals"] is True
         available = client.get("/api/v1/control/agent-tools").json()["available_tools"]
         assert "homeserver_memory_write_request" in available
+        assert "homeserver_memory_update_request" in available
+        assert "homeserver_memory_delete_request" in available
 
         owner_private = "OWNER_APPROVAL_PRIVATE_MEMORY_720941"
         owner_steps = []
@@ -162,7 +166,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-approvals-") as data_dir:
         assert app_chat.status_code == 200
         app_id = app_chat.json()["tools"]["action_request_ids"][0]
         app_offered = {item["function"]["name"] for item in app_tools_seen[0]}
-        assert app_offered == {"homeserver_memory_write_request"}
+        assert app_offered == {
+            "homeserver_memory_write_request",
+            "homeserver_memory_update_request",
+            "homeserver_memory_delete_request",
+        }
         assert not any(item["content"] == app_private for item in client.get("/api/v1/control/memory").json()["items"])
 
         app_status = client.get(

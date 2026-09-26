@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, federated_data, file_continuity, knowledge, task_calendar_continuity as continuity, tasks
+from . import contacts, federated_data, file_continuity, knowledge, memory_continuity, task_calendar_continuity as continuity, tasks
 
 SHARED_AGENT_CONTEXT_VERSION = "2.2"
 MAX_SNAPSHOT_BYTES = 196_608
@@ -169,39 +169,43 @@ def cloud_candidates(dataset: str, query: str, limit: int = 8) -> list[dict[str,
 
 
 def _local_memory(query: str, limit: int = 40) -> list[dict[str, Any]]:
-    tokens = _tokens(query)
-    with db() as connection:
-        rows = connection.execute(
-            """
-            SELECT id,memory_key,content,importance,created_at,updated_at
-            FROM agent_memory
-            ORDER BY importance DESC,updated_at DESC,id DESC
-            LIMIT 160
-            """
-        ).fetchall()
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        item = dict(row)
-        haystack = f"{item.get('memory_key') or ''} {item.get('content') or ''}".lower()
-        if tokens and not any(token in haystack for token in tokens):
-            continue
-        out.append(
-            _sanitize_record(
-                "homeserver",
-                "memory",
-                {
-                    "id": item["id"],
-                    "title": item.get("memory_key") or "Memory",
-                    "content": item.get("content") or "",
-                    "updated_at": item.get("updated_at"),
-                },
-                len(out),
-            )
+    rows = memory_continuity.list_federated_memories(
+        query,
+        limit,
+        source_app_key="owner",
+        owner=True,
+    )
+    return [
+        _sanitize_record(
+            "homeserver",
+            "memory",
+            {
+                "id": row.get("id"),
+                "authority_source": row.get("authority_source") or "homeserver",
+                "authority_key": row.get("authority_key"),
+                "canonical_id": row.get("canonical_id"),
+                "record_revision": row.get("record_revision"),
+                "title": row.get("memory_key") or str(row.get("memory_type") or "Memory").title(),
+                "content": " · ".join(
+                    value
+                    for value in (
+                        _text(row.get("content"), 4000),
+                        f"type: {_text(row.get('memory_type'), 40)}" if row.get("memory_type") else "",
+                        f"confidence: {float(row.get('confidence') or 0):.2f}",
+                        f"importance: {float(row.get('importance') or 0):.2f}",
+                        f"entity: {_text(row.get('entity_type'), 80)}:{_text(row.get('entity_key'), 160)}"
+                        if row.get("entity_type") or row.get("entity_key")
+                        else "",
+                    )
+                    if value
+                ),
+                "updated_at": row.get("updated_at"),
+            },
+            index,
         )
-        if len(out) >= limit:
-            break
-    return out
-
+        for index, row in enumerate(rows)
+        if isinstance(row, dict)
+    ]
 
 def _fit_datasets(datasets: dict[str, list[dict[str, Any]]], max_bytes: int = 170_000) -> dict[str, list[dict[str, Any]]]:
     order = ("notifications", "files", "calendar", "tasks", "contacts", "knowledge", "memory")

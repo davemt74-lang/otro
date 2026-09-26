@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v243-task-calendar-") as dat
 
     with db() as connection:
         versions = [row["version"] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-    assert versions == list(range(1, 37))
+    assert versions == list(range(1, 38))
     assert "calendar" in federated_data.DATASETS
 
     migration = (ROOT / "database" / "migrations" / "035_governed_task_calendar_continuity.sql").read_text(encoding="utf-8")
