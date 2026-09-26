@@ -88,6 +88,16 @@ jobs:
         run: python tests/contacts_continuity_v241.py
       - name: Knowledge continuity v2.4 regression
         run: python tests/knowledge_continuity_v242.py
+      - name: Tasks and Calendar continuity v2.4 regression
+        run: python tests/task_calendar_continuity_v243.py
+      - name: Files and Documents continuity v2.4 regression
+        run: python tests/file_document_continuity_v244.py
+      - name: Agent Brain and Memory continuity v2.4 regression
+        run: python tests/agent_brain_memory_continuity_v245.py
+      - name: Disconnect/Reconnect reconciliation v2.4 regression
+        run: python tests/reconnect_reconciliation_v246.py
+      - name: HomeServer v2.4 final release acceptance
+        run: python tests/homeserver_v24_release_acceptance.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
