@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .main import require
+from .services import approvals, task_calendar_continuity as continuity
 from .services.tasks import (
     TaskError,
     create_task,
@@ -37,6 +38,7 @@ router = APIRouter(lifespan=task_lifespan)
 
 
 class TaskCreate(BaseModel):
+    mutation_id: str | None = Field(default=None, min_length=8, max_length=128)
     title: str = Field(min_length=1, max_length=240)
     description: str = Field(default="", max_length=20000)
     status: str = "pending"
@@ -49,6 +51,9 @@ class TaskCreate(BaseModel):
 
 
 class TaskUpdate(BaseModel):
+    canonical_id: str | None = Field(default=None, min_length=45, max_length=45)
+    mutation_id: str | None = Field(default=None, min_length=8, max_length=128)
+    expected_revision: str | None = Field(default=None, min_length=64, max_length=64)
     title: str | None = Field(default=None, min_length=1, max_length=240)
     description: str | None = Field(default=None, max_length=20000)
     status: str | None = None
@@ -88,7 +93,7 @@ def client_tasks(
     identity: dict = Depends(require("tasks.read")),
 ) -> dict:
     try:
-        return {"items": list_tasks(status=status, q=q, limit=250), "app": identity["app_key"]}
+        return {"items": continuity.list_federated_tasks(status=status, q=q, limit=250), "app": identity["app_key"]}
     except TaskError as exc:
         _raise(exc)
 
@@ -96,17 +101,43 @@ def client_tasks(
 @router.post("/api/v1/tasks")
 def client_task_create(payload: TaskCreate, identity: dict = Depends(require("tasks.write"))) -> dict:
     try:
-        return {"task": create_task(_task_payload(payload), source_app_key=identity["app_key"], created_by_type="app")}
-    except TaskError as exc:
-        _raise(exc)
+        request = approvals.create_task_create_request(f"app:{identity['app_key']}", _task_payload(payload), owner=False)
+        return {**request, "approval_required": True}
+    except approvals.ApprovalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.patch("/api/v1/tasks/{task_id}")
 def client_task_update(task_id: int, payload: TaskUpdate, identity: dict = Depends(require("tasks.write"))) -> dict:
     try:
-        return {"task": update_task(task_id, _task_payload(payload, exclude_unset=True), source_app_key=identity["app_key"], actor_type="app")}
-    except TaskError as exc:
-        _raise(exc)
+        arguments = _task_payload(payload, exclude_unset=True)
+        canonical = arguments.pop("canonical_id", None)
+        if not canonical:
+            rows = continuity.list_federated_tasks(limit=500)
+            match = next((row for row in rows if int(row.get("id") or 0) == int(task_id)), None)
+            canonical = None if match is None else match.get("canonical_id")
+        arguments["canonical_id"] = canonical
+        request = approvals.create_task_update_request(f"app:{identity['app_key']}", arguments, owner=False)
+        return {**request, "approval_required": True}
+    except approvals.ApprovalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.delete("/api/v1/tasks/{task_id}")
+def client_task_delete(task_id: int, mutation_id: str, expected_revision: str, identity: dict = Depends(require("tasks.write"))) -> dict:
+    rows = continuity.list_federated_tasks(limit=500)
+    match = next((row for row in rows if int(row.get("id") or 0) == int(task_id)), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    try:
+        request = approvals.create_task_delete_request(
+            f"app:{identity['app_key']}",
+            {"canonical_id": match["canonical_id"], "mutation_id": mutation_id, "expected_revision": expected_revision},
+            owner=False,
+        )
+        return {**request, "approval_required": True}
+    except approvals.ApprovalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/api/v1/notifications")
