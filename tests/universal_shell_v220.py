@@ -17,8 +17,8 @@ config=read("app/config.py")
 installer=read("installer/HomeServer.iss")
 
 checks=[
- ("product version is 2.3",
-  'version: str = "2.3"' in config and '#define MyAppVersion "2.3"' in installer),
+ ("product version is 2.4",
+  'version: str = "2.4"' in config and '#define MyAppVersion "2.4"' in installer),
  ("Cloud visual dimensions are preserved in the HomeServer shell",
   "--hs-v220-sidebar:272px" in css and "--hs-v220-topbar:58px" in css and "--hs-v220-canvas:790px" in css),
  ("Cloud visual tokens are used",
