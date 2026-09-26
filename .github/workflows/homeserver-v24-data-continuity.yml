@@ -42,6 +42,8 @@ jobs:
           app/services/local_file_actions_approvals.py
           app/services/shared_agent_context.py
           app/services/remote_bridge.py
+          app/services/tracky_physical_context.py
+          app/tracky_api.py
           app/bridge.py
           tests/federated_data_authority_v240.py
           tests/contacts_continuity_v241.py
@@ -50,6 +52,7 @@ jobs:
           tests/file_document_continuity_v244.py
           tests/agent_brain_memory_continuity_v245.py
           tests/reconnect_reconciliation_v246.py
+          tests/tracky_contract_join_v273.py
           tests/homeserver_v24_release_acceptance.py
       - name: Verify migration chain
         run: python tests/migrations.py
@@ -69,5 +72,7 @@ jobs:
         run: python tests/agent_brain_memory_continuity_v245.py
       - name: Verify v2.4 Disconnect/Reconnect reconciliation
         run: python tests/reconnect_reconciliation_v246.py
+      - name: Verify Tracky V2.73 preserves v2.4 continuity authority
+        run: python tests/tracky_contract_join_v273.py
       - name: Verify v2.4 final release acceptance
         run: python tests/homeserver_v24_release_acceptance.py

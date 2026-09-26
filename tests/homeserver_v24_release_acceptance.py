@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v24-release-") as data_dir:
 
 assert settings.version == "2.4"
 assert caps["version"] == "2.4"
-assert versions == list(range(1, 39))
+assert versions == list(range(1, 40))
 
 legacy = caps["unified_execution"]
 assert legacy["version"] == "2.3"

@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, local_voice, providers, shared_agent_context
+from . import agent_voice_profiles, federated_data, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -471,6 +471,19 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             except shared_agent_context.SharedAgentContextError as exc:
                 raise RemoteBridgeError(str(exc)) from exc
             return {"status": 200, "ok": True, "payload": payload_out}
+        if op == "physical_context.capabilities":
+            return _local_response(client.get("/api/v1/tracky/capabilities", headers=headers))
+        if op == "physical_context.current":
+            return _local_response(client.get("/api/v1/tracky/context", headers=headers))
+        if op == "physical_context.active_perception":
+            return _local_response(client.post("/api/v1/tracky/active-perception", json=body, headers=headers))
+        if op == "physical_context.request_status":
+            request_id = str(body.get("request_id") or "")
+            if not _REQUEST_ID.fullmatch(request_id):
+                raise RemoteBridgeError("physical_context.request_status requires a valid request_id.")
+            return _local_response(client.get(f"/api/v1/tracky/active-perception/{request_id}", headers=headers))
+        if op == "physical_context.sync":
+            return _local_response(client.post("/api/v1/tracky/cloud-sync", headers=headers))
         if op == "capability.registry":
             return _local_response(client.get("/api/v1/capability-registry", headers=headers))
         if op == "vp3.os.status":
@@ -872,6 +885,16 @@ class RemoteBridgeWorker:
                             "reconciliation_required": bool(peer_state.get("needs_reconciliation")),
                         },
                     )
+
+                # The relay response above has already completed, so any pending
+                # Tracky semantic state can now synchronize on the same VP3 session
+                # without nesting a Cloud callback inside an active relay request.
+                try:
+                    tracky_sync_state = tracky_physical_context.sync_status()
+                    if int(tracky_sync_state.get("pending_events") or 0) > 0:
+                        tracky_physical_context.sync_cloud(timeout=8.0)
+                except tracky_physical_context.TrackyPhysicalError:
+                    pass
 
                 pending_results = []
                 requests = data.get("requests") if isinstance(data.get("requests"), list) else []
