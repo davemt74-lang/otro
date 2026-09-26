@@ -180,7 +180,7 @@ def _invoke_provider_with_timeout(
     request: dict[str, Any],
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    timeout_seconds = max(2.0, min(float(timeout_seconds), 30.0))
+    timeout_seconds = max(0.25, min(float(timeout_seconds), 30.0))
     outcome: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
 
     def runner() -> None:
