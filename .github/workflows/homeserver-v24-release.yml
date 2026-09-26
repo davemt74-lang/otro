@@ -1,0 +1,74 @@
+name: HomeServer v2.4 Release Acceptance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: homeserver-v24-release-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    name: v2.4 acceptance · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile release acceptance surfaces
+        run: >-
+          python -m py_compile
+          app/config.py
+          app/bridge.py
+          app/services/federated_data.py
+          app/services/task_calendar_continuity.py
+          app/services/file_continuity.py
+          app/services/memory_continuity.py
+          app/services/shared_agent_context.py
+          app/services/remote_bridge.py
+          tests/federated_data_authority_v240.py
+          tests/contacts_continuity_v241.py
+          tests/knowledge_continuity_v242.py
+          tests/task_calendar_continuity_v243.py
+          tests/file_document_continuity_v244.py
+          tests/agent_brain_memory_continuity_v245.py
+          tests/reconnect_reconciliation_v246.py
+          tests/homeserver_v23_release_acceptance.py
+          tests/homeserver_v24_release_acceptance.py
+      - name: Verify migration chain through schema 38
+        run: python tests/migrations.py
+      - name: Verify v2.4 federated authority
+        run: python tests/federated_data_authority_v240.py
+      - name: Verify v2.4 contacts continuity
+        run: python tests/contacts_continuity_v241.py
+      - name: Verify v2.4 Knowledge continuity
+        run: python tests/knowledge_continuity_v242.py
+      - name: Verify v2.4 Tasks and Calendar continuity
+        run: python tests/task_calendar_continuity_v243.py
+      - name: Verify v2.4 Files and Documents continuity
+        run: python tests/file_document_continuity_v244.py
+      - name: Verify v2.4 Agent Brain and Memory continuity
+        run: python tests/agent_brain_memory_continuity_v245.py
+      - name: Verify v2.4 disconnect/reconnect reconciliation
+        run: python tests/reconnect_reconciliation_v246.py
+      - name: Verify retained v2.3 execution safety
+        run: python tests/homeserver_v23_release_acceptance.py
+      - name: Verify v2.4 final release acceptance
+        run: python tests/homeserver_v24_release_acceptance.py
+      - name: Verify installer version and private-data preservation contract
+        run: python tests/installer_contract.py
