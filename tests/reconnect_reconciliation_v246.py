@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v246-reconcile-") as data_di
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-    assert versions == list(range(1, 40))
+    assert versions == list(range(1, 41))
 
     def full_snapshot(revision: str, knowledge_rows: list[dict], contacts_rows: list[dict] | None = None) -> dict:
         datasets = {name: [] for name in federated_data.DATASETS}
