@@ -644,18 +644,19 @@ def approve_request(request_id: str) -> dict[str, Any]:
                 approval_request_id=request["id"],
             )
         else:
-            execution = tools.execute_tool(
-                request["source_app_key"],
-                request["action_key"],
-                request["arguments"],
-                set(),
-                owner=True,
-                created_by_type_override=(
-                    str((request.get("arguments_meta") or {}).get("created_by_type") or "").strip().lower()
-                    if request["action_key"] == "tasks.create"
-                    else None
-                ),
+            creator = (
+                str((request.get("arguments_meta") or {}).get("created_by_type") or "").strip().lower()
+                if request["action_key"] == "tasks.create"
+                else None
             )
+            with continuity.task_creator_provenance(creator):
+                execution = tools.execute_tool(
+                    request["source_app_key"],
+                    request["action_key"],
+                    request["arguments"],
+                    set(),
+                    owner=True,
+                )
     except tools.ToolError as exc:
         execution_run_id = _extract_run_id(str(exc))
         with db() as connection:
