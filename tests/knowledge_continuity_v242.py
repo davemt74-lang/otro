@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v242-knowledge-") as data_di
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-    assert versions == list(range(1, 35))
+    assert versions == list(range(1, 36))
 
     migration = (ROOT / "database" / "migrations" / "034_governed_knowledge_actions.sql").read_text(encoding="utf-8")
     migration_sql = "\\n".join(
