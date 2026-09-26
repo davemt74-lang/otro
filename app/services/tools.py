@@ -1113,7 +1113,11 @@ def _devices_command(
 def _tasks_create(arguments: dict[str, Any], source: str, created_by_type: str) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         if "mutation_id" in arguments or source.startswith("app:"):
-            task = continuity.create_federated_task(arguments, source_app_key=source)
+            task = continuity.create_federated_task(
+                arguments,
+                source_app_key=source,
+                created_by_type=created_by_type,
+            )
         else:
             source_key = source.removeprefix("app:") if source.startswith("app:") else (None if source == "owner" else source)
             task = continuity.federated_task_item(create_task(arguments, source_app_key=source_key, created_by_type=created_by_type))
@@ -1179,7 +1183,8 @@ def _calendar_delete(arguments: dict[str, Any], source: str) -> tuple[dict[str, 
 
 def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
                  granted_permissions: set[str] | None = None, *, owner: bool = False,
-                 approval_request_id: str | None = None) -> dict[str, Any]:
+                 approval_request_id: str | None = None,
+                 created_by_type_override: str | None = None) -> dict[str, Any]:
     tool = _tool_definition(tool_key)
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
@@ -1245,7 +1250,9 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
                 approval_request_id=approval_request_id,
             )
         elif tool["key"] == "tasks.create":
-            task_creator = "agent" if owner and source.startswith("app:") else actor_type
+            task_creator = str(created_by_type_override or "").strip().lower()
+            if task_creator not in {"owner", "app", "agent", "system"}:
+                task_creator = "agent" if owner and source.startswith("app:") else actor_type
             result, result_meta = _tasks_create(payload, source, task_creator)
         elif tool["key"] == "tasks.update":
             result, result_meta = _tasks_update(payload, source)
