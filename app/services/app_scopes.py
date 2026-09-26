@@ -38,6 +38,8 @@ _TOOL_PERMISSION_BY_KEY = {
     "knowledge.delete": "knowledge.write",
     "memory.list": "memory.read",
     "memory.write": "memory.write",
+    "memory.update": "memory.write",
+    "memory.delete": "memory.write",
     "notifications.list": "notifications.read",
     "tasks.list": "tasks.read",
     "tasks.create": "tasks.write",
