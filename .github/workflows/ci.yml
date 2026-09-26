@@ -98,6 +98,8 @@ jobs:
         run: python tests/reconnect_reconciliation_v246.py
       - name: HomeServer v2.4 final release acceptance
         run: python tests/homeserver_v24_release_acceptance.py
+      - name: Tracky V2.74 reliability hardening
+        run: python tests/tracky_reliability_v274.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
