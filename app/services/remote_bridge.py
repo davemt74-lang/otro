@@ -459,7 +459,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
         if op == "shared.context.exchange":
             _direct_identity(
                 token,
-                {"memory.read", "knowledge.search", "contacts.read", "tasks.read", "notifications.read"},
+                {"memory.read", "knowledge.search", "contacts.read", "tasks.read", "events.read", "notifications.read"},
             )
             cloud_snapshot = body.get("cloud_snapshot")
             if not isinstance(cloud_snapshot, dict):
