@@ -12,7 +12,7 @@ config=read("app/config.py")
 installer=read("installer/HomeServer.iss")
 
 checks=[
- ("release version is 2.4", 'version: str = "2.4"' in config and '#define MyAppVersion "2.3"' in installer),
+ ("release version is 2.4", 'version: str = "2.4"' in config and '#define MyAppVersion "2.4"' in installer),
  ("migration creates the shared Cloud mirror cache",
   "CREATE TABLE IF NOT EXISTS shared_agent_snapshots" in migration and "snapshot_json" in migration),
  ("shared fabric is v2.2 and covers all federated datasets",
