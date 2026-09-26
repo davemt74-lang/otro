@@ -277,11 +277,24 @@ def reconcile_snapshot(
     mode = _text(snapshot.get("snapshot_mode") or "filtered", 20).lower()
     if mode not in {"full", "filtered"}:
         raise FederatedDataError("Federated snapshot mode must be full or filtered.")
+    coverage_raw = snapshot.get("covered_datasets")
+    if coverage_raw is None:
+        coverage = [name for name in DATASETS if isinstance(datasets.get(name), list)]
+    elif isinstance(coverage_raw, list):
+        coverage = []
+        for value in coverage_raw:
+            name = validate_dataset(str(value))
+            if name not in coverage:
+                coverage.append(name)
+    else:
+        raise FederatedDataError("Federated snapshot covered_datasets must be a list.")
+    if not coverage:
+        raise FederatedDataError("Federated snapshot coverage is empty.")
     if mode == "full":
-        missing = [name for name in DATASETS if not isinstance(datasets.get(name), list)]
+        missing = [name for name in coverage if not isinstance(datasets.get(name), list)]
         if missing:
             raise FederatedDataError(
-                "Full reconciliation snapshot is missing datasets: " + ", ".join(missing)
+                "Full reconciliation snapshot is missing covered datasets: " + ", ".join(missing)
             )
     revision = _text(snapshot.get("revision"), 128)
     run_id = uuid.uuid4().hex
@@ -313,7 +326,7 @@ def reconcile_snapshot(
         # Validate the entire snapshot before mutating mirror state. A malformed
         # or mixed-authority full snapshot must fail atomically from the
         # perspective of reconciliation semantics.
-        for dataset in DATASETS:
+        for dataset in coverage:
             rows = datasets.get(dataset)
             if not isinstance(rows, list):
                 continue
@@ -444,6 +457,7 @@ def reconcile_snapshot(
             "observed_source": observed,
             "snapshot_mode": mode,
             "snapshot_revision": revision,
+            "covered_datasets": coverage,
             "status": "completed",
             **totals,
             "datasets": dataset_summary,
