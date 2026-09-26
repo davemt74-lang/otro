@@ -29,8 +29,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v23-release-") as data_dir:
 
     caps = bridge.capabilities()
 
-assert settings.version == "2.3"
-assert caps["version"] == "2.3"
+assert settings.version == "2.4"
+assert caps["version"] == "2.4"
 
 unified = caps["unified_execution"]
 assert unified["version"] == "2.3"
@@ -120,12 +120,12 @@ assert '#define MyAppVersion "2.3"' in installer
 assert "HomeServer\\Data" not in installer
 
 workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
-assert "version = '2.3'" in workflow
-assert "minimum_schema_version = 31" in workflow
+assert "version = '2.4'" in workflow
+assert "minimum_schema_version = 36" in workflow
 assert "HomeServerSetup.exe" in workflow
 assert "SHA256SUMS.txt" in workflow
 assert "RELEASE.json" in workflow
-assert "Verify packaged v2.1 to v2.3 upgrade takeover" in workflow
+assert "Verify packaged v2.1 to v2.4 upgrade takeover" in workflow
 assert "Verify packaged VP3 HTTPS session survives process restart" in workflow
 assert "Verify silent installer upgrade preserves private data" in workflow
 
@@ -135,4 +135,4 @@ for section_test in (
 ):
     assert section_test in workflow
 
-print("HomeServer 2.3 unified execution release acceptance: PASS")
+print("HomeServer v2.3 unified execution retained under v2.4 release: PASS")
