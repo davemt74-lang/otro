@@ -195,14 +195,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-v273-") as data_dir:
         assert exc.status_code == 422
 
     # Attach a deterministic provider that does not require a physical camera.
-    # Cloud sync is stubbed because this unit test has no external network.
-    sync_calls: list[dict] = []
-    original_sync = tracky_physical_context.sync_cloud
-
-    def fake_sync(*, timeout: float = 12.0) -> dict:
-        sync_calls.append({"timeout": timeout})
-        return {"ok": True, "cursor": "hs-3", "synced_events": 1}
-
+    # Active perception returns governed semantics through the existing relay;
+    # outbound acknowledgement happens later in the normal HTTPS worker loop.
     def provider(request: dict) -> dict:
         assert request["request_type"] == "find_entity"
         assert request["target"]["entity_id"] == "object:glasses"
@@ -249,7 +243,6 @@ with tempfile.TemporaryDirectory(prefix="tracky-v273-") as data_dir:
             },
         }
 
-    tracky_physical_context.sync_cloud = fake_sync
     tracky_physical_context.register_provider(
         provider,
         name="test-provider",
@@ -265,11 +258,14 @@ with tempfile.TemporaryDirectory(prefix="tracky-v273-") as data_dir:
         assert completed["request"]["status"] == "completed"
         assert completed["request"]["result"]["reason"] == "completed"
         assert completed["request"]["result"]["provider_result"]["confidence"] == 0.99
-        assert len(sync_calls) == 1
+        projection = completed["request"]["result"]["semantic_projection"]
+        assert projection["protocol"] == "physical_context.v1"
+        assert projection["site"]["id"].startswith("hs-")
+        assert any(item["event_id"] == "tracky-event-0003" for item in projection["events"])
+        assert completed["request"]["result"]["cloud_sync"]["deferred"] is True
         assert tracky_physical_context.request_status("tracky-test-completed")["request"]["status"] == "completed"
     finally:
         tracky_physical_context.unregister_provider()
-        tracky_physical_context.sync_cloud = original_sync
 
     # Static architecture assertions: V2.73 must extend v2.4, never fork it.
     service_source = (ROOT / "app" / "services" / "tracky_physical_context.py").read_text(encoding="utf-8")
@@ -281,6 +277,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-v273-") as data_dir:
     assert "load_https_session()" in service_source
     assert "remote_identity_metadata()" in service_source
     assert "tracky-sync-v270.php" in service_source
+    assert '"semantic_projection": semantic_projection' in service_source
+    assert "tracky_physical_context.sync_cloud(timeout=8.0)" in relay_source
     assert "provider_unavailable" in service_source
     assert "privacy_engaged" in service_source
     assert "physical_actions" in service_source
