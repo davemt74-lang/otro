@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -175,6 +176,317 @@ def observe_snapshot(snapshot: dict[str, Any], *, observed_source: str = "homese
     return {"version": FEDERATED_DATA_VERSION, "observed": counts}
 
 
+def reconciliation_state(peer_source: str) -> dict[str, Any]:
+    peer = validate_source(peer_source)
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT peer_source,needs_reconciliation,last_disconnect_at,last_connected_at,
+                   last_reconciled_at,last_snapshot_revision,last_run_id,last_error
+            FROM federated_reconciliation_state WHERE peer_source=? LIMIT 1
+            """,
+            (peer,),
+        ).fetchone()
+    if row is None:
+        return {
+            "peer_source": peer,
+            "needs_reconciliation": True,
+            "last_disconnect_at": None,
+            "last_connected_at": None,
+            "last_reconciled_at": None,
+            "last_snapshot_revision": "",
+            "last_run_id": "",
+            "last_error": "",
+        }
+    item = dict(row)
+    item["needs_reconciliation"] = bool(item.get("needs_reconciliation"))
+    return item
+
+
+def note_peer_disconnected(peer_source: str, reason: str = "") -> dict[str, Any]:
+    peer = validate_source(peer_source)
+    err = _text(reason, 500)
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO federated_reconciliation_state(
+                peer_source,needs_reconciliation,last_disconnect_at,last_error
+            ) VALUES (?,1,CURRENT_TIMESTAMP,?)
+            ON CONFLICT(peer_source) DO UPDATE SET
+                needs_reconciliation=1,
+                last_disconnect_at=CURRENT_TIMESTAMP,
+                last_error=excluded.last_error
+            """,
+            (peer, err),
+        )
+    return reconciliation_state(peer)
+
+
+def note_peer_connected(peer_source: str) -> dict[str, Any]:
+    peer = validate_source(peer_source)
+    before = reconciliation_state(peer)
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO federated_reconciliation_state(
+                peer_source,needs_reconciliation,last_connected_at,last_error
+            ) VALUES (?,1,CURRENT_TIMESTAMP,'')
+            ON CONFLICT(peer_source) DO UPDATE SET
+                last_connected_at=CURRENT_TIMESTAMP,
+                last_error=''
+            """,
+            (peer,),
+        )
+    after = reconciliation_state(peer)
+    after["reconnected"] = bool(before.get("needs_reconciliation"))
+    return after
+
+
+def _existing_link(
+    authority_source: str,
+    dataset: str,
+    authority_key: str,
+    observed_source: str,
+) -> dict[str, Any] | None:
+    with db() as connection:
+        row = connection.execute(
+            """
+            SELECT record_hash,tombstoned
+            FROM federated_record_links
+            WHERE authority_source=? AND dataset=? AND authority_key=? AND observed_source=?
+            LIMIT 1
+            """,
+            (authority_source, dataset, authority_key, observed_source),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def reconcile_snapshot(
+    snapshot: dict[str, Any],
+    *,
+    observed_source: str = "homeserver",
+    trigger_reason: str = "exchange",
+) -> dict[str, Any]:
+    datasets = snapshot.get("datasets")
+    if not isinstance(datasets, dict):
+        raise FederatedDataError("Federated snapshot datasets are missing.")
+    authority = validate_source(str(snapshot.get("authoritative_source") or "vp3_cloud"))
+    observed = validate_source(observed_source)
+    mode = _text(snapshot.get("snapshot_mode") or "filtered", 20).lower()
+    if mode not in {"full", "filtered"}:
+        raise FederatedDataError("Federated snapshot mode must be full or filtered.")
+    revision = _text(snapshot.get("revision"), 128)
+    run_id = uuid.uuid4().hex
+    trigger = _text(trigger_reason, 120) or "exchange"
+
+    with db() as connection:
+        connection.execute(
+            """
+            INSERT INTO federated_reconciliation_runs(
+                id,peer_source,observed_source,snapshot_revision,snapshot_mode,
+                trigger_reason,status
+            ) VALUES (?,?,?,?,?,?,'running')
+            """,
+            (run_id, authority, observed, revision, mode, trigger),
+        )
+
+    totals = {
+        "created": 0,
+        "updated": 0,
+        "restored": 0,
+        "unchanged": 0,
+        "tombstoned": 0,
+        "conflicts": 0,
+    }
+    dataset_summary: dict[str, dict[str, int]] = {}
+
+    try:
+        for dataset in DATASETS:
+            rows = datasets.get(dataset)
+            if not isinstance(rows, list):
+                continue
+            summary = {
+                "created": 0,
+                "updated": 0,
+                "restored": 0,
+                "unchanged": 0,
+                "tombstoned": 0,
+                "conflicts": 0,
+            }
+            seen_keys: set[str] = set()
+
+            for index, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                normalized = normalize_envelope(
+                    row,
+                    default_source=authority,
+                    dataset=dataset,
+                    index=index,
+                )
+                if normalized["authority_source"] != authority:
+                    summary["conflicts"] += 1
+                    totals["conflicts"] += 1
+                    raise FederatedDataError(
+                        "Full reconciliation snapshot mixed native authorities."
+                    )
+                key = str(normalized["authority_key"])
+                if key in seen_keys:
+                    summary["conflicts"] += 1
+                    totals["conflicts"] += 1
+                    raise FederatedDataError(
+                        "Full reconciliation snapshot contains duplicate authority keys."
+                    )
+                seen_keys.add(key)
+                before = _existing_link(authority, dataset, key, observed)
+                observe(normalized, observed_source=observed)
+                if before is None:
+                    bucket = "created"
+                elif bool(before.get("tombstoned")):
+                    bucket = "restored"
+                elif str(before.get("record_hash") or "") != str(normalized["record_revision"]):
+                    bucket = "updated"
+                else:
+                    bucket = "unchanged"
+                summary[bucket] += 1
+                totals[bucket] += 1
+
+            if mode == "full":
+                with db() as connection:
+                    existing = connection.execute(
+                        """
+                        SELECT authority_key
+                        FROM federated_record_links
+                        WHERE authority_source=? AND dataset=? AND observed_source=?
+                          AND tombstoned=0
+                        """,
+                        (authority, dataset, observed),
+                    ).fetchall()
+                for existing_row in existing:
+                    key = _text(existing_row["authority_key"], MAX_KEY_CHARS)
+                    if key and key not in seen_keys:
+                        mark_tombstone(
+                            authority,
+                            dataset,
+                            key,
+                            observed_source=observed,
+                        )
+                        summary["tombstoned"] += 1
+                        totals["tombstoned"] += 1
+
+            dataset_summary[dataset] = summary
+            update_cursor(
+                authority,
+                dataset,
+                revision=revision,
+                success=True,
+            )
+
+        with db() as connection:
+            connection.execute(
+                """
+                UPDATE federated_reconciliation_runs
+                SET status='completed',
+                    created_count=?,updated_count=?,restored_count=?,unchanged_count=?,
+                    tombstoned_count=?,conflict_count=?,dataset_summary_json=?,
+                    completed_at=CURRENT_TIMESTAMP,error=''
+                WHERE id=?
+                """,
+                (
+                    totals["created"],
+                    totals["updated"],
+                    totals["restored"],
+                    totals["unchanged"],
+                    totals["tombstoned"],
+                    totals["conflicts"],
+                    json.dumps(dataset_summary, separators=(",", ":")),
+                    run_id,
+                ),
+            )
+            if mode == "full":
+                connection.execute(
+                    """
+                    INSERT INTO federated_reconciliation_state(
+                        peer_source,needs_reconciliation,last_reconciled_at,
+                        last_snapshot_revision,last_run_id,last_error
+                    ) VALUES (?,0,CURRENT_TIMESTAMP,?,?,'')
+                    ON CONFLICT(peer_source) DO UPDATE SET
+                        needs_reconciliation=0,
+                        last_reconciled_at=CURRENT_TIMESTAMP,
+                        last_snapshot_revision=excluded.last_snapshot_revision,
+                        last_run_id=excluded.last_run_id,
+                        last_error=''
+                    """,
+                    (authority, revision, run_id),
+                )
+        return {
+            "version": FEDERATED_DATA_VERSION,
+            "run_id": run_id,
+            "peer_source": authority,
+            "observed_source": observed,
+            "snapshot_mode": mode,
+            "snapshot_revision": revision,
+            "status": "completed",
+            **totals,
+            "datasets": dataset_summary,
+        }
+    except Exception as exc:
+        with db() as connection:
+            connection.execute(
+                """
+                UPDATE federated_reconciliation_runs
+                SET status='failed',conflict_count=?,dataset_summary_json=?,
+                    error=?,completed_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (
+                    totals["conflicts"],
+                    json.dumps(dataset_summary, separators=(",", ":")),
+                    _text(str(exc), 500),
+                    run_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO federated_reconciliation_state(
+                    peer_source,needs_reconciliation,last_run_id,last_error
+                ) VALUES (?,1,?,?)
+                ON CONFLICT(peer_source) DO UPDATE SET
+                    needs_reconciliation=1,
+                    last_run_id=excluded.last_run_id,
+                    last_error=excluded.last_error
+                """,
+                (authority, run_id, _text(str(exc), 500)),
+            )
+        raise
+
+
+def recent_reconciliation_runs(limit: int = 20) -> list[dict[str, Any]]:
+    bounded = max(1, min(int(limit), 100))
+    with db() as connection:
+        rows = connection.execute(
+            """
+            SELECT id,peer_source,observed_source,snapshot_revision,snapshot_mode,
+                   trigger_reason,status,created_count,updated_count,restored_count,
+                   unchanged_count,tombstoned_count,conflict_count,
+                   dataset_summary_json,error,started_at,completed_at
+            FROM federated_reconciliation_runs
+            ORDER BY started_at DESC,id DESC LIMIT ?
+            """,
+            (bounded,),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for raw in rows:
+        item = dict(raw)
+        try:
+            item["datasets"] = json.loads(item.pop("dataset_summary_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            item["datasets"] = {}
+            item.pop("dataset_summary_json", None)
+        out.append(item)
+    return out
+
+
 def update_cursor(
     peer_source: str,
     dataset: str,
@@ -244,6 +556,11 @@ def registry() -> dict[str, Any]:
         },
         "mirror_link_count": link_count,
         "sync_cursors": cursor_rows,
+        "reconciliation": {
+            "vp3_cloud": reconciliation_state("vp3_cloud"),
+            "recent_runs": recent_reconciliation_runs(10),
+            "absence_tombstones_require_full_snapshot": True,
+        },
     }
 
 
