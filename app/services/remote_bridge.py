@@ -890,8 +890,7 @@ class RemoteBridgeWorker:
                 # Tracky semantic state can now synchronize on the same VP3 session
                 # without nesting a Cloud callback inside an active relay request.
                 try:
-                    tracky_sync_state = tracky_physical_context.sync_status()
-                    if int(tracky_sync_state.get("pending_events") or 0) > 0:
+                    if tracky_physical_context.sync_due():
                         tracky_physical_context.sync_cloud(timeout=8.0)
                 except tracky_physical_context.TrackyPhysicalError:
                     pass
