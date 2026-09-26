@@ -159,7 +159,9 @@ def control_tasks(status: str | None = Query(default=None, max_length=40), q: st
 @router.post("/api/v1/control/tasks")
 def control_task_create(payload: TaskCreate) -> dict:
     try:
-        return {"task": create_task(_task_payload(payload), created_by_type="owner")}
+        arguments = _task_payload(payload)
+        arguments.pop("mutation_id", None)
+        return {"task": create_task(arguments, created_by_type="owner")}
     except TaskError as exc:
         _raise(exc)
 
@@ -167,7 +169,11 @@ def control_task_create(payload: TaskCreate) -> dict:
 @router.patch("/api/v1/control/tasks/{task_id}")
 def control_task_update(task_id: int, payload: TaskUpdate) -> dict:
     try:
-        return {"task": update_task(task_id, _task_payload(payload, exclude_unset=True), actor_type="owner")}
+        arguments = _task_payload(payload, exclude_unset=True)
+        arguments.pop("canonical_id", None)
+        arguments.pop("mutation_id", None)
+        arguments.pop("expected_revision", None)
+        return {"task": update_task(task_id, arguments, actor_type="owner")}
     except TaskError as exc:
         _raise(exc)
 
