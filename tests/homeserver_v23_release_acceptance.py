@@ -121,7 +121,7 @@ assert "HomeServer\\Data" not in installer
 
 workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 assert "version = '2.4'" in workflow
-assert "minimum_schema_version = 36" in workflow
+assert "minimum_schema_version = 37" in workflow
 assert "HomeServerSetup.exe" in workflow
 assert "SHA256SUMS.txt" in workflow
 assert "RELEASE.json" in workflow
