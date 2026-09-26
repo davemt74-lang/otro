@@ -155,6 +155,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         owner_tools = client.get("/api/v1/control/tools")
         assert owner_tools.status_code == 200
         assert [item["key"] for item in owner_tools.json()["items"]] == [
+            "calendar.create",
+            "calendar.delete",
+            "calendar.list",
+            "calendar.update",
             "contacts.create",
             "contacts.delete",
             "contacts.search",
@@ -173,7 +177,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "memory.write",
             "notifications.list",
             "tasks.create",
+            "tasks.delete",
             "tasks.list",
+            "tasks.update",
         ]
         assert all(item["enabled"] and item["available"] for item in owner_tools.json()["items"])
         owner_skills = client.get("/api/v1/control/skills")
