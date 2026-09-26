@@ -313,6 +313,7 @@ def cloud_connection_status() -> dict:
             "cloud_fallback_available": bool(connected and not inference.get("available")),
         },
         "vp3_app": app_item,
+        "reconciliation": federated_data.reconciliation_state("vp3_cloud"),
         "advanced_relay": {
             "enabled": bool(configured.get("enabled")) if transport != "vp3_https" else False,
             "connected": bool(runtime.get("connected")) if transport != "vp3_https" else False,
@@ -752,6 +753,9 @@ class RemoteBridgeWorker:
                 connection_id=None,
                 last_error=f"{type(exc).__name__}: remote bridge worker crashed",
             )
+            federated_data.note_peer_disconnected(
+                "vp3_cloud", f"{type(exc).__name__}: remote bridge worker crashed"
+            )
             _event("bridge.worker", "failed", metadata={"stage": "crashed", "error_type": type(exc).__name__})
 
     def _wait_local_api(self) -> bool:
@@ -858,7 +862,16 @@ class RemoteBridgeWorker:
                 )
                 if not announced:
                     announced = True
-                    _event("bridge.connected", "completed", metadata={"device_id": identity["device_id"], "transport": "vp3_https"})
+                    peer_state = federated_data.note_peer_connected("vp3_cloud")
+                    _event(
+                        "bridge.reconnected" if peer_state.get("reconnected") else "bridge.connected",
+                        "completed",
+                        metadata={
+                            "device_id": identity["device_id"],
+                            "transport": "vp3_https",
+                            "reconciliation_required": bool(peer_state.get("needs_reconciliation")),
+                        },
+                    )
 
                 pending_results = []
                 requests = data.get("requests") if isinstance(data.get("requests"), list) else []
@@ -947,6 +960,9 @@ class RemoteBridgeWorker:
                         last_error=f"{type(exc).__name__}: VP3 HTTPS relay unavailable",
                         reconnect_count=reconnect_count,
                     )
+                    federated_data.note_peer_disconnected(
+                        "vp3_cloud", f"{type(exc).__name__}: VP3 HTTPS relay unavailable"
+                    )
                     _event("bridge.disconnected", "failed", metadata={"error_type": type(exc).__name__, "stage": "retrying", "transport": "vp3_https"})
                 if _RELOAD_EVENT.is_set():
                     backoff = 1.0
@@ -992,7 +1008,15 @@ class RemoteBridgeWorker:
                         last_connected_at=_iso_now(),
                         last_error=None,
                     )
-                    _event("bridge.connected", "completed", metadata={"device_id": identity["device_id"]})
+                    peer_state = federated_data.note_peer_connected("vp3_cloud")
+                    _event(
+                        "bridge.reconnected" if peer_state.get("reconnected") else "bridge.connected",
+                        "completed",
+                        metadata={
+                            "device_id": identity["device_id"],
+                            "reconciliation_required": bool(peer_state.get("needs_reconciliation")),
+                        },
+                    )
                     _safe_send(
                         websocket,
                         {
@@ -1091,6 +1115,12 @@ class RemoteBridgeWorker:
                     connection_id=None,
                     last_error=f"{type(exc).__name__}: remote bridge unavailable",
                     reconnect_count=reconnect_count,
+                )
+                federated_data.note_peer_disconnected(
+                    "vp3_cloud", f"{type(exc).__name__}: remote bridge unavailable"
+                )
+                federated_data.note_peer_disconnected(
+                    "vp3_cloud", f"{type(exc).__name__}: remote bridge failed"
                 )
                 _event(
                     "bridge.disconnected",
