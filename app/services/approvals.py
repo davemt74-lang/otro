@@ -390,9 +390,18 @@ def create_memory_write_request(source_app_key: str, arguments: dict[str, Any] |
     return _create_action_request(source, actor_type, "memory.write", normalized, meta, required)
 
 
-def create_task_create_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+def create_task_create_request(
+    source_app_key: str,
+    arguments: dict[str, Any] | None,
+    *,
+    owner: bool = False,
+    created_by_type: str | None = None,
+) -> dict[str, Any]:
     source = source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type = "owner" if owner else "app"
+    provenance = str(created_by_type or ("owner" if owner else "app")).strip().lower()
+    if provenance not in {"owner", "app", "agent", "system"}:
+        provenance = "app"
     proposal = dict(arguments or {})
     if not owner and not str(proposal.get("mutation_id") or "").strip():
         proposal["mutation_id"] = uuid.uuid4().hex
@@ -404,6 +413,7 @@ def create_task_create_request(source_app_key: str, arguments: dict[str, Any] | 
         run_id = _record_failed_proposal(source, actor_type, "tasks.create", required, raw_meta, str(exc))
         raise ApprovalError(f"{exc} Run {run_id} was recorded.", exc.status_code) from exc
     meta = continuity.safe_task_mutation_meta("tasks.create", normalized)
+    meta["created_by_type"] = provenance
     return _create_action_request(source, actor_type, "tasks.create", normalized, meta, required)
 
 
@@ -640,6 +650,11 @@ def approve_request(request_id: str) -> dict[str, Any]:
                 request["arguments"],
                 set(),
                 owner=True,
+                created_by_type_override=(
+                    str((request.get("arguments_meta") or {}).get("created_by_type") or "").strip().lower()
+                    if request["action_key"] == "tasks.create"
+                    else None
+                ),
             )
     except tools.ToolError as exc:
         execution_run_id = _extract_run_id(str(exc))
