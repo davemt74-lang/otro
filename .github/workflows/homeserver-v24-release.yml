@@ -51,6 +51,8 @@ jobs:
           tests/agent_brain_memory_continuity_v245.py
           tests/reconnect_reconciliation_v246.py
           tests/tracky_contract_join_v273.py
+          tests/tracky_reliability_v274.py
+          tests/fixtures/tracky_v274_resilience_vectors.json
           tests/homeserver_v23_release_acceptance.py
           tests/homeserver_v24_release_acceptance.py
       - name: Verify migration chain through schema 40
@@ -71,6 +73,8 @@ jobs:
         run: python tests/reconnect_reconciliation_v246.py
       - name: Verify Tracky V2.73 OTRO contract join
         run: python tests/tracky_contract_join_v273.py
+      - name: Verify Tracky V2.74 reliability hardening
+        run: python tests/tracky_reliability_v274.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance
