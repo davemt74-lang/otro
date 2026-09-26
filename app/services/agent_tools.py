@@ -18,6 +18,10 @@ MODEL_TOOL_NAMES = {
 }
 MEMORY_PROPOSAL_TOOL_NAME = "homeserver_memory_write_request"
 MEMORY_PROPOSAL_TOOL_KEY = "memory.write"
+MEMORY_UPDATE_PROPOSAL_TOOL_NAME = "homeserver_memory_update_request"
+MEMORY_UPDATE_PROPOSAL_TOOL_KEY = "memory.update"
+MEMORY_DELETE_PROPOSAL_TOOL_NAME = "homeserver_memory_delete_request"
+MEMORY_DELETE_PROPOSAL_TOOL_KEY = "memory.delete"
 TASK_PROPOSAL_TOOL_NAME = "homeserver_task_create_request"
 TASK_PROPOSAL_TOOL_KEY = "tasks.create"
 DEVICE_PROPOSAL_TOOL_NAME = "homeserver_device_command_request"
@@ -181,6 +185,38 @@ def model_tool_schemas(
                     },
                 }
             )
+        for proposal_name, proposal_key, proposal_label in (
+            (MEMORY_UPDATE_PROPOSAL_TOOL_NAME, MEMORY_UPDATE_PROPOSAL_TOOL_KEY, "update"),
+            (MEMORY_DELETE_PROPOSAL_TOOL_NAME, MEMORY_DELETE_PROPOSAL_TOOL_KEY, "delete"),
+        ):
+            proposal_tool = by_key.get(proposal_key)
+            proposal_execution = _execution_policy(source_app_key, proposal_key, owner)
+            if (
+                proposal_tool
+                and proposal_tool.get("available")
+                and not (
+                    proposal_execution
+                    and proposal_execution["policy_mode"] == action_policy.SENSITIVE_HIGH_IMPACT
+                )
+            ):
+                automatic = bool(
+                    proposal_execution
+                    and proposal_execution["policy_mode"] == action_policy.SAFE_AUTOMATIC
+                )
+                schemas.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": proposal_name,
+                            "description": (
+                                f"{proposal_label.title()} one HomeServer Agent Brain memory using the owner-defined execution policy. This action executes immediately only when the owner has marked it safe automatic; otherwise HomeServer creates a pending approval request."
+                                if automatic
+                                else f"Propose an Agent Brain memory {proposal_label} for review. HomeServer executes only after authorized approval."
+                            ),
+                            "parameters": proposal_tool["input_schema"],
+                        },
+                    }
+                )
         task_tool = by_key.get(TASK_PROPOSAL_TOOL_KEY)
         task_execution = _execution_policy(source_app_key, TASK_PROPOSAL_TOOL_KEY, owner)
         if (
@@ -320,12 +356,22 @@ def execute_model_tool(
     }
     args = arguments or {}
 
-    if model_tool_name in {MEMORY_PROPOSAL_TOOL_NAME, TASK_PROPOSAL_TOOL_NAME, DEVICE_PROPOSAL_TOOL_NAME}:
+    if model_tool_name in {
+        MEMORY_PROPOSAL_TOOL_NAME,
+        MEMORY_UPDATE_PROPOSAL_TOOL_NAME,
+        MEMORY_DELETE_PROPOSAL_TOOL_NAME,
+        TASK_PROPOSAL_TOOL_NAME,
+        DEVICE_PROPOSAL_TOOL_NAME,
+    }:
         global_policy = get_policy()
         if not global_policy["enabled"] or not global_policy["allow_write_proposals"]:
             raise _deny_unavailable(source_app_key, owner)
         if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
             tool_key = MEMORY_PROPOSAL_TOOL_KEY
+        elif model_tool_name == MEMORY_UPDATE_PROPOSAL_TOOL_NAME:
+            tool_key = MEMORY_UPDATE_PROPOSAL_TOOL_KEY
+        elif model_tool_name == MEMORY_DELETE_PROPOSAL_TOOL_NAME:
+            tool_key = MEMORY_DELETE_PROPOSAL_TOOL_KEY
         elif model_tool_name == TASK_PROPOSAL_TOOL_NAME:
             tool_key = TASK_PROPOSAL_TOOL_KEY
         else:
@@ -354,6 +400,10 @@ def execute_model_tool(
         try:
             if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
                 result = approvals.create_memory_write_request(source_app_key, args, owner=owner)
+            elif model_tool_name == MEMORY_UPDATE_PROPOSAL_TOOL_NAME:
+                result = approvals.create_memory_update_request(source_app_key, args, owner=owner)
+            elif model_tool_name == MEMORY_DELETE_PROPOSAL_TOOL_NAME:
+                result = approvals.create_memory_delete_request(source_app_key, args, owner=owner)
             elif model_tool_name == TASK_PROPOSAL_TOOL_NAME:
                 result = approvals.create_task_create_request(source_app_key, args, owner=owner, created_by_type="agent")
             else:
