@@ -53,7 +53,7 @@ jobs:
           tests/tracky_contract_join_v273.py
           tests/homeserver_v23_release_acceptance.py
           tests/homeserver_v24_release_acceptance.py
-      - name: Verify migration chain through schema 39
+      - name: Verify migration chain through schema 40
         run: python tests/migrations.py
       - name: Verify v2.4 federated authority
         run: python tests/federated_data_authority_v240.py
