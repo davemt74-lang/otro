@@ -41,6 +41,8 @@ jobs:
           app/services/memory_continuity.py
           app/services/shared_agent_context.py
           app/services/remote_bridge.py
+          app/services/tracky_physical_context.py
+          app/tracky_api.py
           tests/federated_data_authority_v240.py
           tests/contacts_continuity_v241.py
           tests/knowledge_continuity_v242.py
@@ -48,9 +50,10 @@ jobs:
           tests/file_document_continuity_v244.py
           tests/agent_brain_memory_continuity_v245.py
           tests/reconnect_reconciliation_v246.py
+          tests/tracky_contract_join_v273.py
           tests/homeserver_v23_release_acceptance.py
           tests/homeserver_v24_release_acceptance.py
-      - name: Verify migration chain through schema 38
+      - name: Verify migration chain through schema 39
         run: python tests/migrations.py
       - name: Verify v2.4 federated authority
         run: python tests/federated_data_authority_v240.py
@@ -66,6 +69,8 @@ jobs:
         run: python tests/agent_brain_memory_continuity_v245.py
       - name: Verify v2.4 disconnect/reconnect reconciliation
         run: python tests/reconnect_reconciliation_v246.py
+      - name: Verify Tracky V2.73 OTRO contract join
+        run: python tests/tracky_contract_join_v273.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance
