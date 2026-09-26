@@ -872,13 +872,7 @@ def active_perception(
             if not isinstance(semantic, dict):
                 raise TrackyPhysicalError("Tracky provider semantic_projection must be an object.", 502)
             ingest_result = ingest_semantic_projection(semantic, source=f"provider:{provider_name}")
-        sync_result: dict[str, Any] | None = None
-        sync_error = ""
-        if semantic is not None:
-            try:
-                sync_result = sync_cloud()
-            except TrackyPhysicalError as exc:
-                sync_error = str(exc)[:300]
+        semantic_projection = _cloud_payload()["payload"] if semantic is not None else None
         result = {
             "reason": "completed",
             "provider": provider_name,
@@ -887,8 +881,9 @@ def active_perception(
                 "confidence": _confidence(provider_result.get("confidence")),
             },
             "semantic_ingest": ingest_result,
-            "cloud_sync": sync_result,
-            "cloud_sync_error": sync_error,
+            "semantic_projection": semantic_projection,
+            "cloud_sync": {"deferred": semantic is not None, "via": "existing_https_worker"},
+            "cloud_sync_error": "",
             "current_context": current_context(),
         }
         _set_request_status(request_id, "completed", result=result, completed=True)
