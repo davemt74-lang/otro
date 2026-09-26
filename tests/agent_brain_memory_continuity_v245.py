@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v245-agent-brain-memory-") a
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-    assert versions == list(range(1, 38))
+    assert versions == list(range(1, 39))
 
     migration = (
         ROOT / "database" / "migrations" / "037_agent_brain_memory_continuity.sql"
