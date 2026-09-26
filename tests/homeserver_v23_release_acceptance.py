@@ -116,7 +116,7 @@ for operation in required_operations:
     }, f"missing remote operation contract: {operation}"
 
 installer = (ROOT / "installer" / "HomeServer.iss").read_text(encoding="utf-8")
-assert '#define MyAppVersion "2.3"' in installer
+assert '#define MyAppVersion "2.4"' in installer
 assert "HomeServer\\Data" not in installer
 
 workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
