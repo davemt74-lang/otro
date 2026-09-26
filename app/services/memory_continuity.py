@@ -33,6 +33,20 @@ def _float(value: Any, default: float, minimum: float = 0.0, maximum: float = 1.
     return max(minimum, min(maximum, parsed))
 
 
+def _input_float(value: Any, label: str, default: float) -> float:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        raise MemoryContinuityError(f"{label} must be a number.")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise MemoryContinuityError(f"{label} must be a number.") from exc
+    if parsed < 0.0 or parsed > 1.0:
+        raise MemoryContinuityError(f"{label} must be between 0 and 1.")
+    return parsed
+
+
 def _mutation_id(value: Any, *, required: bool = True) -> str:
     mutation = _text(value, 128)
     if not mutation and not required:
@@ -257,9 +271,9 @@ def normalize_memory_create_arguments(
     return {
         "content": content,
         "memory_key": memory_key,
-        "importance": _float(raw.get("importance"), 0.5),
+        "importance": _input_float(raw.get("importance"), "memory.write importance", 0.5),
         "memory_type": _memory_type(raw.get("memory_type"), "semantic"),
-        "confidence": _float(raw.get("confidence"), 0.75),
+        "confidence": _input_float(raw.get("confidence"), "memory.write confidence", 0.75),
         "entity_type": entity_type,
         "entity_key": entity_key,
         "mutation_id": _mutation_id(raw.get("mutation_id"), required=require_mutation),
@@ -296,11 +310,11 @@ def normalize_memory_update_arguments(payload: dict[str, Any] | None) -> dict[st
     if "memory_key" in raw:
         normalized["memory_key"] = _text(raw.get("memory_key"), 160) or None
     if "importance" in raw:
-        normalized["importance"] = _float(raw.get("importance"), 0.5)
+        normalized["importance"] = _input_float(raw.get("importance"), "memory.update importance", 0.5)
     if "memory_type" in raw:
         normalized["memory_type"] = _memory_type(raw.get("memory_type"))
     if "confidence" in raw:
-        normalized["confidence"] = _float(raw.get("confidence"), 0.75)
+        normalized["confidence"] = _input_float(raw.get("confidence"), "memory.update confidence", 0.75)
     if "entity_type" in raw:
         normalized["entity_type"] = _text(raw.get("entity_type"), 160) or None
     if "entity_key" in raw:
