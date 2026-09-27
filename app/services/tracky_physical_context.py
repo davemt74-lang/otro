@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_world, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_site_topology, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -499,6 +499,7 @@ def public_capability() -> dict[str, Any]:
         "model_lifecycle": tracky_model_lifecycle.public_capability(),
         "site_topology": tracky_site_topology.public_capability(),
         "federated_world": tracky_federated_world.public_capability(),
+        "federation_sync": tracky_federation_sync.public_capability(),
     }
 
 
@@ -549,6 +550,7 @@ def current_context() -> dict[str, Any]:
         "model_lifecycle": tracky_model_lifecycle.current_report(),
         "site_topology": tracky_site_topology.current_topology(),
         "federated_world": tracky_federated_world.current_report(),
+        "federation_sync": tracky_federation_sync.status(),
     }
 
 
@@ -871,6 +873,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "site_topology_protocol": tracky_site_topology.SITE_TOPOLOGY_PROTOCOL,
                 "federated_world": bool(tracky_federated_world.current_report().get("available")),
                 "federated_world_protocol": tracky_federated_world.FEDERATED_WORLD_PROTOCOL,
+                "federation_sync": True,
+                "federation_sync_protocol": tracky_federation_sync.FEDERATION_SYNC_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -885,11 +889,13 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "model_lifecycle": tracky_model_lifecycle.health_summary()["state"],
                 "site_topology": "available" if tracky_site_topology.current_topology()["sites"] else "empty",
                 "federated_world": "available" if tracky_federated_world.current_report().get("available") else "empty",
+                "federation_sync": "available" if tracky_federation_sync.local_site_id(auto_pin=False) else "unresolved",
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
             "site_topology": tracky_site_topology.cloud_summary(),
             "federated_world": tracky_federated_world.cloud_projection(),
+            "federation_sync": tracky_federation_sync.cloud_sync_request(),
             "events": events,
             "world_state": world,
             "context": context,
@@ -958,6 +964,15 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
                 "UPDATE tracky_physical_events SET cloud_synced=1,cloud_synced_at=? WHERE event_id=?",
                 (now, event_id),
             )
+    federation_result = None
+    federation_batch = body.get("federation_sync")
+    if isinstance(federation_batch, dict):
+        try:
+            federation_result = tracky_federation_sync.ingest_cloud_batch(federation_batch)
+        except tracky_federation_sync.TrackyFederationSyncError as exc:
+            _record_sync_failure(f"Federation relay rejected: {exc}")
+            raise TrackyPhysicalError(f"VP3 Tracky federation sync failed: {exc}", 503) from exc
+
     last_sequence = int(body.get("last_sequence") or package["max_sequence"])
     cursor = str(body.get("cursor") or package["cursor"])
     _record_sync_success(last_sequence, cursor, len(package["event_ids"]))
@@ -967,6 +982,7 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
         "cloud": body,
         "synced_events": len(package["event_ids"]),
         "cursor": cursor,
+        "federation_sync": federation_result,
         "resilience": resilience_status(),
     }
 
