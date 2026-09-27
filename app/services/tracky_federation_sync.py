@@ -145,6 +145,13 @@ def _normalize_envelope(input: dict[str, Any]) -> dict[str, Any]:
         raise TrackyFederationSyncError("Federation envelope policy revision binding is required.")
     if policy["world_projection"] != "non_person_v1":
         raise TrackyFederationSyncError("Federation envelope world projection is unsupported.")
+    if fragment.get("context") not in ({}, None):
+        raise TrackyFederationSyncError("Federation non-person world projection cannot contain free-form context.")
+    if any(
+        isinstance(item, dict) and str(item.get("type") or "") == "person"
+        for item in (fragment.get("entities") if isinstance(fragment.get("entities"), list) else [])
+    ):
+        raise TrackyFederationSyncError("Federation non-person world projection cannot contain person entities.")
     return {
         "protocol": FEDERATION_SYNC_PROTOCOL,
         "schema_version": 1,
