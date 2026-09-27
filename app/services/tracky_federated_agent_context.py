@@ -487,7 +487,7 @@ def _build_context(
 
     source_material = _source_material(
         topology, world, sync, mobile, identity, reconciliation, focus,
-        now, max(1000, current_age_ms), max(current_age_ms, stale_age_ms),
+        now, max(1000, current_age_ms), max(1000, stale_age_ms),
     )
     source_fingerprint = hashlib.sha256(_json(source_material).encode("utf-8")).hexdigest()
 
@@ -505,7 +505,7 @@ def _build_context(
             sync,
             local_site_id,
             now,
-            max(current_age_ms, stale_age_ms),
+            max(1000, stale_age_ms),
         )
         for site_id in site_ids
     ]
