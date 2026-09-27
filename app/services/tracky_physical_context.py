@@ -847,6 +847,9 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     camera = capability["camera"]
     status = "healthy" if provider["available"] and (camera["ready"] or not provider["capabilities"].get("requires_camera", True)) else "degraded"
     cursor = f"hs-{max_sequence}"
+    federation_request = tracky_federation_sync.cloud_sync_request()
+    local_federation_site = str(federation_request.get("local_site_id") or "")
+    federated_projection = tracky_federated_world.cloud_projection(local_federation_site or None)
     return {
         "payload": {
             "protocol": PHYSICAL_CONTEXT_PROTOCOL,
@@ -894,8 +897,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
             "site_topology": tracky_site_topology.cloud_summary(),
-            "federated_world": tracky_federated_world.cloud_projection(),
-            "federation_sync": tracky_federation_sync.cloud_sync_request(),
+            "federated_world": federated_projection,
+            "federation_sync": federation_request,
             "events": events,
             "world_state": world,
             "context": context,
