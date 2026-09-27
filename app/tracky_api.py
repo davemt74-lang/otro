@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import tracky_federated_world, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_physical_context, tracky_site_topology
+from .services import tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_physical_context, tracky_site_topology
 from .services.pairing import authenticate
 
 
@@ -62,6 +62,8 @@ def _call(fn, *args, **kwargs):
     except tracky_site_topology.TrackySiteTopologyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except tracky_federated_world.TrackyFederatedWorldError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except tracky_federation_sync.TrackyFederationSyncError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
@@ -137,6 +139,17 @@ def paired_tracky_federated_world(
     return {
         "world": tracky_federated_world.current_report(site_id),
         "capability": tracky_federated_world.public_capability(),
+        "app": identity["app_key"],
+    }
+
+
+@router.get("/api/v1/tracky/federation-sync")
+def paired_tracky_federation_sync(
+    identity: dict = Depends(_physical_reader),
+) -> dict:
+    return {
+        "sync": tracky_federation_sync.status(),
+        "capability": tracky_federation_sync.public_capability(),
         "app": identity["app_key"],
     }
 
