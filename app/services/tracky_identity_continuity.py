@@ -14,7 +14,7 @@ TRACKY_IDENTITY_CONTINUITY_VERSION = "2.78"
 IDENTITY_CONTINUITY_PROTOCOL = "physical_identity_continuity.v1"
 ENTITY_TYPES = {"person", "device", "object", "animal"}
 LINK_STATES = {"proposed", "confirmed", "rejected", "revoked", "split"}
-IDENTITY_STATES = {"active", "split", "revoked"}
+IDENTITY_STATES = {"candidate", "active", "split", "revoked"}
 SITE_REF_RE = re.compile(r"^site:([0-9a-fA-F-]{36})::(.+)$")
 FORBIDDEN_KEY_RE = re.compile(
     r"(?:^|_)(?:raw|frame|frames|image|images|video|videos|audio|recording|recordings|embedding|embeddings|blob|bytes|pixels|file_path|filesystem_path|camera_uri)(?:$|_)",
@@ -214,8 +214,21 @@ def normalize_projection(input: dict[str, Any]) -> dict[str, Any]:
     identity_by_id = {item["canonical_identity_id"]: item for item in identities}
     for link in links:
         identity = identity_by_id.get(link["canonical_identity_id"])
+        if identity is None and link["status"] != "confirmed":
+            identity = {
+                "canonical_identity_id": link["canonical_identity_id"],
+                "entity_type": link["entity_type"],
+                "status": "candidate",
+                "members": [],
+                "aliases": [],
+                "revision": link["revision"],
+                "created_at": link["created_at"],
+                "updated_at": link["updated_at"],
+            }
+            identities.append(identity)
+            identity_by_id[identity["canonical_identity_id"]] = identity
         if identity is None:
-            raise TrackyIdentityContinuityError("Identity link references a missing canonical identity.")
+            raise TrackyIdentityContinuityError("Confirmed identity link references a missing canonical identity.")
         if identity["entity_type"] != link["entity_type"]:
             raise TrackyIdentityContinuityError("Identity link type conflicts with canonical identity.")
         if link["status"] == "confirmed":
