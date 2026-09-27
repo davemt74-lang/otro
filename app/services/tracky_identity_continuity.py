@@ -366,6 +366,16 @@ def ingest_projection(
                     raise TrackyIdentityContinuityError(
                         "Identity link revision conflicts with existing ledger state.", 409
                     )
+                if origin_role == "cloud_mirror":
+                    connection.execute(
+                        """
+                        UPDATE tracky_identity_links
+                        SET governing_site_id=?,governing_authority_device_id=?,
+                            governing_authority_epoch=?,updated_at=CURRENT_TIMESTAMP
+                        WHERE link_id=?
+                        """,
+                        (link_governing_site, authority_device, authority_epoch, link["link_id"]),
+                    )
                 idempotent += 1
                 continue
             blocked = connection.execute(
