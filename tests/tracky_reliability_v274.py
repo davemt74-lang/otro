@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()]
-        assert versions == list(range(1, 45))
+        assert versions == list(range(1, 46))
 
     vectors = json.loads(
         (ROOT / "tests" / "fixtures" / "tracky_v274_resilience_vectors.json").read_text(encoding="utf-8")
