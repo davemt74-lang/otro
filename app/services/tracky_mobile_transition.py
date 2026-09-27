@@ -328,11 +328,15 @@ def current_report(*, active_only: bool = False) -> dict[str, Any]:
         "temporary_context_site_authority": False,
     }
 
-def agent_context() -> dict[str, Any]:
-    report = current_report(active_only=True)
+def agent_context(report: dict[str, Any] | None = None) -> dict[str, Any]:
+    report = report if isinstance(report, dict) else current_report(active_only=True)
+    transitions = [
+        item for item in report.get("transitions", [])
+        if isinstance(item, dict) and item.get("state") not in {"arrived", "canceled"}
+    ]
     return {
         "protocol": MOBILE_TRANSITION_PROTOCOL,
-        "active_count": report["active_count"],
+        "active_count": len(transitions),
         "transitions": [
             {
                 "transition_id": item["transition_id"],
@@ -347,7 +351,7 @@ def agent_context() -> dict[str, Any]:
                 "origin_role": item["origin_role"],
                 "identity_linking": False,
             }
-            for item in report["transitions"][-12:]
+            for item in transitions[-12:]
         ],
     }
 
