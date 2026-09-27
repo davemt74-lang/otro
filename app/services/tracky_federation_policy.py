@@ -422,61 +422,26 @@ def filter_world_fragment(source_site_id: str, destination_site_id: str, fragmen
     decision = permission_decision(source, destination, "semantic_world_read")
     if not decision.get("allowed"):
         return None
-    policy = site_policy(source) or {}
     copied = json.loads(json.dumps(fragment))
     entities = copied.get("entities") if isinstance(copied.get("entities"), list) else []
     relations = copied.get("relations") if isinstance(copied.get("relations"), list) else []
-    allowed_entities: list[dict[str, Any]] = []
-    denied_local_ids: set[str] = set()
-
-    for entity in entities:
-        if not isinstance(entity, dict):
-            continue
-        if str(entity.get("type") or "") != "person":
-            allowed_entities.append(entity)
-            continue
-        local_id = str(entity.get("local_id") or "")
-        if policy.get("default_identity_visibility") != "consented" or not local_id:
-            if local_id:
-                denied_local_ids.add(local_id)
-            continue
-        from urllib.parse import quote
-        from . import tracky_identity_continuity
-        ref = f"site:{source}::{quote(local_id, safe='')}"
-        identity = tracky_identity_continuity.resolve_entity(ref)
-        canonical = str((identity or {}).get("canonical_identity_id") or "")
-        if not canonical:
-            denied_local_ids.add(local_id)
-            continue
-        consent = recognition_decision(source, canonical, "person_recognition")
-        if not consent.get("allowed"):
-            denied_local_ids.add(local_id)
-            continue
-        person_grant = permission_decision(
-            source, destination, "person_recognition", canonical_identity_id=canonical
-        )
-        if not person_grant.get("allowed"):
-            denied_local_ids.add(local_id)
-            continue
-        allowed_entities.append(entity)
-
-    copied["entities"] = allowed_entities
+    denied_local_ids = {
+        str(entity.get("local_id") or "")
+        for entity in entities
+        if isinstance(entity, dict) and str(entity.get("type") or "") == "person"
+    }
+    denied_local_ids.discard("")
+    copied["entities"] = [
+        entity for entity in entities
+        if isinstance(entity, dict) and str(entity.get("type") or "") != "person"
+    ]
     copied["relations"] = [
         relation for relation in relations
         if isinstance(relation, dict)
         and str(relation.get("subject_local_id") or "") not in denied_local_ids
         and str(relation.get("object_local_id") or "") not in denied_local_ids
     ]
-    copied["policy"] = {
-        "protocol": FEDERATION_POLICY_PROTOCOL,
-        "scope": "semantic_world_read",
-        "grant_revision": int(decision.get("grant_revision") or 0),
-        "policy_revision": int(decision.get("policy_revision") or 0),
-        "revocation_epoch": int(decision.get("revocation_epoch") or 0),
-        "person_identity_visibility": str(policy.get("default_identity_visibility") or "none"),
-    }
     return copied
-
 
 def current_report() -> dict[str, Any]:
     with db() as connection:
