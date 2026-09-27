@@ -139,9 +139,12 @@ def _normalize_envelope(input: dict[str, Any]) -> dict[str, Any]:
         "grant_revision": max(0, int(policy_raw.get("grant_revision") or 0)),
         "policy_revision": max(0, int(policy_raw.get("policy_revision") or 0)),
         "revocation_epoch": max(0, int(policy_raw.get("revocation_epoch") or 0)),
+        "world_projection": _text(policy_raw.get("world_projection"), 80),
     }
     if policy["grant_revision"] < 1 or policy["policy_revision"] < 1:
         raise TrackyFederationSyncError("Federation envelope policy revision binding is required.")
+    if policy["world_projection"] != "non_person_v1":
+        raise TrackyFederationSyncError("Federation envelope world projection is unsupported.")
     return {
         "protocol": FEDERATION_SYNC_PROTOCOL,
         "schema_version": 1,
@@ -320,8 +323,41 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
             continue
         if revision == prior_revision and prior_revision > 0:
             if prior_fingerprint and prior_fingerprint != fingerprint:
-                _quarantine(envelope, "revision_conflict", "Same site revision arrived with a different fingerprint.")
-                quarantined += 1
+                try:
+                    redaction_result = tracky_federated_world.ingest_projection(
+                        {
+                            "protocol": tracky_federated_world.FEDERATED_WORLD_PROTOCOL,
+                            "schema_version": 1,
+                            "sites": [envelope["fragment"]],
+                            "identity_scope": "site_local",
+                            "cross_site_identity_links": [],
+                            "semantic_only": True,
+                            "cloud_read_only": True,
+                            "authority_assignment": "local_only",
+                        },
+                        source="federation_sync_redaction",
+                        allow_same_revision_redaction=True,
+                    )
+                except tracky_federated_world.TrackyFederatedWorldError as exc:
+                    _quarantine(envelope, "revision_conflict", str(exc))
+                    quarantined += 1
+                    continue
+                if int(redaction_result.get("changed") or 0) < 1:
+                    _quarantine(envelope, "revision_conflict", "Same-revision privacy projection did not produce a valid redaction.")
+                    quarantined += 1
+                    continue
+                with db() as connection:
+                    connection.execute(
+                        """
+                        UPDATE tracky_federation_sync_peers
+                        SET status='current',last_received_fingerprint=?,
+                            last_received_authority_epoch=?,last_received_at=CURRENT_TIMESTAMP,
+                            updated_at=CURRENT_TIMESTAMP
+                        WHERE remote_site_id=?
+                        """,
+                        (fingerprint, envelope["source_authority_epoch"], source),
+                    )
+                applied += 1
             else:
                 idempotent += 1
             continue
@@ -432,6 +468,7 @@ def build_outbound_batch(destination_site_id: str, *, max_envelopes: int = 32) -
                 "grant_revision": int(policy_decision.get("grant_revision") or 0),
                 "policy_revision": int(policy_decision.get("policy_revision") or 0),
                 "revocation_epoch": int(policy_decision.get("revocation_epoch") or 0),
+                "world_projection": "non_person_v1",
             },
             "emitted_at": _now_iso(),
             "fragment": normalized_filtered,
