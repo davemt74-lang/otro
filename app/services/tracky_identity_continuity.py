@@ -343,14 +343,6 @@ def ingest_projection(
                 raise TrackyIdentityContinuityError(
                     "Identity link references an entity not present in the current federated world.", 409
                 )
-            blocked = connection.execute(
-                "SELECT reason FROM tracky_identity_blocked_pairs WHERE pair_key=? LIMIT 1",
-                (link["pair_key"],),
-            ).fetchone()
-            if blocked is not None and link["status"] in {"proposed", "confirmed"}:
-                raise TrackyIdentityContinuityError(
-                    "Identity pair is blocked by a prior rejection or split.", 409
-                )
             prior = connection.execute(
                 "SELECT revision,fingerprint,status FROM tracky_identity_links WHERE link_id=?",
                 (link["link_id"],),
@@ -365,6 +357,14 @@ def ingest_projection(
                     )
                 idempotent += 1
                 continue
+            blocked = connection.execute(
+                "SELECT reason FROM tracky_identity_blocked_pairs WHERE pair_key=? LIMIT 1",
+                (link["pair_key"],),
+            ).fetchone()
+            if blocked is not None and link["status"] in {"proposed", "confirmed"}:
+                raise TrackyIdentityContinuityError(
+                    "Identity pair is blocked by a prior rejection or split.", 409
+                )
 
             _assert_active_collision(connection, link)
             identity = next(
