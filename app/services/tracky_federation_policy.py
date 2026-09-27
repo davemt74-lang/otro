@@ -55,6 +55,10 @@ def _local_site() -> str:
         raise TrackyFederationPolicyError("Local federation site is unresolved.", 409)
     return _uuid(local, "local site id")
 
+def _local_site_optional() -> str | None:
+    local = tracky_federation_sync.local_site_id(auto_pin=False)
+    return _uuid(local, "local site id") if local else None
+
 def _authority(site_id: str) -> tuple[str, int]:
     topology = tracky_site_topology.current_topology()
     for site in topology.get("sites", []):
@@ -754,7 +758,19 @@ def ingest_cloud_mirror(bundle: dict[str, Any]) -> dict[str, Any]:
 
 
 def filter_world_report_for_local(report: dict[str, Any], site_id: str | None = None) -> dict[str, Any]:
-    local = _local_site()
+    local = _local_site_optional()
+    if not local:
+        return {
+            **report,
+            "available": False,
+            "site_count": 0,
+            "sites": [],
+            "entities": [],
+            "relations": [],
+            "policy_filtered": True,
+            "policy_reason": "local_site_unresolved",
+            "destination_site_id": "",
+        }
     sites = report.get("sites") if isinstance(report.get("sites"), list) else []
     visible = []
     for fragment in sites:
@@ -812,7 +828,15 @@ def filter_world_report_for_local(report: dict[str, Any], site_id: str | None = 
 
 
 def filter_identity_report_for_local(report: dict[str, Any]) -> dict[str, Any]:
-    local = _local_site()
+    local = _local_site_optional()
+    if not local:
+        return {
+            **report,
+            "identities": [],
+            "links": [],
+            "policy_filtered": True,
+            "policy_reason": "local_site_unresolved",
+        }
     kept_links = []
     identity_ids: set[str] = set()
     for link in report.get("links", []):
@@ -843,7 +867,15 @@ def filter_identity_report_for_local(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def filter_mobile_report_for_local(report: dict[str, Any]) -> dict[str, Any]:
-    local = _local_site()
+    local = _local_site_optional()
+    if not local:
+        return {
+            **report,
+            "transitions": [],
+            "active_count": 0,
+            "policy_filtered": True,
+            "policy_reason": "local_site_unresolved",
+        }
     transitions = []
     for item in report.get("transitions", []):
         if not isinstance(item, dict):
