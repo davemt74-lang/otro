@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import tracky_forecast_calibration, tracky_governed_actions, tracky_physical_context
+from .services import tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_physical_context
 from .services.pairing import authenticate
 
 
@@ -57,6 +57,8 @@ def _call(fn, *args, **kwargs):
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except tracky_forecast_calibration.TrackyCalibrationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except tracky_model_lifecycle.TrackyLifecycleError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/api/v1/tracky/capabilities")
@@ -98,6 +100,18 @@ def paired_tracky_active_perception_status(
     identity: dict = Depends(_physical_reader),
 ) -> dict:
     return _call(tracky_physical_context.request_status, request_id)
+
+
+@router.get("/api/v1/tracky/model-lifecycle")
+def paired_tracky_model_lifecycle(
+    identity: dict = Depends(_physical_reader),
+) -> dict:
+    return {
+        "lifecycle": tracky_model_lifecycle.current_report(),
+        "health": tracky_model_lifecycle.health_summary(),
+        "capability": tracky_model_lifecycle.public_capability(),
+        "app": identity["app_key"],
+    }
 
 
 @router.get("/api/v1/tracky/calibration")
