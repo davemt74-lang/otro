@@ -801,6 +801,27 @@ def filter_mobile_report_for_local(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def resolve_identity_for_local(entity_ref: str) -> dict[str, Any] | None:
+    ref = str(entity_ref or "").strip()
+    if not ref:
+        raise TrackyFederationPolicyError("Entity ref is required.")
+    report = filter_identity_report_for_local(__import__(
+        "app.services.tracky_identity_continuity",
+        fromlist=["current_report"],
+    ).current_report())
+    matches = [
+        item for item in report.get("identities", [])
+        if isinstance(item, dict)
+        and item.get("status") == "active"
+        and ref in (item.get("members") if isinstance(item.get("members"), list) else [])
+    ]
+    if len(matches) > 1:
+        raise TrackyFederationPolicyError(
+            "Entity ref resolves to multiple policy-visible canonical identities.", 409
+        )
+    return matches[0] if matches else None
+
+
 def current_report() -> dict[str, Any]:
     with db() as connection:
         state = connection.execute(
