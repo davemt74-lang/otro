@@ -909,10 +909,30 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     cursor = f"hs-{max_sequence}"
     federation_request = tracky_federation_sync.cloud_sync_request()
     local_federation_site = str(federation_request.get("local_site_id") or "")
-    federated_projection = tracky_federated_world.cloud_projection(local_federation_site or None)
+    federation_ready = bool(local_federation_site)
+    federated_projection = (
+        tracky_federated_world.cloud_projection(local_federation_site)
+        if federation_ready
+        else None
+    )
+    mobile_transition_projection = (
+        tracky_mobile_transition.cloud_projection(local_federation_site)
+        if federation_ready
+        else None
+    )
+    identity_continuity_projection = (
+        tracky_identity_continuity.cloud_projection(local_federation_site)
+        if federation_ready
+        else None
+    )
+    federated_agent_context_projection = (
+        tracky_federated_agent_context.cloud_projection()
+        if federation_ready
+        else None
+    )
     federation_policy_projection = (
         tracky_federation_policy.cloud_projection(local_federation_site)
-        if local_federation_site
+        if federation_ready
         else None
     )
     return {
@@ -976,9 +996,9 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "site_topology": tracky_site_topology.cloud_summary(),
             "federated_world": federated_projection,
             "federation_sync": federation_request,
-            "mobile_transitions": tracky_mobile_transition.cloud_projection(local_federation_site or None),
-            "identity_continuity": tracky_identity_continuity.cloud_projection(local_federation_site or None),
-            "federated_agent_context": tracky_federated_agent_context.cloud_projection(),
+            "mobile_transitions": mobile_transition_projection,
+            "identity_continuity": identity_continuity_projection,
+            "federated_agent_context": federated_agent_context_projection,
             "federation_policy": federation_policy_projection,
             "events": events,
             "world_state": world,
