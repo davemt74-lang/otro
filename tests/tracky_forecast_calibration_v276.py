@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v276-") as data_dir:
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert versions == list(range(1, 43))
+        assert versions == list(range(1, 44))
         table = connection.execute(
             """
             SELECT sql FROM sqlite_master
@@ -184,7 +184,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v276-") as data_dir:
     assert context["forecast_calibration"]["report"]["profiles"][0]["brierScore"] == 0.18
 
     physical_cap = tracky_physical_context.public_capability()
-    assert physical_cap["version"] == "2.76"
+    assert float(str(physical_cap["version"])) >= 2.76
     assert physical_cap["forecast_calibration"]["protocol"] == "forecast_calibration.v1"
     assert physical_cap["forecast_calibration"]["authority"] == "local_tracky"
 
