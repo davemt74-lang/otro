@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 46))
+        assert versions == list(range(1, 47))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -409,6 +409,16 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_world_fragments'"
         ).fetchone() is not None
         assert migrated.execute("SELECT COUNT(*) FROM tracky_federated_world_fragments").fetchone()[0] == 0
+        for federation_table in (
+            "tracky_federation_identity",
+            "tracky_federation_sync_peers",
+            "tracky_federation_outbound_ack",
+            "tracky_federation_quarantine",
+        ):
+            assert migrated.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (federation_table,),
+            ).fetchone() is not None
         assert migrated.execute("SELECT COUNT(*) FROM tool_runs").fetchone()[0] == 0
         agent_policy = migrated.execute(
             "SELECT enabled, max_calls, allow_write_proposals FROM agent_tool_policy WHERE id=1"
@@ -488,7 +498,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 46))
+        assert versions_again == list(range(1, 47))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1

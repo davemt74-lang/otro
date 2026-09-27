@@ -273,8 +273,8 @@ def current_report(site_id: str | None = None) -> dict[str, Any]:
         "cloud_read_only": True,
     }
 
-def cloud_projection() -> dict[str, Any]:
-    report = current_report()
+def cloud_projection(local_site_id: str | None = None) -> dict[str, Any]:
+    report = current_report(local_site_id) if local_site_id else current_report()
     return {
         "protocol": FEDERATED_WORLD_PROTOCOL,
         "schema_version": 1,
@@ -286,6 +286,7 @@ def cloud_projection() -> dict[str, Any]:
         "summary_only": True,
         "cloud_read_only": True,
         "authority_assignment": "local_only",
+        "origin_scope": "local_site_only" if local_site_id else "unresolved_legacy_scope",
     }
 
 def public_capability() -> dict[str, Any]:
