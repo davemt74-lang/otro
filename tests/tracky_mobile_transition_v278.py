@@ -156,6 +156,13 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s4-") as data_dir:
         assert exc.status_code == 409
         assert "local site" in str(exc)
 
+    # Finish the local Pocket transition before a new source site can own another active transition.
+    arrived = transition(4, "arrived")
+    arrived_result = tracky_mobile_transition.ingest_projection(
+        arrived, source="tracky", origin_role="local_authority"
+    )
+    assert arrived_result["changed"] == 1
+
     # Cloud mirrors may be accepted only when explicitly routed to this local destination.
     mirror = copy.deepcopy(wrong_source)
     mirror["transitions"][0]["state"] = "arriving"
