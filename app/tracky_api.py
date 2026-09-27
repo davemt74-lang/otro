@@ -145,7 +145,9 @@ def paired_tracky_federated_world(
     identity: dict = Depends(_physical_reader),
 ) -> dict:
     return {
-        "world": tracky_federated_world.current_report(site_id),
+        "world": tracky_federation_policy.filter_world_report_for_local(
+            tracky_federated_world.current_report(site_id), site_id
+        ),
         "capability": tracky_federated_world.public_capability(),
         "app": identity["app_key"],
     }
@@ -167,9 +169,12 @@ def paired_tracky_mobile_transitions(
     active_only: bool = False,
     identity: dict = Depends(_physical_reader),
 ) -> dict:
+    report = tracky_federation_policy.filter_mobile_report_for_local(
+        tracky_mobile_transition.current_report(active_only=active_only)
+    )
     return {
-        "mobile_transitions": tracky_mobile_transition.current_report(active_only=active_only),
-        "agent_context": tracky_mobile_transition.agent_context(),
+        "mobile_transitions": report,
+        "agent_context": tracky_mobile_transition.agent_context(report),
         "capability": tracky_mobile_transition.public_capability(),
         "app": identity["app_key"],
     }
@@ -180,10 +185,13 @@ def paired_tracky_identity_continuity(
     entity_ref: str | None = None,
     identity: dict = Depends(_physical_reader),
 ) -> dict:
-    resolved = tracky_identity_continuity.resolve_entity(entity_ref) if entity_ref else None
+    report = tracky_federation_policy.filter_identity_report_for_local(
+        tracky_identity_continuity.current_report()
+    )
+    resolved = tracky_federation_policy.resolve_identity_for_local(entity_ref) if entity_ref else None
     return {
-        "identity_continuity": tracky_identity_continuity.current_report(),
-        "agent_context": tracky_identity_continuity.agent_context(),
+        "identity_continuity": report,
+        "agent_context": tracky_identity_continuity.agent_context(report),
         "resolved_identity": resolved,
         "capability": tracky_identity_continuity.public_capability(),
         "app": identity["app_key"],
