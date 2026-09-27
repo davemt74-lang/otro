@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s2-") as data_dir:
 
     with db() as connection:
         versions = [int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 50))
+        assert versions == list(range(1, 51))
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_world_fragments'"
         ).fetchone() is not None
