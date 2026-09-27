@@ -581,8 +581,8 @@ def resolve_entity(entity_ref: str) -> dict[str, Any] | None:
         raise TrackyIdentityContinuityError("Entity ref resolves to multiple active canonical identities.", 409)
     return _identity_row(rows[0]) if rows else None
 
-def agent_context() -> dict[str, Any]:
-    report = current_report()
+def agent_context(report: dict[str, Any] | None = None) -> dict[str, Any]:
+    report = report if isinstance(report, dict) else current_report()
     active = [item for item in report["identities"] if item["status"] == "active"]
     return {
         "protocol": IDENTITY_CONTINUITY_PROTOCOL,
