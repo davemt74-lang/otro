@@ -24,6 +24,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     from app.database import db, initialize_database  # noqa: E402
     from app.services import (  # noqa: E402
         tracky_federated_world,
+        tracky_federation_policy,
         tracky_federation_sync,
         tracky_physical_context,
         tracky_site_topology,
@@ -224,6 +225,15 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     assert cloud_world["origin_scope"] == "local_site_only"
     assert cloud_world["site_count"] == 1
     assert cloud_world["sites"][0]["site_id"] == OFFICE
+
+    denied_without_policy = tracky_federation_sync.build_outbound_batch(HOME)
+    assert denied_without_policy["envelopes"] == []
+    tracky_federation_policy.set_site_policy(
+        mode="team",
+        allow_federation=True,
+        allowed_peer_sites=[HOME],
+    )
+    assert tracky_federation_policy.grant_permission(HOME, "semantic_world_read")["allowed"] is True
 
     outbound = tracky_federation_sync.build_outbound_batch(HOME)
     assert outbound["destination_site_id"] == HOME
