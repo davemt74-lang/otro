@@ -93,7 +93,19 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
             "identity_scope": "site_local",
         }
 
-    def envelope(source: str, destination: str, node: str, epoch: int, revision: int, label: str, fingerprint: str) -> dict:
+    def envelope(
+        source: str,
+        destination: str,
+        node: str,
+        epoch: int,
+        revision: int,
+        label: str,
+        fingerprint: str,
+        *,
+        policy_revision: int = 1,
+        grant_revision: int = 1,
+        revocation_epoch: int = 0,
+    ) -> dict:
         return {
             "protocol": "physical_federation_sync.v1",
             "schema_version": 1,
@@ -105,6 +117,14 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
             "source_world_revision": revision,
             "source_fingerprint": fingerprint,
             "topology_revision": 999,
+            "policy": {
+                "protocol": "physical_federation_policy.v1",
+                "scope": "semantic_world_read",
+                "grant_revision": grant_revision,
+                "policy_revision": policy_revision,
+                "revocation_epoch": revocation_epoch,
+                "world_projection": "non_person_v1",
+            },
             "emitted_at": "2026-09-27T17:00:00+00:00",
             "fragment": fragment(source, node, epoch, revision, label),
         }
@@ -251,6 +271,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
 
     refreshed_policy = mirror_world_policy(HOME, OFFICE, NODE_A, 2, revision=2)
     assert refreshed_policy["accepted"] is True
+    future_epoch["policy"]["policy_revision"] = 2
     caught_up = tracky_federation_sync.ingest_cloud_batch(
         {"protocol": "physical_federation_sync.v1", "destination_site_id": OFFICE, "envelopes": [future_epoch]}
     )
@@ -299,6 +320,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     assert len(outbound["envelopes"]) >= 1
     office_envelopes = [item for item in outbound["envelopes"] if item["source_site_id"] == OFFICE]
     assert office_envelopes and office_envelopes[0]["source_world_revision"] == 3
+    assert office_envelopes[0]["policy"]["world_projection"] == "non_person_v1"
     changed = tracky_federation_sync.acknowledge_outbound(
         HOME, [{"site_id": OFFICE, "revision": 3, "fingerprint": office_envelopes[0]["source_fingerprint"]}]
     )
