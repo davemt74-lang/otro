@@ -444,6 +444,363 @@ def filter_world_fragment(source_site_id: str, destination_site_id: str, fragmen
     ]
     return copied
 
+def ingest_cloud_mirror(bundle: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(bundle, dict):
+        raise TrackyFederationPolicyError("Federation policy relay must be an object.")
+    if str(bundle.get("protocol") or "") != "physical_federation_policy_relay.v1":
+        raise TrackyFederationPolicyError("Federation policy relay protocol is unsupported.")
+    local = _local_site()
+    destination = _uuid(bundle.get("destination_site_id"), "policy relay destination site id")
+    if destination != local:
+        raise TrackyFederationPolicyError("Federation policy relay is routed to a different local site.", 409)
+    projections = bundle.get("projections") if isinstance(bundle.get("projections"), list) else []
+    if len(projections) > 128:
+        raise TrackyFederationPolicyError("Federation policy relay exceeds the mirror limit.")
+
+    changed = stale = idempotent = 0
+    for projection in projections:
+        if not isinstance(projection, dict):
+            continue
+        if str(projection.get("protocol") or "") != FEDERATION_POLICY_PROTOCOL:
+            raise TrackyFederationPolicyError("Mirrored federation policy protocol is unsupported.")
+        source = _uuid(projection.get("governing_site_id"), "mirrored governing site id")
+        if source == local:
+            continue
+        device = _uuid(projection.get("governing_authority_device_id"), "mirrored authority device id")
+        epoch = max(0, int(projection.get("governing_authority_epoch") or 0))
+        expected_device, expected_epoch = _authority(source)
+        if device != expected_device or epoch != expected_epoch:
+            raise TrackyFederationPolicyError("Mirrored federation policy authority does not match current topology.", 409)
+
+        sites = projection.get("sites") if isinstance(projection.get("sites"), list) else []
+        grants = projection.get("grants") if isinstance(projection.get("grants"), list) else []
+        consents = projection.get("consents") if isinstance(projection.get("consents"), list) else []
+        revocations = projection.get("revocations") if isinstance(projection.get("revocations"), list) else []
+
+        with db() as connection:
+            for item in sites[:8]:
+                if not isinstance(item, dict):
+                    continue
+                site_id = _uuid(item.get("site_id"), "mirrored site policy id")
+                if site_id != source:
+                    raise TrackyFederationPolicyError("Mirrored policy contains a non-governing site.", 409)
+                revision = max(1, int(item.get("revision") or 1))
+                mode = str(item.get("mode") or "private")
+                if mode not in SITE_MODES:
+                    mode = "private"
+                visibility = str(item.get("default_identity_visibility") or "none")
+                if visibility not in {"none", "anonymous", "consented"}:
+                    visibility = "none"
+                peers = sorted({
+                    _uuid(peer, "mirrored allowed peer site id")
+                    for peer in (item.get("allowed_peer_sites") if isinstance(item.get("allowed_peer_sites"), list) else [])
+                    if str(peer) != source
+                })
+                prior = connection.execute(
+                    "SELECT * FROM tracky_federation_site_policies WHERE site_id=?",
+                    (source,),
+                ).fetchone()
+                if prior is not None and revision < int(prior["revision"] or 0):
+                    stale += 1
+                    continue
+                encoded_peers = json.dumps(peers, separators=(",", ":"))
+                if prior is not None and revision == int(prior["revision"] or 0):
+                    same = (
+                        str(prior["mode"] or "") == mode
+                        and bool(prior["allow_federation"]) == bool(item.get("allow_federation"))
+                        and bool(prior["allow_remote_observation"]) == bool(item.get("allow_remote_observation"))
+                        and str(prior["default_identity_visibility"] or "") == visibility
+                        and str(prior["allowed_peer_sites_json"] or "[]") == encoded_peers
+                    )
+                    if not same:
+                        raise TrackyFederationPolicyError("Mirrored site policy revision conflicts with local mirror.", 409)
+                    connection.execute(
+                        """
+                        UPDATE tracky_federation_site_policies
+                        SET governing_authority_device_id=?,governing_authority_epoch=?,updated_at=CURRENT_TIMESTAMP
+                        WHERE site_id=?
+                        """,
+                        (device, epoch, source),
+                    )
+                    idempotent += 1
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO tracky_federation_site_policies(
+                      site_id,revision,mode,allow_federation,allow_remote_observation,
+                      default_identity_visibility,allowed_peer_sites_json,origin_role,
+                      governing_authority_device_id,governing_authority_epoch,observed_updated_at_ms
+                    ) VALUES (?,?,?,?,?,?,?,'cloud_mirror',?,?,0)
+                    ON CONFLICT(site_id) DO UPDATE SET
+                      revision=excluded.revision,mode=excluded.mode,
+                      allow_federation=excluded.allow_federation,
+                      allow_remote_observation=excluded.allow_remote_observation,
+                      default_identity_visibility=excluded.default_identity_visibility,
+                      allowed_peer_sites_json=excluded.allowed_peer_sites_json,
+                      origin_role='cloud_mirror',
+                      governing_authority_device_id=excluded.governing_authority_device_id,
+                      governing_authority_epoch=excluded.governing_authority_epoch,
+                      updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (
+                        source, revision, mode, 1 if item.get("allow_federation") else 0,
+                        1 if item.get("allow_remote_observation") else 0,
+                        visibility, encoded_peers, device, epoch,
+                    ),
+                )
+                changed += 1
+
+            for item in grants[:1024]:
+                if not isinstance(item, dict):
+                    continue
+                grant_source = _uuid(item.get("source_site_id"), "mirrored permission source site id")
+                grant_destination = _uuid(item.get("destination_site_id"), "mirrored permission destination site id")
+                if grant_source != source or grant_destination != local:
+                    raise TrackyFederationPolicyError("Mirrored permission is outside the source-to-local boundary.", 409)
+                permission = _scope(item.get("scope"))
+                status = str(item.get("status") or "revoked")
+                if status not in {"granted", "revoked"}:
+                    status = "revoked"
+                revision = max(1, int(item.get("revision") or 1))
+                reason = _text(item.get("reason"), 200)
+                prior = connection.execute(
+                    """
+                    SELECT * FROM tracky_federation_permissions
+                    WHERE source_site_id=? AND destination_site_id=? AND scope=?
+                    """,
+                    (source, local, permission),
+                ).fetchone()
+                if prior is not None and revision < int(prior["revision"] or 0):
+                    stale += 1
+                    continue
+                if prior is not None and revision == int(prior["revision"] or 0):
+                    if str(prior["status"] or "") != status or str(prior["reason"] or "") != reason:
+                        raise TrackyFederationPolicyError("Mirrored permission revision conflicts with local mirror.", 409)
+                    connection.execute(
+                        """
+                        UPDATE tracky_federation_permissions
+                        SET governing_authority_device_id=?,governing_authority_epoch=?,updated_at=CURRENT_TIMESTAMP
+                        WHERE source_site_id=? AND destination_site_id=? AND scope=?
+                        """,
+                        (device, epoch, source, local, permission),
+                    )
+                    idempotent += 1
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO tracky_federation_permissions(
+                      source_site_id,destination_site_id,scope,status,revision,reason,origin_role,
+                      governing_authority_device_id,governing_authority_epoch,granted_at_ms,revoked_at_ms
+                    ) VALUES (?,?,?,?,?,?,'cloud_mirror',?,?,NULL,NULL)
+                    ON CONFLICT(source_site_id,destination_site_id,scope) DO UPDATE SET
+                      status=excluded.status,revision=excluded.revision,reason=excluded.reason,
+                      origin_role='cloud_mirror',
+                      governing_authority_device_id=excluded.governing_authority_device_id,
+                      governing_authority_epoch=excluded.governing_authority_epoch,
+                      updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (source, local, permission, status, revision, reason, device, epoch),
+                )
+                changed += 1
+
+            for item in consents[:2048]:
+                if not isinstance(item, dict):
+                    continue
+                consent_site = _uuid(item.get("site_id"), "mirrored consent site id")
+                if consent_site != source:
+                    raise TrackyFederationPolicyError("Mirrored recognition consent belongs to a different site.", 409)
+                canonical = _uuid(item.get("canonical_identity_id"), "mirrored canonical identity id")
+                permission = _consent_scope(item.get("scope"))
+                status = str(item.get("status") or "pending")
+                if status not in CONSENT_STATES:
+                    status = "pending"
+                revision = max(1, int(item.get("revision") or 1))
+                consent_source = _text(item.get("source") or "user", 80)
+                reason = _text(item.get("reason"), 200)
+                prior = connection.execute(
+                    """
+                    SELECT * FROM tracky_recognition_consents
+                    WHERE site_id=? AND canonical_identity_id=? AND scope=?
+                    """,
+                    (source, canonical, permission),
+                ).fetchone()
+                if prior is not None and revision < int(prior["revision"] or 0):
+                    stale += 1
+                    continue
+                if prior is not None and revision == int(prior["revision"] or 0):
+                    if (
+                        str(prior["status"] or "") != status
+                        or str(prior["source"] or "") != consent_source
+                        or str(prior["reason"] or "") != reason
+                    ):
+                        raise TrackyFederationPolicyError("Mirrored consent revision conflicts with local mirror.", 409)
+                    connection.execute(
+                        """
+                        UPDATE tracky_recognition_consents
+                        SET governing_authority_device_id=?,governing_authority_epoch=?,updated_at=CURRENT_TIMESTAMP
+                        WHERE site_id=? AND canonical_identity_id=? AND scope=?
+                        """,
+                        (device, epoch, source, canonical, permission),
+                    )
+                    idempotent += 1
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO tracky_recognition_consents(
+                      site_id,canonical_identity_id,scope,status,revision,source,reason,origin_role,
+                      governing_authority_device_id,governing_authority_epoch,decided_at_ms
+                    ) VALUES (?,?,?,?,?,?,?,'cloud_mirror',?,?,0)
+                    ON CONFLICT(site_id,canonical_identity_id,scope) DO UPDATE SET
+                      status=excluded.status,revision=excluded.revision,source=excluded.source,
+                      reason=excluded.reason,origin_role='cloud_mirror',
+                      governing_authority_device_id=excluded.governing_authority_device_id,
+                      governing_authority_epoch=excluded.governing_authority_epoch,
+                      updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (source, canonical, permission, status, revision, consent_source, reason, device, epoch),
+                )
+                changed += 1
+
+            for item in revocations[:2048]:
+                if not isinstance(item, dict):
+                    continue
+                governing = _uuid(item.get("governing_site_id") or source, "mirrored revocation governing site id")
+                if governing != source:
+                    raise TrackyFederationPolicyError("Mirrored revocation belongs to a different site.", 409)
+                key = _text(item.get("revocation_key") or item.get("key"), 700)
+                if not key:
+                    continue
+                revision = max(1, int(item.get("revision") or 1))
+                revocation_epoch = max(1, int(item.get("revocation_epoch") or 1))
+                reason = _text(item.get("reason"), 200)
+                prior = connection.execute(
+                    "SELECT * FROM tracky_federation_policy_revocations WHERE revocation_key=?",
+                    (key,),
+                ).fetchone()
+                if prior is not None and (
+                    revocation_epoch < int(prior["revocation_epoch"] or 0)
+                    or (
+                        revocation_epoch == int(prior["revocation_epoch"] or 0)
+                        and revision < int(prior["revision"] or 0)
+                    )
+                ):
+                    stale += 1
+                    continue
+                if prior is not None and revocation_epoch == int(prior["revocation_epoch"] or 0) and revision == int(prior["revision"] or 0):
+                    if str(prior["reason"] or "") != reason:
+                        raise TrackyFederationPolicyError("Mirrored revocation revision conflicts with local mirror.", 409)
+                    idempotent += 1
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO tracky_federation_policy_revocations(
+                      revocation_key,governing_site_id,revision,revocation_epoch,reason,origin_role,revoked_at_ms
+                    ) VALUES (?,?,?,?,?,'cloud_mirror',0)
+                    ON CONFLICT(revocation_key) DO UPDATE SET
+                      governing_site_id=excluded.governing_site_id,revision=excluded.revision,
+                      revocation_epoch=excluded.revocation_epoch,reason=excluded.reason,
+                      origin_role='cloud_mirror',updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (key, source, revision, revocation_epoch, reason),
+                )
+                changed += 1
+
+    return {"accepted": True, "changed": changed, "stale": stale, "idempotent": idempotent}
+
+
+def filter_world_report_for_local(report: dict[str, Any], site_id: str | None = None) -> dict[str, Any]:
+    local = _local_site()
+    sites = report.get("sites") if isinstance(report.get("sites"), list) else []
+    visible = []
+    for fragment in sites:
+        if not isinstance(fragment, dict):
+            continue
+        source = str(fragment.get("site_id") or "")
+        if site_id and source != site_id:
+            continue
+        if source == local:
+            visible.append(fragment)
+            continue
+        if not source:
+            continue
+        decision = permission_decision(source, local, "semantic_world_read")
+        if decision.get("allowed"):
+            visible.append(fragment)
+    entities = []
+    relations = []
+    for fragment in visible:
+        for item in fragment.get("entities", []):
+            if isinstance(item, dict):
+                entities.append({**item, "site_id": fragment.get("site_id")})
+        for item in fragment.get("relations", []):
+            if isinstance(item, dict):
+                relations.append({**item, "site_id": fragment.get("site_id")})
+    return {
+        **report,
+        "available": bool(visible),
+        "site_count": len(visible),
+        "sites": visible,
+        "entities": entities,
+        "relations": relations,
+        "policy_filtered": True,
+        "destination_site_id": local,
+    }
+
+
+def filter_identity_report_for_local(report: dict[str, Any]) -> dict[str, Any]:
+    local = _local_site()
+    kept_links = []
+    identity_ids: set[str] = set()
+    for link in report.get("links", []):
+        if not isinstance(link, dict):
+            continue
+        if str(link.get("origin_role") or "") != "cloud_mirror":
+            kept_links.append(link)
+            identity_ids.add(str(link.get("canonical_identity_id") or ""))
+            continue
+        source = str(link.get("governing_site_id") or "")
+        if not source:
+            continue
+        read = permission_decision(source, local, "identity_continuity_read")
+        if not read.get("allowed"):
+            continue
+        if str(link.get("entity_type") or "") == "person":
+            consent = recognition_decision(source, str(link.get("canonical_identity_id") or ""), "identity_linking")
+            if not consent.get("allowed"):
+                continue
+        kept_links.append(link)
+        identity_ids.add(str(link.get("canonical_identity_id") or ""))
+    identities = [
+        item for item in report.get("identities", [])
+        if isinstance(item, dict)
+        and (
+            str(item.get("origin_role") or "") != "cloud_mirror"
+            or str(item.get("canonical_identity_id") or "") in identity_ids
+        )
+    ]
+    return {**report, "identities": identities, "links": kept_links, "policy_filtered": True}
+
+
+def filter_mobile_report_for_local(report: dict[str, Any]) -> dict[str, Any]:
+    local = _local_site()
+    transitions = []
+    for item in report.get("transitions", []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("origin_role") or "") != "cloud_mirror":
+            transitions.append(item)
+            continue
+        source = str(item.get("source_site_id") or "")
+        if source and permission_decision(source, local, "agent_context_read").get("allowed"):
+            transitions.append(item)
+    return {
+        **report,
+        "transitions": transitions,
+        "active_count": len([item for item in transitions if str(item.get("state") or "") not in {"arrived", "canceled"}]),
+        "policy_filtered": True,
+    }
+
+
 def current_report() -> dict[str, Any]:
     with db() as connection:
         state = connection.execute(
