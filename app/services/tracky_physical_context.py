@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -502,6 +502,7 @@ def public_capability() -> dict[str, Any]:
         "federation_sync": tracky_federation_sync.public_capability(),
         "mobile_transitions": tracky_mobile_transition.public_capability(),
         "identity_continuity": tracky_identity_continuity.public_capability(),
+        "federated_agent_context": tracky_federated_agent_context.public_capability(),
     }
 
 
@@ -555,6 +556,7 @@ def current_context() -> dict[str, Any]:
         "federation_sync": tracky_federation_sync.status(),
         "mobile_transitions": tracky_mobile_transition.agent_context(),
         "identity_continuity": tracky_identity_continuity.agent_context(),
+        "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True),
     }
 
 
@@ -928,6 +930,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "mobile_transition_protocol": tracky_mobile_transition.MOBILE_TRANSITION_PROTOCOL,
                 "identity_continuity": bool(tracky_identity_continuity.current_report().get("available")),
                 "identity_continuity_protocol": tracky_identity_continuity.IDENTITY_CONTINUITY_PROTOCOL,
+                "federated_agent_context": True,
+                "federated_agent_context_protocol": tracky_federated_agent_context.FEDERATED_AGENT_CONTEXT_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -945,6 +949,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federation_sync": "available" if tracky_federation_sync.local_site_id(auto_pin=False) else "unresolved",
                 "mobile_transitions": "active" if tracky_mobile_transition.current_report(active_only=True).get("active_count") else "idle",
                 "identity_continuity": "available" if tracky_identity_continuity.current_report().get("available") else "empty",
+                "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True).get("agent_state", "current"),
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
@@ -953,6 +958,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "federation_sync": federation_request,
             "mobile_transitions": tracky_mobile_transition.cloud_projection(local_federation_site or None),
             "identity_continuity": tracky_identity_continuity.cloud_projection(local_federation_site or None),
+            "federated_agent_context": tracky_federated_agent_context.cloud_projection(),
             "events": events,
             "world_state": world,
             "context": context,
