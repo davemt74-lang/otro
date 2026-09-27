@@ -43,6 +43,7 @@ jobs:
           app/services/shared_agent_context.py
           app/services/remote_bridge.py
           app/services/tracky_physical_context.py
+          app/services/tracky_governed_actions.py
           app/tracky_api.py
           app/bridge.py
           tests/federated_data_authority_v240.py
@@ -54,6 +55,7 @@ jobs:
           tests/reconnect_reconciliation_v246.py
           tests/tracky_contract_join_v273.py
           tests/tracky_reliability_v274.py
+          tests/tracky_governed_actions_v275.py
           tests/fixtures/tracky_v274_resilience_vectors.json
           tests/homeserver_v24_release_acceptance.py
       - name: Verify migration chain
@@ -78,5 +80,7 @@ jobs:
         run: python tests/tracky_contract_join_v273.py
       - name: Verify Tracky V2.74 reliability hardening
         run: python tests/tracky_reliability_v274.py
+      - name: Verify Tracky V2.75 governed physical actions
+        run: python tests/tracky_governed_actions_v275.py
       - name: Verify v2.4 final release acceptance
         run: python tests/homeserver_v24_release_acceptance.py
