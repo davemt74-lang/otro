@@ -13,12 +13,12 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_governed_actions, vp3_os
+from . import federated_data, room_device_automation, tracky_forecast_calibration, tracky_governed_actions, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
 
-TRACKY_PHYSICAL_VERSION = "2.75"
+TRACKY_PHYSICAL_VERSION = "2.76"
 PHYSICAL_CONTEXT_PROTOCOL = "physical_context.v1"
 ACTIVE_PERCEPTION_PROTOCOL = "active_perception.v1"
 CLOUD_SYNC_PATH = "/api/tracky-sync-v270.php"
@@ -495,6 +495,7 @@ def public_capability() -> dict[str, Any]:
         },
         "reliability": resilience_status(),
         "governed_actions": tracky_governed_actions.public_capability(),
+        "forecast_calibration": tracky_forecast_calibration.public_capability(),
     }
 
 
@@ -541,6 +542,7 @@ def current_context() -> dict[str, Any]:
         "context": context,
         "world_state": world,
         "rooms": canonical_rooms(),
+        "forecast_calibration": tracky_forecast_calibration.current_report(),
     }
 
 
@@ -555,6 +557,12 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
     events = [_normalize_event(item) for item in events_raw if isinstance(item, dict)]
     relations = [_normalize_relation(item) for item in relations_raw if isinstance(item, dict)]
     context = _normalize_context(payload.get("context"))
+    calibration_raw = payload.get("forecast_calibration")
+    calibration_report = (
+        tracky_forecast_calibration.normalize_report(calibration_raw)
+        if isinstance(calibration_raw, dict)
+        else None
+    )
     try:
         context_sequence = max(0, int(payload.get("context_sequence") or max([e["sequence"] for e in events] + [0])))
     except (TypeError, ValueError):
@@ -649,6 +657,15 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
                     (context_sequence, _json(context), observed_at),
                 )
 
+        calibration_result = None
+        if calibration_report is not None:
+            calibration_result = tracky_forecast_calibration.ingest_report(
+                calibration_report,
+                observed_at=observed_at,
+                source=source,
+                connection=connection,
+            )
+
         connection.execute(
             """
             INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json)
@@ -657,7 +674,15 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
             (
                 source[:80],
                 str(max_sequence),
-                _json({"inserted": inserted, "duplicates": duplicates, "relations": len(relations)}),
+                _json({
+                    "inserted": inserted,
+                    "duplicates": duplicates,
+                    "relations": len(relations),
+                    "forecast_calibration": bool(calibration_result),
+                    "forecast_calibration_changed": bool(
+                        calibration_result and calibration_result.get("changed")
+                    ),
+                }),
             ),
         )
 
@@ -677,6 +702,10 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
         "relations": len(relations),
         "last_sequence": max_sequence,
         "automation_results": automation_results,
+        "forecast_calibration": {
+            "accepted": calibration_report is not None,
+            "changed": bool(calibration_result and calibration_result.get("changed")),
+        },
     }
 
 
@@ -786,13 +815,21 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "world_state_version": "1",
                 "event_schema_version": "1",
                 "physical_context_version": "1",
+                "forecast_calibration": bool(tracky_forecast_calibration.current_report().get("available")),
+                "forecast_calibration_protocol": tracky_forecast_calibration.FORECAST_CALIBRATION_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
                 "camera": "healthy" if camera["ready"] else ("available" if camera["present"] else "unavailable"),
                 "world_state": "fresh" if context else "empty",
                 "inference": "available" if provider["available"] else "unavailable",
+                "forecast_calibration": (
+                    "available"
+                    if tracky_forecast_calibration.current_report().get("available")
+                    else "empty"
+                ),
             },
+            "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "events": events,
             "world_state": world,
             "context": context,
