@@ -15,6 +15,7 @@ QUARANTINE_REASONS = {
     "topology_ahead",
     "authority_mismatch",
     "revision_conflict",
+    "policy_denied",
     "policy_stale",
     "invalid_fragment",
 }
