@@ -239,6 +239,31 @@ def _privacy_redaction_only(prior: dict[str, Any], incoming: dict[str, Any]) -> 
     return removed_entity or removed_relation or removed_context
 
 
+def _record_history(
+    connection,
+    fragment: dict[str, Any],
+    encoded: str,
+    fingerprint: str,
+    source: str,
+    *,
+    privacy_redaction: bool = False,
+) -> None:
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO tracky_federated_world_history(
+          site_id,world_revision,fingerprint,authority_device_id,authority_epoch,
+          topology_revision,observed_at,fragment_json,source,privacy_redaction
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            fragment["site_id"], int(fragment["revision"]), fingerprint,
+            fragment["authority_device_id"], int(fragment["authority_epoch"]),
+            int(fragment["topology_revision"]), str(fragment.get("observed_at") or ""),
+            encoded, _text(source, 80) or "tracky", 1 if privacy_redaction else 0,
+        ),
+    )
+
+
 def ingest_projection(
     input: dict[str, Any],
     *,
@@ -289,6 +314,10 @@ def ingest_projection(
                             fragment["site_id"],
                         ),
                     )
+                    _record_history(
+                        connection, fragment, encoded, fingerprint, source,
+                        privacy_redaction=True,
+                    )
                     accepted += 1
                     changed += 1
                     continue
@@ -317,6 +346,7 @@ def ingest_projection(
                     encoded, fingerprint, _text(source, 80) or "tracky",
                 ),
             )
+            _record_history(connection, fragment, encoded, fingerprint, source)
             accepted += 1
             changed += 1
     return {"accepted": True, "sites": accepted, "changed": changed, "stale": stale}
