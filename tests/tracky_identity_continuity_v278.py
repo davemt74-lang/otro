@@ -285,6 +285,25 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s5-") as data_dir:
     assert after_split["blocked_pairs"][0]["pair"] == pair
     assert HOME_DAVE in {entity["ref"] for site in tracky_federated_world.current_report()["sites"] for entity in site["entities"]}
 
+    stale_after_split = tracky_identity_continuity.ingest_projection(
+        confirmed, source="tracky", origin_role="local_governed"
+    )
+    assert stale_after_split["stale"] == 1
+
+    relink = copy.deepcopy(confirmed)
+    relink["identities"][0]["revision"] = 3
+    relink["identities"][0]["updated_at"] = 1500
+    relink["links"][0]["revision"] = 4
+    relink["links"][0]["updated_at"] = 1500
+    try:
+        tracky_identity_continuity.ingest_projection(
+            relink, source="tracky", origin_role="local_governed"
+        )
+        raise AssertionError("blocked identity pair was silently re-linked")
+    except tracky_identity_continuity.TrackyIdentityContinuityError as exc:
+        assert exc.status_code == 409
+        assert "blocked" in str(exc)
+
     # A cloud mirror governed by Home may be accepted at Cabin only when Cabin is a member site.
     tracky_federation_sync.set_local_site_id(CABIN)
     mirror = {
