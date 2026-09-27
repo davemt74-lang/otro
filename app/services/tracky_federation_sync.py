@@ -15,6 +15,7 @@ QUARANTINE_REASONS = {
     "topology_ahead",
     "authority_mismatch",
     "revision_conflict",
+    "policy_stale",
     "invalid_fragment",
 }
 
@@ -125,6 +126,22 @@ def _normalize_envelope(input: dict[str, Any]) -> dict[str, Any]:
     fingerprint = _text(input.get("source_fingerprint"), 128)
     if not fingerprint:
         raise TrackyFederationSyncError("Federation envelope source fingerprint is required.")
+    policy_raw = input.get("policy")
+    if not isinstance(policy_raw, dict):
+        raise TrackyFederationSyncError("Federation envelope policy binding is required.")
+    if str(policy_raw.get("protocol") or "") != "physical_federation_policy.v1":
+        raise TrackyFederationSyncError("Federation envelope policy protocol is unsupported.")
+    if str(policy_raw.get("scope") or "") != "semantic_world_read":
+        raise TrackyFederationSyncError("Federation envelope policy scope is invalid.")
+    policy = {
+        "protocol": "physical_federation_policy.v1",
+        "scope": "semantic_world_read",
+        "grant_revision": max(0, int(policy_raw.get("grant_revision") or 0)),
+        "policy_revision": max(0, int(policy_raw.get("policy_revision") or 0)),
+        "revocation_epoch": max(0, int(policy_raw.get("revocation_epoch") or 0)),
+    }
+    if policy["grant_revision"] < 1 or policy["policy_revision"] < 1:
+        raise TrackyFederationSyncError("Federation envelope policy revision binding is required.")
     return {
         "protocol": FEDERATION_SYNC_PROTOCOL,
         "schema_version": 1,
@@ -136,6 +153,7 @@ def _normalize_envelope(input: dict[str, Any]) -> dict[str, Any]:
         "source_world_revision": revision,
         "source_fingerprint": fingerprint,
         "topology_revision": topology_revision,
+        "policy": policy,
         "emitted_at": _text(input.get("emitted_at"), 64),
         "fragment": fragment,
     }
@@ -268,6 +286,19 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
                 envelope,
                 "policy_denied",
                 f"Source site federation policy denied semantic world sharing: {policy_decision.get('reason') or 'denied'}.",
+            )
+            quarantined += 1
+            continue
+        envelope_policy = envelope["policy"]
+        if (
+            int(envelope_policy.get("revocation_epoch") or 0) < int(policy_decision.get("revocation_epoch") or 0)
+            or int(envelope_policy.get("grant_revision") or 0) < int(policy_decision.get("grant_revision") or 0)
+            or int(envelope_policy.get("policy_revision") or 0) < int(policy_decision.get("policy_revision") or 0)
+        ):
+            _quarantine(
+                envelope,
+                "policy_stale",
+                "Federation envelope was authorized by an older policy or revocation epoch.",
             )
             quarantined += 1
             continue
