@@ -230,6 +230,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='federated_reconciliation_runs'"
         ).fetchone() is not None
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_world_history'"
+        ).fetchone() is not None
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_query_audit'"
+        ).fetchone() is not None
         cursor = migrated.execute("SELECT cursor_value FROM cognition_cursors WHERE cursor_key='activity_log_id'").fetchone()
         assert cursor is not None and cursor["cursor_value"] == "0"
         source_delete_trigger = migrated.execute(
