@@ -352,12 +352,29 @@ def agent_context() -> dict[str, Any]:
     }
 
 def cloud_projection(local_site_id: str | None = None) -> dict[str, Any]:
+    from . import tracky_site_topology
     report = current_report()
-    transitions = [
-        item for item in report["transitions"]
-        if item["origin_role"] == "local_authority"
-        and (not local_site_id or item["source_site_id"] == local_site_id)
-    ]
+    topology = tracky_site_topology.current_topology()
+    authority_by_site = {
+        str(site.get("id") or ""): {
+            "device_id": str(site.get("authority_device_id") or ""),
+            "epoch": int(site.get("authority_epoch") or 0),
+        }
+        for site in topology.get("sites", [])
+    }
+    transitions = []
+    for item in report["transitions"]:
+        if item["origin_role"] != "local_authority":
+            continue
+        if local_site_id and item["source_site_id"] != local_site_id:
+            continue
+        authority = authority_by_site.get(item["source_site_id"]) or {}
+        if not authority.get("device_id") or int(authority.get("epoch") or 0) < 1:
+            continue
+        enriched = dict(item)
+        enriched["source_authority_device_id"] = authority["device_id"]
+        enriched["source_authority_epoch"] = int(authority["epoch"])
+        transitions.append(enriched)
     return {
         "protocol": MOBILE_TRANSITION_PROTOCOL,
         "schema_version": 1,
