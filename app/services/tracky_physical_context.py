@@ -693,12 +693,6 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
                 connection=connection,
             )
 
-        federated_world_result = None
-        if federated_world_projection is not None:
-            # Ingest outside this connection because the topology/world service
-            # owns its own atomic per-site revision checks.
-            pass
-
         connection.execute(
             """
             INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json)
