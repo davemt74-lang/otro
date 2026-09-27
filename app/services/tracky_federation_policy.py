@@ -435,6 +435,7 @@ def filter_world_fragment(source_site_id: str, destination_site_id: str, fragmen
         entity for entity in entities
         if isinstance(entity, dict) and str(entity.get("type") or "") != "person"
     ]
+    copied["context"] = {}
     copied["relations"] = [
         relation for relation in relations
         if isinstance(relation, dict)
