@@ -190,6 +190,9 @@ def _normalize_link(input: dict[str, Any]) -> dict[str, Any]:
         "rejected_at": int(input["rejected_at"]) if input.get("rejected_at") is not None else None,
         "revoked_at": int(input["revoked_at"]) if input.get("revoked_at") is not None else None,
         "split_at": int(input["split_at"]) if input.get("split_at") is not None else None,
+        "governing_site_id": _uuid(input.get("governing_site_id"), "governing_site_id") if input.get("governing_site_id") else "",
+        "governing_authority_device_id": _uuid(input.get("governing_authority_device_id"), "governing_authority_device_id") if input.get("governing_authority_device_id") else "",
+        "governing_authority_epoch": max(0, int(input.get("governing_authority_epoch") or 0)),
     }
     material = dict(normalized)
     normalized["fingerprint"] = hashlib.sha256(_json(material).encode("utf-8")).hexdigest()
@@ -274,19 +277,14 @@ def ingest_projection(
     local_site = _local_site_id()
 
     if origin_role == "local_governed":
-        governing_site = _uuid(governing_site_id or local_site, "governing_site_id")
-        if local_site and governing_site != local_site:
+        default_governing_site = _uuid(governing_site_id or local_site, "governing_site_id")
+        if local_site and default_governing_site != local_site:
             raise TrackyIdentityContinuityError("Local identity decisions must be governed by the local site.", 409)
-        authority_device, authority_epoch = _current_authority(governing_site)
+        default_authority_device, default_authority_epoch = _current_authority(default_governing_site)
     else:
-        governing_site = _uuid(governing_site_id, "governing_site_id")
-        authority_device = _uuid(governing_authority_device_id, "governing_authority_device_id")
-        authority_epoch = max(0, int(governing_authority_epoch or 0))
-        if authority_epoch < 1:
-            raise TrackyIdentityContinuityError("Mirrored identity authority epoch is required.")
-        expected_device, expected_epoch = _current_authority(governing_site)
-        if expected_device != authority_device or expected_epoch != authority_epoch:
-            raise TrackyIdentityContinuityError("Mirrored identity authority does not match current topology.", 409)
+        default_governing_site = ""
+        default_authority_device = ""
+        default_authority_epoch = 0
 
     changed = stale = idempotent = 0
     with db() as connection:
@@ -302,12 +300,25 @@ def ingest_projection(
                 (
                     identity["canonical_identity_id"], identity["entity_type"], identity["status"],
                     _json(identity["aliases"]), _json(identity["members"]), identity["revision"],
-                    origin_role, governing_site, identity["created_at"], identity["updated_at"],
+                    origin_role, default_governing_site or None, identity["created_at"], identity["updated_at"],
                 ),
             )
 
         for link in projection["links"]:
-            if governing_site not in {link["left_site_id"], link["right_site_id"]}:
+            if origin_role == "local_governed":
+                link_governing_site = default_governing_site
+                authority_device = default_authority_device
+                authority_epoch = default_authority_epoch
+            else:
+                link_governing_site = link["governing_site_id"]
+                authority_device = link["governing_authority_device_id"]
+                authority_epoch = link["governing_authority_epoch"]
+                if not link_governing_site or not authority_device or authority_epoch < 1:
+                    raise TrackyIdentityContinuityError("Mirrored identity link authority metadata is required.")
+                expected_device, expected_epoch = _current_authority(link_governing_site)
+                if expected_device != authority_device or expected_epoch != authority_epoch:
+                    raise TrackyIdentityContinuityError("Mirrored identity authority does not match current topology.", 409)
+            if link_governing_site not in {link["left_site_id"], link["right_site_id"]}:
                 raise TrackyIdentityContinuityError(
                     "Identity governing site must be one of the linked entity sites.", 409
                 )
@@ -353,7 +364,7 @@ def ingest_projection(
                 (
                     identity["canonical_identity_id"], identity["entity_type"], identity["status"],
                     _json(identity["aliases"]), _json(identity["members"]), identity["revision"],
-                    origin_role, governing_site, identity["created_at"], identity["updated_at"],
+                    origin_role, link_governing_site, identity["created_at"], identity["updated_at"],
                 ),
             )
             connection.execute(
@@ -382,7 +393,7 @@ def ingest_projection(
                     link["link_id"], link["pair_key"], link["canonical_identity_id"], link["entity_type"],
                     link["left_ref"], link["right_ref"], link["left_site_id"], link["right_site_id"],
                     link["status"], link["reason"], _json(link["evidence"]), link["confidence"],
-                    1 if link["auto_confirmed"] else 0, link["revision"], origin_role, governing_site,
+                    1 if link["auto_confirmed"] else 0, link["revision"], origin_role, link_governing_site,
                     authority_device, authority_epoch, link["fingerprint"], link["created_at"],
                     link["updated_at"], link["confirmed_at"], link["rejected_at"], link["revoked_at"],
                     link["split_at"],
@@ -418,7 +429,7 @@ def ingest_projection(
         "changed": changed,
         "stale": stale,
         "idempotent": idempotent,
-        "governing_site_id": governing_site,
+        "governing_site_id": default_governing_site,
     }
 
 def _identity_row(row: Any) -> dict[str, Any]:
