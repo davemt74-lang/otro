@@ -158,6 +158,18 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s5-") as data_dir:
     assert report["links"][0]["status"] == "proposed"
     assert tracky_identity_continuity.resolve_entity(HOME_DAVE) is None
 
+    duplicate_pair = copy.deepcopy(proposed)
+    duplicate_pair["links"][0]["link_id"] = "abababab-abab-4bab-8bab-abababababab"
+    duplicate_pair["links"][0]["revision"] = 2
+    try:
+        tracky_identity_continuity.ingest_projection(
+            duplicate_pair, source="tracky", origin_role="local_governed"
+        )
+        raise AssertionError("same identity pair acquired a second governing link")
+    except tracky_identity_continuity.TrackyIdentityContinuityError as exc:
+        assert exc.status_code == 409
+        assert "different link" in str(exc)
+
     confirmed = copy.deepcopy(proposed)
     confirmed["identities"] = [{
         "canonical_identity_id": PERSON_CANON,
