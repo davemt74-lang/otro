@@ -482,6 +482,8 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             if not _REQUEST_ID.fullmatch(request_id):
                 raise RemoteBridgeError("physical_context.request_status requires a valid request_id.")
             return _local_response(client.get(f"/api/v1/tracky/active-perception/{request_id}", headers=headers))
+        if op == "physical_context.calibration":
+            return _local_response(client.get("/api/v1/tracky/calibration", headers=headers))
         if op == "physical_context.action.propose":
             return _local_response(client.post("/api/v1/tracky/actions/propose", json=body, headers=headers))
         if op == "physical_context.action.status":
