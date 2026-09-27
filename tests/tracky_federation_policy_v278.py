@@ -196,6 +196,87 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
     assert all(item["source_site_id"] == HOME for item in projection["grants"])
     assert all(item["site_id"] == HOME for item in projection["consents"])
 
+    # Remote policy mirrors are read-only and revocations immediately override earlier grants.
+    office_grant_mirror = {
+        "protocol": "physical_federation_policy_relay.v1",
+        "schema_version": 1,
+        "destination_site_id": HOME,
+        "projections": [{
+            "protocol": "physical_federation_policy.v1",
+            "schema_version": 1,
+            "revision": 1,
+            "revocation_epoch": 0,
+            "governing_site_id": OFFICE,
+            "governing_authority_device_id": NODE_B,
+            "governing_authority_epoch": 1,
+            "sites": [{
+                "site_id": OFFICE,
+                "revision": 1,
+                "mode": "team",
+                "allow_federation": True,
+                "allow_remote_observation": False,
+                "default_identity_visibility": "none",
+                "allowed_peer_sites": [HOME],
+            }],
+            "grants": [{
+                "source_site_id": OFFICE,
+                "destination_site_id": HOME,
+                "scope": "semantic_world_read",
+                "status": "granted",
+                "revision": 1,
+                "reason": "office_share",
+            }],
+            "consents": [],
+            "revocations": [],
+            "semantic_only": True,
+            "summary_only": True,
+            "authority_assignment": "local_site_policy",
+            "cloud_role": "mirror_relay_enforcer",
+            "cloud_can_grant": False,
+            "cloud_can_revoke": False,
+            "cloud_can_change_consent": False,
+            "raw_perception": False,
+        }],
+    }
+    mirrored = tracky_federation_policy.ingest_cloud_mirror(office_grant_mirror)
+    assert mirrored["accepted"] is True
+    assert tracky_federation_policy.permission_decision(
+        OFFICE, HOME, "semantic_world_read"
+    )["allowed"] is True
+
+    office_revoke_mirror = {
+        **office_grant_mirror,
+        "projections": [{
+            **office_grant_mirror["projections"][0],
+            "revision": 2,
+            "revocation_epoch": 1,
+            "sites": [{
+                **office_grant_mirror["projections"][0]["sites"][0],
+                "revision": 2,
+            }],
+            "grants": [{
+                **office_grant_mirror["projections"][0]["grants"][0],
+                "status": "revoked",
+                "revision": 2,
+                "reason": "office_revoked",
+            }],
+            "revocations": [{
+                "revocation_key": f"grant:{OFFICE}|{HOME}|semantic_world_read",
+                "governing_site_id": OFFICE,
+                "revision": 2,
+                "revocation_epoch": 1,
+                "reason": "office_revoked",
+            }],
+        }],
+    }
+    revoked_mirror = tracky_federation_policy.ingest_cloud_mirror(office_revoke_mirror)
+    assert revoked_mirror["accepted"] is True
+    remote_decision = tracky_federation_policy.permission_decision(
+        OFFICE, HOME, "semantic_world_read"
+    )
+    assert remote_decision["allowed"] is False
+    assert remote_decision["reason"] == "permission_revoked"
+
     capability = tracky_federation_policy.public_capability()
     assert capability["deny_by_default"] is True
     assert capability["authority_assignment"] == "local_site_policy"
@@ -519,5 +600,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
     assert '@router.post("/api/v1/tracky/federation-policy' not in api
     assert "filter_world_fragment" in sync_service
     assert "physical_federation_policy.v1" in sync_service
+    physical_service = (ROOT / "app" / "services" / "tracky_physical_context.py").read_text(encoding="utf-8")
+    assert physical_service.index('body.get("federation_policy")') < physical_service.index('body.get("federation_sync")')
 
 print("Tracky V2.78 Section 7 OTRO federation permissions and consent integration: PASS")
