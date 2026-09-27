@@ -126,7 +126,10 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
                 "world_projection": "non_person_v1",
             },
             "emitted_at": "2026-09-27T17:00:00+00:00",
-            "fragment": fragment(source, node, epoch, revision, label),
+            "fragment": {
+                **fragment(source, node, epoch, revision, label),
+                "context": {},
+            },
         }
 
     def mirror_world_policy(source: str, destination: str, node: str, epoch: int, revision: int = 1) -> dict:
@@ -193,6 +196,18 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
 
     assert mirror_world_policy(HOME, OFFICE, NODE_A, 1)["accepted"] is True
     assert mirror_world_policy(CABIN, OFFICE, NODE_C, 1)["accepted"] is True
+
+    forged_person = envelope(HOME, OFFICE, NODE_A, 1, 5, "person", "9" * 64)
+    forged_person["fragment"]["entities"][0]["type"] = "person"
+    forged = tracky_federation_sync.ingest_cloud_batch(
+        {"protocol": "physical_federation_sync.v1", "destination_site_id": OFFICE, "envelopes": [forged_person]}
+    )
+    assert forged["quarantined"] == 1
+    with db() as connection:
+        forged_row = connection.execute(
+            "SELECT reason FROM tracky_federation_quarantine ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert forged_row["reason"] == "invalid_fragment"
 
     home_env = envelope(HOME, OFFICE, NODE_A, 1, 7, "keys", "a" * 64)
     first = tracky_federation_sync.ingest_cloud_batch(
