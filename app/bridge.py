@@ -444,6 +444,7 @@ def capabilities() -> dict:
                 "action.list", "action.status", "action.approve", "action.deny",
                 "physical_context.capabilities", "physical_context.current",
                 "physical_context.active_perception", "physical_context.request_status", "physical_context.sync",
+                "physical_context.calibration",
                 "physical_context.action.propose", "physical_context.action.status",
             ],
             "local_domains": ["inference", "files", "knowledge", "contacts", "tools", "plugins", "voice", "devices", "physical_context"],
