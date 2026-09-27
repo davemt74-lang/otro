@@ -353,15 +353,16 @@ def permission_decision(
     policy = site_policy(source)
     if policy is None:
         return {"allowed": False, "reason": "source_site_policy_missing"}
-    try:
-        current_device, current_epoch = _authority(source)
-    except TrackyFederationPolicyError:
-        return {"allowed": False, "reason": "source_policy_authority_unresolved"}
-    if (
-        str(policy.get("governing_authority_device_id") or "") != current_device
-        or int(policy.get("governing_authority_epoch") or 0) != current_epoch
-    ):
-        return {"allowed": False, "reason": "source_policy_authority_stale"}
+    if str(policy.get("origin_role") or "") == "cloud_mirror":
+        try:
+            current_device, current_epoch = _authority(source)
+        except TrackyFederationPolicyError:
+            return {"allowed": False, "reason": "source_policy_authority_unresolved"}
+        if (
+            str(policy.get("governing_authority_device_id") or "") != current_device
+            or int(policy.get("governing_authority_epoch") or 0) != current_epoch
+        ):
+            return {"allowed": False, "reason": "source_policy_authority_stale"}
     if not policy["allow_federation"]:
         return {"allowed": False, "reason": "source_site_federation_disabled"}
     if destination not in policy["allowed_peer_sites"]:
@@ -372,7 +373,8 @@ def permission_decision(
     with db() as connection:
         row = connection.execute(
             """
-            SELECT status,revision FROM tracky_federation_permissions
+            SELECT status,revision,origin_role,governing_authority_device_id,governing_authority_epoch
+            FROM tracky_federation_permissions
             WHERE source_site_id=? AND destination_site_id=? AND scope=?
             """,
             (source, destination, permission),
@@ -382,8 +384,26 @@ def permission_decision(
         ).fetchone()
     if row is None:
         return {"allowed": False, "reason": "permission_not_granted"}
-    if str(row["status"] or "") != "granted":
+    with db() as connection:
+        revoked = connection.execute(
+            "SELECT revision FROM tracky_federation_policy_revocations WHERE revocation_key=? LIMIT 1",
+            (f"grant:{source}|{destination}|{permission}",),
+        ).fetchone()
+    if (
+        str(row["status"] or "") != "granted"
+        or (revoked is not None and int(revoked["revision"] or 0) >= int(row["revision"] or 0))
+    ):
         return {"allowed": False, "reason": "permission_revoked"}
+    if str(row["origin_role"] or "") == "cloud_mirror":
+        try:
+            current_device, current_epoch = _authority(source)
+        except TrackyFederationPolicyError:
+            return {"allowed": False, "reason": "permission_authority_unresolved"}
+        if (
+            str(row["governing_authority_device_id"] or "") != current_device
+            or int(row["governing_authority_epoch"] or 0) != current_epoch
+        ):
+            return {"allowed": False, "reason": "permission_authority_stale"}
 
     if canonical_identity_id and permission in CONSENT_SCOPES:
         consent = recognition_decision(source, canonical_identity_id, permission)
@@ -405,7 +425,7 @@ def recognition_decision(site_id: str, canonical_identity_id: str, scope: str) -
     with db() as connection:
         row = connection.execute(
             """
-            SELECT status,revision,governing_authority_device_id,governing_authority_epoch
+            SELECT status,revision,origin_role,governing_authority_device_id,governing_authority_epoch
             FROM tracky_recognition_consents
             WHERE site_id=? AND canonical_identity_id=? AND scope=?
             """,
@@ -416,18 +436,24 @@ def recognition_decision(site_id: str, canonical_identity_id: str, scope: str) -
         ).fetchone()
     if row is None:
         return {"allowed": False, "reason": "consent_required"}
-    try:
-        current_device, current_epoch = _authority(site)
-    except TrackyFederationPolicyError:
-        return {"allowed": False, "reason": "consent_authority_unresolved"}
-    if (
-        str(row["governing_authority_device_id"] or "") != current_device
-        or int(row["governing_authority_epoch"] or 0) != current_epoch
-    ):
-        return {"allowed": False, "reason": "consent_authority_stale"}
+    if str(row["origin_role"] or "") == "cloud_mirror":
+        try:
+            current_device, current_epoch = _authority(site)
+        except TrackyFederationPolicyError:
+            return {"allowed": False, "reason": "consent_authority_unresolved"}
+        if (
+            str(row["governing_authority_device_id"] or "") != current_device
+            or int(row["governing_authority_epoch"] or 0) != current_epoch
+        ):
+            return {"allowed": False, "reason": "consent_authority_stale"}
     status = str(row["status"] or "")
-    if status != "granted":
-        return {"allowed": False, "reason": "consent_revoked" if status == "revoked" else "consent_denied" if status == "denied" else "consent_required"}
+    with db() as connection:
+        revoked = connection.execute(
+            "SELECT revision FROM tracky_federation_policy_revocations WHERE revocation_key=? LIMIT 1",
+            (f"consent:{site}|{canonical}|{permission}",),
+        ).fetchone()
+    if status != "granted" or (revoked is not None and int(revoked["revision"] or 0) >= int(row["revision"] or 0)):
+        return {"allowed": False, "reason": "consent_denied" if status == "denied" else "consent_revoked"}
     return {
         "allowed": True,
         "reason": "site_scoped_consent",
