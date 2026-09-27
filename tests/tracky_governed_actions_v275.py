@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v275-") as data_dir:
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert versions == list(range(1, 42))
+        assert versions == list(range(1, 43))
 
     # V2.4 reconciliation remains the gate.
     try:
