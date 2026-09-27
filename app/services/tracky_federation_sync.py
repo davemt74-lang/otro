@@ -172,7 +172,10 @@ def _quarantine(envelope: dict[str, Any], reason: str, message: str) -> dict[str
                 reason, safe["message"], envelope_json,
             ),
         )
-        if safe["source_site_id"]:
+        if safe["source_site_id"] and connection.execute(
+            "SELECT 1 FROM tracky_sites WHERE site_id=?",
+            (safe["source_site_id"],),
+        ).fetchone() is not None:
             connection.execute(
                 """
                 INSERT INTO tracky_federation_sync_peers(remote_site_id,status,quarantined_count)
@@ -247,12 +250,12 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
             _quarantine(envelope, "source_not_federated", "Source site is not an approved federation peer.")
             quarantined += 1
             continue
-        if envelope["topology_revision"] > _topology_revision(topology):
-            _quarantine(envelope, "topology_ahead", "Envelope requires a newer topology revision before authority can be verified.")
+        authority = _authority(topology, source)
+        if authority is None or authority[1] < envelope["source_authority_epoch"]:
+            _quarantine(envelope, "topology_ahead", "Local topology cannot yet verify the source authority epoch.")
             quarantined += 1
             continue
-        authority = _authority(topology, source)
-        if authority is None or authority[0] != envelope["source_authority_device_id"] or authority[1] != envelope["source_authority_epoch"]:
+        if authority[0] != envelope["source_authority_device_id"] or authority[1] != envelope["source_authority_epoch"]:
             _quarantine(envelope, "authority_mismatch", "Envelope authority does not match current topology authority.")
             quarantined += 1
             continue
@@ -306,7 +309,7 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
                 INSERT INTO tracky_federation_sync_peers(
                   remote_site_id,status,last_received_revision,last_received_fingerprint,
                   last_received_authority_epoch,last_received_at
-                ) VALUES (?,'current',?,?,?,?,CURRENT_TIMESTAMP)
+                ) VALUES (?,'current',?,?,?,CURRENT_TIMESTAMP)
                 ON CONFLICT(remote_site_id) DO UPDATE SET
                   status='current',
                   last_received_revision=excluded.last_received_revision,
