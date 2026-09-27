@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 HOME = "11111111-1111-4111-8111-111111111111"
 OFFICE = "22222222-2222-4222-8222-222222222222"
+CABIN = "33333333-3333-4333-8333-333333333333"
 NODE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 NODE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 POCKET = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
@@ -174,7 +175,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s4-") as data_dir:
 
     wrong_destination = copy.deepcopy(mirror)
     wrong_destination["transitions"][0]["transition_id"] = "trip-bad-destination"
-    wrong_destination["transitions"][0]["destination_site_id"] = OFFICE
+    wrong_destination["transitions"][0]["destination_site_id"] = CABIN
     try:
         tracky_mobile_transition.ingest_projection(
             wrong_destination, source="vp3_cloud", origin_role="cloud_mirror"
