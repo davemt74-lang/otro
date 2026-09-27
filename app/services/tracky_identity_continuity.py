@@ -335,6 +335,10 @@ def ingest_projection(
                 raise TrackyIdentityContinuityError(
                     "Identity governing site must be one of the linked entity sites.", 409
                 )
+            if origin_role == "cloud_mirror" and local_site and local_site not in {link["left_site_id"], link["right_site_id"]}:
+                raise TrackyIdentityContinuityError(
+                    "Mirrored identity link is not relevant to this HomeServer site.", 409
+                )
             if link["left_ref"] not in known_refs or link["right_ref"] not in known_refs:
                 raise TrackyIdentityContinuityError(
                     "Identity link references an entity not present in the current federated world.", 409
