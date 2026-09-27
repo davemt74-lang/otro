@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 51))
+        assert versions == list(range(1, 52))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -229,6 +229,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         ).fetchone() is not None
         assert migrated.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='federated_reconciliation_runs'"
+        ).fetchone() is not None
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_world_history'"
+        ).fetchone() is not None
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_query_audit'"
         ).fetchone() is not None
         cursor = migrated.execute("SELECT cursor_value FROM cognition_cursors WHERE cursor_key='activity_log_id'").fetchone()
         assert cursor is not None and cursor["cursor_value"] == "0"
@@ -533,7 +539,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 51))
+        assert versions_again == list(range(1, 52))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1

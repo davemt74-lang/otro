@@ -43,6 +43,7 @@ jobs:
           app/services/shared_agent_context.py
           app/services/remote_bridge.py
           app/services/tracky_physical_context.py
+          app/services/tracky_federated_query.py
           app/services/tracky_governed_actions.py
           app/services/tracky_forecast_calibration.py
           app/services/tracky_model_lifecycle.py
@@ -60,6 +61,7 @@ jobs:
           tests/tracky_governed_actions_v275.py
           tests/tracky_forecast_calibration_v276.py
           tests/tracky_model_lifecycle_v277.py
+          tests/tracky_federated_query_v278.py
           tests/fixtures/tracky_v274_resilience_vectors.json
           tests/homeserver_v24_release_acceptance.py
       - name: Verify migration chain
@@ -90,5 +92,7 @@ jobs:
         run: python tests/tracky_forecast_calibration_v276.py
       - name: Verify Tracky V2.77 model lifecycle
         run: python tests/tracky_model_lifecycle_v277.py
+      - name: Verify Tracky V2.78 federated query/history preserves v2.4 continuity authority
+        run: python tests/tracky_federated_query_v278.py
       - name: Verify v2.4 final release acceptance
         run: python tests/homeserver_v24_release_acceptance.py
