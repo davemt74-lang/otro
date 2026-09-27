@@ -1,3 +1,11 @@
+CREATE TABLE IF NOT EXISTS tracky_site_topology_state (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  revision INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO tracky_site_topology_state(id,revision) VALUES (1,0);
+
 CREATE TABLE IF NOT EXISTS tracky_sites (
   site_id TEXT PRIMARY KEY,
   label TEXT NOT NULL,
