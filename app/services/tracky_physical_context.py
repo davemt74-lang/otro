@@ -13,12 +13,12 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_forecast_calibration, tracky_governed_actions, vp3_os
+from . import federated_data, room_device_automation, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
 
-TRACKY_PHYSICAL_VERSION = "2.76"
+TRACKY_PHYSICAL_VERSION = "2.77"
 PHYSICAL_CONTEXT_PROTOCOL = "physical_context.v1"
 ACTIVE_PERCEPTION_PROTOCOL = "active_perception.v1"
 CLOUD_SYNC_PATH = "/api/tracky-sync-v270.php"
@@ -496,6 +496,7 @@ def public_capability() -> dict[str, Any]:
         "reliability": resilience_status(),
         "governed_actions": tracky_governed_actions.public_capability(),
         "forecast_calibration": tracky_forecast_calibration.public_capability(),
+        "model_lifecycle": tracky_model_lifecycle.public_capability(),
     }
 
 
@@ -543,6 +544,7 @@ def current_context() -> dict[str, Any]:
         "world_state": world,
         "rooms": canonical_rooms(),
         "forecast_calibration": tracky_forecast_calibration.current_report(),
+        "model_lifecycle": tracky_model_lifecycle.current_report(),
     }
 
 
@@ -561,6 +563,12 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
     calibration_report = (
         tracky_forecast_calibration.normalize_report(calibration_raw)
         if isinstance(calibration_raw, dict)
+        else None
+    )
+    lifecycle_raw = payload.get("model_lifecycle")
+    lifecycle_report = (
+        tracky_model_lifecycle.normalize_report(lifecycle_raw)
+        if isinstance(lifecycle_raw, dict)
         else None
     )
     try:
@@ -665,6 +673,14 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
                 source=source,
                 connection=connection,
             )
+        lifecycle_result = None
+        if lifecycle_report is not None:
+            lifecycle_result = tracky_model_lifecycle.ingest_report(
+                lifecycle_report,
+                observed_at=observed_at,
+                source=source,
+                connection=connection,
+            )
 
         connection.execute(
             """
@@ -681,6 +697,10 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
                     "forecast_calibration": bool(calibration_result),
                     "forecast_calibration_changed": bool(
                         calibration_result and calibration_result.get("changed")
+                    ),
+                    "model_lifecycle": bool(lifecycle_result),
+                    "model_lifecycle_changed": bool(
+                        lifecycle_result and lifecycle_result.get("changed")
                     ),
                 }),
             ),
@@ -705,6 +725,10 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
         "forecast_calibration": {
             "accepted": calibration_report is not None,
             "changed": bool(calibration_result and calibration_result.get("changed")),
+        },
+        "model_lifecycle": {
+            "accepted": lifecycle_report is not None,
+            "changed": bool(lifecycle_result and lifecycle_result.get("changed")),
         },
     }
 
@@ -817,6 +841,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "physical_context_version": "1",
                 "forecast_calibration": bool(tracky_forecast_calibration.current_report().get("available")),
                 "forecast_calibration_protocol": tracky_forecast_calibration.FORECAST_CALIBRATION_PROTOCOL,
+                "model_lifecycle": bool(tracky_model_lifecycle.current_report().get("available")),
+                "model_lifecycle_protocol": tracky_model_lifecycle.MODEL_LIFECYCLE_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -828,8 +854,10 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                     if tracky_forecast_calibration.current_report().get("available")
                     else "empty"
                 ),
+                "model_lifecycle": tracky_model_lifecycle.health_state()["state"],
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
+            "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
             "events": events,
             "world_state": world,
             "context": context,
