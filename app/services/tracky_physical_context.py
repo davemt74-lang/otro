@@ -910,6 +910,11 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     federation_request = tracky_federation_sync.cloud_sync_request()
     local_federation_site = str(federation_request.get("local_site_id") or "")
     federated_projection = tracky_federated_world.cloud_projection(local_federation_site or None)
+    federation_policy_projection = (
+        tracky_federation_policy.cloud_projection(local_federation_site)
+        if local_federation_site
+        else None
+    )
     return {
         "payload": {
             "protocol": PHYSICAL_CONTEXT_PROTOCOL,
@@ -974,7 +979,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "mobile_transitions": tracky_mobile_transition.cloud_projection(local_federation_site or None),
             "identity_continuity": tracky_identity_continuity.cloud_projection(local_federation_site or None),
             "federated_agent_context": tracky_federated_agent_context.cloud_projection(),
-            "federation_policy": tracky_federation_policy.cloud_projection(local_federation_site or None),
+            "federation_policy": federation_policy_projection,
             "events": events,
             "world_state": world,
             "context": context,
@@ -1043,17 +1048,6 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
                 "UPDATE tracky_physical_events SET cloud_synced=1,cloud_synced_at=? WHERE event_id=?",
                 (now, event_id),
             )
-    federation_policy_result = None
-    federation_policy_mirror = body.get("federation_policy")
-    if isinstance(federation_policy_mirror, dict):
-        try:
-            federation_policy_result = tracky_federation_policy.ingest_cloud_mirror(
-                federation_policy_mirror
-            )
-        except tracky_federation_policy.TrackyFederationPolicyError as exc:
-            _record_sync_failure(f"Federation policy mirror rejected: {exc}")
-            raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
-
     federation_policy_result = None
     federation_policy_mirror = body.get("federation_policy")
     if isinstance(federation_policy_mirror, dict):
