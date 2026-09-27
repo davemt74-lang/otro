@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v273-") as data_dir:
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert versions == list(range(1, 49))
+        assert versions == list(range(1, 50))
         for table in (
             "tracky_physical_events",
             "tracky_physical_world_state",
