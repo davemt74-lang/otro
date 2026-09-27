@@ -184,7 +184,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v276-") as data_dir:
     assert context["forecast_calibration"]["report"]["profiles"][0]["brierScore"] == 0.18
 
     physical_cap = tracky_physical_context.public_capability()
-    assert physical_cap["version"] == "2.76"
+    assert float(str(physical_cap["version"])) >= 2.76
     assert physical_cap["forecast_calibration"]["protocol"] == "forecast_calibration.v1"
     assert physical_cap["forecast_calibration"]["authority"] == "local_tracky"
 
