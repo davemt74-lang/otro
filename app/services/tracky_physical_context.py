@@ -1043,6 +1043,17 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
                 "UPDATE tracky_physical_events SET cloud_synced=1,cloud_synced_at=? WHERE event_id=?",
                 (now, event_id),
             )
+    federation_policy_result = None
+    federation_policy_mirror = body.get("federation_policy")
+    if isinstance(federation_policy_mirror, dict):
+        try:
+            federation_policy_result = tracky_federation_policy.ingest_cloud_mirror(
+                federation_policy_mirror
+            )
+        except tracky_federation_policy.TrackyFederationPolicyError as exc:
+            _record_sync_failure(f"Federation policy mirror rejected: {exc}")
+            raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
+
     federation_result = None
     federation_batch = body.get("federation_sync")
     if isinstance(federation_batch, dict):
@@ -1077,17 +1088,6 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
         except tracky_identity_continuity.TrackyIdentityContinuityError as exc:
             _record_sync_failure(f"Identity continuity mirror rejected: {exc}")
             raise TrackyPhysicalError(f"VP3 Tracky identity continuity sync failed: {exc}", 503) from exc
-
-    federation_policy_result = None
-    federation_policy_mirror = body.get("federation_policy")
-    if isinstance(federation_policy_mirror, dict):
-        try:
-            federation_policy_result = tracky_federation_policy.ingest_cloud_mirror(
-                federation_policy_mirror
-            )
-        except tracky_federation_policy.TrackyFederationPolicyError as exc:
-            _record_sync_failure(f"Federation policy mirror rejected: {exc}")
-            raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
 
     last_sequence = int(body.get("last_sequence") or package["max_sequence"])
     cursor = str(body.get("cursor") or package["cursor"])
