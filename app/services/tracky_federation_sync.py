@@ -137,7 +137,7 @@ def _normalize_envelope(input: dict[str, Any]) -> dict[str, Any]:
         "source_fingerprint": fingerprint,
         "topology_revision": topology_revision,
         "emitted_at": _text(input.get("emitted_at"), 64),
-        "fragment": filtered_fragment,
+        "fragment": normalized_filtered,
     }
 
 def _quarantine(envelope: dict[str, Any], reason: str, message: str) -> dict[str, Any]:
@@ -370,7 +370,8 @@ def build_outbound_batch(destination_site_id: str, *, max_envelopes: int = 32) -
         )
         if filtered_fragment is None:
             continue
-        fingerprint = str(fragment.get("fingerprint") or "")
+        normalized_filtered = tracky_federated_world.normalize_fragment(filtered_fragment)
+        fingerprint = str(normalized_filtered.get("fingerprint") or "")
         envelopes.append({
             "protocol": FEDERATION_SYNC_PROTOCOL,
             "schema_version": 1,
