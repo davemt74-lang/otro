@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import unquote
 
@@ -50,6 +51,28 @@ def _json(value: Any) -> str:
 
 def _fingerprint(value: Any) -> str:
     return hashlib.sha256(_json(value).encode("utf-8")).hexdigest()
+
+
+def _timestamp_ms(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        return max(0, int(value))
+    text = str(value).strip()
+    if not text:
+        return 0
+    try:
+        numeric = float(text)
+        return max(0, int(numeric))
+    except ValueError:
+        pass
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0, int(parsed.timestamp() * 1000))
 
 
 def _local_site() -> str:
@@ -190,11 +213,7 @@ def _history(site_id: str, query: dict[str, Any]) -> list[dict[str, Any]]:
             )
             if fragment is None:
                 continue
-        observed_ms = 0
-        try:
-            observed_ms = max(0, int(fragment.get("observed_at") or 0))
-        except (TypeError, ValueError):
-            observed_ms = 0
+        observed_ms = _timestamp_ms(fragment.get("observed_at"))
         if query["since_ms"] and observed_ms < query["since_ms"]:
             continue
         if query["until_ms"] and observed_ms > query["until_ms"]:
