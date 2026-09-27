@@ -553,10 +553,20 @@ def current_context() -> dict[str, Any]:
         "forecast_calibration": tracky_forecast_calibration.current_report(),
         "model_lifecycle": tracky_model_lifecycle.current_report(),
         "site_topology": tracky_site_topology.current_topology(),
-        "federated_world": tracky_federated_world.current_report(),
+        "federated_world": tracky_federation_policy.filter_world_report_for_local(
+            tracky_federated_world.current_report()
+        ),
         "federation_sync": tracky_federation_sync.status(),
-        "mobile_transitions": tracky_mobile_transition.agent_context(),
-        "identity_continuity": tracky_identity_continuity.agent_context(),
+        "mobile_transitions": tracky_mobile_transition.agent_context(
+            tracky_federation_policy.filter_mobile_report_for_local(
+                tracky_mobile_transition.current_report()
+            )
+        ),
+        "identity_continuity": tracky_identity_continuity.agent_context(
+            tracky_federation_policy.filter_identity_report_for_local(
+                tracky_identity_continuity.current_report()
+            )
+        ),
         "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True),
         "federation_policy": tracky_federation_policy.current_report(),
     }
@@ -1068,6 +1078,17 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
             _record_sync_failure(f"Identity continuity mirror rejected: {exc}")
             raise TrackyPhysicalError(f"VP3 Tracky identity continuity sync failed: {exc}", 503) from exc
 
+    federation_policy_result = None
+    federation_policy_mirror = body.get("federation_policy")
+    if isinstance(federation_policy_mirror, dict):
+        try:
+            federation_policy_result = tracky_federation_policy.ingest_cloud_mirror(
+                federation_policy_mirror
+            )
+        except tracky_federation_policy.TrackyFederationPolicyError as exc:
+            _record_sync_failure(f"Federation policy mirror rejected: {exc}")
+            raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
+
     last_sequence = int(body.get("last_sequence") or package["max_sequence"])
     cursor = str(body.get("cursor") or package["cursor"])
     _record_sync_success(last_sequence, cursor, len(package["event_ids"]))
@@ -1080,6 +1101,7 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
         "federation_sync": federation_result,
         "mobile_transitions": mobile_transition_result,
         "identity_continuity": identity_continuity_result,
+        "federation_policy": federation_policy_result,
         "resilience": resilience_status(),
     }
 
