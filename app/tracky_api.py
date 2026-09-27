@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_mobile_transition, tracky_model_lifecycle, tracky_physical_context, tracky_site_topology
+from .services import tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_physical_context, tracky_site_topology
 from .services.pairing import authenticate
 
 
@@ -66,6 +66,8 @@ def _call(fn, *args, **kwargs):
     except tracky_federation_sync.TrackyFederationSyncError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except tracky_mobile_transition.TrackyMobileTransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except tracky_identity_continuity.TrackyIdentityContinuityError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
@@ -165,6 +167,21 @@ def paired_tracky_mobile_transitions(
         "mobile_transitions": tracky_mobile_transition.current_report(active_only=active_only),
         "agent_context": tracky_mobile_transition.agent_context(),
         "capability": tracky_mobile_transition.public_capability(),
+        "app": identity["app_key"],
+    }
+
+
+@router.get("/api/v1/tracky/identity-continuity")
+def paired_tracky_identity_continuity(
+    entity_ref: str | None = None,
+    identity: dict = Depends(_physical_reader),
+) -> dict:
+    resolved = tracky_identity_continuity.resolve_entity(entity_ref) if entity_ref else None
+    return {
+        "identity_continuity": tracky_identity_continuity.current_report(),
+        "agent_context": tracky_identity_continuity.agent_context(),
+        "resolved_identity": resolved,
+        "capability": tracky_identity_continuity.public_capability(),
         "app": identity["app_key"],
     }
 

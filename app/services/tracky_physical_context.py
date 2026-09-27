@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -501,6 +501,7 @@ def public_capability() -> dict[str, Any]:
         "federated_world": tracky_federated_world.public_capability(),
         "federation_sync": tracky_federation_sync.public_capability(),
         "mobile_transitions": tracky_mobile_transition.public_capability(),
+        "identity_continuity": tracky_identity_continuity.public_capability(),
     }
 
 
@@ -553,6 +554,7 @@ def current_context() -> dict[str, Any]:
         "federated_world": tracky_federated_world.current_report(),
         "federation_sync": tracky_federation_sync.status(),
         "mobile_transitions": tracky_mobile_transition.agent_context(),
+        "identity_continuity": tracky_identity_continuity.agent_context(),
     }
 
 
@@ -589,6 +591,12 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
     mobile_transitions_projection = (
         tracky_mobile_transition.normalize_projection(mobile_transitions_raw)
         if isinstance(mobile_transitions_raw, dict)
+        else None
+    )
+    identity_continuity_raw = payload.get("identity_continuity")
+    identity_continuity_projection = (
+        tracky_identity_continuity.normalize_projection(identity_continuity_raw)
+        if isinstance(identity_continuity_raw, dict)
         else None
     )
     try:
@@ -725,6 +733,7 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
                     ),
                     "federated_world": bool(federated_world_projection),
                     "mobile_transitions": bool(mobile_transitions_projection),
+                    "identity_continuity": bool(identity_continuity_projection),
                 }),
             ),
         )
@@ -742,6 +751,14 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
             mobile_transitions_projection,
             source=source,
             origin_role="local_authority",
+        )
+
+    identity_continuity_result = None
+    if identity_continuity_projection is not None:
+        identity_continuity_result = tracky_identity_continuity.ingest_projection(
+            identity_continuity_projection,
+            source=source,
+            origin_role="local_governed",
         )
 
     automation_results = []
@@ -778,6 +795,12 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
             "changed": int(mobile_transition_result.get("changed") or 0) if mobile_transition_result else 0,
             "stale": int(mobile_transition_result.get("stale") or 0) if mobile_transition_result else 0,
             "idempotent": int(mobile_transition_result.get("idempotent") or 0) if mobile_transition_result else 0,
+        },
+        "identity_continuity": {
+            "accepted": identity_continuity_projection is not None,
+            "changed": int(identity_continuity_result.get("changed") or 0) if identity_continuity_result else 0,
+            "stale": int(identity_continuity_result.get("stale") or 0) if identity_continuity_result else 0,
+            "idempotent": int(identity_continuity_result.get("idempotent") or 0) if identity_continuity_result else 0,
         },
     }
 
@@ -903,6 +926,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federation_sync_protocol": tracky_federation_sync.FEDERATION_SYNC_PROTOCOL,
                 "mobile_transitions": bool(tracky_mobile_transition.current_report().get("available")),
                 "mobile_transition_protocol": tracky_mobile_transition.MOBILE_TRANSITION_PROTOCOL,
+                "identity_continuity": bool(tracky_identity_continuity.current_report().get("available")),
+                "identity_continuity_protocol": tracky_identity_continuity.IDENTITY_CONTINUITY_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -919,6 +944,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federated_world": "available" if tracky_federated_world.current_report().get("available") else "empty",
                 "federation_sync": "available" if tracky_federation_sync.local_site_id(auto_pin=False) else "unresolved",
                 "mobile_transitions": "active" if tracky_mobile_transition.current_report(active_only=True).get("active_count") else "idle",
+                "identity_continuity": "available" if tracky_identity_continuity.current_report().get("available") else "empty",
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
@@ -926,6 +952,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "federated_world": federated_projection,
             "federation_sync": federation_request,
             "mobile_transitions": tracky_mobile_transition.cloud_projection(local_federation_site or None),
+            "identity_continuity": tracky_identity_continuity.cloud_projection(local_federation_site or None),
             "events": events,
             "world_state": world,
             "context": context,
@@ -1016,6 +1043,19 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
             _record_sync_failure(f"Mobile transition mirror rejected: {exc}")
             raise TrackyPhysicalError(f"VP3 Tracky mobile transition sync failed: {exc}", 503) from exc
 
+    identity_continuity_result = None
+    identity_continuity_mirror = body.get("identity_continuity")
+    if isinstance(identity_continuity_mirror, dict):
+        try:
+            identity_continuity_result = tracky_identity_continuity.ingest_projection(
+                identity_continuity_mirror,
+                source="vp3_cloud",
+                origin_role="cloud_mirror",
+            )
+        except tracky_identity_continuity.TrackyIdentityContinuityError as exc:
+            _record_sync_failure(f"Identity continuity mirror rejected: {exc}")
+            raise TrackyPhysicalError(f"VP3 Tracky identity continuity sync failed: {exc}", 503) from exc
+
     last_sequence = int(body.get("last_sequence") or package["max_sequence"])
     cursor = str(body.get("cursor") or package["cursor"])
     _record_sync_success(last_sequence, cursor, len(package["event_ids"]))
@@ -1027,6 +1067,7 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
         "cursor": cursor,
         "federation_sync": federation_result,
         "mobile_transitions": mobile_transition_result,
+        "identity_continuity": identity_continuity_result,
         "resilience": resilience_status(),
     }
 
