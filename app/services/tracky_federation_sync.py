@@ -137,7 +137,7 @@ def _normalize_envelope(input: dict[str, Any]) -> dict[str, Any]:
         "source_fingerprint": fingerprint,
         "topology_revision": topology_revision,
         "emitted_at": _text(input.get("emitted_at"), 64),
-        "fragment": normalized_filtered,
+        "fragment": fragment,
     }
 
 def _quarantine(envelope: dict[str, Any], reason: str, message: str) -> dict[str, Any]:
@@ -391,7 +391,7 @@ def build_outbound_batch(destination_site_id: str, *, max_envelopes: int = 32) -
                 "revocation_epoch": int(policy_decision.get("revocation_epoch") or 0),
             },
             "emitted_at": _now_iso(),
-            "fragment": fragment,
+            "fragment": normalized_filtered,
         })
     return {
         "protocol": FEDERATION_SYNC_PROTOCOL,
