@@ -465,7 +465,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
         tracky_federated_world.current_report()
     )
     office_visible = next(item for item in visible_world["sites"] if item["site_id"] == OFFICE)
-    assert {item["local_id"] for item in office_visible["entities"]} == {"object:laptop"}
+    assert {item["local_id"] for item in office_visible["entities"]} == {"object:laptop", "room:desk"}
+    assert not [item for item in office_visible["entities"] if item["type"] == "person"]
     assert office_visible["context"] == {}
 
     # A pre-Section-7 same-revision cache may be replaced only by a strict privacy redaction.
@@ -612,6 +613,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
                 "grant_revision": 1,
                 "policy_revision": 1,
                 "revocation_epoch": 0,
+                "world_projection": "non_person_v1",
             },
             "emitted_at": "2026-09-27T20:09:00+00:00",
             "fragment": stale_fragment,
