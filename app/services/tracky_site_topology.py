@@ -72,6 +72,11 @@ def _json_obj(raw: Any, default: Any) -> Any:
         return default
     return parsed if isinstance(parsed, type(default)) else default
 
+def _bump_revision(connection: Any) -> int:
+    connection.execute("UPDATE tracky_site_topology_state SET revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=1")
+    row = connection.execute("SELECT revision FROM tracky_site_topology_state WHERE id=1").fetchone()
+    return int(row["revision"] if row is not None else 0)
+
 def _profile(value: Any) -> str:
     normalized = _text(value or "custom", 80).lower().replace("-", "_").replace(" ", "_")
     return normalized if normalized in BUILTIN_HARDWARE_PROFILES else "custom"
@@ -112,6 +117,7 @@ def register_site(*, site_id: str, label: str, kind: str = "physical_site", alia
             """,
             (site_id, label, kind, _json(aliases), _json(metadata)),
         )
+        _bump_revision(connection)
     return get_site(site_id)
 
 def register_device(*, device_id: str, label: str = "", site_id: str | None = None, hardware_profile: str = "custom", hardware_profile_label: str = "", mobility: str = "", trust_state: str = "pending", roles: list[str] | None = None, capabilities: dict[str, Any] | None = None, aliases: list[str] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -161,6 +167,7 @@ def register_device(*, device_id: str, label: str = "", site_id: str | None = No
             """,
             (device_id, site_id, label, profile, profile_label, mobility, trust_state, _json(normalized_roles), _json(capabilities), _json(aliases), _json(metadata)),
         )
+        _bump_revision(connection)
     return get_device(device_id)
 
 def get_site(site_id: str) -> dict[str, Any]:
@@ -208,6 +215,7 @@ def claim_site_authority(*, site_id: str, device_id: str, replace: bool = False,
         if active is not None:
             connection.execute("UPDATE tracky_site_authority SET active=0,released_at=CURRENT_TIMESTAMP,release_reason=? WHERE id=?", (_text(reason or "authority_replaced", 200), active["id"]))
         connection.execute("INSERT INTO tracky_site_authority(site_id,device_id,authority_epoch,active) VALUES (?,?,?,1)", (site_id, device["id"], epoch))
+        _bump_revision(connection)
     return {"site_id": site_id, "device_id": device["id"], "authority_epoch": epoch, "active": True}
 
 def release_site_authority(*, site_id: str, device_id: str | None = None, reason: str = "released") -> bool:
@@ -219,6 +227,7 @@ def release_site_authority(*, site_id: str, device_id: str | None = None, reason
         if device_id and row["device_id"] != _uuid(device_id, "device_id"):
             raise TrackySiteTopologyError("Authority device does not match.", 409)
         connection.execute("UPDATE tracky_site_authority SET active=0,released_at=CURRENT_TIMESTAMP,release_reason=? WHERE id=?", (_text(reason, 200), row["id"]))
+        _bump_revision(connection)
     return True
 
 def upsert_relationship(*, subject_id: str, relation_type: str, object_id: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -244,6 +253,7 @@ def upsert_relationship(*, subject_id: str, relation_type: str, object_id: str, 
             """,
             (relationship_id, subject_id, relation_type, object_id, _json(metadata)),
         )
+        _bump_revision(connection)
     return {"id": relationship_id, "subject_id": subject_id, "type": relation_type, "object_id": object_id}
 
 def current_topology() -> dict[str, Any]:
@@ -252,6 +262,7 @@ def current_topology() -> dict[str, Any]:
         devices = connection.execute("SELECT * FROM tracky_site_devices ORDER BY label,device_id").fetchall()
         authority = connection.execute("SELECT * FROM tracky_site_authority WHERE active=1 ORDER BY site_id").fetchall()
         relationships = connection.execute("SELECT * FROM tracky_site_relationships ORDER BY subject_id,relation_type,object_id").fetchall()
+        state_row = connection.execute("SELECT revision,updated_at FROM tracky_site_topology_state WHERE id=1").fetchone()
     authority_by_site = {row["site_id"]: row for row in authority}
     device_items = [{
         "id": row["device_id"], "site_id": row["site_id"] or "", "label": row["label"],
@@ -270,6 +281,8 @@ def current_topology() -> dict[str, Any]:
         })
     return {
         "protocol": SITE_TOPOLOGY_PROTOCOL, "schema_version": 1,
+        "revision": int(state_row["revision"] if state_row is not None else 0),
+        "generated_at": str(state_row["updated_at"] if state_row is not None else ""),
         "sites": site_items, "devices": device_items,
         "relationships": [{"subject_id": row["subject_id"], "type": row["relation_type"], "object_id": row["object_id"]} for row in relationships],
         "authority_assignment": "local_only",
