@@ -135,6 +135,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
     # Direct world relay is permanently non-person; person continuity is a separate consent-gated channel.
     assert {item["local_id"] for item in envelope["fragment"]["entities"]} == {"object:keys"}
     assert not [item for item in envelope["fragment"]["relations"] if item["subject_local_id"] == "person:dave"]
+    assert envelope["fragment"]["context"] == {}
 
     try:
         tracky_federation_policy.grant_permission(OFFICE, "remote_observation")
