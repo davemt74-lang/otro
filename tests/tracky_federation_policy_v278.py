@@ -466,6 +466,45 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
     office_visible = next(item for item in visible_world["sites"] if item["site_id"] == OFFICE)
     assert {item["local_id"] for item in office_visible["entities"]} == {"object:laptop"}
     assert office_visible["context"] == {}
+
+    # A pre-Section-7 same-revision cache may be replaced only by a strict privacy redaction.
+    redacted_fragment = tracky_federation_policy.filter_world_fragment(
+        OFFICE, HOME, office_world["sites"][0]
+    )
+    assert redacted_fragment is not None
+    redaction_result = tracky_federated_world.ingest_projection(
+        {
+            "protocol": "physical_federated_world.v1",
+            "schema_version": 1,
+            "sites": [redacted_fragment],
+            "identity_scope": "site_local",
+            "cross_site_identity_links": [],
+            "semantic_only": True,
+        },
+        source="federation_sync_redaction",
+        allow_same_revision_redaction=True,
+    )
+    assert redaction_result["changed"] == 1
+    malicious = dict(redacted_fragment)
+    malicious["entities"] = [dict(item) for item in redacted_fragment["entities"]]
+    malicious["entities"][0]["label"] = "Tampered"
+    try:
+        tracky_federated_world.ingest_projection(
+            {
+                "protocol": "physical_federated_world.v1",
+                "schema_version": 1,
+                "sites": [malicious],
+                "identity_scope": "site_local",
+                "cross_site_identity_links": [],
+                "semantic_only": True,
+            },
+            source="federation_sync_redaction",
+            allow_same_revision_redaction=True,
+        )
+        raise AssertionError("arbitrary same-revision rewrite was accepted as privacy redaction")
+    except tracky_federated_world.TrackyFederatedWorldError as exc:
+        assert exc.status_code == 409
+
     assert tracky_federation_policy.filter_identity_report_for_local(
         tracky_identity_continuity.current_report()
     )["links"]
