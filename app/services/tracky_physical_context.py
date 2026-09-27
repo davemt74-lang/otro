@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_world, tracky_federation_policy, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_policy, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -504,6 +504,7 @@ def public_capability() -> dict[str, Any]:
         "identity_continuity": tracky_identity_continuity.public_capability(),
         "federated_agent_context": tracky_federated_agent_context.public_capability(),
         "federation_policy": tracky_federation_policy.public_capability(),
+        "federated_query": tracky_federated_query.public_capability(),
     }
 
 
@@ -971,6 +972,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federated_agent_context_protocol": tracky_federated_agent_context.FEDERATED_AGENT_CONTEXT_PROTOCOL,
                 "federation_policy": bool(tracky_federation_policy.current_report().get("available")),
                 "federation_policy_protocol": tracky_federation_policy.FEDERATION_POLICY_PROTOCOL,
+                "federated_query": bool(local_federation_site),
+                "federated_query_protocol": tracky_federated_query.FEDERATED_QUERY_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -990,6 +993,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "identity_continuity": "available" if tracky_identity_continuity.current_report().get("available") else "empty",
                 "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True).get("agent_state", "current"),
                 "federation_policy": "configured" if tracky_federation_policy.current_report().get("available") else "default_deny",
+                "federated_query": "available" if local_federation_site else "unresolved",
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
