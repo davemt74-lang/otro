@@ -26,6 +26,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
 
     from app.database import db, initialize_database  # noqa: E402
     from app.services import (  # noqa: E402
+        federated_data,
         tracky_federated_agent_context,
         tracky_federated_world,
         tracky_federation_sync,
@@ -280,25 +281,13 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
     assert stale["current_site"] is None
     assert stale["explainability"]["no_location_invention"] is True
 
-    with db() as connection:
-        connection.execute(
-            """
-            UPDATE federated_reconciliation_state
-            SET needs_reconciliation=1,last_connected_at=CURRENT_TIMESTAMP,last_error=''
-            WHERE peer_source='vp3_cloud'
-            """
-        )
+    connected = federated_data.note_peer_connected("vp3_cloud")
+    assert connected["needs_reconciliation"] is True
     reconciling = tracky_federated_agent_context.refresh_context(now_ms=NOW + 401_000)
     assert reconciling["agent_state"] == "reconciling"
 
-    with db() as connection:
-        connection.execute(
-            """
-            UPDATE federated_reconciliation_state
-            SET needs_reconciliation=1,last_error='continuity conflict'
-            WHERE peer_source='vp3_cloud'
-            """
-        )
+    disconnected = federated_data.note_peer_disconnected("vp3_cloud", "continuity conflict")
+    assert disconnected["needs_reconciliation"] is True
     failed = tracky_federated_agent_context.refresh_context(now_ms=NOW + 402_000)
     assert failed["agent_state"] == "failed"
 
