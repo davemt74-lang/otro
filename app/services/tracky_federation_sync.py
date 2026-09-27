@@ -359,6 +359,12 @@ def build_outbound_batch(destination_site_id: str, *, max_envelopes: int = 32) -
         authority = _authority(topology, source)
         if authority is None:
             continue
+        from . import tracky_federation_policy
+        policy_decision = tracky_federation_policy.permission_decision(
+            source, destination_site_id, "semantic_world_read"
+        )
+        if not policy_decision.get("allowed"):
+            continue
         fingerprint = str(fragment.get("fingerprint") or "")
         envelopes.append({
             "protocol": FEDERATION_SYNC_PROTOCOL,
@@ -371,6 +377,13 @@ def build_outbound_batch(destination_site_id: str, *, max_envelopes: int = 32) -
             "source_world_revision": revision,
             "source_fingerprint": fingerprint,
             "topology_revision": _topology_revision(topology),
+            "policy": {
+                "protocol": "physical_federation_policy.v1",
+                "scope": "semantic_world_read",
+                "grant_revision": int(policy_decision.get("grant_revision") or 0),
+                "policy_revision": int(policy_decision.get("policy_revision") or 0),
+                "revocation_epoch": int(policy_decision.get("revocation_epoch") or 0),
+            },
             "emitted_at": _now_iso(),
             "fragment": fragment,
         })
