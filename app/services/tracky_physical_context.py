@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_site_topology, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -500,6 +500,7 @@ def public_capability() -> dict[str, Any]:
         "site_topology": tracky_site_topology.public_capability(),
         "federated_world": tracky_federated_world.public_capability(),
         "federation_sync": tracky_federation_sync.public_capability(),
+        "mobile_transitions": tracky_mobile_transition.public_capability(),
     }
 
 
@@ -551,6 +552,7 @@ def current_context() -> dict[str, Any]:
         "site_topology": tracky_site_topology.current_topology(),
         "federated_world": tracky_federated_world.current_report(),
         "federation_sync": tracky_federation_sync.status(),
+        "mobile_transitions": tracky_mobile_transition.agent_context(),
     }
 
 
@@ -581,6 +583,12 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
     federated_world_projection = (
         tracky_federated_world.normalize_projection(federated_world_raw)
         if isinstance(federated_world_raw, dict)
+        else None
+    )
+    mobile_transitions_raw = payload.get("mobile_transitions")
+    mobile_transitions_projection = (
+        tracky_mobile_transition.normalize_projection(mobile_transitions_raw)
+        if isinstance(mobile_transitions_raw, dict)
         else None
     )
     try:
@@ -716,6 +724,7 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
                         lifecycle_result and lifecycle_result.get("changed")
                     ),
                     "federated_world": bool(federated_world_projection),
+                    "mobile_transitions": bool(mobile_transitions_projection),
                 }),
             ),
         )
@@ -725,6 +734,14 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
         federated_world_result = tracky_federated_world.ingest_projection(
             federated_world_projection,
             source=source,
+        )
+
+    mobile_transition_result = None
+    if mobile_transitions_projection is not None:
+        mobile_transition_result = tracky_mobile_transition.ingest_projection(
+            mobile_transitions_projection,
+            source=source,
+            origin_role="local_authority",
         )
 
     automation_results = []
@@ -755,6 +772,12 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
             "accepted": federated_world_projection is not None,
             "changed": bool(federated_world_result and federated_world_result.get("changed")),
             "stale": int(federated_world_result.get("stale") or 0) if federated_world_result else 0,
+        },
+        "mobile_transitions": {
+            "accepted": mobile_transitions_projection is not None,
+            "changed": int(mobile_transition_result.get("changed") or 0) if mobile_transition_result else 0,
+            "stale": int(mobile_transition_result.get("stale") or 0) if mobile_transition_result else 0,
+            "idempotent": int(mobile_transition_result.get("idempotent") or 0) if mobile_transition_result else 0,
         },
     }
 
@@ -878,6 +901,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federated_world_protocol": tracky_federated_world.FEDERATED_WORLD_PROTOCOL,
                 "federation_sync": True,
                 "federation_sync_protocol": tracky_federation_sync.FEDERATION_SYNC_PROTOCOL,
+                "mobile_transitions": bool(tracky_mobile_transition.current_report().get("available")),
+                "mobile_transition_protocol": tracky_mobile_transition.MOBILE_TRANSITION_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -893,12 +918,14 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "site_topology": "available" if tracky_site_topology.current_topology()["sites"] else "empty",
                 "federated_world": "available" if tracky_federated_world.current_report().get("available") else "empty",
                 "federation_sync": "available" if tracky_federation_sync.local_site_id(auto_pin=False) else "unresolved",
+                "mobile_transitions": "active" if tracky_mobile_transition.current_report(active_only=True).get("active_count") else "idle",
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
             "site_topology": tracky_site_topology.cloud_summary(),
             "federated_world": federated_projection,
             "federation_sync": federation_request,
+            "mobile_transitions": tracky_mobile_transition.cloud_projection(local_federation_site or None),
             "events": events,
             "world_state": world,
             "context": context,
@@ -976,6 +1003,19 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
             _record_sync_failure(f"Federation relay rejected: {exc}")
             raise TrackyPhysicalError(f"VP3 Tracky federation sync failed: {exc}", 503) from exc
 
+    mobile_transition_result = None
+    mobile_transition_mirror = body.get("mobile_transitions")
+    if isinstance(mobile_transition_mirror, dict):
+        try:
+            mobile_transition_result = tracky_mobile_transition.ingest_projection(
+                mobile_transition_mirror,
+                source="vp3_cloud",
+                origin_role="cloud_mirror",
+            )
+        except tracky_mobile_transition.TrackyMobileTransitionError as exc:
+            _record_sync_failure(f"Mobile transition mirror rejected: {exc}")
+            raise TrackyPhysicalError(f"VP3 Tracky mobile transition sync failed: {exc}", 503) from exc
+
     last_sequence = int(body.get("last_sequence") or package["max_sequence"])
     cursor = str(body.get("cursor") or package["cursor"])
     _record_sync_success(last_sequence, cursor, len(package["event_ids"]))
@@ -986,6 +1026,7 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
         "synced_events": len(package["event_ids"]),
         "cursor": cursor,
         "federation_sync": federation_result,
+        "mobile_transitions": mobile_transition_result,
         "resilience": resilience_status(),
     }
 
