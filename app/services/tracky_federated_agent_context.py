@@ -307,7 +307,10 @@ def _source_material(
     mobile: dict[str, Any],
     identity: dict[str, Any],
     reconciliation: str,
-    focus_id: str,
+    focus: dict[str, Any] | None,
+    now_ms: int,
+    current_age_ms: int,
+    stale_age_ms: int,
 ) -> dict[str, Any]:
     return {
         "topology_revision": int(topology.get("revision") or 0),
@@ -354,7 +357,48 @@ def _source_material(
             if isinstance(item, dict)
         ],
         "reconciliation": reconciliation,
-        "focus_identity_id": focus_id,
+        "focus_identity_id": str((focus or {}).get("canonical_identity_id") or ""),
+        "freshness_boundaries": {
+            "sites": [
+                {
+                    "site_id": str(item.get("site_id") or ""),
+                    "stale": (
+                        bool(_time_ms(item.get("observed_at")))
+                        and now_ms - _time_ms(item.get("observed_at")) > stale_age_ms
+                    ),
+                }
+                for item in world.get("sites", [])
+                if isinstance(item, dict)
+            ],
+            "focus_members": [
+                {
+                    "ref": str(ref),
+                    "site_id": _site_ref_parts(str(ref))[0],
+                    "entity_current": any(
+                        isinstance(entity, dict)
+                        and _entity_ref(str(site.get("site_id") or ""), entity) == str(ref)
+                        and bool(_time_ms(entity.get("observed_at") or site.get("observed_at")))
+                        and now_ms - _time_ms(entity.get("observed_at") or site.get("observed_at")) <= current_age_ms
+                        and _text(entity.get("state") or "unknown", 40).lower() in {"observed", "user-confirmed"}
+                        for site in world.get("sites", [])
+                        if isinstance(site, dict)
+                        for entity in site.get("entities", [])
+                    ),
+                    "relation_current": any(
+                        isinstance(relation, dict)
+                        and _relation_subject_ref(str(site.get("site_id") or ""), relation) == str(ref)
+                        and _text(relation.get("predicate"), 60).lower() in {"located_in", "present_in", "located_on"}
+                        and _text(relation.get("temporal_state") or "current", 30).lower() in {"current", "inferred"}
+                        and bool(_time_ms(relation.get("as_of")))
+                        and now_ms - _time_ms(relation.get("as_of")) <= current_age_ms
+                        for site in world.get("sites", [])
+                        if isinstance(site, dict)
+                        for relation in site.get("relations", [])
+                    ),
+                }
+                for ref in ((focus or {}).get("members") or [])
+            ],
+        },
     }
 
 def _prior_snapshot() -> dict[str, Any] | None:
@@ -441,7 +485,10 @@ def _build_context(
     focus_id = str((focus or {}).get("canonical_identity_id") or "")
     focus_mobile_ids = _focus_mobile_subject_ids(focus, mobile)
 
-    source_material = _source_material(topology, world, sync, mobile, identity, reconciliation, focus_id)
+    source_material = _source_material(
+        topology, world, sync, mobile, identity, reconciliation, focus,
+        now, max(1000, current_age_ms), max(current_age_ms, stale_age_ms),
+    )
     source_fingerprint = hashlib.sha256(_json(source_material).encode("utf-8")).hexdigest()
 
     topology_by_id = {
