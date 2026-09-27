@@ -114,6 +114,8 @@ jobs:
         run: python tests/tracky_federation_sync_v278.py
       - name: Tracky V2.78 mobile transitions
         run: python tests/tracky_mobile_transition_v278.py
+      - name: Tracky V2.78 identity continuity
+        run: python tests/tracky_identity_continuity_v278.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
