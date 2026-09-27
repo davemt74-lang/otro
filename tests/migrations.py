@@ -405,6 +405,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         for topology_table in ("tracky_site_topology_state","tracky_sites","tracky_site_devices","tracky_site_authority","tracky_site_relationships"):
             assert migrated.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (topology_table,)).fetchone() is not None
         assert migrated.execute("SELECT revision FROM tracky_site_topology_state WHERE id=1").fetchone()["revision"] == 0
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_world_fragments'"
+        ).fetchone() is not None
+        assert migrated.execute("SELECT COUNT(*) FROM tracky_federated_world_fragments").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM tool_runs").fetchone()[0] == 0
         agent_policy = migrated.execute(
             "SELECT enabled, max_calls, allow_write_proposals FROM agent_tool_policy WHERE id=1"
