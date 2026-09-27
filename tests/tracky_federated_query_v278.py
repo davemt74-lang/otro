@@ -30,6 +30,9 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s8-") as data_dir:
 
     initialize_database()
 
+    assert tracky_federated_query._timestamp_ms("2026-09-27T20:00:00+00:00") > 1_700_000_000_000
+    assert tracky_federated_query._timestamp_ms("2002") == 2002
+
     with db() as connection:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
