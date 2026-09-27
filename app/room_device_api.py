@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import approvals, room_device_automation
+from .services import approvals, room_device_automation, tracky_governed_actions
 
 router = APIRouter()
 
@@ -45,6 +45,17 @@ class DeviceCommandRequest(BaseModel):
     command: str = Field(min_length=1, max_length=40)
     arguments: dict[str, Any] = Field(default_factory=dict)
 
+class TrackyEventRuleUpsert(BaseModel):
+    rule_key: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=1, max_length=160)
+    event_type: str = Field(min_length=3, max_length=100)
+    routine_key: str = Field(min_length=1, max_length=80)
+    enabled: bool = False
+    room_id: str = Field(default="", max_length=128)
+    subject_type: str = Field(default="", max_length=60)
+    min_confidence: float = Field(default=0.80, ge=0.0, le=1.0)
+    cooldown_seconds: int = Field(default=60, ge=0, le=86400)
+
 
 def _call(fn, *args, **kwargs):
     try:
@@ -52,6 +63,8 @@ def _call(fn, *args, **kwargs):
     except room_device_automation.RoomDeviceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except approvals.ApprovalError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except tracky_governed_actions.TrackyActionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
@@ -64,6 +77,7 @@ def owner_automation_overview() -> dict:
         "devices": room_device_automation.list_devices(limit=500),
         "suggestions": room_device_automation.list_suggestions(status="suggested", limit=100),
         "recent_actions": room_device_automation.list_actions(100),
+        "tracky_event_rules": tracky_governed_actions.list_event_rules(),
         "governance": {
             "device_commands_require_approval": True,
             "ambient_direct_execution": False,
@@ -181,3 +195,36 @@ def owner_automation_suggestion_request(suggestion_id: int) -> dict:
 @router.post("/api/v1/control/vp3-os/automation/suggestions/{suggestion_id}/dismiss")
 def owner_automation_suggestion_dismiss(suggestion_id: int) -> dict:
     return {"suggestion": _call(room_device_automation.dismiss_suggestion, suggestion_id)}
+
+@router.get("/api/v1/control/vp3-os/automation/tracky-rules")
+def owner_tracky_event_rules() -> dict:
+    return {
+        "items": _call(tracky_governed_actions.list_event_rules),
+        "capability": tracky_governed_actions.public_capability(),
+    }
+
+
+@router.put("/api/v1/control/vp3-os/automation/tracky-rules/{rule_key}")
+def owner_tracky_event_rule_upsert(rule_key: str, payload: TrackyEventRuleUpsert) -> dict:
+    if rule_key.strip().lower() != payload.rule_key.strip().lower():
+        raise HTTPException(status_code=422, detail="rule_key path and payload must match")
+    return {
+        "rule": _call(
+            tracky_governed_actions.upsert_event_rule,
+            payload.rule_key,
+            payload.name,
+            event_type=payload.event_type,
+            routine_key=payload.routine_key,
+            enabled=payload.enabled,
+            room_id=payload.room_id,
+            subject_type=payload.subject_type,
+            min_confidence=payload.min_confidence,
+            cooldown_seconds=payload.cooldown_seconds,
+        )
+    }
+
+
+@router.delete("/api/v1/control/vp3-os/automation/tracky-rules/{rule_key}")
+def owner_tracky_event_rule_delete(rule_key: str) -> dict:
+    return _call(tracky_governed_actions.delete_event_rule, rule_key)
+

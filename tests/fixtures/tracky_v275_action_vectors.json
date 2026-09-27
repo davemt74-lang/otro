@@ -1,0 +1,64 @@
+{
+  "version": "tracky-v2.75",
+  "protocol": "physical_action.v1",
+  "authority": "existing_homeserver_action_requests",
+  "scenarios": [
+    {
+      "id": "default_cloud_permission",
+      "devices_control": false,
+      "expected": "suggest_only"
+    },
+    {
+      "id": "explicit_device_permission",
+      "devices_control": true,
+      "expected": "pending_local_owner_approval"
+    },
+    {
+      "id": "remote_approval",
+      "expected": "prohibited"
+    },
+    {
+      "id": "direct_execution",
+      "expected": "prohibited"
+    },
+    {
+      "id": "blocked_lock",
+      "category": "lock",
+      "expected": "reject"
+    },
+    {
+      "id": "blocked_garage",
+      "category": "garage",
+      "expected": "reject"
+    },
+    {
+      "id": "blocked_security",
+      "category": "security",
+      "expected": "reject"
+    },
+    {
+      "id": "safety_event",
+      "expected": "suggest_only"
+    },
+    {
+      "id": "v24_reconciliation_pending",
+      "expected": "block"
+    },
+    {
+      "id": "action_intent_replay",
+      "expected": "idempotent"
+    },
+    {
+      "id": "event_rule_replay",
+      "expected": "fire_once"
+    },
+    {
+      "id": "event_rule_low_confidence",
+      "expected": "no_fire"
+    },
+    {
+      "id": "event_rule_stale",
+      "expected": "no_fire"
+    }
+  ]
+}

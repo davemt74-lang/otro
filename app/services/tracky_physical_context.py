@@ -13,12 +13,12 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, vp3_os
+from . import federated_data, room_device_automation, tracky_governed_actions, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
 
-TRACKY_PHYSICAL_VERSION = "2.74"
+TRACKY_PHYSICAL_VERSION = "2.75"
 PHYSICAL_CONTEXT_PROTOCOL = "physical_context.v1"
 ACTIVE_PERCEPTION_PROTOCOL = "active_perception.v1"
 CLOUD_SYNC_PATH = "/api/tracky-sync-v270.php"
@@ -494,6 +494,7 @@ def public_capability() -> dict[str, Any]:
             "active_perception_blocked_during_reconciliation": True,
         },
         "reliability": resilience_status(),
+        "governed_actions": tracky_governed_actions.public_capability(),
     }
 
 
@@ -660,12 +661,22 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
             ),
         )
 
+    automation_results = []
+    if events:
+        try:
+            automation_results = tracky_governed_actions.process_event_automations(
+                [str(event["event_id"]) for event in events]
+            )
+        except Exception:
+            automation_results = []
+
     return {
         "accepted": True,
         "inserted_events": inserted,
         "duplicate_events": duplicates,
         "relations": len(relations),
         "last_sequence": max_sequence,
+        "automation_results": automation_results,
     }
 
 
