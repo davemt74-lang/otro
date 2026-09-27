@@ -303,7 +303,7 @@ def cloud_projection() -> dict[str, Any]:
             "channel": _text(item.get("channel"), 20),
             "settled_count": max(0, int(item.get("settledCount") or 0)),
             "weighted_count": max(0.0, float(item.get("weightedCount") or 0)),
-            "mean_raw_confidence": _metric(item.get("meanRawConfidence")),
+            "mean_original_confidence": _metric(item.get("meanRawConfidence")),
             "empirical_accuracy": _metric(item.get("empiricalAccuracy")),
             "brier_score": _metric(item.get("brierScore")),
             "expected_calibration_error": _metric(item.get("expectedCalibrationError")),
@@ -317,8 +317,8 @@ def cloud_projection() -> dict[str, Any]:
         "settlements": max(0, int(report.get("settlements") or 0)),
         "profiles": compact_profiles,
         "summary_only": True,
-        "raw_predictions_exposed": False,
-        "settlements_exposed": False,
+        "prediction_records_exposed": False,
+        "settlement_records_exposed": False,
     }
 
 
