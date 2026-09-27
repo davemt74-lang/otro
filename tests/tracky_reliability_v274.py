@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
     assert float(str(cap["version"])) >= 2.74
     assert cap["continuity"]["foundation"] == "homeserver_v2.4"
     assert cap["reliability"]["provider_timeout_seconds"] == 12
-    assert cap["reliability"]["backlog_warn_events"] == 510
+    assert cap["reliability"]["backlog_warn_events"] == 500
     assert cap["reliability"]["backlog_critical_events"] == 2000
     assert cap["active_perception"]["physical_actions"] is False
 
