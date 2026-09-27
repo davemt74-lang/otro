@@ -259,6 +259,18 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
             _quarantine(envelope, "authority_mismatch", "Envelope authority does not match current topology authority.")
             quarantined += 1
             continue
+        from . import tracky_federation_policy
+        policy_decision = tracky_federation_policy.permission_decision(
+            source, local, "semantic_world_read"
+        )
+        if not policy_decision.get("allowed"):
+            _quarantine(
+                envelope,
+                "policy_denied",
+                f"Source site federation policy denied semantic world sharing: {policy_decision.get('reason') or 'denied'}.",
+            )
+            quarantined += 1
+            continue
 
         with db() as connection:
             prior = connection.execute(
