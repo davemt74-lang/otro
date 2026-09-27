@@ -370,12 +370,15 @@ def ingest_projection(
                   origin_role,governing_site_id,created_at_ms,observed_updated_at_ms
                 ) VALUES (?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(canonical_identity_id) DO UPDATE SET
-                  entity_type=excluded.entity_type,status=excluded.status,
-                  aliases_json=excluded.aliases_json,members_json=excluded.members_json,
-                  revision=CASE WHEN excluded.revision>revision THEN excluded.revision ELSE revision END,
-                  origin_role=excluded.origin_role,governing_site_id=excluded.governing_site_id,
+                  entity_type=CASE WHEN excluded.revision>=revision THEN excluded.entity_type ELSE entity_type END,
+                  status=CASE WHEN excluded.revision>=revision THEN excluded.status ELSE status END,
+                  aliases_json=CASE WHEN excluded.revision>=revision THEN excluded.aliases_json ELSE aliases_json END,
+                  members_json=CASE WHEN excluded.revision>=revision THEN excluded.members_json ELSE members_json END,
+                  origin_role=CASE WHEN excluded.revision>=revision THEN excluded.origin_role ELSE origin_role END,
+                  governing_site_id=CASE WHEN excluded.revision>=revision THEN excluded.governing_site_id ELSE governing_site_id END,
                   created_at_ms=CASE WHEN created_at_ms=0 THEN excluded.created_at_ms ELSE created_at_ms END,
-                  observed_updated_at_ms=MAX(observed_updated_at_ms,excluded.observed_updated_at_ms),
+                  observed_updated_at_ms=CASE WHEN excluded.revision>=revision THEN excluded.observed_updated_at_ms ELSE observed_updated_at_ms END,
+                  revision=MAX(revision,excluded.revision),
                   updated_at=CURRENT_TIMESTAMP
                 """,
                 (
