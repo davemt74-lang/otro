@@ -108,6 +108,8 @@ jobs:
         run: python tests/tracky_model_lifecycle_v277.py
       - name: Tracky V2.78 site topology
         run: python tests/tracky_site_topology_v278.py
+      - name: Tracky V2.78 federated world
+        run: python tests/tracky_federated_world_v278.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression

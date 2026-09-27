@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_site_topology, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_world, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -498,6 +498,7 @@ def public_capability() -> dict[str, Any]:
         "forecast_calibration": tracky_forecast_calibration.public_capability(),
         "model_lifecycle": tracky_model_lifecycle.public_capability(),
         "site_topology": tracky_site_topology.public_capability(),
+        "federated_world": tracky_federated_world.public_capability(),
     }
 
 
@@ -547,6 +548,7 @@ def current_context() -> dict[str, Any]:
         "forecast_calibration": tracky_forecast_calibration.current_report(),
         "model_lifecycle": tracky_model_lifecycle.current_report(),
         "site_topology": tracky_site_topology.current_topology(),
+        "federated_world": tracky_federated_world.current_report(),
     }
 
 
@@ -571,6 +573,12 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
     lifecycle_report = (
         tracky_model_lifecycle.normalize_report(lifecycle_raw)
         if isinstance(lifecycle_raw, dict)
+        else None
+    )
+    federated_world_raw = payload.get("federated_world")
+    federated_world_projection = (
+        tracky_federated_world.normalize_projection(federated_world_raw)
+        if isinstance(federated_world_raw, dict)
         else None
     )
     try:
@@ -705,8 +713,16 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
                     "model_lifecycle_changed": bool(
                         lifecycle_result and lifecycle_result.get("changed")
                     ),
+                    "federated_world": bool(federated_world_projection),
                 }),
             ),
+        )
+
+    federated_world_result = None
+    if federated_world_projection is not None:
+        federated_world_result = tracky_federated_world.ingest_projection(
+            federated_world_projection,
+            source=source,
         )
 
     automation_results = []
@@ -732,6 +748,11 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
         "model_lifecycle": {
             "accepted": lifecycle_report is not None,
             "changed": bool(lifecycle_result and lifecycle_result.get("changed")),
+        },
+        "federated_world": {
+            "accepted": federated_world_projection is not None,
+            "changed": bool(federated_world_result and federated_world_result.get("changed")),
+            "stale": int(federated_world_result.get("stale") or 0) if federated_world_result else 0,
         },
     }
 
@@ -848,6 +869,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "model_lifecycle_protocol": tracky_model_lifecycle.MODEL_LIFECYCLE_PROTOCOL,
                 "site_topology": True,
                 "site_topology_protocol": tracky_site_topology.SITE_TOPOLOGY_PROTOCOL,
+                "federated_world": bool(tracky_federated_world.current_report().get("available")),
+                "federated_world_protocol": tracky_federated_world.FEDERATED_WORLD_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -861,10 +884,12 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 ),
                 "model_lifecycle": tracky_model_lifecycle.health_summary()["state"],
                 "site_topology": "available" if tracky_site_topology.current_topology()["sites"] else "empty",
+                "federated_world": "available" if tracky_federated_world.current_report().get("available") else "empty",
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
             "site_topology": tracky_site_topology.cloud_summary(),
+            "federated_world": tracky_federated_world.cloud_projection(),
             "events": events,
             "world_state": world,
             "context": context,
