@@ -353,6 +353,15 @@ def permission_decision(
     policy = site_policy(source)
     if policy is None:
         return {"allowed": False, "reason": "source_site_policy_missing"}
+    try:
+        current_device, current_epoch = _authority(source)
+    except TrackyFederationPolicyError:
+        return {"allowed": False, "reason": "source_policy_authority_unresolved"}
+    if (
+        str(policy.get("governing_authority_device_id") or "") != current_device
+        or int(policy.get("governing_authority_epoch") or 0) != current_epoch
+    ):
+        return {"allowed": False, "reason": "source_policy_authority_stale"}
     if not policy["allow_federation"]:
         return {"allowed": False, "reason": "source_site_federation_disabled"}
     if destination not in policy["allowed_peer_sites"]:
@@ -396,7 +405,8 @@ def recognition_decision(site_id: str, canonical_identity_id: str, scope: str) -
     with db() as connection:
         row = connection.execute(
             """
-            SELECT status,revision FROM tracky_recognition_consents
+            SELECT status,revision,governing_authority_device_id,governing_authority_epoch
+            FROM tracky_recognition_consents
             WHERE site_id=? AND canonical_identity_id=? AND scope=?
             """,
             (site, canonical, permission),
@@ -406,6 +416,15 @@ def recognition_decision(site_id: str, canonical_identity_id: str, scope: str) -
         ).fetchone()
     if row is None:
         return {"allowed": False, "reason": "consent_required"}
+    try:
+        current_device, current_epoch = _authority(site)
+    except TrackyFederationPolicyError:
+        return {"allowed": False, "reason": "consent_authority_unresolved"}
+    if (
+        str(row["governing_authority_device_id"] or "") != current_device
+        or int(row["governing_authority_epoch"] or 0) != current_epoch
+    ):
+        return {"allowed": False, "reason": "consent_authority_stale"}
     status = str(row["status"] or "")
     if status != "granted":
         return {"allowed": False, "reason": "consent_revoked" if status == "revoked" else "consent_denied" if status == "denied" else "consent_required"}
