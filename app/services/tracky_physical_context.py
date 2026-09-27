@@ -13,12 +13,12 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, vp3_os
+from . import federated_data, room_device_automation, tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
 
-TRACKY_PHYSICAL_VERSION = "2.77"
+TRACKY_PHYSICAL_VERSION = "2.78"
 PHYSICAL_CONTEXT_PROTOCOL = "physical_context.v1"
 ACTIVE_PERCEPTION_PROTOCOL = "active_perception.v1"
 CLOUD_SYNC_PATH = "/api/tracky-sync-v270.php"
@@ -497,6 +497,7 @@ def public_capability() -> dict[str, Any]:
         "governed_actions": tracky_governed_actions.public_capability(),
         "forecast_calibration": tracky_forecast_calibration.public_capability(),
         "model_lifecycle": tracky_model_lifecycle.public_capability(),
+        "site_topology": tracky_site_topology.public_capability(),
     }
 
 
@@ -545,6 +546,7 @@ def current_context() -> dict[str, Any]:
         "rooms": canonical_rooms(),
         "forecast_calibration": tracky_forecast_calibration.current_report(),
         "model_lifecycle": tracky_model_lifecycle.current_report(),
+        "site_topology": tracky_site_topology.current_topology(),
     }
 
 
@@ -844,6 +846,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "forecast_calibration_protocol": tracky_forecast_calibration.FORECAST_CALIBRATION_PROTOCOL,
                 "model_lifecycle": bool(tracky_model_lifecycle.current_report().get("available")),
                 "model_lifecycle_protocol": tracky_model_lifecycle.MODEL_LIFECYCLE_PROTOCOL,
+                "site_topology": True,
+                "site_topology_protocol": tracky_site_topology.SITE_TOPOLOGY_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -856,9 +860,11 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                     else "empty"
                 ),
                 "model_lifecycle": tracky_model_lifecycle.health_summary()["state"],
+                "site_topology": "available" if tracky_site_topology.current_topology()["sites"] else "empty",
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
+            "site_topology": tracky_site_topology.cloud_summary(),
             "events": events,
             "world_state": world,
             "context": context,

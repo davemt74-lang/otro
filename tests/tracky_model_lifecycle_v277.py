@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v277-") as data_dir:
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert versions == list(range(1, 44))
+        assert versions == list(range(1, 45))
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_model_lifecycle'"
         ).fetchone() is not None
@@ -254,7 +254,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v277-") as data_dir:
     assert context["model_lifecycle"]["report"]["active"][0]["modelKey"] == "location-model"
 
     physical_cap = tracky_physical_context.public_capability()
-    assert physical_cap["version"] == "2.77"
+    assert physical_cap["version"] == "2.78"
     assert physical_cap["model_lifecycle"]["protocol"] == "physical_model_lifecycle.v1"
     assert physical_cap["model_lifecycle"]["activation_authority"] == "local_only"
 
