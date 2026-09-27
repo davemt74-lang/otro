@@ -136,6 +136,18 @@ def register_device(*, device_id: str, label: str = "", site_id: str | None = No
     with db() as connection:
         if site_id and connection.execute("SELECT 1 FROM tracky_sites WHERE site_id=?", (site_id,)).fetchone() is None:
             raise TrackySiteTopologyError("Device site is not registered.")
+        active = connection.execute("SELECT site_id FROM tracky_site_authority WHERE device_id=? AND active=1 LIMIT 1", (device_id,)).fetchone()
+        if active is not None:
+            if site_id != active["site_id"]:
+                raise TrackySiteTopologyError("Release site authority before moving the device to another site.", 409)
+            if trust_state != "trusted":
+                raise TrackySiteTopologyError("Release site authority before removing device trust.", 409)
+            if "site_authority" not in normalized_roles:
+                raise TrackySiteTopologyError("Release site authority before removing the site_authority role.", 409)
+            if capabilities.get("site_authority_eligible") is not True:
+                raise TrackySiteTopologyError("Release site authority before removing authority eligibility.", 409)
+            if mobility == "mobile":
+                raise TrackySiteTopologyError("Release site authority before making the device mobile.", 409)
         connection.execute(
             """
             INSERT INTO tracky_site_devices(device_id,site_id,label,hardware_profile,hardware_profile_label,mobility,trust_state,roles_json,capabilities_json,aliases_json,metadata_json)
@@ -188,6 +200,8 @@ def claim_site_authority(*, site_id: str, device_id: str, replace: bool = False,
         raise TrackySiteTopologyError("Mobile devices cannot hold durable site authority.")
     with db() as connection:
         active = connection.execute("SELECT * FROM tracky_site_authority WHERE site_id=? AND active=1 LIMIT 1", (site_id,)).fetchone()
+        if active is not None and active["device_id"] == device["id"]:
+            return {"site_id": site_id, "device_id": device["id"], "authority_epoch": int(active["authority_epoch"]), "active": True, "idempotent": True}
         if active is not None and active["device_id"] != device["id"] and not replace:
             raise TrackySiteTopologyError("Site already has an active authority device.", 409)
         epoch = int(connection.execute("SELECT COALESCE(MAX(authority_epoch),0)+1 FROM tracky_site_authority WHERE site_id=?", (site_id,)).fetchone()[0])
