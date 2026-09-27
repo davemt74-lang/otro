@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_physical_context
+from .services import tracky_forecast_calibration, tracky_governed_actions, tracky_model_lifecycle, tracky_physical_context, tracky_site_topology
 from .services.pairing import authenticate
 
 
@@ -59,6 +59,8 @@ def _call(fn, *args, **kwargs):
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except tracky_model_lifecycle.TrackyLifecycleError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except tracky_site_topology.TrackySiteTopologyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/api/v1/tracky/capabilities")
@@ -110,6 +112,17 @@ def paired_tracky_model_lifecycle(
         "lifecycle": tracky_model_lifecycle.current_report(),
         "health": tracky_model_lifecycle.health_summary(),
         "capability": tracky_model_lifecycle.public_capability(),
+        "app": identity["app_key"],
+    }
+
+
+@router.get("/api/v1/tracky/site-topology")
+def paired_tracky_site_topology(
+    identity: dict = Depends(_physical_reader),
+) -> dict:
+    return {
+        "topology": tracky_site_topology.current_topology(),
+        "capability": tracky_site_topology.public_capability(),
         "app": identity["app_key"],
     }
 
