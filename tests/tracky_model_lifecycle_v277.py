@@ -254,7 +254,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v277-") as data_dir:
     assert context["model_lifecycle"]["report"]["active"][0]["modelKey"] == "location-model"
 
     physical_cap = tracky_physical_context.public_capability()
-    assert physical_cap["version"] == "2.77"
+    assert physical_cap["version"] == "2.78"
     assert physical_cap["model_lifecycle"]["protocol"] == "physical_model_lifecycle.v1"
     assert physical_cap["model_lifecycle"]["activation_authority"] == "local_only"
 
