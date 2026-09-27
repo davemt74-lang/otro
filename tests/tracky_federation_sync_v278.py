@@ -302,7 +302,10 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     unapproved = copy.deepcopy(home_env)
     unapproved["source_site_id"] = CABIN
     unapproved["source_authority_device_id"] = NODE_C
-    unapproved["fragment"] = fragment(CABIN, NODE_C, 1, 9, "lamp")
+    unapproved["fragment"] = {
+        **fragment(CABIN, NODE_C, 1, 9, "lamp"),
+        "context": {},
+    }
     unapproved["source_world_revision"] = 9
     unapproved["source_fingerprint"] = "f" * 64
     unapproved["destination_site_id"] = HOME
