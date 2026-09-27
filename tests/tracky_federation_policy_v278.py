@@ -435,6 +435,78 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
         tracky_mobile_transition.current_report()
     )["transitions"]
 
+    # A later re-grant must not make an envelope authorized under the pre-revocation policy valid again.
+    office_policy_regranted = {
+        **office_policy_granted,
+        "projections": [{
+            **office_policy_granted["projections"][0],
+            "revision": 3,
+            "revocation_epoch": 1,
+            "sites": [{
+                **office_policy_granted["projections"][0]["sites"][0],
+                "revision": 3,
+            }],
+            "grants": [
+                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "semantic_world_read", "status": "granted", "revision": 3, "reason": "share_world_again"},
+            ],
+            "consents": [],
+            "revocations": office_policy_revoked["projections"][0]["revocations"],
+        }],
+    }
+    mirror_regrant = tracky_federation_policy.ingest_cloud_mirror(office_policy_regranted)
+    assert mirror_regrant["accepted"] is True
+    assert tracky_federation_policy.permission_decision(
+        OFFICE, HOME, "semantic_world_read"
+    )["allowed"] is True
+
+    stale_fragment = tracky_federated_world.normalize_fragment({
+        **office_world["sites"][0],
+        "revision": 2,
+        "entities": [
+            {"local_id": "object:laptop", "type": "object", "label": "Laptop", "state": "observed", "confidence": .95, "observed_at": 2300},
+        ],
+        "relations": [],
+        "context": {},
+    })
+    stale_batch = {
+        "protocol": "physical_federation_sync.v1",
+        "schema_version": 1,
+        "destination_site_id": HOME,
+        "topology_revision": 10,
+        "emitted_at": "2026-09-27T20:10:00+00:00",
+        "envelopes": [{
+            "protocol": "physical_federation_sync.v1",
+            "schema_version": 1,
+            "envelope_id": "fed-office-stale-policy",
+            "source_site_id": OFFICE,
+            "destination_site_id": HOME,
+            "source_authority_device_id": NODE_B,
+            "source_authority_epoch": 1,
+            "source_world_revision": 2,
+            "source_fingerprint": stale_fragment["fingerprint"],
+            "topology_revision": 10,
+            "policy": {
+                "protocol": "physical_federation_policy.v1",
+                "scope": "semantic_world_read",
+                "grant_revision": 1,
+                "policy_revision": 1,
+                "revocation_epoch": 0,
+            },
+            "emitted_at": "2026-09-27T20:09:00+00:00",
+            "fragment": stale_fragment,
+        }],
+    }
+    stale_result = tracky_federation_sync.ingest_cloud_batch(stale_batch)
+    assert stale_result["applied"] == 0
+    assert stale_result["quarantined"] == 1
+    with db() as connection:
+        stale_quarantine = connection.execute(
+            "SELECT reason FROM tracky_federation_quarantine WHERE envelope_id=? ORDER BY id DESC LIMIT 1",
+            ("fed-office-stale-policy",),
+        ).fetchone()
+    assert stale_quarantine is not None
+    assert stale_quarantine["reason"] == "policy_stale"
+
     # Records remain durable for reconciliation/audit even while policy-visible views hide them.
     raw_world = tracky_federated_world.current_report()
     assert OFFICE in {item["site_id"] for item in raw_world["sites"]}
