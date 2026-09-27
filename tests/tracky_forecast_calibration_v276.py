@@ -125,9 +125,11 @@ with tempfile.TemporaryDirectory(prefix="tracky-v276-") as data_dir:
     cloud = tracky_forecast_calibration.cloud_projection()
     assert cloud["protocol"] == "forecast_calibration.v1"
     assert cloud["summary_only"] is True
-    assert cloud["raw_predictions_exposed"] is False
-    assert cloud["settlements_exposed"] is False
+    assert cloud["prediction_records_exposed"] is False
+    assert cloud["settlement_records_exposed"] is False
     assert cloud["profiles"][0]["model_key"] == "location-model"
+    assert cloud["profiles"][0]["mean_original_confidence"] == 0.82
+    assert "mean_raw_confidence" not in cloud["profiles"][0]
     assert "buckets" not in cloud["profiles"][0]
     assert "outcomeValue" not in str(cloud)
     assert "predictedValue" not in str(cloud)
