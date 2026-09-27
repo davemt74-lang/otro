@@ -725,7 +725,26 @@ def filter_world_report_for_local(report: dict[str, Any], site_id: str | None = 
             continue
         decision = permission_decision(source, local, "semantic_world_read")
         if decision.get("allowed"):
-            visible.append(fragment)
+            sanitized = json.loads(json.dumps(fragment))
+            remote_entities = sanitized.get("entities") if isinstance(sanitized.get("entities"), list) else []
+            denied_ids = {
+                str(item.get("local_id") or "")
+                for item in remote_entities
+                if isinstance(item, dict) and str(item.get("type") or "") == "person"
+            }
+            denied_ids.discard("")
+            sanitized["entities"] = [
+                item for item in remote_entities
+                if isinstance(item, dict) and str(item.get("type") or "") != "person"
+            ]
+            sanitized["relations"] = [
+                item for item in (sanitized.get("relations") if isinstance(sanitized.get("relations"), list) else [])
+                if isinstance(item, dict)
+                and str(item.get("subject_local_id") or "") not in denied_ids
+                and str(item.get("object_local_id") or "") not in denied_ids
+            ]
+            sanitized["context"] = {}
+            visible.append(sanitized)
     entities = []
     relations = []
     for fragment in visible:
@@ -773,10 +792,7 @@ def filter_identity_report_for_local(report: dict[str, Any]) -> dict[str, Any]:
     identities = [
         item for item in report.get("identities", [])
         if isinstance(item, dict)
-        and (
-            str(item.get("origin_role") or "") != "cloud_mirror"
-            or str(item.get("canonical_identity_id") or "") in identity_ids
-        )
+        and str(item.get("canonical_identity_id") or "") in identity_ids
     ]
     return {**report, "identities": identities, "links": kept_links, "policy_filtered": True}
 
@@ -805,10 +821,8 @@ def resolve_identity_for_local(entity_ref: str) -> dict[str, Any] | None:
     ref = str(entity_ref or "").strip()
     if not ref:
         raise TrackyFederationPolicyError("Entity ref is required.")
-    report = filter_identity_report_for_local(__import__(
-        "app.services.tracky_identity_continuity",
-        fromlist=["current_report"],
-    ).current_report())
+    from . import tracky_identity_continuity
+    report = filter_identity_report_for_local(tracky_identity_continuity.current_report())
     matches = [
         item for item in report.get("identities", [])
         if isinstance(item, dict)
