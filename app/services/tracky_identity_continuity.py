@@ -195,6 +195,9 @@ def _normalize_link(input: dict[str, Any]) -> dict[str, Any]:
         "governing_authority_epoch": max(0, int(input.get("governing_authority_epoch") or 0)),
     }
     material = dict(normalized)
+    material.pop("governing_site_id", None)
+    material.pop("governing_authority_device_id", None)
+    material.pop("governing_authority_epoch", None)
     normalized["fingerprint"] = hashlib.sha256(_json(material).encode("utf-8")).hexdigest()
     return normalized
 
@@ -342,6 +345,14 @@ def ingest_projection(
             if link["left_ref"] not in known_refs or link["right_ref"] not in known_refs:
                 raise TrackyIdentityContinuityError(
                     "Identity link references an entity not present in the current federated world.", 409
+                )
+            pair_owner = connection.execute(
+                "SELECT link_id,governing_site_id FROM tracky_identity_links WHERE pair_key=? LIMIT 1",
+                (link["pair_key"],),
+            ).fetchone()
+            if pair_owner is not None and str(pair_owner["link_id"]) != link["link_id"]:
+                raise TrackyIdentityContinuityError(
+                    "Identity pair is already governed by a different link.", 409
                 )
             prior = connection.execute(
                 "SELECT revision,fingerprint,status FROM tracky_identity_links WHERE link_id=?",
