@@ -12,6 +12,7 @@ from ..database import db
 from . import (
     federated_data,
     tracky_federated_world,
+    tracky_federation_policy,
     tracky_federation_sync,
     tracky_identity_continuity,
     tracky_mobile_transition,
@@ -475,10 +476,16 @@ def _build_context(
 ) -> tuple[dict[str, Any], str]:
     now = int(now_ms if now_ms is not None else _now_ms())
     topology = tracky_site_topology.current_topology()
-    world = tracky_federated_world.current_report()
+    world = tracky_federation_policy.filter_world_report_for_local(
+        tracky_federated_world.current_report()
+    )
     sync = tracky_federation_sync.status()
-    mobile = tracky_mobile_transition.current_report()
-    identity = tracky_identity_continuity.current_report()
+    mobile = tracky_federation_policy.filter_mobile_report_for_local(
+        tracky_mobile_transition.current_report()
+    )
+    identity = tracky_federation_policy.filter_identity_report_for_local(
+        tracky_identity_continuity.current_report()
+    )
     local_site_id = str(sync.get("local_site_id") or "")
     reconciliation = _reconciliation_state()
     focus = _focus_identity(identity, focus_identity_id)

@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s2-") as data_dir:
 
     with db() as connection:
         versions = [int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 50))
+        assert versions == list(range(1, 51))
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_world_fragments'"
         ).fetchone() is not None
@@ -159,13 +159,21 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s2-") as data_dir:
     physical_cap = tracky_physical_context.public_capability()
     assert physical_cap["federated_world"]["protocol"] == "physical_federated_world.v1"
     assert physical_cap["federated_world"]["cross_site_identity_linking"] is False
-    assert tracky_physical_context.current_context()["federated_world"]["site_count"] == 2
+
+    # Section 7 keeps durable federation storage intact while deny-by-default
+    # hides/transmits no cross-site state until this HomeServer has a resolved local site.
+    visible = tracky_physical_context.current_context()["federated_world"]
+    assert visible["site_count"] == 0
+    assert visible["policy_reason"] == "local_site_unresolved"
+    assert tracky_federated_world.current_report()["site_count"] == 2
 
     package = tracky_physical_context._cloud_payload()
-    wire = package["payload"]["federated_world"]
-    assert wire["protocol"] == "physical_federated_world.v1"
-    assert wire["site_count"] == 2
-    assert wire["identity_scope"] == "site_local"
+    assert package["payload"]["federated_world"] is None
+    assert package["payload"]["mobile_transitions"] is None
+    assert package["payload"]["identity_continuity"] is None
+    assert package["payload"]["federated_agent_context"] is None
+    assert package["payload"]["federation_policy"] is None
+    assert package["payload"]["federation_sync"]["available"] is False
     assert package["payload"]["capabilities"]["federated_world"] is True
     assert package["payload"]["capabilities"]["federated_world_protocol"] == "physical_federated_world.v1"
 

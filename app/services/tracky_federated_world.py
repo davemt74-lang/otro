@@ -194,7 +194,57 @@ def normalize_projection(input: dict[str, Any]) -> dict[str, Any]:
         "authority_assignment": "local_only",
     }
 
-def ingest_projection(input: dict[str, Any], *, source: str = "tracky") -> dict[str, Any]:
+def _privacy_redaction_only(prior: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    if (
+        str(prior.get("site_id") or "") != str(incoming.get("site_id") or "")
+        or int(prior.get("revision") or 0) != int(incoming.get("revision") or 0)
+        or str(prior.get("authority_device_id") or "") != str(incoming.get("authority_device_id") or "")
+        or int(prior.get("authority_epoch") or 0) != int(incoming.get("authority_epoch") or 0)
+        or int(prior.get("topology_revision") or 0) != int(incoming.get("topology_revision") or 0)
+        or str(prior.get("observed_at") or "") != str(incoming.get("observed_at") or "")
+    ):
+        return False
+    if incoming.get("context") not in ({}, None):
+        return False
+    incoming_entities = incoming.get("entities") if isinstance(incoming.get("entities"), list) else []
+    prior_entities = prior.get("entities") if isinstance(prior.get("entities"), list) else []
+    if any(isinstance(item, dict) and str(item.get("type") or "") == "person" for item in incoming_entities):
+        return False
+    prior_entity_map = {
+        str(item.get("local_id") or ""): item
+        for item in prior_entities if isinstance(item, dict) and str(item.get("local_id") or "")
+    }
+    for item in incoming_entities:
+        if not isinstance(item, dict):
+            return False
+        local_id = str(item.get("local_id") or "")
+        if not local_id or prior_entity_map.get(local_id) != item:
+            return False
+
+    prior_relations = {
+        _json(item)
+        for item in (prior.get("relations") if isinstance(prior.get("relations"), list) else [])
+        if isinstance(item, dict)
+    }
+    incoming_relations = incoming.get("relations") if isinstance(incoming.get("relations"), list) else []
+    if any(_json(item) not in prior_relations for item in incoming_relations if isinstance(item, dict)):
+        return False
+    if any(not isinstance(item, dict) for item in incoming_relations):
+        return False
+
+    prior_context = prior.get("context") if isinstance(prior.get("context"), dict) else {}
+    removed_entity = len(incoming_entities) < len(prior_entities)
+    removed_relation = len(incoming_relations) < len(prior_relations)
+    removed_context = bool(prior_context)
+    return removed_entity or removed_relation or removed_context
+
+
+def ingest_projection(
+    input: dict[str, Any],
+    *,
+    source: str = "tracky",
+    allow_same_revision_redaction: bool = False,
+) -> dict[str, Any]:
     projection = normalize_projection(input)
     accepted = changed = stale = 0
     for fragment in projection["sites"]:
@@ -205,7 +255,7 @@ def ingest_projection(input: dict[str, Any], *, source: str = "tracky") -> dict[
         fingerprint = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
         with db() as connection:
             prior = connection.execute(
-                "SELECT world_revision,fingerprint FROM tracky_federated_world_fragments WHERE site_id=?",
+                "SELECT world_revision,fingerprint,fragment_json FROM tracky_federated_world_fragments WHERE site_id=?",
                 (fragment["site_id"],),
             ).fetchone()
             if prior is not None and fragment["revision"] < int(prior["world_revision"]):
@@ -213,7 +263,35 @@ def ingest_projection(input: dict[str, Any], *, source: str = "tracky") -> dict[
                 continue
             if prior is not None and fragment["revision"] == int(prior["world_revision"]):
                 if str(prior["fingerprint"]) != fingerprint:
-                    raise TrackyFederatedWorldError("Federated world revision conflicts with existing site world.", 409)
+                    prior_fragment = {}
+                    try:
+                        prior_fragment = json.loads(prior["fragment_json"] or "{}")
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        prior_fragment = {}
+                    if not (
+                        allow_same_revision_redaction
+                        and isinstance(prior_fragment, dict)
+                        and _privacy_redaction_only(prior_fragment, fragment)
+                    ):
+                        raise TrackyFederatedWorldError("Federated world revision conflicts with existing site world.", 409)
+                    connection.execute(
+                        """
+                        UPDATE tracky_federated_world_fragments
+                        SET authority_device_id=?,authority_epoch=?,topology_revision=?,
+                            observed_at=?,fragment_json=?,fingerprint=?,source=?,
+                            updated_at=CURRENT_TIMESTAMP
+                        WHERE site_id=?
+                        """,
+                        (
+                            fragment["authority_device_id"], fragment["authority_epoch"],
+                            fragment["topology_revision"], fragment["observed_at"],
+                            encoded, fingerprint, _text(source, 80) or "federation_sync_redaction",
+                            fragment["site_id"],
+                        ),
+                    )
+                    accepted += 1
+                    changed += 1
+                    continue
                 accepted += 1
                 continue
             connection.execute(

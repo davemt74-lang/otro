@@ -29,6 +29,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
         federated_data,
         tracky_federated_agent_context,
         tracky_federated_world,
+        tracky_federation_policy,
         tracky_federation_sync,
         tracky_identity_continuity,
         tracky_mobile_transition,
@@ -42,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()]
-        assert versions == list(range(1, 50))
+        assert versions == list(range(1, 51))
         for table in (
             "tracky_federated_agent_context",
             "tracky_federated_agent_context_history",
@@ -69,6 +70,52 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
 
     tracky_site_topology.upsert_relationship(subject_id=HOME, relation_type="peers_with", object_id=OFFICE)
     tracky_federation_sync.set_local_site_id(HOME)
+
+    # Section 7 requires an explicit source-site grant before remote world
+    # revisions may contribute to Agent context. The world channel remains
+    # non-person, so only revision/freshness—not person-derived context—crosses.
+    office_policy = tracky_federation_policy.ingest_cloud_mirror({
+        "protocol": "physical_federation_policy_relay.v1",
+        "schema_version": 1,
+        "destination_site_id": HOME,
+        "projections": [{
+            "protocol": "physical_federation_policy.v1",
+            "schema_version": 1,
+            "revision": 1,
+            "revocation_epoch": 0,
+            "governing_site_id": OFFICE,
+            "governing_authority_device_id": NODE_B,
+            "governing_authority_epoch": 1,
+            "sites": [{
+                "site_id": OFFICE,
+                "revision": 1,
+                "mode": "team",
+                "allow_federation": True,
+                "allow_remote_observation": False,
+                "default_identity_visibility": "none",
+                "allowed_peer_sites": [HOME],
+            }],
+            "grants": [{
+                "source_site_id": OFFICE,
+                "destination_site_id": HOME,
+                "scope": "semantic_world_read",
+                "status": "granted",
+                "revision": 1,
+                "reason": "section6_agent_context_test",
+            }],
+            "consents": [],
+            "revocations": [],
+            "semantic_only": True,
+            "summary_only": True,
+            "authority_assignment": "local_site_policy",
+            "cloud_role": "mirror_relay_enforcer",
+            "cloud_can_grant": False,
+            "cloud_can_revoke": False,
+            "cloud_can_change_consent": False,
+            "raw_perception": False,
+        }],
+    })
+    assert office_policy["accepted"] is True
 
     def fragment(site_id: str, node: str, revision: int, observed: int, confidence: float, recent: str):
         return {
@@ -204,7 +251,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
     assert changed["changed_elsewhere"][0]["site_id"] == OFFICE
     assert changed["changed_elsewhere"][0]["from_revision"] == 1
     assert changed["changed_elsewhere"][0]["to_revision"] == 2
-    assert changed["changed_elsewhere"][0]["recent_changes"] == ["Office monitor moved"]
+    assert changed["changed_elsewhere"][0]["recent_changes"] == []
 
     retained = tracky_federated_agent_context.refresh_context(now_ms=NOW + 3000)
     assert retained["revision"] == 2

@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_world, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_world, tracky_federation_policy, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -503,6 +503,7 @@ def public_capability() -> dict[str, Any]:
         "mobile_transitions": tracky_mobile_transition.public_capability(),
         "identity_continuity": tracky_identity_continuity.public_capability(),
         "federated_agent_context": tracky_federated_agent_context.public_capability(),
+        "federation_policy": tracky_federation_policy.public_capability(),
     }
 
 
@@ -552,11 +553,22 @@ def current_context() -> dict[str, Any]:
         "forecast_calibration": tracky_forecast_calibration.current_report(),
         "model_lifecycle": tracky_model_lifecycle.current_report(),
         "site_topology": tracky_site_topology.current_topology(),
-        "federated_world": tracky_federated_world.current_report(),
+        "federated_world": tracky_federation_policy.filter_world_report_for_local(
+            tracky_federated_world.current_report()
+        ),
         "federation_sync": tracky_federation_sync.status(),
-        "mobile_transitions": tracky_mobile_transition.agent_context(),
-        "identity_continuity": tracky_identity_continuity.agent_context(),
+        "mobile_transitions": tracky_mobile_transition.agent_context(
+            tracky_federation_policy.filter_mobile_report_for_local(
+                tracky_mobile_transition.current_report()
+            )
+        ),
+        "identity_continuity": tracky_identity_continuity.agent_context(
+            tracky_federation_policy.filter_identity_report_for_local(
+                tracky_identity_continuity.current_report()
+            )
+        ),
         "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True),
+        "federation_policy": tracky_federation_policy.current_report(),
     }
 
 
@@ -897,7 +909,32 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     cursor = f"hs-{max_sequence}"
     federation_request = tracky_federation_sync.cloud_sync_request()
     local_federation_site = str(federation_request.get("local_site_id") or "")
-    federated_projection = tracky_federated_world.cloud_projection(local_federation_site or None)
+    federation_ready = bool(local_federation_site)
+    federated_projection = (
+        tracky_federated_world.cloud_projection(local_federation_site)
+        if federation_ready
+        else None
+    )
+    mobile_transition_projection = (
+        tracky_mobile_transition.cloud_projection(local_federation_site)
+        if federation_ready
+        else None
+    )
+    identity_continuity_projection = (
+        tracky_identity_continuity.cloud_projection(local_federation_site)
+        if federation_ready
+        else None
+    )
+    federated_agent_context_projection = (
+        tracky_federated_agent_context.cloud_projection()
+        if federation_ready
+        else None
+    )
+    federation_policy_projection = (
+        tracky_federation_policy.cloud_projection(local_federation_site)
+        if federation_ready
+        else None
+    )
     return {
         "payload": {
             "protocol": PHYSICAL_CONTEXT_PROTOCOL,
@@ -932,6 +969,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "identity_continuity_protocol": tracky_identity_continuity.IDENTITY_CONTINUITY_PROTOCOL,
                 "federated_agent_context": True,
                 "federated_agent_context_protocol": tracky_federated_agent_context.FEDERATED_AGENT_CONTEXT_PROTOCOL,
+                "federation_policy": bool(tracky_federation_policy.current_report().get("available")),
+                "federation_policy_protocol": tracky_federation_policy.FEDERATION_POLICY_PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -950,15 +989,17 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "mobile_transitions": "active" if tracky_mobile_transition.current_report(active_only=True).get("active_count") else "idle",
                 "identity_continuity": "available" if tracky_identity_continuity.current_report().get("available") else "empty",
                 "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True).get("agent_state", "current"),
+                "federation_policy": "configured" if tracky_federation_policy.current_report().get("available") else "default_deny",
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
             "site_topology": tracky_site_topology.cloud_summary(),
             "federated_world": federated_projection,
             "federation_sync": federation_request,
-            "mobile_transitions": tracky_mobile_transition.cloud_projection(local_federation_site or None),
-            "identity_continuity": tracky_identity_continuity.cloud_projection(local_federation_site or None),
-            "federated_agent_context": tracky_federated_agent_context.cloud_projection(),
+            "mobile_transitions": mobile_transition_projection,
+            "identity_continuity": identity_continuity_projection,
+            "federated_agent_context": federated_agent_context_projection,
+            "federation_policy": federation_policy_projection,
             "events": events,
             "world_state": world,
             "context": context,
@@ -1027,6 +1068,17 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
                 "UPDATE tracky_physical_events SET cloud_synced=1,cloud_synced_at=? WHERE event_id=?",
                 (now, event_id),
             )
+    federation_policy_result = None
+    federation_policy_mirror = body.get("federation_policy")
+    if isinstance(federation_policy_mirror, dict):
+        try:
+            federation_policy_result = tracky_federation_policy.ingest_cloud_mirror(
+                federation_policy_mirror
+            )
+        except tracky_federation_policy.TrackyFederationPolicyError as exc:
+            _record_sync_failure(f"Federation policy mirror rejected: {exc}")
+            raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
+
     federation_result = None
     federation_batch = body.get("federation_sync")
     if isinstance(federation_batch, dict):
@@ -1074,6 +1126,7 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
         "federation_sync": federation_result,
         "mobile_transitions": mobile_transition_result,
         "identity_continuity": identity_continuity_result,
+        "federation_policy": federation_policy_result,
         "resilience": resilience_status(),
     }
 

@@ -24,6 +24,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     from app.database import db, initialize_database  # noqa: E402
     from app.services import (  # noqa: E402
         tracky_federated_world,
+        tracky_federation_policy,
         tracky_federation_sync,
         tracky_physical_context,
         tracky_site_topology,
@@ -33,7 +34,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
 
     with db() as connection:
         versions = [int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 50))
+        assert versions == list(range(1, 51))
         for table in (
             "tracky_federation_identity",
             "tracky_federation_sync_peers",
@@ -92,7 +93,19 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
             "identity_scope": "site_local",
         }
 
-    def envelope(source: str, destination: str, node: str, epoch: int, revision: int, label: str, fingerprint: str) -> dict:
+    def envelope(
+        source: str,
+        destination: str,
+        node: str,
+        epoch: int,
+        revision: int,
+        label: str,
+        fingerprint: str,
+        *,
+        policy_revision: int = 1,
+        grant_revision: int = 1,
+        revocation_epoch: int = 0,
+    ) -> dict:
         return {
             "protocol": "physical_federation_sync.v1",
             "schema_version": 1,
@@ -104,9 +117,63 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
             "source_world_revision": revision,
             "source_fingerprint": fingerprint,
             "topology_revision": 999,
+            "policy": {
+                "protocol": "physical_federation_policy.v1",
+                "scope": "semantic_world_read",
+                "grant_revision": grant_revision,
+                "policy_revision": policy_revision,
+                "revocation_epoch": revocation_epoch,
+                "world_projection": "non_person_v1",
+            },
             "emitted_at": "2026-09-27T17:00:00+00:00",
-            "fragment": fragment(source, node, epoch, revision, label),
+            "fragment": {
+                **fragment(source, node, epoch, revision, label),
+                "context": {},
+            },
         }
+
+    def mirror_world_policy(source: str, destination: str, node: str, epoch: int, revision: int = 1) -> dict:
+        return tracky_federation_policy.ingest_cloud_mirror({
+            "protocol": "physical_federation_policy_relay.v1",
+            "schema_version": 1,
+            "destination_site_id": destination,
+            "projections": [{
+                "protocol": "physical_federation_policy.v1",
+                "schema_version": 1,
+                "revision": revision,
+                "revocation_epoch": 0,
+                "governing_site_id": source,
+                "governing_authority_device_id": node,
+                "governing_authority_epoch": epoch,
+                "sites": [{
+                    "site_id": source,
+                    "revision": revision,
+                    "mode": "team",
+                    "allow_federation": True,
+                    "allow_remote_observation": False,
+                    "default_identity_visibility": "none",
+                    "allowed_peer_sites": [destination],
+                }],
+                "grants": [{
+                    "source_site_id": source,
+                    "destination_site_id": destination,
+                    "scope": "semantic_world_read",
+                    "status": "granted",
+                    "revision": 1,
+                    "reason": "section3_test",
+                }],
+                "consents": [],
+                "revocations": [],
+                "semantic_only": True,
+                "summary_only": True,
+                "authority_assignment": "local_site_policy",
+                "cloud_role": "mirror_relay_enforcer",
+                "cloud_can_grant": False,
+                "cloud_can_revoke": False,
+                "cloud_can_change_consent": False,
+                "raw_perception": False,
+            }],
+        })
 
     # Seed the local site's own authoritative world.
     local_projection = {
@@ -126,6 +193,21 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     assert request["available"] is True
     assert request["local_site_id"] == OFFICE
     assert request["received_cursors"] == []
+
+    assert mirror_world_policy(HOME, OFFICE, NODE_A, 1)["accepted"] is True
+    assert mirror_world_policy(CABIN, OFFICE, NODE_C, 1)["accepted"] is True
+
+    forged_person = envelope(HOME, OFFICE, NODE_A, 1, 5, "person", "9" * 64)
+    forged_person["fragment"]["entities"][0]["type"] = "person"
+    forged = tracky_federation_sync.ingest_cloud_batch(
+        {"protocol": "physical_federation_sync.v1", "destination_site_id": OFFICE, "envelopes": [forged_person]}
+    )
+    assert forged["quarantined"] == 1
+    with db() as connection:
+        forged_row = connection.execute(
+            "SELECT reason FROM tracky_federation_quarantine ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert forged_row["reason"] == "invalid_fragment"
 
     home_env = envelope(HOME, OFFICE, NODE_A, 1, 7, "keys", "a" * 64)
     first = tracky_federation_sync.ingest_cloud_batch(
@@ -191,6 +273,20 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     tracky_site_topology.release_site_authority(site_id=HOME, device_id=NODE_A, reason="epoch_test")
     second_authority = tracky_site_topology.claim_site_authority(site_id=HOME, device_id=NODE_A)
     assert second_authority["authority_epoch"] == 2
+
+    stale_policy = tracky_federation_sync.ingest_cloud_batch(
+        {"protocol": "physical_federation_sync.v1", "destination_site_id": OFFICE, "envelopes": [future_epoch]}
+    )
+    assert stale_policy["quarantined"] == 1
+    with db() as connection:
+        stale_policy_row = connection.execute(
+            "SELECT reason FROM tracky_federation_quarantine ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert stale_policy_row["reason"] == "policy_denied"
+
+    refreshed_policy = mirror_world_policy(HOME, OFFICE, NODE_A, 2, revision=2)
+    assert refreshed_policy["accepted"] is True
+    future_epoch["policy"]["policy_revision"] = 2
     caught_up = tracky_federation_sync.ingest_cloud_batch(
         {"protocol": "physical_federation_sync.v1", "destination_site_id": OFFICE, "envelopes": [future_epoch]}
     )
@@ -206,7 +302,10 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     unapproved = copy.deepcopy(home_env)
     unapproved["source_site_id"] = CABIN
     unapproved["source_authority_device_id"] = NODE_C
-    unapproved["fragment"] = fragment(CABIN, NODE_C, 1, 9, "lamp")
+    unapproved["fragment"] = {
+        **fragment(CABIN, NODE_C, 1, 9, "lamp"),
+        "context": {},
+    }
     unapproved["source_world_revision"] = 9
     unapproved["source_fingerprint"] = "f" * 64
     unapproved["destination_site_id"] = HOME
@@ -225,11 +324,21 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s3-") as data_dir:
     assert cloud_world["site_count"] == 1
     assert cloud_world["sites"][0]["site_id"] == OFFICE
 
+    denied_without_policy = tracky_federation_sync.build_outbound_batch(HOME)
+    assert denied_without_policy["envelopes"] == []
+    tracky_federation_policy.set_site_policy(
+        mode="team",
+        allow_federation=True,
+        allowed_peer_sites=[HOME],
+    )
+    assert tracky_federation_policy.grant_permission(HOME, "semantic_world_read")["allowed"] is True
+
     outbound = tracky_federation_sync.build_outbound_batch(HOME)
     assert outbound["destination_site_id"] == HOME
     assert len(outbound["envelopes"]) >= 1
     office_envelopes = [item for item in outbound["envelopes"] if item["source_site_id"] == OFFICE]
     assert office_envelopes and office_envelopes[0]["source_world_revision"] == 3
+    assert office_envelopes[0]["policy"]["world_projection"] == "non_person_v1"
     changed = tracky_federation_sync.acknowledge_outbound(
         HOME, [{"site_id": OFFICE, "revision": 3, "fingerprint": office_envelopes[0]["source_fingerprint"]}]
     )

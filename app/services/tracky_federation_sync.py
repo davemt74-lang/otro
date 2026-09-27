@@ -15,6 +15,8 @@ QUARANTINE_REASONS = {
     "topology_ahead",
     "authority_mismatch",
     "revision_conflict",
+    "policy_denied",
+    "policy_stale",
     "invalid_fragment",
 }
 
@@ -125,6 +127,32 @@ def _normalize_envelope(input: dict[str, Any]) -> dict[str, Any]:
     fingerprint = _text(input.get("source_fingerprint"), 128)
     if not fingerprint:
         raise TrackyFederationSyncError("Federation envelope source fingerprint is required.")
+    policy_raw = input.get("policy")
+    if not isinstance(policy_raw, dict):
+        raise TrackyFederationSyncError("Federation envelope policy binding is required.")
+    if str(policy_raw.get("protocol") or "") != "physical_federation_policy.v1":
+        raise TrackyFederationSyncError("Federation envelope policy protocol is unsupported.")
+    if str(policy_raw.get("scope") or "") != "semantic_world_read":
+        raise TrackyFederationSyncError("Federation envelope policy scope is invalid.")
+    policy = {
+        "protocol": "physical_federation_policy.v1",
+        "scope": "semantic_world_read",
+        "grant_revision": max(0, int(policy_raw.get("grant_revision") or 0)),
+        "policy_revision": max(0, int(policy_raw.get("policy_revision") or 0)),
+        "revocation_epoch": max(0, int(policy_raw.get("revocation_epoch") or 0)),
+        "world_projection": _text(policy_raw.get("world_projection"), 80),
+    }
+    if policy["grant_revision"] < 1 or policy["policy_revision"] < 1:
+        raise TrackyFederationSyncError("Federation envelope policy revision binding is required.")
+    if policy["world_projection"] != "non_person_v1":
+        raise TrackyFederationSyncError("Federation envelope world projection is unsupported.")
+    if fragment.get("context") not in ({}, None):
+        raise TrackyFederationSyncError("Federation non-person world projection cannot contain free-form context.")
+    if any(
+        isinstance(item, dict) and str(item.get("type") or "") == "person"
+        for item in (fragment.get("entities") if isinstance(fragment.get("entities"), list) else [])
+    ):
+        raise TrackyFederationSyncError("Federation non-person world projection cannot contain person entities.")
     return {
         "protocol": FEDERATION_SYNC_PROTOCOL,
         "schema_version": 1,
@@ -136,6 +164,7 @@ def _normalize_envelope(input: dict[str, Any]) -> dict[str, Any]:
         "source_world_revision": revision,
         "source_fingerprint": fingerprint,
         "topology_revision": topology_revision,
+        "policy": policy,
         "emitted_at": _text(input.get("emitted_at"), 64),
         "fragment": fragment,
     }
@@ -259,6 +288,31 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
             _quarantine(envelope, "authority_mismatch", "Envelope authority does not match current topology authority.")
             quarantined += 1
             continue
+        from . import tracky_federation_policy
+        policy_decision = tracky_federation_policy.permission_decision(
+            source, local, "semantic_world_read"
+        )
+        if not policy_decision.get("allowed"):
+            _quarantine(
+                envelope,
+                "policy_denied",
+                f"Source site federation policy denied semantic world sharing: {policy_decision.get('reason') or 'denied'}.",
+            )
+            quarantined += 1
+            continue
+        envelope_policy = envelope["policy"]
+        if (
+            int(envelope_policy.get("revocation_epoch") or 0) < int(policy_decision.get("revocation_epoch") or 0)
+            or int(envelope_policy.get("grant_revision") or 0) < int(policy_decision.get("grant_revision") or 0)
+            or int(envelope_policy.get("policy_revision") or 0) < int(policy_decision.get("policy_revision") or 0)
+        ):
+            _quarantine(
+                envelope,
+                "policy_stale",
+                "Federation envelope was authorized by an older policy or revocation epoch.",
+            )
+            quarantined += 1
+            continue
 
         with db() as connection:
             prior = connection.execute(
@@ -277,8 +331,41 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
             continue
         if revision == prior_revision and prior_revision > 0:
             if prior_fingerprint and prior_fingerprint != fingerprint:
-                _quarantine(envelope, "revision_conflict", "Same site revision arrived with a different fingerprint.")
-                quarantined += 1
+                try:
+                    redaction_result = tracky_federated_world.ingest_projection(
+                        {
+                            "protocol": tracky_federated_world.FEDERATED_WORLD_PROTOCOL,
+                            "schema_version": 1,
+                            "sites": [envelope["fragment"]],
+                            "identity_scope": "site_local",
+                            "cross_site_identity_links": [],
+                            "semantic_only": True,
+                            "cloud_read_only": True,
+                            "authority_assignment": "local_only",
+                        },
+                        source="federation_sync_redaction",
+                        allow_same_revision_redaction=True,
+                    )
+                except tracky_federated_world.TrackyFederatedWorldError as exc:
+                    _quarantine(envelope, "revision_conflict", str(exc))
+                    quarantined += 1
+                    continue
+                if int(redaction_result.get("changed") or 0) < 1:
+                    _quarantine(envelope, "revision_conflict", "Same-revision privacy projection did not produce a valid redaction.")
+                    quarantined += 1
+                    continue
+                with db() as connection:
+                    connection.execute(
+                        """
+                        UPDATE tracky_federation_sync_peers
+                        SET status='current',last_received_fingerprint=?,
+                            last_received_authority_epoch=?,last_received_at=CURRENT_TIMESTAMP,
+                            updated_at=CURRENT_TIMESTAMP
+                        WHERE remote_site_id=?
+                        """,
+                        (fingerprint, envelope["source_authority_epoch"], source),
+                    )
+                applied += 1
             else:
                 idempotent += 1
             continue
@@ -359,7 +446,19 @@ def build_outbound_batch(destination_site_id: str, *, max_envelopes: int = 32) -
         authority = _authority(topology, source)
         if authority is None:
             continue
-        fingerprint = str(fragment.get("fingerprint") or "")
+        from . import tracky_federation_policy
+        policy_decision = tracky_federation_policy.permission_decision(
+            source, destination_site_id, "semantic_world_read"
+        )
+        if not policy_decision.get("allowed"):
+            continue
+        filtered_fragment = tracky_federation_policy.filter_world_fragment(
+            source, destination_site_id, fragment
+        )
+        if filtered_fragment is None:
+            continue
+        normalized_filtered = tracky_federated_world.normalize_fragment(filtered_fragment)
+        fingerprint = str(normalized_filtered.get("fingerprint") or "")
         envelopes.append({
             "protocol": FEDERATION_SYNC_PROTOCOL,
             "schema_version": 1,
@@ -371,8 +470,16 @@ def build_outbound_batch(destination_site_id: str, *, max_envelopes: int = 32) -
             "source_world_revision": revision,
             "source_fingerprint": fingerprint,
             "topology_revision": _topology_revision(topology),
+            "policy": {
+                "protocol": "physical_federation_policy.v1",
+                "scope": "semantic_world_read",
+                "grant_revision": int(policy_decision.get("grant_revision") or 0),
+                "policy_revision": int(policy_decision.get("policy_revision") or 0),
+                "revocation_epoch": int(policy_decision.get("revocation_epoch") or 0),
+                "world_projection": "non_person_v1",
+            },
             "emitted_at": _now_iso(),
-            "fragment": fragment,
+            "fragment": normalized_filtered,
         })
     return {
         "protocol": FEDERATION_SYNC_PROTOCOL,
