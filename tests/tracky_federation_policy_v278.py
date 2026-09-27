@@ -331,14 +331,14 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
         "projections": [{
             "protocol": "physical_federation_policy.v1",
             "schema_version": 1,
-            "revision": 1,
-            "revocation_epoch": 0,
+            "revision": 3,
+            "revocation_epoch": 1,
             "governing_site_id": OFFICE,
             "governing_authority_device_id": NODE_B,
             "governing_authority_epoch": 1,
             "sites": [{
                 "site_id": OFFICE,
-                "revision": 1,
+                "revision": 3,
                 "mode": "team",
                 "allow_federation": True,
                 "allow_remote_observation": False,
@@ -346,9 +346,9 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
                 "allowed_peer_sites": [HOME],
             }],
             "grants": [
-                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "semantic_world_read", "status": "granted", "revision": 1, "reason": "share_world"},
-                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "identity_continuity_read", "status": "granted", "revision": 1, "reason": "share_identity"},
-                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "agent_context_read", "status": "granted", "revision": 1, "reason": "share_context"},
+                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "semantic_world_read", "status": "granted", "revision": 3, "reason": "share_world"},
+                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "identity_continuity_read", "status": "granted", "revision": 3, "reason": "share_identity"},
+                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "agent_context_read", "status": "granted", "revision": 3, "reason": "share_context"},
             ],
             "consents": [{
                 "site_id": OFFICE,
@@ -517,12 +517,12 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
         **office_policy_granted,
         "projections": [{
             **office_policy_granted["projections"][0],
-            "revision": 2,
-            "revocation_epoch": 1,
+            "revision": 4,
+            "revocation_epoch": 2,
             "grants": [
-                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "semantic_world_read", "status": "revoked", "revision": 2, "reason": "privacy_revoked"},
-                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "identity_continuity_read", "status": "revoked", "revision": 2, "reason": "privacy_revoked"},
-                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "agent_context_read", "status": "revoked", "revision": 2, "reason": "privacy_revoked"},
+                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "semantic_world_read", "status": "revoked", "revision": 4, "reason": "privacy_revoked"},
+                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "identity_continuity_read", "status": "revoked", "revision": 4, "reason": "privacy_revoked"},
+                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "agent_context_read", "status": "revoked", "revision": 4, "reason": "privacy_revoked"},
             ],
             "consents": [{
                 "site_id": OFFICE,
@@ -534,10 +534,10 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
                 "reason": "privacy_revoked",
             }],
             "revocations": [
-                {"revocation_key": f"grant:{OFFICE}|{HOME}|semantic_world_read", "governing_site_id": OFFICE, "revision": 2, "revocation_epoch": 1, "reason": "privacy_revoked"},
-                {"revocation_key": f"grant:{OFFICE}|{HOME}|identity_continuity_read", "governing_site_id": OFFICE, "revision": 2, "revocation_epoch": 1, "reason": "privacy_revoked"},
-                {"revocation_key": f"grant:{OFFICE}|{HOME}|agent_context_read", "governing_site_id": OFFICE, "revision": 2, "revocation_epoch": 1, "reason": "privacy_revoked"},
-                {"revocation_key": f"consent:{OFFICE}|{PERSON}|identity_linking", "governing_site_id": OFFICE, "revision": 2, "revocation_epoch": 1, "reason": "privacy_revoked"},
+                {"revocation_key": f"grant:{OFFICE}|{HOME}|semantic_world_read", "governing_site_id": OFFICE, "revision": 4, "revocation_epoch": 2, "reason": "privacy_revoked"},
+                {"revocation_key": f"grant:{OFFICE}|{HOME}|identity_continuity_read", "governing_site_id": OFFICE, "revision": 4, "revocation_epoch": 2, "reason": "privacy_revoked"},
+                {"revocation_key": f"grant:{OFFICE}|{HOME}|agent_context_read", "governing_site_id": OFFICE, "revision": 4, "revocation_epoch": 2, "reason": "privacy_revoked"},
+                {"revocation_key": f"consent:{OFFICE}|{PERSON}|identity_linking", "governing_site_id": OFFICE, "revision": 2, "revocation_epoch": 2, "reason": "privacy_revoked"},
             ],
         }],
     }
@@ -561,14 +561,14 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s7-") as data_dir:
         **office_policy_granted,
         "projections": [{
             **office_policy_granted["projections"][0],
-            "revision": 3,
-            "revocation_epoch": 1,
+            "revision": 5,
+            "revocation_epoch": 2,
             "sites": [{
                 **office_policy_granted["projections"][0]["sites"][0],
-                "revision": 3,
+                "revision": 5,
             }],
             "grants": [
-                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "semantic_world_read", "status": "granted", "revision": 3, "reason": "share_world_again"},
+                {"source_site_id": OFFICE, "destination_site_id": HOME, "scope": "semantic_world_read", "status": "granted", "revision": 5, "reason": "share_world_again"},
             ],
             "consents": [],
             "revocations": office_policy_revoked["projections"][0]["revocations"],
