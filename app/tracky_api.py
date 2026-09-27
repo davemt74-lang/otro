@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import tracky_federated_agent_context, tracky_federated_world, tracky_federation_policy, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_physical_context, tracky_site_topology
+from .services import tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_policy, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_physical_context, tracky_site_topology
 from .services.pairing import authenticate
 
 
@@ -70,6 +70,8 @@ def _call(fn, *args, **kwargs):
     except tracky_identity_continuity.TrackyIdentityContinuityError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except tracky_federated_agent_context.TrackyFederatedAgentContextError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except tracky_federated_query.TrackyFederatedQueryError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except tracky_federation_policy.TrackyFederationPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -205,6 +207,45 @@ def paired_tracky_federated_agent_context(
     return {
         "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True),
         "capability": tracky_federated_agent_context.public_capability(),
+        "app": identity["app_key"],
+    }
+
+
+@router.get("/api/v1/tracky/federated-query")
+def paired_tracky_federated_query(
+    intent: str = "current_state",
+    site_id: str | None = None,
+    target_ref: str | None = None,
+    since_ms: int = 0,
+    until_ms: int = 0,
+    limit: int = 50,
+    query_id: str | None = None,
+    identity: dict = Depends(_physical_reader),
+) -> dict:
+    request = {
+        "intent": intent,
+        "site_id": site_id,
+        "target_ref": target_ref or "",
+        "since_ms": since_ms,
+        "until_ms": until_ms,
+        "limit": limit,
+        "query_id": query_id or "",
+    }
+    return {
+        "query": _call(tracky_federated_query.execute_query, request),
+        "capability": tracky_federated_query.public_capability(),
+        "app": identity["app_key"],
+    }
+
+
+@router.get("/api/v1/tracky/federated-query/audit")
+def paired_tracky_federated_query_audit(
+    limit: int = 50,
+    identity: dict = Depends(_physical_reader),
+) -> dict:
+    return {
+        "audit": _call(tracky_federated_query.recent_query_audit, limit),
+        "capability": tracky_federated_query.public_capability(),
         "app": identity["app_key"],
     }
 
