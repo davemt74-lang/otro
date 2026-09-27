@@ -1054,6 +1054,17 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
             _record_sync_failure(f"Federation policy mirror rejected: {exc}")
             raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
 
+    federation_policy_result = None
+    federation_policy_mirror = body.get("federation_policy")
+    if isinstance(federation_policy_mirror, dict):
+        try:
+            federation_policy_result = tracky_federation_policy.ingest_cloud_mirror(
+                federation_policy_mirror
+            )
+        except tracky_federation_policy.TrackyFederationPolicyError as exc:
+            _record_sync_failure(f"Federation policy mirror rejected: {exc}")
+            raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
+
     federation_result = None
     federation_batch = body.get("federation_sync")
     if isinstance(federation_batch, dict):
