@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()]
-        assert versions == list(range(1, 51))
+        assert versions == list(range(1, 52))
 
     vectors = json.loads(
         (ROOT / "tests" / "fixtures" / "tracky_v274_resilience_vectors.json").read_text(encoding="utf-8")
@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
     assert float(str(cap["version"])) >= 2.74
     assert cap["continuity"]["foundation"] == "homeserver_v2.4"
     assert cap["reliability"]["provider_timeout_seconds"] == 12
-    assert cap["reliability"]["backlog_warn_events"] == 500
+    assert cap["reliability"]["backlog_warn_events"] == 510
     assert cap["reliability"]["backlog_critical_events"] == 2000
     assert cap["active_perception"]["physical_actions"] is False
 
