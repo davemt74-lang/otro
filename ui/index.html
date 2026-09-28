@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="/assets/federation-control-center-v280.css">
   <link rel="stylesheet" href="/assets/physical-world-dashboard-v280.css">
   <link rel="stylesheet" href="/assets/cross-site-presence-v280.css">
+  <link rel="stylesheet" href="/assets/federation-sync-visibility-v280.css">
 </head>
 <body>
   <div class="shell">
@@ -420,6 +421,7 @@
           </div>
         </div>
         <div id="physicalWorldSelectionWarning" class="world-warning" hidden></div>
+        <div id="physicalWorldSyncWarning" class="world-sync-warning unknown" hidden></div>
         <section class="panel world-site-banner">
           <div><p class="eyebrow">SELECTED SITE</p><h3 id="physicalWorldSiteName">No site</h3><div class="world-site-meta"><span>Health <strong id="physicalWorldSiteHealth">unknown</strong></span><span>Federation <strong id="physicalWorldFederationState">unknown</strong></span><span>World revision <strong id="physicalWorldRevision">0</strong></span></div></div>
           <span id="physicalWorldLoading" class="muted">Governed live semantic view</span>
@@ -491,6 +493,22 @@
           </aside>
         </div>
         <section class="panel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">RECONCILIATION & SYNC</p><h3>Federation freshness</h3></div><div><span id="syncVisibilityLoading" class="muted">Live local reconciliation view</span> <button class="button secondary" id="refreshFederationSyncVisibility" type="button">Refresh sync</button></div></div>
+          <div class="syncv-summary">
+            <div><span>State</span><strong id="syncVisibilityState"><span class="syncv-state unknown">Unknown</span></strong></div>
+            <div><span>Current</span><strong id="syncVisibilityCurrent">0</strong></div>
+            <div><span>Reconciling</span><strong id="syncVisibilityReconciling">0</strong></div>
+            <div><span>Partitioned</span><strong id="syncVisibilityPartitioned">0</strong></div>
+            <div><span>Failed</span><strong id="syncVisibilityFailed">0</strong></div>
+          </div>
+          <div id="syncVisibilityAgent" class="syncv-agent">No sync summary.</div>
+          <div class="syncv-layout" style="margin-top:12px">
+            <div><div class="panel-head"><div><p class="eyebrow">SITE FRESHNESS</p><h3>Revision, authority epoch & retries</h3></div></div><div id="syncVisibilitySites" class="syncv-sites"><div class="empty-state">Loading sync state…</div></div></div>
+            <aside><div class="panel-head"><div><p class="eyebrow">RECONCILIATION HISTORY</p><h3>Recent runs</h3></div></div><div id="syncVisibilityRuns" class="syncv-runs"><div class="empty-state">No reconciliation history yet.</div></div></aside>
+          </div>
+          <p class="federation-boundary">Remote freshness is never promoted by Cloud or by a newer timestamp alone. Revision gaps, authority epoch changes and fingerprint conflicts must reconcile against the origin site.</p>
+        </section>
+        <section class="panel" style="margin-top:16px">
           <div class="panel-head"><div><p class="eyebrow">INVENTORY</p><h3>Hardware units</h3></div></div>
           <div id="federationDevices" class="federation-device-list"><div class="empty-state">Loading hardware inventory…</div></div>
         </section>
@@ -518,6 +536,7 @@
   <script src="/assets/federation-control-center-v280.js" defer></script>
   <script src="/assets/physical-world-dashboard-v280.js" defer></script>
   <script src="/assets/cross-site-presence-v280.js" defer></script>
+  <script src="/assets/federation-sync-visibility-v280.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
 </body>
