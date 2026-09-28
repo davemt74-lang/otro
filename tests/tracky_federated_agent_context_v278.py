@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()]
-        assert versions == list(range(1, 54))
+        assert versions == list(range(1, 55))
         for table in (
             "tracky_federated_agent_context",
             "tracky_federated_agent_context_history",
