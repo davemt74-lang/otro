@@ -74,6 +74,9 @@
     try { data = await response.json(); } catch (_) {}
     if (!response.ok) throw new Error(data.detail || 'Federation operations are unavailable.');
     render(data.operations || {});
+    if (typeof window.loadFederationSyncVisibility === 'function') {
+      try { await window.loadFederationSyncVisibility(); } catch (_) {}
+    }
     if (state) state.textContent = 'Live local authority view';
   }
 
