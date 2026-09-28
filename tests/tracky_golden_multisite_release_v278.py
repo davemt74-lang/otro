@@ -173,7 +173,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s10-") as data_dir:
     assert capabilities["reconciliation"]["authority_assignment"] == "origin_only"
     assert capabilities["reconciliation"]["same_revision_conflicts"] == "fail_closed"
     assert capabilities["query"]["authority_mutation"] is False
-    assert capabilities["identity"]["cross_site_identity_linking"] is False
+    assert capabilities["identity"]["cloud_can_merge_identities"] is False
+    assert capabilities["sync"]["cross_site_identity_linking"] is False
     assert capabilities["sync"]["cloud_role"] == "relay_only"
 
     # The permanent scenario library must remain represented in CI/release gates.
