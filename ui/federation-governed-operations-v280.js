@@ -1,0 +1,8 @@
+(()=>{
+  const root=document.getElementById('governedFederationOperationsV280'); if(!root)return;
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const badge=s=>'<span class="fgo-state '+esc(s)+'">'+esc(String(s||'unknown').replaceAll('_',' '))+'</span>';
+  function render(r){const items=r.operations||[];root.querySelector('[data-fgo-active]').textContent=Number(r.counts?.active||0);root.querySelector('[data-fgo-approval]').textContent=Number(r.counts?.awaiting_approval||0);root.querySelector('[data-fgo-reconciling]').textContent=Number(r.counts?.reconciling||0);root.querySelector('[data-fgo-list]').innerHTML=items.length?items.slice(0,20).map(x=>'<div class="fgo-row"><div><strong>'+esc(x.operation_type.replaceAll('_',' '))+'</strong><div class="muted">'+esc(x.target_site_id)+(x.device_id?' · '+esc(x.device_id):'')+'</div></div>'+badge(x.state)+'</div>').join(''):'<div class="empty-state">No governed federation operations yet.</div>';}
+  async function load(){const s=root.querySelector('[data-fgo-status]');s.textContent='Refreshing…';const q=await fetch('/api/v1/control/federation-operations',{credentials:'same-origin',headers:{Accept:'application/json'}});const d=await q.json();if(!q.ok)throw new Error(d.detail||'Operations unavailable.');render(d.operations||{});s.textContent='HomeServer authoritative ledger';}
+  root.querySelector('[data-fgo-refresh]')?.addEventListener('click',()=>load().catch(e=>root.querySelector('[data-fgo-status]').textContent=e.message));load().catch(e=>root.querySelector('[data-fgo-status]').textContent=e.message);
+})();
