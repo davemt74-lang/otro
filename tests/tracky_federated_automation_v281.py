@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
  initialize_database();initialize_database()
  with db() as c:
   versions=[int(x["version"]) for x in c.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
- assert versions==list(range(1,56))
+ assert versions==list(range(1,57))
  for site,label in ((HOME,"Home"),(OFFICE,"Office")):tracky_site_topology.register_site(site_id=site,label=label)
  for device,label,site in ((HDEV,"Home Node",HOME),(ODEV,"Office Node",OFFICE)):
   tracky_site_topology.register_device(device_id=device,label=label,site_id=site,hardware_profile="Node",trust_state="trusted",roles=["site_authority"],capabilities={"site_authority_eligible":True})
@@ -56,7 +56,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
  try:tracky_federated_automation.create_definition({**payload,"automation_id":"fa:agent","idempotency_key":"fa:agent:1"},actor={"actor_type":"agent","actor_id":"agent"});raise AssertionError("agent created definition")
  except tracky_federated_automation.FederatedAutomationError as exc:assert exc.status_code==403
  projection=tracky_federated_automation.cloud_projection();assert projection["cloud_read_only"] is True and projection["remote_action_execution"] is False
- cap=tracky_federated_automation.public_capability();assert cap["schema_version"]==55 and cap["execution_enabled"] is False and cap["durable_action_ledger"] is True and cap["deadline_expiration"] is True
+ cap=tracky_federated_automation.public_capability();assert cap["schema_version"]==56 and cap["execution_enabled"] is True and cap["durable_action_ledger"] is True and cap["deadline_expiration"] is True
  with db() as c:
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_events").fetchone()[0]>=3
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_definitions").fetchone()[0]==2
@@ -91,8 +91,8 @@ assert "tracky_federated_automation_v281.py" in ci
 assert "tracky_federated_automation_v281.py" in release_workflow
 assert "tracky_federated_automation_definitions" in migration and "tracky_federated_automation_events" in migration
 assert "trg_tracky_federated_automation_events_no_update" in migration and "trg_tracky_federated_automation_events_no_delete" in migration
-assert "current_schema_version = 55" in ci
+assert "current_schema_version = 56" in ci
 assert "feature_track = 'Tracky V2.81'" in ci
-assert "feature_section = 2" in ci
-assert "federated_automation_execution_enabled = $false" in ci
+assert "feature_section = 3" in ci
+assert "federated_automation_execution_enabled = $true" in ci
 print("TRACKY_V281_FEDERATED_AUTOMATION_LEDGER=PASS")
