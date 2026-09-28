@@ -21,8 +21,8 @@ def run():
     assert cap["remote_command_execution"] is False
     assert cap["authority_mutation"] is False
     assert "fleet_management.remote_diagnostics_summary()" in source
-    assert '"raw_logs_included":False' in source
-    assert '"network_addresses_included":False' in source
+    assert '"diagnostic_content_included":False' in source
+    assert '"network_endpoint_details_included":False' in source
     assert "federation_fleet_health" in physical
     assert "FEDERATION_FLEET_HEALTH_PROTOCOL" in physical
     assert '@router.get("/api/v1/tracky/federation-fleet-health")' in api
