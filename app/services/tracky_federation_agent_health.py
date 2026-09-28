@@ -414,6 +414,7 @@ def build_report(
         "version": TRACKY_FEDERATION_AGENT_HEALTH_VERSION,
         "schema_version": 1,
         "generated_at": now_ms,
+        "local_site_id": _site_id(operations.get("local_site_id")),
         "overall_state": overall_state,
         "relay": {
             "state": relay_state,
@@ -561,6 +562,7 @@ def current_report() -> dict[str, Any]:
             "version": TRACKY_FEDERATION_AGENT_HEALTH_VERSION,
             "schema_version": 1,
             "generated_at": _now_ms(),
+            "local_site_id": "",
             "overall_state": "unknown",
             "relay_health": {"component": "vp3_cloud_relay", "state": "unknown", "recovery_complete": False},
             "sites": [],
