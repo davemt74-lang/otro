@@ -79,6 +79,7 @@ jobs:
           tests/tracky_federation_reconciliation_v278.py
           tests/tracky_golden_multisite_release_v278.py
           tests/tracky_federation_operations_v280.py
+          tests/tracky_federation_control_center_v280.py
           tests/fixtures/tracky_v274_resilience_vectors.json
           tests/homeserver_v23_release_acceptance.py
           tests/homeserver_v24_release_acceptance.py
@@ -130,6 +131,8 @@ jobs:
         run: python tests/tracky_golden_multisite_release_v278.py
       - name: Verify Tracky V2.80 federation inventory topology and health
         run: python tests/tracky_federation_operations_v280.py
+      - name: Verify Tracky V2.80 live federation control center
+        run: python tests/tracky_federation_control_center_v280.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance
