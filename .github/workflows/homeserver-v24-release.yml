@@ -153,7 +153,13 @@ jobs:
         run: python tests/tracky_federation_access_operations_v280.py
       - name: Verify Tracky V2.80 Agent Brain federation health failures and recovery
         run: python tests/tracky_federation_agent_health_v280.py
-      - name: Verify Tracky V2.80 fleet health and diagnostics\n        run: python tests/tracky_federation_fleet_health_v280.py\n      - name: Verify Tracky V2.80 governed federation operations\n        run: python tests/tracky_federation_governed_operations_v280.py\n      - name: Verify Tracky V2.80 golden operational scenarios and release hardening\n        run: python tests/tracky_v280_golden_operational_release.py\n      - name: Verify retained v2.3 execution safety
+      - name: Verify Tracky V2.80 fleet health and diagnostics
+        run: python tests/tracky_federation_fleet_health_v280.py
+      - name: Verify Tracky V2.80 governed federation operations
+        run: python tests/tracky_federation_governed_operations_v280.py
+      - name: Verify Tracky V2.80 golden operational scenarios and release hardening
+        run: python tests/tracky_v280_golden_operational_release.py
+      - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance
         run: python tests/homeserver_v24_release_acceptance.py
