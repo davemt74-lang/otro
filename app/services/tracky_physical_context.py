@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_release_hardening, tracky_site_topology, tracky_sync_visibility, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_automation, tracky_federated_query, tracky_federated_world, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_release_hardening, tracky_site_topology, tracky_sync_visibility, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -507,6 +507,7 @@ def public_capability() -> dict[str, Any]:
         "federation_policy": tracky_federation_policy.public_capability(),
         "federated_query": tracky_federated_query.public_capability(),
         "federation_governed_operations": tracky_federation_governed_operations.public_capability(),
+        "federated_automation": tracky_federated_automation.public_capability(),
         "release_hardening": tracky_release_hardening.public_capability(),
     }
 
@@ -576,6 +577,7 @@ def current_context() -> dict[str, Any]:
         "federation_agent_health": tracky_federation_agent_health.current_report().get("agent_context", {}),
         "federation_fleet_health": tracky_federation_fleet_health.current_report().get("agent_context", {}),
         "federation_governed_operations": tracky_federation_governed_operations.report().get("agent_context", {}),
+        "federated_automation": tracky_federated_automation.agent_context(),
     }
 
 
@@ -962,6 +964,11 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
         if federation_ready
         else None
     )
+    federated_automation_projection = (
+        tracky_federated_automation.cloud_projection()
+        if federation_ready
+        else None
+    )
     return {
         "payload": {
             "protocol": PHYSICAL_CONTEXT_PROTOCOL,
@@ -1008,6 +1015,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federation_fleet_health_protocol": tracky_federation_fleet_health.FEDERATION_FLEET_HEALTH_PROTOCOL,
                 "federation_governed_operations": bool(federation_governed_operations_projection),
                 "federation_governed_operations_protocol": tracky_federation_governed_operations.PROTOCOL,
+                "federated_automation": bool(federated_automation_projection),
+                "federated_automation_protocol": tracky_federated_automation.PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -1046,6 +1055,12 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federation_governed_operations": (
                     "active" if federation_governed_operations_projection and int((federation_governed_operations_projection.get("counts") or {}).get("active") or 0) else "idle"
                 ),
+                "federated_automation": (
+                    "active"
+                    if federated_automation_projection
+                    and len((federated_automation_projection.get("agent_context") or {}).get("active_runs") or []) > 0
+                    else "idle"
+                ),
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
             "model_lifecycle": tracky_model_lifecycle.cloud_projection(),
@@ -1060,6 +1075,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "federation_agent_health": federation_agent_health_projection,
             "federation_fleet_health": federation_fleet_health_projection,
             "federation_governed_operations": federation_governed_operations_projection,
+            "federated_automation": federated_automation_projection,
             "events": events,
             "world_state": world,
             "context": context,

@@ -45,7 +45,7 @@ def public_capability() -> dict[str, Any]:
     fleet = tracky_federation_fleet_health.public_capability()
     topology = tracky_site_topology.public_capability()
     checks = {
-        "schema_053_current": _latest_schema() == SCHEMA_VERSION,
+        "schema_053_or_newer": _latest_schema() >= SCHEMA_VERSION,
         "origin_authority_only": reconciliation.get("authority_assignment") == "origin_only",
         "cloud_relay_mirror_only": reconciliation.get("cloud_role") == "relay_and_mirror_only",
         "same_revision_conflict_fail_closed": reconciliation.get("same_revision_conflicts") == "fail_closed",

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federated_automation, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -31,6 +31,7 @@ UI_DIR = ROOT_DIR / "ui"
 async def lifespan(_: FastAPI):
     initialize_database()
     ensure_knowledge_index()
+    tracky_federated_automation.recover_incomplete_runs()
     device_rollout.reconcile_update_results()
     device_rollout.start()
     hardware_adapters.start()
@@ -107,6 +108,34 @@ class AppScopeUpdate(BaseModel):
     knowledge_kinds: list[str] = Field(default_factory=list, max_length=32)
     tool_names: list[str] = Field(default_factory=list, max_length=32)
     plugin_keys: list[str] = Field(default_factory=list, max_length=32)
+
+
+class FederatedAutomationDefinitionRequest(BaseModel):
+    automation_id: str = Field(default="", max_length=128)
+    revision: int = Field(default=0, ge=0)
+    idempotency_key: str = Field(default="", max_length=160)
+    name: str = Field(default="", max_length=160)
+    description: str = Field(default="", max_length=1000)
+    origin_site_id: str = Field(min_length=36, max_length=64)
+    state: str = Field(default="draft", max_length=30)
+    trigger: dict = Field(default_factory=dict)
+    steps: list[dict] = Field(default_factory=list, min_length=1, max_length=64)
+    participating_site_ids: list[str] = Field(default_factory=list, max_length=64)
+    participating_device_ids: list[str] = Field(default_factory=list, max_length=128)
+    approval_policy: str = Field(default="governed", max_length=30)
+    default_deadline_ms: int = Field(default=0, ge=0)
+
+
+class FederatedAutomationRunRequest(BaseModel):
+    automation_id: str = Field(min_length=1, max_length=128)
+    run_id: str = Field(default="", max_length=160)
+    idempotency_key: str = Field(default="", max_length=160)
+    trigger_event_id: str = Field(default="", max_length=160)
+    deadline_at_ms: int = Field(default=0, ge=0)
+
+
+class FederatedAutomationCancelRequest(BaseModel):
+    reason: str = Field(default="", max_length=240)
 
 
 class FederationGovernedOperationRequest(BaseModel):
@@ -304,6 +333,13 @@ def control_agent_update(payload: AgentUpdate) -> dict:
     return {"updated": True, "id": agent_id}
 
 
+def _federated_automation_guard(callable_):
+    try:
+        return callable_()
+    except tracky_federated_automation.FederatedAutomationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
 def _federation_operation_guard(callable_):
     try:
         return callable_()
@@ -350,6 +386,37 @@ def control_federation_fleet_health() -> dict:
         "fleet_health": tracky_federation_fleet_health.current_report(),
         "capability": tracky_federation_fleet_health.public_capability(),
     }
+
+
+@app.get("/api/v1/control/federated-automation")
+def control_federated_automation() -> dict:
+    return {"automation": _federated_automation_guard(tracky_federated_automation.report), "capability": tracky_federated_automation.public_capability()}
+
+
+@app.post("/api/v1/control/federated-automation/definitions")
+def control_federated_automation_definition(payload: FederatedAutomationDefinitionRequest) -> dict:
+    result=_federated_automation_guard(lambda: tracky_federated_automation.create_definition(payload.model_dump(),actor={"actor_type":"owner","actor_id":"local_owner"}))
+    _log("tracky.federated_automation.definition.created","tracky_federated_automation",result["automation_id"],{"revision":result["revision"]})
+    return {"definition":result}
+
+
+@app.post("/api/v1/control/federated-automation/runs")
+def control_federated_automation_run(payload: FederatedAutomationRunRequest) -> dict:
+    result=_federated_automation_guard(lambda: tracky_federated_automation.create_run(payload.model_dump(),actor={"actor_type":"owner","actor_id":"local_owner"}))
+    _log("tracky.federated_automation.run.created","tracky_federated_automation_run",result["run_id"],{"automation_id":result["automation_id"]})
+    return {"run":result}
+
+
+@app.post("/api/v1/control/federated-automation/runs/{run_id}/cancel")
+def control_federated_automation_cancel(run_id: str,payload: FederatedAutomationCancelRequest) -> dict:
+    result=_federated_automation_guard(lambda: tracky_federated_automation.cancel_run(run_id,reason=payload.reason,actor={"actor_type":"owner","actor_id":"local_owner"}))
+    _log("tracky.federated_automation.run.cancelled","tracky_federated_automation_run",run_id,{"reason":payload.reason})
+    return {"run":result}
+
+
+@app.post("/api/v1/control/federated-automation/recover")
+def control_federated_automation_recover() -> dict:
+    return _federated_automation_guard(tracky_federated_automation.recover_incomplete_runs)
 
 
 @app.get("/api/v1/control/federation-governed-operations")
