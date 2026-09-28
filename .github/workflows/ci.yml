@@ -132,6 +132,8 @@ jobs:
         run: python tests/tracky_federation_control_center_v280.py
       - name: Tracky V2.80 physical world dashboard and site switching
         run: python tests/tracky_physical_world_dashboard_v280.py
+      - name: Tracky V2.80 mobile transition and cross-site presence
+        run: python tests/tracky_cross_site_presence_v280.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
