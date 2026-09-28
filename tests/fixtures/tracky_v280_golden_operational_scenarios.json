@@ -1,0 +1,32 @@
+{
+  "format":"physical_federation_v280_golden_operational_release.v1",
+  "version":"2.80",
+  "scenario_count":24,
+  "required_invariants":[
+    "origin-homeserver-is-authoritative",
+    "cloud-is-request-relay-and-read-only-mirror",
+    "agent-may-propose-never-execute",
+    "reconnect-is-not-recovery",
+    "command-success-is-not-recovery",
+    "only-authoritative-reconciliation-restores-current",
+    "stale-state-never-promotes-to-current",
+    "authority-transfer-requires-explicit-confirmation",
+    "authority-transfer-requires-epoch-advance",
+    "old-authority-cannot-write-after-transfer",
+    "conflicting-authority-claims-fail-closed",
+    "revocation-wins-over-cached-grants",
+    "revoked-device-cannot-regain-trust-from-replay",
+    "governed-operation-idempotency-is-durable",
+    "terminal-operation-state-is-immutable",
+    "migration-053-is-repeat-safe",
+    "production-packages-exclude-local-secrets-and-runtime-data"
+  ],
+  "scenario_ids":[
+    "healthy-federation","transport-partition","reconnect-before-reconciliation","command-success-before-reconciliation",
+    "failed-reconciliation","successful-authoritative-reconciliation","duplicate-operation-request","idempotency-semantic-conflict",
+    "restart-during-operation","authority-transfer","authority-transfer-complete","authority-transfer-no-epoch-advance",
+    "conflicting-authority-claims","site-revocation-with-cached-grant","device-revocation-with-replay",
+    "cloud-unavailable-local-ledger","cloud-cannot-execute","agent-cannot-execute","cancel-operation","expire-operation",
+    "staged-update-request","migration-053-repeat","privacy-release-package","route-collision-audit"
+  ]
+}
