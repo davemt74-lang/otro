@@ -21,8 +21,13 @@ def run():
     assert cap["authority_transfer_requires_epoch_advance"] is True
     assert "tracky_federation_operation_ledger" in migration and "idempotency_key" in migration
     assert "tracky_federation_reconciliation.schedule_retry" in source
+    assert '"revoke_site"' in source and "_revoke_site_access" in source
+    assert "revocation_wins" in source
+    assert "_set(request_id, \"queued\"" in source
+    assert "expires_at_ms" in source and "expires_at_ms" in migration
     assert "claim_site_authority" in source and "authority_epoch_after" in source
     assert "fleet_management.request_update" in source and "remove_inventory_device" in source
+    assert 'trust_state="revoked"' in source
     assert "hardware_adapters.stop(); hardware_adapters.start()" in source
     assert '@app.post("/api/v1/control/federation-operations/propose")' in main
     assert '@app.post("/api/v1/control/federation-operations/{request_id}/execute")' in main
@@ -33,7 +38,7 @@ def run():
     assert "cloud_request_requires_local_approval" in source
     assert "operation_requires_origin_local" in source
     assert 'body.get("federation_operation_requests")' in physical
-    assert "\\\\n" not in physical
+    assert "\\n" not in physical
     assert 'id="governedFederationOperationsV280"' in ui
     assert "/api/v1/control/federation-operations" in js
     print("TRACKY_V280_FEDERATION_GOVERNED_OPERATIONS=PASS")
