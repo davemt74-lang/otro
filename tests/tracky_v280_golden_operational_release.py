@@ -164,9 +164,10 @@ assert '"release_hardening": tracky_release_hardening.public_capability()' in ph
 assert "tracky_v280_golden_operational_release.py" in ci
 assert "tracky_v280_golden_operational_release.py" in release_workflow
 assert "feature_track = 'Tracky V2.81'" in ci
-assert "feature_section = 1" in ci
-assert "current_schema_version = 54" in ci
+assert "feature_section = 2" in ci
+assert "current_schema_version = 55" in ci
 assert "golden_operational_scenarios = 24" in ci
 assert "federated_automation_protocol = 'physical_federated_automation.v1'" in ci
 assert "federated_automation_execution_enabled = $false" in ci
+assert "physical_world_trigger_runtime = $true" in ci
 print("TRACKY_V280_GOLDEN_OPERATIONAL_RELEASE=PASS")
