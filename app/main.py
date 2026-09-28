@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -318,6 +318,14 @@ def control_federation_agent_health() -> dict:
         "health": tracky_federation_agent_health.current_report(),
         "history": tracky_federation_agent_health.recent_history(100),
         "capability": tracky_federation_agent_health.public_capability(),
+    }
+
+
+@app.get("/api/v1/control/federation-fleet-health")
+def control_federation_fleet_health() -> dict:
+    return {
+        "fleet_health": tracky_federation_fleet_health.current_report(),
+        "capability": tracky_federation_fleet_health.public_capability(),
     }
 
 
