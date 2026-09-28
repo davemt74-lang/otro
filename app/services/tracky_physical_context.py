@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_policy, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_site_topology, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -131,6 +131,7 @@ def _record_sync_failure(error: str) -> dict[str, Any]:
             """,
             (failures, retry_at, now.isoformat(), error[:300], pending),
         )
+    tracky_federation_reconciliation.mark_all_remote_partitioned(error or "cloud_transport_failure")
     return {"failures": failures, "delay_seconds": delay, "next_retry_at": retry_at}
 
 
