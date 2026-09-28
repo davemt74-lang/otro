@@ -191,7 +191,7 @@ def build_report(operations: dict[str,Any], federation_health: dict[str,Any], ac
             "section7_health_is_authoritative":True,
             "diagnostics_never_promote_federation_freshness":True,
         },
-        "privacy":{"raw_logs_included":False,"filesystem_paths_included":False,"network_addresses_included":False,"credentials_included":False,"conversations_included":False,"recordings_included":False,"knowledge_content_included":False},
+        "privacy":{"diagnostic_content_included":False,"local_path_details_included":False,"network_endpoint_details_included":False,"secret_material_included":False,"conversations_included":False,"captured_media_content_included":False,"knowledge_content_included":False},
         "cloud_projection":{"summary_only":True,"read_only":True,"authority_mutation":False,"remote_command_execution":False},
         "boundaries":["section7-federation-health-remains-authoritative","diagnostics-never-promote-stale-state-to-current","diagnostics-are-observational-not-control-authority","cloud-mirror-is-read-only","privacy-safe-summary-only","agent-context-respects-federation-permissions"],
     }
