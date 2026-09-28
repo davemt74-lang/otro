@@ -74,3 +74,16 @@ CREATE TABLE IF NOT EXISTS tracky_federated_automation_events (
 );
 CREATE INDEX IF NOT EXISTS idx_tracky_fa_event_run ON tracky_federated_automation_events(run_id,id);
 CREATE INDEX IF NOT EXISTS idx_tracky_fa_event_automation ON tracky_federated_automation_events(automation_id,id);
+
+
+CREATE TRIGGER IF NOT EXISTS trg_tracky_federated_automation_events_no_update
+BEFORE UPDATE ON tracky_federated_automation_events
+BEGIN
+  SELECT RAISE(ABORT, 'tracky federated automation audit events are immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_tracky_federated_automation_events_no_delete
+BEFORE DELETE ON tracky_federated_automation_events
+BEGIN
+  SELECT RAISE(ABORT, 'tracky federated automation audit events are immutable');
+END;
