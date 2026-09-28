@@ -92,6 +92,20 @@
       ? report.hardware_units.map(hardwareCard).join('')
       : '<div class="empty-state">No registered hardware units at this site.</div>';
 
+    const freshness = report.federation_freshness || selected.federation_freshness || null;
+    const syncWarning = $('physicalWorldSyncWarning');
+    if (syncWarning) {
+      if (freshness) {
+        syncWarning.hidden = false;
+        syncWarning.className = 'world-sync-warning ' + esc(freshness.status || 'unknown');
+        syncWarning.textContent = freshness.fresh
+          ? 'Federation freshness: current.'
+          : 'Federation freshness: ' + String(freshness.status || 'unknown').replaceAll('_',' ') + '. ' + (freshness.message || 'Remote data is not verified current.');
+      } else {
+        syncWarning.hidden = true;
+      }
+    }
+
     const warning = $('physicalWorldSelectionWarning');
     const requestedMissing = (report.issues || []).some(row => row.code === 'requested_site_not_available');
     if (warning) {
