@@ -23,7 +23,7 @@ RUN_TRANSITIONS={
  "planned":{"waiting","ready","blocked","cancelled","expired","failed"},
  "waiting":{"ready","blocked","recovering","cancelled","expired","failed"},
  "ready":{"running","blocked","recovering","cancelled","expired","failed"},
- "running":{"waiting","blocked","recovering","completed","cancelled","failed"},
+ "running":{"waiting","blocked","recovering","completed","cancelled","expired","failed"},
  "blocked":{"waiting","ready","recovering","cancelled","expired","failed"},
  "recovering":{"waiting","ready","blocked","cancelled","expired","failed"},
  "completed":set(),"failed":set(),"cancelled":set(),"expired":set(),
@@ -132,12 +132,12 @@ def create_definition(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->di
     if origin!=local: raise FederatedAutomationError("Only the origin HomeServer may author an authoritative federated automation definition.",409)
     explicit_idempotency=_text(payload.get("idempotency_key"),160)
     explicit_automation=_text(payload.get("automation_id"),128)
+    if not explicit_automation and not explicit_idempotency:
+        raise FederatedAutomationError("Federated automation requires automation_id or idempotency_key for replay-safe creation.")
     if explicit_automation:
         automation_id=_id(explicit_automation,"automation_id",128)
-    elif explicit_idempotency:
-        automation_id="fa-"+hashlib.sha256(explicit_idempotency.encode("utf-8")).hexdigest()[:32]
     else:
-        automation_id="fa-"+uuid.uuid4().hex
+        automation_id="fa-"+hashlib.sha256(explicit_idempotency.encode("utf-8")).hexdigest()[:32]
     idempotency=_id(explicit_idempotency or automation_id+":"+str(int(payload.get("revision") or 1)),"idempotency_key",160)
     state=_text(payload.get("state") or "draft",30).lower()
     if state not in AUTOMATION_STATES: raise FederatedAutomationError("Federated automation state is invalid.")
@@ -226,7 +226,9 @@ def create_run(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,
     automation_id=_id(payload.get("automation_id"),"automation_id",128);definition=get_definition(automation_id)
     if definition["state"]!="active": raise FederatedAutomationError("Only active federated automations may create runs.",409)
     if definition["origin_site_id"]!=_local_site(): raise FederatedAutomationError("Only the origin HomeServer may create a federated automation run.",409)
-    run_id=_id(payload.get("run_id") or ("far-"+uuid.uuid4().hex),"run_id",160);idem=_id(payload.get("idempotency_key") or run_id,"idempotency_key",160)
+    explicit_run=_text(payload.get("run_id"),160);explicit_idem=_text(payload.get("idempotency_key"),160)
+    if not explicit_run and not explicit_idem: raise FederatedAutomationError("Federated automation run requires run_id or idempotency_key for replay-safe creation.")
+    run_id=_id(explicit_run or ("far-"+hashlib.sha256(explicit_idem.encode("utf-8")).hexdigest()[:32]),"run_id",160);idem=_id(explicit_idem or run_id,"idempotency_key",160)
     run_request_fingerprint=_hash({k:payload.get(k) for k in ("automation_id","idempotency_key","trigger_event_id","deadline_at_ms")})
     with db() as c:
         existing=c.execute("SELECT run_json FROM tracky_federated_automation_runs WHERE idempotency_key=? LIMIT 1",(idem,)).fetchone()
@@ -325,8 +327,18 @@ def cloud_projection()->dict[str,Any]:
                "state":x["state"],"deadline_at_ms":x["deadline_at_ms"],"step_states":{s["step_id"]:s["state"] for s in x["steps"]}} for x in runs],
       "agent_context":agent_context(),"summary_only":True,"cloud_read_only":True,"remote_action_execution":False,"authority_mutation":False}
 
+def expire_due_runs(now_ms:int|None=None)->dict[str,Any]:
+    cutoff=int(now_ms or _now_ms());expired=[]
+    with db() as c:
+        rows=c.execute("""SELECT run_id FROM tracky_federated_automation_runs
+          WHERE deadline_at_ms>0 AND deadline_at_ms<=? AND state NOT IN ('completed','failed','cancelled','expired')""",(cutoff,)).fetchall()
+    for row in rows:
+        try: expired.append(transition_run(str(row["run_id"]),"expired",reason="deadline_expired",actor={"actor_type":"system","actor_id":"homeserver_deadline"}))
+        except FederatedAutomationError: pass
+    return {"expired":len(expired),"run_ids":[x["run_id"] for x in expired]}
+
 def report()->dict[str,Any]:
-    defs=list_definitions(100);runs=list_runs(100)
+    expire_due_runs();defs=list_definitions(100);runs=list_runs(100)
     with db() as c:
         event_count=int(c.execute("SELECT COUNT(*) FROM tracky_federated_automation_events").fetchone()[0])
     return {"protocol":PROTOCOL,"version":VERSION,"section":SECTION,"definitions":defs,"runs":runs,"event_count":event_count,
@@ -337,6 +349,6 @@ def public_capability()->dict[str,Any]:
     return {"protocol":PROTOCOL,"version":VERSION,"section":SECTION,"schema_version":54,
       "automation_states":sorted(AUTOMATION_STATES),"run_states":sorted(RUN_STATES),"step_states":sorted(STEP_STATES),
       "trigger_kinds":sorted(TRIGGER_KINDS),"action_types":sorted(ACTION_TYPES),"durable_action_ledger":True,"immutable_audit_events":True,
-      "idempotent_definitions":True,"idempotent_runs":True,"dag_dependencies":True,"deadlines":True,"cancellation":True,"recovery_state":True,
+      "idempotent_definitions":True,"idempotent_runs":True,"dag_dependencies":True,"deadlines":True,"deadline_expiration":True,"cancellation":True,"recovery_state":True,
       "per_step_authority":True,"per_step_permissions":True,"execution_enabled":False,"cloud_execution_allowed":False,"agent_execution_allowed":False,
       "origin_homeserver_authoritative":True,"federation_v280_invariants_required":True}
