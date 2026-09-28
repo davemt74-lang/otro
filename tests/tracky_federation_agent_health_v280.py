@@ -150,8 +150,14 @@ def run():
     assert "announcement_levels" in ambient
     assert "Recovery rule:" in index
     assert "reconnecting is not recovered" in index
+    assert 'id="fahChatAlert"' in index
+    assert 'aria-live="polite"' in index
     assert "federation-agent-health-v280.js" in index
     assert "federation-agent-health-v280.css" in index
+    assert "renderChatAlert" in ui
+    assert "window.setInterval" in ui
+    assert "30000" in ui
+    assert "recovered" in ui
     assert "method:'POST'" not in ui and 'method:"POST"' not in ui
     assert "method:'PUT'" not in ui and 'method:"PUT"' not in ui
     assert "('ui', 'ui')" in spec
