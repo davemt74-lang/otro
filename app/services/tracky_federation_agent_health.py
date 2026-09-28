@@ -419,6 +419,12 @@ def build_report(
     if _RANK.get(relay_health_state, 0) > _RANK.get(overall_state, 0):
         overall_state = relay_health_state
     visible = [row for row in sites if row["agent_visible"]]
+    agent_overall_state = "current"
+    for row in visible:
+        if _RANK.get(row["state"], 1) > _RANK.get(agent_overall_state, 0):
+            agent_overall_state = row["state"]
+    if _RANK.get(relay_health_state, 0) > _RANK.get(agent_overall_state, 0):
+        agent_overall_state = relay_health_state
     relay_issue = (
         {
             "component": "vp3_cloud_relay",
@@ -457,7 +463,7 @@ def build_report(
             "recovering": sum(1 for row in sites if row["state"] in {"recovering", "reconciling"}),
         },
         "agent_context": {
-            "overall_state": overall_state,
+            "overall_state": agent_overall_state,
             "sites": [
                 {
                     "site_id": row["site_id"],
