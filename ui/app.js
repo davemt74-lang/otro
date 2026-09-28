@@ -76,7 +76,7 @@ function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach(v => v.classList.toggle('active', v.dataset.view === name));
-  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',apps:'Connected Apps',backups:'Backup & Restore',ambient:'Ambient Agent',automation:'Rooms & Devices',federation:'Physical Network',activity:'Activity'};
+  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',apps:'Connected Apps',backups:'Backup & Restore',ambient:'Ambient Agent',automation:'Rooms & Devices',federation:'Physical Network','physical-world':'Physical World',activity:'Activity'};
   $('pageTitle').textContent = labels[name] || 'HomeServer';
   loadView(name).catch(err => flash(err.message, true));
 }
@@ -255,6 +255,7 @@ async function loadView(name) {
   if (name === 'apps') return loadApps();
   if (name === 'backups') return loadBackups();
   if (name === 'federation' && typeof window.loadFederationControlCenter === 'function') return window.loadFederationControlCenter();
+  if (name === 'physical-world' && typeof window.loadPhysicalWorldDashboard === 'function') return window.loadPhysicalWorldDashboard();
   if (name === 'activity') return loadActivity();
   return Promise.resolve();
 }
@@ -329,7 +330,7 @@ $('knowledgeSearch').addEventListener('input', () => { clearTimeout(state.search
 $('refreshButton').addEventListener('click', () => loadView(state.view).then(() => flash('HomeServer refreshed.')).catch(err => flash(err.message, true)));
 
 ensureBackupWorkspace();
-const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','apps','backups','ambient','automation','federation','activity'];
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','apps','backups','ambient','automation','federation','physical-world','activity'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();
