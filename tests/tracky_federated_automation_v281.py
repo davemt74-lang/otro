@@ -57,8 +57,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
  cap=tracky_federated_automation.public_capability();assert cap["schema_version"]==54 and cap["execution_enabled"] is False and cap["durable_action_ledger"] is True
  with db() as c:
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_events").fetchone()[0]>=3
-  assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_definitions").fetchone()[0]==1
-  assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_runs").fetchone()[0]==1
+  assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_definitions").fetchone()[0]==2
+  assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_runs").fetchone()[0]==2
 
 
 main=(ROOT/"app/main.py").read_text(encoding="utf-8")
