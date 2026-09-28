@@ -430,6 +430,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
                 (governed_operation_table,),
             ).fetchone() is not None
+        governed_columns = {
+            row["name"]
+            for row in migrated.execute("PRAGMA table_info(tracky_federation_operation_ledger)").fetchall()
+        }
+        assert "expires_at_ms" in governed_columns
         for mobile_table in ("tracky_mobile_transitions","tracky_mobile_transition_history"):
             assert migrated.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
