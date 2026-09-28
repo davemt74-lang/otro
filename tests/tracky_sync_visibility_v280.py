@@ -84,6 +84,7 @@ def run():
     main_source=(ROOT/"app/main.py").read_text(encoding="utf-8")
     paired_source=(ROOT/"app/tracky_api.py").read_text(encoding="utf-8")
     cloud_source=(ROOT/"app/services/tracky_physical_context.py").read_text(encoding="utf-8")
+    agent_source=(ROOT/"app/services/tracky_federated_agent_context.py").read_text(encoding="utf-8")
     spec=(ROOT/"HomeServer.spec").read_text(encoding="utf-8")
     assert "federation-sync-visibility-v280.css" in ui_index
     assert "federation-sync-visibility-v280.js" in ui_index
@@ -93,6 +94,8 @@ def run():
     assert "/api/v1/tracky/federation-sync-visibility" in paired_source
     assert "federation_sync_visibility" in cloud_source
     assert "federation_sync_visibility_protocol" in cloud_source
+    assert '"federation_sync_visibility"' in agent_source
+    assert "_attach_sync_visibility" in agent_source
     assert "loadFederationSyncVisibility" in ui_script
     assert "Federation freshness:" in world_script
     assert "('ui', 'ui')" in spec
