@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -107,6 +107,21 @@ class AppScopeUpdate(BaseModel):
     knowledge_kinds: list[str] = Field(default_factory=list, max_length=32)
     tool_names: list[str] = Field(default_factory=list, max_length=32)
     plugin_keys: list[str] = Field(default_factory=list, max_length=32)
+
+
+class FederationGovernedOperationRequest(BaseModel):
+    operation_type: str = Field(min_length=3, max_length=40)
+    target_site_id: str = Field(min_length=36, max_length=64)
+    device_id: str = Field(default="", max_length=80)
+    new_authority_device_id: str = Field(default="", max_length=80)
+    confirmation_token: str = Field(default="", max_length=160)
+    idempotency_key: str = Field(default="", max_length=160)
+    require_approval: bool = False
+    parameters: dict = Field(default_factory=dict)
+
+
+class FederationOperationDecision(BaseModel):
+    approved: bool
 
 
 class FederationSitePolicyUpdate(BaseModel):
@@ -327,6 +342,44 @@ def control_federation_fleet_health() -> dict:
         "fleet_health": tracky_federation_fleet_health.current_report(),
         "capability": tracky_federation_fleet_health.public_capability(),
     }
+
+
+@app.get("/api/v1/control/federation-operations")
+def control_federation_operations() -> dict:
+    return {"operations": tracky_federation_governed_operations.report(), "capability": tracky_federation_governed_operations.public_capability()}
+
+
+@app.post("/api/v1/control/federation-operations/propose")
+def control_federation_operation_propose(payload: FederationGovernedOperationRequest) -> dict:
+    result=tracky_federation_governed_operations.propose(payload.model_dump(),actor={"actor_type":"owner","actor_id":"local_owner"})
+    _log("tracky.federation_operation.proposed","tracky_federation_operation",result["request_id"],{"operation_type":result["operation_type"]})
+    return {"operation":result}
+
+
+@app.post("/api/v1/control/federation-operations/{request_id}/decision")
+def control_federation_operation_decision(request_id: str,payload: FederationOperationDecision) -> dict:
+    result=tracky_federation_governed_operations.decide(request_id,payload.approved,actor={"actor_type":"owner","actor_id":"local_owner"})
+    _log("tracky.federation_operation.decision","tracky_federation_operation",request_id,{"approved":payload.approved})
+    return {"operation":result}
+
+
+@app.post("/api/v1/control/federation-operations/{request_id}/execute")
+def control_federation_operation_execute(request_id: str) -> dict:
+    result=tracky_federation_governed_operations.execute(request_id)
+    _log("tracky.federation_operation.executed","tracky_federation_operation",request_id,{"state":result["state"]})
+    return {"operation":result}
+
+
+@app.post("/api/v1/control/federation-operations/{request_id}/refresh")
+def control_federation_operation_refresh(request_id: str) -> dict:
+    return {"operation":tracky_federation_governed_operations.refresh_reconciliation(request_id)}
+
+
+@app.post("/api/v1/control/federation-operations/{request_id}/cancel")
+def control_federation_operation_cancel(request_id: str) -> dict:
+    result=tracky_federation_governed_operations.cancel(request_id)
+    _log("tracky.federation_operation.cancelled","tracky_federation_operation",request_id)
+    return {"operation":result}
 
 
 @app.put("/api/v1/control/federation-access/site-policy")
