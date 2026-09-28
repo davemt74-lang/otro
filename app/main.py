@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -38,6 +38,7 @@ async def lifespan(_: FastAPI):
     hardware_experience.start()
     physical_meeting.start_runtime()
     ambient_agent.start()
+    tracky_federation_agent_health.start()
     local_automation.start()
     automation_intelligence.start()
     ambient_orchestration.start()
@@ -47,6 +48,7 @@ async def lifespan(_: FastAPI):
         ambient_orchestration.stop()
         automation_intelligence.stop()
         local_automation.stop()
+        tracky_federation_agent_health.stop()
         ambient_agent.stop()
         physical_meeting.stop_runtime()
         hardware_experience.stop()
@@ -307,6 +309,15 @@ def control_federation_access() -> dict:
     return {
         "access": tracky_federation_access_operations.current_report(),
         "capability": tracky_federation_access_operations.public_capability(),
+    }
+
+
+@app.get("/api/v1/control/federation-agent-health")
+def control_federation_agent_health() -> dict:
+    return {
+        "health": tracky_federation_agent_health.current_report(),
+        "history": tracky_federation_agent_health.recent_history(100),
+        "capability": tracky_federation_agent_health.public_capability(),
     }
 
 
