@@ -57,7 +57,9 @@ def _set(request_id:str,state:str,*,result:dict[str,Any]|None=None,error:str="",
     with db() as c:
         current=c.execute("SELECT state FROM tracky_federation_operation_ledger WHERE request_id=?",(request_id,)).fetchone()
         if current is None: raise FederationOperationError("Federation operation was not found.",404)
-        if str(current["state"]) in TERMINAL and str(current["state"])!=state: raise FederationOperationError("Terminal federation operation is immutable.",409)
+        current_state=str(current["state"])
+        if current_state in TERMINAL and current_state!=state: raise FederationOperationError("Terminal federation operation is immutable.",409)
+        if current_state!=state and state not in TRANSITIONS.get(current_state,set()): raise FederationOperationError("Federation operation transition is not allowed.",409)
         c.execute("""UPDATE tracky_federation_operation_ledger SET state=?,result_json=?,last_error=?,
           authority_epoch_after=COALESCE(?,authority_epoch_after),updated_at=CURRENT_TIMESTAMP WHERE request_id=?""",
           (state,_json(result or {}),_text(error,500),authority_epoch_after,request_id))
@@ -72,6 +74,8 @@ def propose(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,Any
     actor=dict(actor or payload.get("actor") or {})
     actor_type=_text(actor.get("actor_type") or actor.get("type") or "user",30).lower()
     request_id=_text(payload.get("request_id"),128) or "fop-"+uuid.uuid4().hex
+    requested_at_ms=_now_ms()
+    expires_at_ms=max(requested_at_ms+60_000,int(payload.get("expires_at_ms") or requested_at_ms+900_000))
     idem=_text(payload.get("idempotency_key"),160) or request_id
     access=tracky_federation_access_operations.current_report()
     health=tracky_federation_agent_health.current_report()
@@ -87,6 +91,7 @@ def propose(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,Any
     elif actor_type not in {"user","owner","admin","system"}: reasons.append("actor_not_authorized")
     device_id=_text(payload.get("device_id"),80)
     if op in {"restart_runtime","request_update","revoke_device"} and not device_id: reasons.append("device_required")
+    if op=="revoke_site" and target==local: reasons.append("revoke_site_must_target_peer")
     if op in {"restart_runtime","request_update","revoke_device","transfer_authority"} and target!=local: reasons.append("operation_requires_origin_local")
     if op=="transfer_authority":
         if target!=local: reasons.append("authority_transfer_must_be_origin_local")
