@@ -24,10 +24,20 @@ def run():
     assert '"diagnostic_content_included":False' in source
     assert '"network_endpoint_details_included":False' in source
     assert "federation_fleet_health" in physical
+    assert '"federation_agent_health": tracky_federation_agent_health.current_report().get("agent_context", {})' in physical
+    assert '"federation_fleet_health": tracky_federation_fleet_health.current_report().get("agent_context", {})' in physical
     assert "FEDERATION_FLEET_HEALTH_PROTOCOL" in physical
     assert '@router.get("/api/v1/tracky/federation-fleet-health")' in api
     assert '/api/v1/control/federation-fleet-health' in main
     assert '@router.post("/api/v1/tracky/federation-fleet-health' not in api
+    ui=(ROOT/"ui/index.html").read_text(encoding="utf-8")
+    fleet_js=(ROOT/"ui/federation-fleet-health-v280.js").read_text(encoding="utf-8")
+    assert 'id="fleetHealthV280"' in ui
+    assert 'federation-fleet-health-v280.js' in ui
+    assert 'camera_count' in source and 'sensor_count' in source
+    assert 'model_health' in source and 'calibration_profiles' in source
+    assert 'upgrade_state' in source and 'last_sync_at' in source
+    assert '/api/v1/control/federation-fleet-health' in fleet_js
     print("TRACKY_V280_FEDERATION_FLEET_HEALTH=PASS")
 
 if __name__=="__main__":
