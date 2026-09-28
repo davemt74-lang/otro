@@ -263,6 +263,14 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
     if len(envelopes) > 64:
         raise TrackyFederationSyncError("Federation relay batch exceeds the HomeServer limit.")
     topology = _topology()
+    reconciliation_meta = input.get("reconciliation") if isinstance(input.get("reconciliation"), dict) else {}
+    remote_cursors = [
+        item for item in (reconciliation_meta.get("remote_cursors") or [])
+        if isinstance(item, dict) and item.get("site_id")
+    ]
+    remote_cursor_map = {str(item.get("site_id") or ""): item for item in remote_cursors}
+    from . import tracky_federation_reconciliation
+    reconciliation_cursor_status = tracky_federation_reconciliation.process_remote_cursors(remote_cursors)
     applied = stale = idempotent = quarantined = ignored = 0
     for raw in envelopes:
         try:
@@ -275,6 +283,19 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
             ignored += 1
             continue
         source = envelope["source_site_id"]
+        remote_cursor = remote_cursor_map.get(source) or {
+            "revision": envelope["source_world_revision"],
+            "fingerprint": envelope["source_fingerprint"],
+            "authority_epoch": envelope["source_authority_epoch"],
+        }
+        contact_state = tracky_federation_reconciliation.note_peer_contact(
+            source, remote_cursor, reason="cloud_relay"
+        )
+        reconciliation = None
+        if contact_state.get("status") in {"reconciling", "failed"}:
+            reconciliation = tracky_federation_reconciliation.begin_reconciliation(
+                source, remote_cursor, reason="cloud_relay_recovery"
+            )
         if not _peer_allowed(topology, source, local):
             _quarantine(envelope, "source_not_federated", "Source site is not an approved federation peer.")
             quarantined += 1
@@ -366,8 +387,18 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
                         (fingerprint, envelope["source_authority_epoch"], source),
                     )
                 applied += 1
+                tracky_federation_reconciliation.complete_reconciliation(
+                    source,
+                    remote_cursor,
+                    reconciliation_id=(reconciliation or {}).get("reconciliation_id", ""),
+                )
             else:
                 idempotent += 1
+                tracky_federation_reconciliation.complete_reconciliation(
+                    source,
+                    remote_cursor,
+                    reconciliation_id=(reconciliation or {}).get("reconciliation_id", ""),
+                )
             continue
 
         try:
@@ -408,6 +439,11 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
                 (source, revision, fingerprint, envelope["source_authority_epoch"]),
             )
         applied += 1
+        tracky_federation_reconciliation.complete_reconciliation(
+            source,
+            remote_cursor,
+            reconciliation_id=(reconciliation or {}).get("reconciliation_id", ""),
+        )
     return {
         "accepted": True,
         "local_site_id": local,
@@ -416,6 +452,7 @@ def ingest_cloud_batch(input: dict[str, Any]) -> dict[str, Any]:
         "idempotent": idempotent,
         "quarantined": quarantined,
         "ignored": ignored,
+        "reconciliation_cursors": reconciliation_cursor_status,
     }
 
 def build_outbound_batch(destination_site_id: str, *, max_envelopes: int = 32) -> dict[str, Any]:
