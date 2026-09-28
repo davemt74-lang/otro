@@ -45,6 +45,21 @@ def _severity(state: str) -> str:
 
 def _device_state(device: dict[str,Any], now_ms: int, stale_after_ms: int, offline_after_ms: int) -> tuple[str,list[str],int]:
     issues=[_text(v,80).lower() for v in list(device.get("issues") or [])[:32] if _text(v,80)]
+    if device.get("privacy_fault"): issues.append("privacy_fault")
+    commissioning=_text(device.get("commissioning_state"),24).lower()
+    certification=_text(device.get("certification_result"),24).lower()
+    backup=_text(device.get("backup_state"),24).lower()
+    storage=_text(device.get("storage_state"),24).lower()
+    update=_text(device.get("update_status"),32).lower()
+    if commissioning=="blocked": issues.append("commissioning_blocked")
+    elif commissioning=="degraded": issues.append("commissioning_degraded")
+    if certification=="failed": issues.append("certification_failed")
+    elif certification=="degraded": issues.append("certification_degraded")
+    if backup in {"missing","stale"}: issues.append("backup_"+backup)
+    if storage in {"low","critical"}: issues.append("storage_"+storage)
+    if update in {"failed","rolled_back"}: issues.append("update_"+update)
+    if int(device.get("watchdog_failures") or 0)>0: issues.append("watchdog_recovery")
+    issues=list(dict.fromkeys(issues))
     seen=_epoch_ms(device.get("last_seen_at") or device.get("reported_at"))
     age=max(0,now_ms-seen) if seen else 0
     if seen and age>offline_after_ms:
