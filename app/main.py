@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_federation_operations
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_federation_operations, tracky_physical_world_dashboard
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -269,6 +269,14 @@ def control_federation_operations() -> dict:
     return {
         "operations": tracky_federation_operations.current_report(),
         "capability": tracky_federation_operations.public_capability(),
+    }
+
+
+@app.get("/api/v1/control/physical-world-dashboard")
+def control_physical_world_dashboard(site: str = Query(default="", max_length=64)) -> dict:
+    return {
+        "dashboard": tracky_physical_world_dashboard.current_report(site),
+        "capability": tracky_physical_world_dashboard.public_capability(),
     }
 
 

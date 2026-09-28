@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_physical_context, tracky_site_topology
+from .services import tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_physical_context, tracky_physical_world_dashboard, tracky_site_topology
 from .services.pairing import authenticate
 
 
@@ -186,6 +186,18 @@ def paired_tracky_federation_operations(
     return {
         "operations": tracky_federation_operations.current_report(),
         "capability": tracky_federation_operations.public_capability(),
+        "app": identity["app_key"],
+    }
+
+
+@router.get("/api/v1/tracky/physical-world-dashboard")
+def paired_tracky_physical_world_dashboard(
+    site: str = "",
+    identity: dict = Depends(_physical_reader),
+) -> dict:
+    return {
+        "dashboard": tracky_physical_world_dashboard.current_report(site),
+        "capability": tracky_physical_world_dashboard.public_capability(),
         "app": identity["app_key"],
     }
 
