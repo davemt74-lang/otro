@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from . import fleet_management, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_operations
+from . import fleet_management, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_operations, tracky_forecast_calibration, tracky_model_lifecycle
 
 FEDERATION_FLEET_HEALTH_PROTOCOL = "physical_federation_fleet_health.v1"
 TRACKY_FEDERATION_FLEET_HEALTH_VERSION = "2.80"
@@ -78,10 +78,15 @@ def _device_state(device: dict[str,Any], now_ms: int, stale_after_ms: int, offli
         return "healthy", issues, age
     return "unknown", issues, age
 
-def _local_fleet_site(local_site_id: str, now_ms: int, stale_after_ms: int, offline_after_ms: int) -> dict[str,Any]:
+def _local_fleet_site(local_site_id: str, now_ms: int, stale_after_ms: int, offline_after_ms: int, operations: dict[str,Any]) -> dict[str,Any]:
     settings=fleet_management.get_settings()
     diagnostics_allowed=bool(settings.get("enabled") and settings.get("remote_diagnostics"))
     snapshot=fleet_management.remote_diagnostics_summary() if diagnostics_allowed else fleet_management.local_device_snapshot()
+    op_devices=[row for row in list(operations.get("devices") or []) if isinstance(row,dict) and _site_id(row.get("site_id"))==local_site_id]
+    op_device=next((row for row in op_devices if _text(row.get("id") or row.get("device_id"),80)==_text(snapshot.get("device_id"),80)),op_devices[0] if op_devices else {})
+    caps=op_device.get("capabilities") if isinstance(op_device.get("capabilities"),dict) else {}
+    model=tracky_model_lifecycle.health_summary()
+    calibration=tracky_forecast_calibration.summary()
     state,issues,age=_device_state(snapshot,now_ms,stale_after_ms,offline_after_ms)
     device={
         "device_id":_text(snapshot.get("device_id"),80),
@@ -99,6 +104,17 @@ def _local_fleet_site(local_site_id: str, now_ms: int, stale_after_ms: int, offl
         "storage_state":_text(snapshot.get("storage_state"),24).lower(),
         "watchdog_failures":max(0,min(int(snapshot.get("watchdog_failures") or 0),1000)),
         "privacy_fault":bool(snapshot.get("privacy_fault")),
+        "runtime_status":_text(op_device.get("runtime_status") or "online",32).lower(),
+        "runtime_version":_text(op_device.get("version") or snapshot.get("os_version"),80),
+        "camera_count":max(0,min(int(caps.get("camera_count") or caps.get("cameras") or 0),128)),
+        "sensor_count":max(0,min(int(caps.get("sensor_count") or caps.get("sensors") or 0),512)),
+        "model_health":_text(model.get("state") or "unknown",32).lower(),
+        "active_models":max(0,min(int(model.get("active_models") or 0),256)),
+        "calibration_profiles":max(0,min(int(calibration.get("active_profiles") or 0),256)),
+        "calibration_state":"available" if calibration.get("available") else "empty",
+        "last_sync_at":op_device.get("last_seen_at") or snapshot.get("reported_at"),
+        "error_count":len(issues),
+        "upgrade_state":_text(snapshot.get("update_status") or "unknown",32).lower(),
         "last_seen_at":snapshot.get("reported_at"),
         "stale_age_ms":age,
         "state":state,
@@ -118,7 +134,7 @@ def build_report(operations: dict[str,Any], federation_health: dict[str,Any], ac
     stale_after_ms=max(60000,int(settings.get("stale_after_seconds") or 300)*1000)
     offline_after_ms=max(stale_after_ms*2,stale_after_ms*3)
     local=_site_id(operations.get("local_site_id") or federation_health.get("local_site_id"))
-    fleet_site=_local_fleet_site(local,now_ms,stale_after_ms,offline_after_ms) if local else None
+    fleet_site=_local_fleet_site(local,now_ms,stale_after_ms,offline_after_ms,operations) if local else None
     fed_by={_site_id(row.get("site_id")):row for row in list(federation_health.get("sites") or []) if isinstance(row,dict)}
     access_by={_site_id(row.get("site_id")):row for row in list(access.get("peers") or []) if isinstance(row,dict)}
     sites=[]
@@ -228,4 +244,5 @@ def public_capability() -> dict[str,Any]:
         "states":list(_STATES),"section7_health_is_authoritative":True,
         "diagnostics_never_promote_federation_freshness":True,"permission_filtered_agent_context":True,
         "privacy_safe_summary_only":True,"cloud_read_only":True,"remote_command_execution":False,"authority_mutation":False,
+        "hardware_profiles":["homeserver","node","desk","studio","team_node","pocket","custom","future"],
     }
