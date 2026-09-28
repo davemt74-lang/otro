@@ -160,7 +160,7 @@ jobs:
       - name: Verify Tracky V2.80 golden operational scenarios and release hardening
         run: python tests/tracky_v280_golden_operational_release.py
       - name: Verify Tracky V2.81 federated automation contract and action ledger
-        run: python tests/tracky_federated_automation_v281.py
+        run: python tests/tracky_federated_automation_v281.py\n          tests/tracky_physical_trigger_runtime_v281.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance

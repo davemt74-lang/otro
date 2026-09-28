@@ -11,7 +11,7 @@ from . import tracky_federation_sync, tracky_site_topology
 
 VERSION="2.81"
 PROTOCOL="physical_federated_automation.v1"
-SECTION=1
+SECTION=2
 AUTOMATION_STATES={"draft","active","paused","retired"}
 RUN_STATES={"planned","waiting","ready","running","blocked","recovering","completed","failed","cancelled","expired"}
 STEP_STATES={"pending","blocked","ready","running","completed","failed","cancelled","expired"}
@@ -317,6 +317,104 @@ def agent_context()->dict[str,Any]:
       "active_runs":[{"run_id":x["run_id"],"automation_id":x["automation_id"],"state":x["state"],"origin_site_id":x["origin_site_id"],"deadline_at_ms":x["deadline_at_ms"]} for x in runs],
       "agent_may_propose":True,"agent_may_activate":False,"agent_may_execute":False,"cloud_may_execute":False,"execution_phase":"future_v281_distributed_execution"}
 
+
+def _nested_event_value(event:dict[str,Any],path:str)->Any:
+    value:Any=event
+    for part in str(path or "").split("."):
+        if not part:return None
+        if not isinstance(value,dict):return None
+        value=value.get(part)
+    return value
+
+def _trigger_condition_matches(event:dict[str,Any],condition:dict[str,Any])->bool:
+    actual=_nested_event_value(event,_text(condition.get("field"),120))
+    expected=condition.get("value")
+    op=_text(condition.get("op") or "eq",16).lower()
+    if op=="eq":return actual==expected
+    if op=="neq":return actual!=expected
+    if op=="in":return isinstance(expected,list) and actual in expected
+    if op=="contains":
+        if isinstance(actual,list):return expected in actual
+        return str(expected or "") in str(actual or "")
+    try:a=float(actual);b=float(expected)
+    except (TypeError,ValueError):return False
+    return {"gt":a>b,"gte":a>=b,"lt":a<b,"lte":a<=b}.get(op,False)
+
+def _event_occurred_ms(event:dict[str,Any])->int:
+    raw=str(event.get("occurred_at") or "").strip()
+    try:return int(datetime.fromisoformat(raw.replace("Z","+00:00")).timestamp()*1000)
+    except ValueError:return 0
+
+def process_physical_trigger_events(event_ids:list[str],*,now_ms:int|None=None)->list[dict[str,Any]]:
+    now=int(now_ms or _now_ms());local=_local_site()
+    reconciliation=federated_data.reconciliation_state("vp3_cloud")
+    current=not bool(reconciliation.get("needs_reconciliation"))
+    definitions=[x for x in list_definitions(500) if x.get("state")=="active" and (x.get("trigger") or {}).get("kind") in {"world_state","presence","device_state","event"}]
+    results:list[dict[str,Any]]=[]
+    for raw_event_id in event_ids[:100]:
+        event_id=_id(raw_event_id,"trigger_event_id",160)
+        with db() as c:
+            row=c.execute("SELECT event_json FROM tracky_physical_events WHERE event_id=? LIMIT 1",(event_id,)).fetchone()
+        if row is None:continue
+        event=_decode(row["event_json"],{})
+        event_key=_text(event.get("event_type"),120).lower()
+        occurred=_event_occurred_ms(event)
+        for definition in definitions:
+            trigger=definition.get("trigger") or {}
+            automation_id=definition["automation_id"];revision=int(definition["revision"])
+            with db() as c:
+                prior=c.execute("""SELECT decision,reason,run_id FROM tracky_federated_automation_trigger_receipts
+                  WHERE automation_id=? AND automation_revision=? AND event_id=? LIMIT 1""",(automation_id,revision,event_id)).fetchone()
+            if prior is not None:
+                results.append({"automation_id":automation_id,"automation_revision":revision,"event_id":event_id,"decision":"duplicate","reason":"event_already_processed","run_id":prior["run_id"]})
+                continue
+            source=_site(trigger.get("source_site_id") or definition["origin_site_id"])
+            decision="rejected";reason="event_key_mismatch";run_id=None
+            configured=[_text(trigger.get("event_key"),120).lower()]
+            config=trigger.get("config") if isinstance(trigger.get("config"),dict) else {}
+            configured += [_text(x,120).lower() for x in (config.get("event_keys") or []) if _text(x,120)]
+            key_match=not any(configured) or any(x==event_key or (x.endswith(".*") and event_key.startswith(x[:-1])) for x in configured if x)
+            min_conf=max(0.0,min(1.0,float(config.get("min_confidence") or 0)))
+            max_age=max(1000,min(86_400_000,int(config.get("max_age_ms") or 300_000)))
+            age=max(0,now-occurred) if occurred else max_age+1
+            conditions=config.get("conditions") if isinstance(config.get("conditions"),list) else []
+            if source!=local:reason="wrong_source_site"
+            elif not key_match:reason="event_key_mismatch"
+            elif float(event.get("confidence") or 0)<min_conf:reason="confidence_below_threshold"
+            elif bool(trigger.get("requires_fresh_world_state")) and not current:reason="reconciliation_not_current"
+            elif bool(trigger.get("requires_fresh_world_state")) and age>max_age:reason="stale_world_state"
+            elif not all(isinstance(x,dict) and _trigger_condition_matches(event,x) for x in conditions[:32]):reason="conditions_not_met"
+            else:
+                debounce=max(0,int(trigger.get("debounce_ms") or 0))
+                with db() as c:
+                    last=c.execute("""SELECT occurred_at_ms FROM tracky_federated_automation_trigger_receipts
+                      WHERE automation_id=? AND decision='accepted' ORDER BY occurred_at_ms DESC,id DESC LIMIT 1""",(automation_id,)).fetchone()
+                if debounce and last is not None and occurred-int(last["occurred_at_ms"] or 0)<debounce:
+                    decision="debounced";reason="debounce_window"
+                else:
+                    idem="ptr-run:"+hashlib.sha256(f"{automation_id}|{revision}|{event_id}".encode("utf-8")).hexdigest()[:48]
+                    run=create_run({"automation_id":automation_id,"idempotency_key":idem,"trigger_event_id":event_id},actor={"actor_type":"system","actor_id":"physical_trigger_runtime"})
+                    if run["state"]=="running":raise FederatedAutomationError("Physical trigger runtime cannot execute actions.",409)
+                    decision="accepted";reason="matched";run_id=run["run_id"]
+            with db() as c:
+                c.execute("""INSERT INTO tracky_federated_automation_trigger_receipts(
+                  receipt_id,automation_id,automation_revision,event_id,event_key,source_site_id,occurred_at_ms,confidence,decision,reason,run_id,detail_json
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",(
+                  "ptr:"+hashlib.sha256(f"{automation_id}|{revision}|{event_id}".encode("utf-8")).hexdigest()[:40],
+                  automation_id,revision,event_id,event_key,local,occurred,float(event.get("confidence") or 0),decision,reason,run_id,
+                  _json({"reconciliation_current":current,"age_ms":age,"max_age_ms":max_age,"min_confidence":min_conf})
+                ))
+                c.execute("INSERT INTO tracky_federated_automation_events(automation_id,run_id,event_kind,state,actor_json,detail_json) VALUES (?,?,?,?,?,?)",
+                  (automation_id,run_id,"trigger."+decision,None,_json({"actor_type":"system","actor_id":"physical_trigger_runtime"}),_json({"event_id":event_id,"event_key":event_key,"reason":reason})))
+            results.append({"automation_id":automation_id,"automation_revision":revision,"event_id":event_id,"decision":decision,"reason":reason,"run_id":run_id})
+    return results
+
+def trigger_receipts(limit:int=100)->list[dict[str,Any]]:
+    with db() as c:
+        rows=c.execute("""SELECT receipt_id,automation_id,automation_revision,event_id,event_key,source_site_id,occurred_at_ms,confidence,decision,reason,run_id,created_at
+          FROM tracky_federated_automation_trigger_receipts ORDER BY id DESC LIMIT ?""",(max(1,min(500,int(limit))),)).fetchall()
+    return [dict(x) for x in rows]
+
 def cloud_projection()->dict[str,Any]:
     expire_due_runs();defs=list_definitions(100);runs=list_runs(100)
     return {"protocol":PROTOCOL,"version":VERSION,"schema_version":1,"generated_at":_now_ms(),"local_site_id":_local_site(),
@@ -325,7 +423,7 @@ def cloud_projection()->dict[str,Any]:
                       "step_count":len(x["steps"]),"default_deadline_ms":x["default_deadline_ms"]} for x in defs],
       "runs":[{"run_id":x["run_id"],"automation_id":x["automation_id"],"automation_revision":x["automation_revision"],"origin_site_id":x["origin_site_id"],
                "state":x["state"],"deadline_at_ms":x["deadline_at_ms"],"step_states":{s["step_id"]:s["state"] for s in x["steps"]}} for x in runs],
-      "agent_context":agent_context(),"summary_only":True,"cloud_read_only":True,"remote_action_execution":False,"authority_mutation":False}
+      "trigger_receipts":trigger_receipts(100),"agent_context":agent_context(),"summary_only":True,"cloud_read_only":True,"remote_action_execution":False,"authority_mutation":False}
 
 def expire_due_runs(now_ms:int|None=None)->dict[str,Any]:
     cutoff=int(now_ms or _now_ms());expired=[]
@@ -346,9 +444,9 @@ def report()->dict[str,Any]:
       "agent_context":agent_context(),"safety":{"execution_enabled":False,"cloud_execution_allowed":False,"agent_execution_allowed":False,"origin_homeserver_authoritative":True}}
 
 def public_capability()->dict[str,Any]:
-    return {"protocol":PROTOCOL,"version":VERSION,"section":SECTION,"schema_version":54,
+    return {"protocol":PROTOCOL,"version":VERSION,"section":SECTION,"schema_version":55,
       "automation_states":sorted(AUTOMATION_STATES),"run_states":sorted(RUN_STATES),"step_states":sorted(STEP_STATES),
       "trigger_kinds":sorted(TRIGGER_KINDS),"action_types":sorted(ACTION_TYPES),"durable_action_ledger":True,"immutable_audit_events":True,
       "idempotent_definitions":True,"idempotent_runs":True,"dag_dependencies":True,"deadlines":True,"deadline_expiration":True,"cancellation":True,"recovery_state":True,
       "per_step_authority":True,"per_step_permissions":True,"execution_enabled":False,"cloud_execution_allowed":False,"agent_execution_allowed":False,
-      "origin_homeserver_authoritative":True,"federation_v280_invariants_required":True}
+      "origin_homeserver_authoritative":True,"federation_v280_invariants_required":True,"physical_world_trigger_runtime":True,"trigger_receipts_immutable":True,"trigger_execution_enabled":False}

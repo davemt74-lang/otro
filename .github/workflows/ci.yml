@@ -147,7 +147,7 @@ jobs:
       - name: Tracky V2.80 golden operational scenarios and release hardening
         run: python tests/tracky_v280_golden_operational_release.py
       - name: Tracky V2.81 federated automation contract and action ledger
-        run: python tests/tracky_federated_automation_v281.py
+        run: python tests/tracky_federated_automation_v281.py\n      - name: Tracky V2.81 physical-world trigger runtime\n        run: python tests/tracky_physical_trigger_runtime_v281.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
@@ -610,15 +610,15 @@ jobs:
             version = '2.4'
             channel = 'stable'
             minimum_schema_version = 38
-            current_schema_version = 54
+            current_schema_version = 55
             feature_track = 'Tracky V2.81'
-            feature_section = 1
+            feature_section = 2
             federated_automation_protocol = 'physical_federated_automation.v1'
-            federated_automation_execution_enabled = $false
+            federated_automation_execution_enabled = $false\n            physical_world_trigger_runtime = $true
             golden_operational_scenarios = 24
             recovery_authority = 'section7_authoritative_reconciliation'
             files = $hashMap
-            release_notes = 'HomeServer runtime v2.4 with Tracky V2.81 Section 1 Federated Automation Contract & Action Ledger; physical action execution remains disabled pending later V2.81 sections.'
+            release_notes = 'HomeServer runtime v2.4 with Tracky V2.81 Section 2 Physical-World Trigger Runtime; canonical physical events can create durable runs while physical action execution remains disabled pending Section 3.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution

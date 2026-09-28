@@ -799,7 +799,7 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
         "duplicate_events": duplicates,
         "relations": len(relations),
         "last_sequence": max_sequence,
-        "automation_results": automation_results,
+        "automation_results": automation_results,\n        "federated_trigger_results": federated_trigger_results,
         "forecast_calibration": {
             "accepted": calibration_report is not None,
             "changed": bool(calibration_result and calibration_result.get("changed")),
