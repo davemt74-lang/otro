@@ -606,8 +606,13 @@ jobs:
             version = '2.4'
             channel = 'stable'
             minimum_schema_version = 38
+            current_schema_version = 53
+            feature_track = 'Tracky V2.80'
+            feature_section = 10
+            golden_operational_scenarios = 24
+            recovery_authority = 'section7_authoritative_reconciliation'
             files = $hashMap
-            release_notes = 'HomeServer v2.4 federated continuity through Disconnect/Reconnect Reconciliation; includes Agent Brain & Memory, Files & Documents, retained v2.3 execution, governed actions, local voice and Profile Agent parity'
+            release_notes = 'HomeServer runtime v2.4 with Tracky V2.80 federation complete through Section 10 Golden Operational Scenarios & Release Hardening.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
