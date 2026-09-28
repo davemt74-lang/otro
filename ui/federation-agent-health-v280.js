@@ -13,7 +13,34 @@
     const payload=row.payload||{};
     return '<div class="fah-history-row"><div><strong>'+esc(pretty(row.event_type||''))+'</strong><span>'+esc(payload.label||payload.site_id||payload.component||'')+'</span></div><div><span>'+esc(payload.severity||'')+'</span><small>'+esc(row.occurred_at||'')+'</small></div></div>';
   }
+  function renderChatAlert(report,historyRows){
+    const node=$('fahChatAlert');if(!node)return;
+    const issues=Array.isArray(report.agent_context?.active_issues)?report.agent_context.active_issues:[];
+    const issue=[...issues].sort((a,b)=>(b.severity==='critical'?2:b.severity==='warning'?1:0)-(a.severity==='critical'?2:a.severity==='warning'?1:0))[0];
+    if(issue){
+      const label=issue.label||issue.component||issue.site_id||'Federation';
+      const sev=issue.severity==='critical'?'critical':'warning';
+      node.hidden=false;node.className='fah-chat-alert '+sev;
+      node.innerHTML='<strong>'+esc(label)+' · '+esc(pretty(issue.state||'degraded'))+'</strong><span>'+esc(issue.message||report.agent_context?.summary||'Federation health needs attention.')+'</span>';
+      return;
+    }
+    const recovered=(historyRows||[]).find(row=>{
+      const type=String(row.event_type||'').toLowerCase();
+      if(!type.includes('recovered'))return false;
+      const ts=Date.parse(row.occurred_at||'');
+      return Number.isFinite(ts)&&(Date.now()-ts)<=300000;
+    });
+    if(recovered){
+      const payload=recovered.payload||{};
+      const label=payload.label||payload.component||payload.site_id||'Federation';
+      node.hidden=false;node.className='fah-chat-alert recovered';
+      node.innerHTML='<strong>'+esc(label)+' recovered</strong><span>'+esc(recovered.summary||'Connectivity and authoritative reconciliation are current. Recovery is complete.')+'</span>';
+      return;
+    }
+    node.hidden=true;node.textContent='';node.className='fah-chat-alert';
+  }
   function render(report,historyRows){
+    renderChatAlert(report,historyRows);
     $('fahOverall').innerHTML=badge(report.overall_state||'unknown');
     $('fahCurrent').textContent=Number(report.counts?.current||0);
     $('fahDegraded').textContent=Number(report.counts?.degraded||0);
@@ -33,5 +60,7 @@
     if(status)status.textContent='Agent Brain live health';
   }
   window.loadFederationAgentHealth=load;
-  document.addEventListener('click',event=>{if(event.target?.id==='refreshFederationAgentHealth')load().catch(err=>{$('fahLoading').textContent=err.message;});});
+  document.addEventListener('click',event=>{if(event.target?.id==='refreshFederationAgentHealth')load().catch(err=>{const node=$('fahLoading');if(node)node.textContent=err.message;});});
+  load().catch(()=>{});
+  window.setInterval(()=>load().catch(()=>{}),30000);
 })();
