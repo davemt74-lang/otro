@@ -47,6 +47,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
  assert tracky_federated_automation.get_run(exp["run_id"])["state"]=="expired"
  try:tracky_federated_automation.transition_run("run-1","running",actor={"actor_type":"system"});raise AssertionError("Section 1 executed a run")
  except tracky_federated_automation.FederatedAutomationError as exc:assert exc.status_code==409
+ try:tracky_federated_automation.cancel_run("run-1",reason="agent_cancel",actor={"actor_type":"agent","actor_id":"agent"});raise AssertionError("agent mutated authoritative run state")
+ except tracky_federated_automation.FederatedAutomationError as exc:assert exc.status_code==403
  cancelled=tracky_federated_automation.cancel_run("run-1",reason="operator_cancel",actor={"actor_type":"owner"})
  assert cancelled["state"]=="cancelled" and all(x["state"]=="cancelled" for x in cancelled["steps"])
  try:tracky_federated_automation.transition_run("run-1","ready",actor={"actor_type":"system"});raise AssertionError("terminal run mutated")
@@ -59,6 +61,14 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_events").fetchone()[0]>=3
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_definitions").fetchone()[0]==2
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_runs").fetchone()[0]==2
+ try:
+  with db() as c:c.execute("UPDATE tracky_federated_automation_events SET state='tampered' WHERE id=(SELECT MIN(id) FROM tracky_federated_automation_events)")
+  raise AssertionError("audit event update was allowed")
+ except Exception as exc:assert "audit events are immutable" in str(exc)
+ try:
+  with db() as c:c.execute("DELETE FROM tracky_federated_automation_events WHERE id=(SELECT MIN(id) FROM tracky_federated_automation_events)")
+  raise AssertionError("audit event delete was allowed")
+ except Exception as exc:assert "audit events are immutable" in str(exc)
 
 
 main=(ROOT/"app/main.py").read_text(encoding="utf-8")
@@ -80,6 +90,7 @@ assert "tracky_federated_automation.recover_incomplete_runs()" in main
 assert "tracky_federated_automation_v281.py" in ci
 assert "tracky_federated_automation_v281.py" in release_workflow
 assert "tracky_federated_automation_definitions" in migration and "tracky_federated_automation_events" in migration
+assert "trg_tracky_federated_automation_events_no_update" in migration and "trg_tracky_federated_automation_events_no_delete" in migration
 assert "current_schema_version = 54" in ci
 assert "feature_track = 'Tracky V2.81'" in ci
 assert "feature_section = 1" in ci
