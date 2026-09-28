@@ -592,6 +592,9 @@
             <label>Target site UUID<input name="target_site_id" required maxlength="64"></label>
             <label>Device ID<input name="device_id" maxlength="80"></label>
             <label>New authority device<input name="new_authority_device_id" maxlength="80"></label>
+            <label>Package SHA-256<input name="package_sha256" maxlength="64"></label>
+            <label>Release version<input name="release_version" maxlength="40"></label>
+            <label>Rollout ID<input name="rollout_id" type="number" min="1"></label>
             <label class="check-inline"><input type="checkbox" name="explicit_confirmation" value="1"> Explicit authority-transfer confirmation</label>
             <button class="button secondary" type="submit">Create local request</button>
           </form>
