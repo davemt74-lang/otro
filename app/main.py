@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_operations, tracky_physical_world_dashboard
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -269,6 +269,14 @@ def control_federation_operations() -> dict:
     return {
         "operations": tracky_federation_operations.current_report(),
         "capability": tracky_federation_operations.public_capability(),
+    }
+
+
+@app.get("/api/v1/control/federation-sync-visibility")
+def control_federation_sync_visibility() -> dict:
+    return {
+        "visibility": tracky_sync_visibility.current_report(),
+        "capability": tracky_sync_visibility.public_capability(),
     }
 
 
