@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/assets/physical-world-dashboard-v280.css">
   <link rel="stylesheet" href="/assets/cross-site-presence-v280.css">
   <link rel="stylesheet" href="/assets/federation-sync-visibility-v280.css">
+  <link rel="stylesheet" href="/assets/federation-access-operations-v280.css">
 </head>
 <body>
   <div class="shell">
@@ -509,6 +510,54 @@
           <p class="federation-boundary">Remote freshness is never promoted by Cloud or by a newer timestamp alone. Revision gaps, authority epoch changes and fingerprint conflicts must reconcile against the origin site.</p>
         </section>
         <section class="panel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">PERMISSIONS & CONSENT</p><h3>Federation access governance</h3></div><div><span id="accessLoading" class="muted">Local policy authority</span> <button class="button secondary" id="refreshFederationAccess" type="button">Refresh access</button></div></div>
+          <div class="access-summary">
+            <div><span>Policy revision</span><strong id="accessPolicyRevision">0</strong></div>
+            <div><span>Revocation epoch</span><strong id="accessRevocationEpoch">0</strong></div>
+            <div><span>Allowed grants</span><strong id="accessAllowedCount">0</strong></div>
+            <div><span>Revoked</span><strong id="accessRevokedCount">0</strong></div>
+            <div><span>Stale suppressed</span><strong id="accessSuppressedCount">0</strong></div>
+          </div>
+          <div id="accessAgentSummary" class="access-agent">No access-policy summary.</div>
+          <div class="access-layout" style="margin-top:12px">
+            <div>
+              <div class="panel-head"><div><p class="eyebrow">SITE POLICY</p><h3>Local federation authority</h3></div></div>
+              <div class="access-policy-form">
+                <div class="access-form-grid">
+                  <div class="access-field"><label for="accessPolicyMode">Mode</label><select id="accessPolicyMode"><option value="private">Private</option><option value="household">Household</option><option value="team">Team</option><option value="shared">Shared</option></select></div>
+                  <div class="access-field"><label for="accessIdentityVisibility">Identity visibility</label><select id="accessIdentityVisibility"><option value="none">None</option><option value="anonymous">Anonymous</option><option value="consented">Consented</option></select></div>
+                </div>
+                <div class="access-checks">
+                  <label><input id="accessAllowFederation" type="checkbox"> Allow federation</label>
+                  <label><input id="accessAllowRemoteObservation" type="checkbox"> Allow remote observation</label>
+                </div>
+                <div><p class="eyebrow">ALLOWED PEER SITES</p><div id="accessPeerChoices" class="access-checks"><span class="muted">Loading peers…</span></div></div>
+                <div><button class="button" id="saveFederationSitePolicy" type="button">Save site policy</button></div>
+              </div>
+              <div class="panel-head" style="margin-top:16px"><div><p class="eyebrow">PEER ACCESS</p><h3>Effective permissions</h3></div></div>
+              <div id="accessPeers" class="access-peers"><div class="empty-state">Loading permissions…</div></div>
+            </div>
+            <aside>
+              <section>
+                <div class="panel-head"><div><p class="eyebrow">RECOGNITION CONSENT</p><h3>Identity consent</h3></div></div>
+                <div id="accessConsents" class="access-consents"><div class="empty-state">No consent records yet.</div></div>
+                <div class="access-consent-form">
+                  <div class="access-field"><label for="accessConsentIdentity">Canonical identity UUID</label><input id="accessConsentIdentity" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"></div>
+                  <div class="access-field"><label for="accessConsentScope">Scope</label><select id="accessConsentScope"><option value="person_recognition">Person recognition</option><option value="voice_matching">Voice matching</option><option value="identity_linking">Identity linking</option></select></div>
+                  <div class="access-field"><label for="accessConsentStatus">State</label><select id="accessConsentStatus"><option value="granted">Grant</option><option value="denied">Deny</option><option value="revoked">Revoke</option><option value="pending">Pending</option></select></div>
+                  <div class="access-field"><label for="accessConsentReason">Reason</label><input id="accessConsentReason" type="text" maxlength="200" placeholder="Optional reason"></div>
+                  <button class="button" id="saveFederationConsent" type="button">Apply consent</button>
+                </div>
+              </section>
+              <section style="margin-top:16px">
+                <div class="panel-head"><div><p class="eyebrow">AUDIT</p><h3>Policy history</h3></div></div>
+                <div id="accessHistory" class="access-history"><div class="empty-state">No policy history yet.</div></div>
+              </section>
+            </aside>
+          </div>
+          <p class="federation-boundary"><strong>Revocation always wins.</strong> A stale remote grant cannot restore access after the local authority revokes a permission or recognition consent—even while a site is partitioned.</p>
+        </section>
+        <section class="panel" style="margin-top:16px">
           <div class="panel-head"><div><p class="eyebrow">INVENTORY</p><h3>Hardware units</h3></div></div>
           <div id="federationDevices" class="federation-device-list"><div class="empty-state">Loading hardware inventory…</div></div>
         </section>
@@ -537,6 +586,7 @@
   <script src="/assets/physical-world-dashboard-v280.js" defer></script>
   <script src="/assets/cross-site-presence-v280.js" defer></script>
   <script src="/assets/federation-sync-visibility-v280.js" defer></script>
+  <script src="/assets/federation-access-operations-v280.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
 </body>
