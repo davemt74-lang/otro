@@ -600,7 +600,7 @@ def _chat_event(event: dict[str, Any]) -> None:
 
 
 def _notification_event(event: dict[str, Any]) -> None:
-    level = "warning" if event.get("priority") in {"high", "critical"} else "info"
+    level = "warning" if event.get("voice_eligible") or event.get("priority") in {"high", "critical"} else "info"
     with db() as connection:
         connection.execute(
             """
