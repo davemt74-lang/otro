@@ -506,6 +506,7 @@ def public_capability() -> dict[str, Any]:
         "federated_agent_context": tracky_federated_agent_context.public_capability(),
         "federation_policy": tracky_federation_policy.public_capability(),
         "federated_query": tracky_federated_query.public_capability(),
+        "federation_governed_operations": tracky_federation_governed_operations.public_capability(),
     }
 
 
@@ -955,6 +956,11 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
         if federation_ready
         else None
     )
+    federation_governed_operations_projection = (
+        tracky_federation_governed_operations.cloud_projection()
+        if federation_ready
+        else None
+    )
     return {
         "payload": {
             "protocol": PHYSICAL_CONTEXT_PROTOCOL,
@@ -1035,6 +1041,9 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                     federation_fleet_health_projection.get("overall_state", "unknown")
                     if federation_fleet_health_projection
                     else "unresolved"
+                ),
+                "federation_governed_operations": (
+                    "active" if federation_governed_operations_projection and int((federation_governed_operations_projection.get("counts") or {}).get("active") or 0) else "idle"
                 ),
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
