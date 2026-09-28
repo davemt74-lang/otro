@@ -32,11 +32,13 @@ def run():
     assert "fleet_management.request_update" in source and "remove_inventory_device" in source
     assert 'trust_state="revoked"' in source
     assert "hardware_adapters.stop()" in source and "hardware_adapters.start()" in source
-    assert '@app.post("/api/v1/control/federation-operations/propose")' in main
-    assert '@app.post("/api/v1/control/federation-operations/{request_id}/execute")' in main
+    assert '@app.post("/api/v1/control/federation-governed-operations/propose")' in main
+    assert '@app.post("/api/v1/control/federation-governed-operations/{request_id}/execute")' in main
     assert '@router.get("/api/v1/tracky/federation-governed-operations")' in api
     assert '@router.post("/api/v1/tracky/federation-governed-operations' not in api
     assert '"federation_governed_operations"' in physical
+    assert main.count('@app.get("/api/v1/control/federation-operations")') == 1
+    assert main.count('@app.get("/api/v1/control/federation-governed-operations")') == 1
     assert "ingest_cloud_requests" in source
     assert "cloud_request_requires_local_approval" in source
     assert "operation_requires_origin_local" in source
@@ -45,7 +47,7 @@ def run():
     assert 'body.get("federation_operation_requests")' in physical
     assert "\\n" not in physical
     assert 'id="governedFederationOperationsV280"' in ui
-    assert "/api/v1/control/federation-operations" in js
+    assert "/api/v1/control/federation-governed-operations" in js
     assert "data-fgo-action" in js and "data-fgo-create" in ui
     assert "package_sha256" in ui
     print("TRACKY_V280_FEDERATION_GOVERNED_OPERATIONS=PASS")
