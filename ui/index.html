@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/assets/cross-site-presence-v280.css">
   <link rel="stylesheet" href="/assets/federation-sync-visibility-v280.css">
   <link rel="stylesheet" href="/assets/federation-access-operations-v280.css">
+  <link rel="stylesheet" href="/assets/federation-agent-health-v280.css">
 </head>
 <body>
   <div class="shell">
@@ -510,6 +511,22 @@
           <p class="federation-boundary">Remote freshness is never promoted by Cloud or by a newer timestamp alone. Revision gaps, authority epoch changes and fingerprint conflicts must reconcile against the origin site.</p>
         </section>
         <section class="panel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">AGENT FEDERATION HEALTH</p><h3>Failures, recovery & trust</h3></div><div><span id="fahLoading" class="muted">Agent Brain live health</span> <button class="button secondary" id="refreshFederationAgentHealth" type="button">Refresh health</button></div></div>
+          <div class="fah-summary">
+            <div><span>Overall</span><strong id="fahOverall"><span class="fah-state unknown">Unknown</span></strong></div>
+            <div><span>Connected</span><strong id="fahConnected">0</strong></div>
+            <div><span>Recovering</span><strong id="fahRecovering">0</strong></div>
+            <div><span>Critical</span><strong id="fahCritical">0</strong></div>
+            <div><span>Relay</span><strong id="fahBridge"><span class="fah-state unknown">Unknown</span></strong></div>
+          </div>
+          <div class="fah-bridge"><strong>Cloud transport</strong><p id="fahBridgeDetail">Loading relay state…</p><span id="fahRuntime" class="muted">Health monitor status unknown</span></div>
+          <div class="fah-layout">
+            <div><div class="panel-head"><div><p class="eyebrow">SITE HEALTH</p><h3>Agent trust by site</h3></div></div><div id="fahSites" class="fah-sites"><div class="empty-state">Loading Agent federation health…</div></div></div>
+            <aside><div class="panel-head"><div><p class="eyebrow">HEALTH HISTORY</p><h3>Recent transitions</h3></div></div><div id="fahHistory" class="fah-history"><div class="empty-state">No health events recorded yet.</div></div></aside>
+          </div>
+          <div class="fah-rule"><strong>Recovery rule:</strong> reconnect is not recovery. A site is recovered only after authoritative reconciliation reports current state.</div>
+        </section>
+        <section class="panel" style="margin-top:16px">
           <div class="panel-head"><div><p class="eyebrow">PERMISSIONS & CONSENT</p><h3>Federation access governance</h3></div><div><span id="accessLoading" class="muted">Local policy authority</span> <button class="button secondary" id="refreshFederationAccess" type="button">Refresh access</button></div></div>
           <div class="access-summary">
             <div><span>Policy revision</span><strong id="accessPolicyRevision">0</strong></div>
@@ -587,6 +604,7 @@
   <script src="/assets/cross-site-presence-v280.js" defer></script>
   <script src="/assets/federation-sync-visibility-v280.js" defer></script>
   <script src="/assets/federation-access-operations-v280.js" defer></script>
+  <script src="/assets/federation-agent-health-v280.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
 </body>
