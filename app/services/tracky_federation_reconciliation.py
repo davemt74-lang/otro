@@ -363,24 +363,68 @@ def fail_reconciliation(site_id: str, reason: str, *, reconciliation_id: str = "
     )
 
 
+def process_remote_cursors(cursors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    processed: list[dict[str, Any]] = []
+    for raw in cursors[:128]:
+        if not isinstance(raw, dict):
+            continue
+        site_id = _uuid(raw.get("site_id"), "remote site id")
+        state = note_peer_contact(site_id, raw, reason="cloud_cursor")
+        reconciliation = None
+        if state.get("status") in {"reconciling", "failed"}:
+            reconciliation = begin_reconciliation(site_id, raw, reason="cloud_cursor_recovery")
+        processed.append({
+            "site_id": site_id,
+            "status": state.get("status"),
+            "reconciliation": reconciliation,
+        })
+    return processed
+
+
+def mark_all_remote_partitioned(reason: str = "cloud_transport_failure") -> int:
+    with db() as connection:
+        rows = connection.execute(
+            "SELECT remote_site_id FROM tracky_federation_sync_peers ORDER BY remote_site_id"
+        ).fetchall()
+    changed = 0
+    for row in rows:
+        site_id = str(row["remote_site_id"] or "")
+        if not site_id:
+            continue
+        mark_partition(site_id, reason)
+        changed += 1
+    return changed
+
+
 def annotate_query_result(result: dict[str, Any]) -> dict[str, Any]:
     output = json.loads(json.dumps(result))
     uncertainty = list(output.get("uncertainty") or [])
     stale_count = 0
+    from . import tracky_federation_sync
+    local_site = tracky_federation_sync.local_site_id(auto_pin=False) or ""
     for item in output.get("results") or []:
         if not isinstance(item, dict):
             continue
         site_id = str(item.get("site_id") or "")
         if not site_id:
             continue
-        state = _state_row(site_id)
-        freshness = {
-            "site_id": site_id,
-            "status": state["status"],
-            "fresh": state["status"] == "current",
-            "stale_since": state["stale_since"],
-            "reconciliation_required": state["status"] in {"partitioned", "reconciling", "stale", "failed"},
-        }
+        if site_id == local_site:
+            freshness = {
+                "site_id": site_id,
+                "status": "current",
+                "fresh": True,
+                "stale_since": "",
+                "reconciliation_required": False,
+            }
+        else:
+            state = _state_row(site_id)
+            freshness = {
+                "site_id": site_id,
+                "status": state["status"],
+                "fresh": state["status"] == "current",
+                "stale_since": state["stale_since"],
+                "reconciliation_required": state["status"] in {"partitioned", "reconciling", "stale", "failed", "unknown"},
+            }
         item["federation_freshness"] = freshness
         if not freshness["fresh"]:
             stale_count += 1
