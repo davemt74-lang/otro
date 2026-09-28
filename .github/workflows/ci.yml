@@ -138,6 +138,8 @@ jobs:
         run: python tests/tracky_sync_visibility_v280.py
       - name: Tracky V2.80 federation permissions and consent operations
         run: python tests/tracky_federation_access_operations_v280.py
+      - name: Tracky V2.80 Agent Brain federation health failures and recovery
+        run: python tests/tracky_federation_agent_health_v280.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
