@@ -616,7 +616,8 @@ jobs:
             feature_track = 'Tracky V2.81'
             feature_section = 2
             federated_automation_protocol = 'physical_federated_automation.v1'
-            federated_automation_execution_enabled = $false\n            physical_world_trigger_runtime = $true
+            federated_automation_execution_enabled = $false
+            physical_world_trigger_runtime = $true
             golden_operational_scenarios = 24
             recovery_authority = 'section7_authoritative_reconciliation'
             files = $hashMap
