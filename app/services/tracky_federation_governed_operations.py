@@ -74,16 +74,18 @@ def propose(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,Any
     reasons=[]
     if target!=local and not peer.get("policy_peer_allowed"): reasons.append("site_not_permitted")
     if actor_type=="agent": reasons.append("agent_may_propose_only")
+    elif actor_type=="cloud_user": reasons.append("cloud_request_requires_local_approval")
     elif actor_type not in {"user","owner","admin","system"}: reasons.append("actor_not_authorized")
     device_id=_text(payload.get("device_id"),80)
     if op in {"restart_runtime","request_update","revoke_device"} and not device_id: reasons.append("device_required")
+    if op in {"restart_runtime","request_update","revoke_device","transfer_authority"} and target!=local: reasons.append("operation_requires_origin_local")
     if op=="transfer_authority":
         if target!=local: reasons.append("authority_transfer_must_be_origin_local")
         if not payload.get("new_authority_device_id"): reasons.append("new_authority_device_required")
         if not payload.get("confirmation_token"): reasons.append("explicit_confirmation_required")
         if not (health_site.get("state")=="current" and health_site.get("fresh") and health_site.get("recovery_complete")): reasons.append("authority_transfer_requires_current_source")
-    hard=[x for x in reasons if x!="agent_may_propose_only"]
-    requires_approval=op in HIGH_RISK or actor_type=="agent" or bool(payload.get("require_approval"))
+    hard=[x for x in reasons if x not in {"agent_may_propose_only","cloud_request_requires_local_approval"}]
+    requires_approval=op in HIGH_RISK or actor_type in {"agent","cloud_user"} or bool(payload.get("require_approval"))
     state="rejected" if hard else ("awaiting_approval" if requires_approval else "approved")
     requires_reconciliation=op in {"reconnect","reconcile","restart_runtime","request_update","transfer_authority"}
     topology=tracky_site_topology.current_topology()
@@ -120,7 +122,9 @@ def execute(request_id:str)->dict[str,Any]:
         elif op=="restart_runtime":
             hardware_adapters.stop(); hardware_adapters.start(); result={"runtime":"hardware_adapters","restart_requested":True}
         elif op=="request_update":
-            result=fleet_management.request_update(_text(p.get("requester_app_key"),100),_text(p.get("request_key") or row["request_id"],120),_text(p.get("package_sha256"),64),_text(p.get("release_version"),40),int(p["rollout_id"]) if p.get("rollout_id") is not None else None)
+            fleet_settings=fleet_management.get_settings()
+            requester=_text(p.get("requester_app_key") or fleet_settings.get("controller_app_key"),100)
+            result=fleet_management.request_update(requester,_text(p.get("request_key") or row["request_id"],120),_text(p.get("package_sha256"),64),_text(p.get("release_version"),40),int(p["rollout_id"]) if p.get("rollout_id") is not None else None)
         elif op=="revoke_device":
             result=fleet_management.remove_inventory_device(row["device_id"])
             return _set(request_id,"completed",result=result)
@@ -165,8 +169,30 @@ def report(limit:int=100)->dict[str,Any]:
       "agent_context":{"active":[{"request_id":x["request_id"],"operation_type":x["operation_type"],"target_site_id":x["target_site_id"],"state":x["state"],"reason_codes":x["reason_codes"]} for x in active[:32]],"agent_may_propose":True,"agent_may_execute":False,"cloud_may_execute":False,"recovery_rule":"authoritative_reconciliation_required"},
       "safety":{"section7_health_is_authoritative":True,"cloud_execution_allowed":False,"agent_execution_allowed":False,"authority_transfer_automatic":False,"reconnect_marks_recovered":False}}
 
+def ingest_cloud_requests(projection:dict[str,Any])->list[dict[str,Any]]:
+    if not isinstance(projection,dict) or projection.get("cloud_role")!="request_relay_only": return []
+    if projection.get("remote_command_execution") or projection.get("authority_mutation"): raise FederationOperationError("Cloud request relay attempted forbidden execution authority.",403)
+    out=[]
+    for item in list(projection.get("requests") or [])[:50]:
+        if not isinstance(item,dict): continue
+        payload={
+          "request_id":_text(item.get("request_id"),128),"idempotency_key":_text(item.get("idempotency_key"),160),
+          "operation_type":_text(item.get("operation_type"),40),"target_site_id":_site(item.get("target_site_id")),
+          "device_id":_text(item.get("device_id"),80),"new_authority_device_id":_text(item.get("new_authority_device_id"),80),
+          "confirmation_token":"cloud_user_explicit_request" if item.get("explicit_confirmation") else "",
+          "require_approval":True,"parameters":item.get("parameters") if isinstance(item.get("parameters"),dict) else {}
+        }
+        out.append(propose(payload,actor={"actor_type":"cloud_user","actor_id":"vp3_cloud_account"}))
+    return out
+
 def cloud_projection()->dict[str,Any]:
-    r=report(); return {**r,"summary_only":True,"cloud_read_only":True,"remote_command_execution":False,"authority_mutation":False}
+    r=report()
+    safe=[]
+    for x in r.get("operations",[]):
+        safe.append({k:x.get(k) for k in ("request_id","idempotency_key","operation_type","target_site_id","device_id","new_authority_device_id","state","requires_approval","requires_reconciliation","authority_epoch_before","authority_epoch_after","last_error","created_at","updated_at")})
+    return {"protocol":PROTOCOL,"version":VERSION,"schema_version":1,"generated_at":_now_ms(),"local_site_id":tracky_federation_agent_health.current_report().get("local_site_id") or "",
+      "operations":safe,"counts":r.get("counts",{}),"summary_only":True,"cloud_read_only":True,"remote_command_execution":False,"authority_mutation":False,
+      "safety":r.get("safety",{})}
 
 def public_capability()->dict[str,Any]:
     return {"version":VERSION,"protocol":PROTOCOL,"operations":list(OPERATIONS),"states":list(STATES),"idempotent_requests":True,
