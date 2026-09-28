@@ -730,6 +730,31 @@ def _attach_sync_visibility(context: dict[str, Any]) -> dict[str, Any]:
             "cloud_can_mark_destination_current": False,
             "no_remote_authority_promotion": True,
         }
+    try:
+        from . import tracky_federation_access_operations
+        access = tracky_federation_access_operations.current_report()
+        agent_access = access.get("agent_context") if isinstance(access.get("agent_context"), dict) else {}
+        output["federation_access_operations"] = {
+            "protocol": access.get("protocol") or "",
+            "policy_revision": int(agent_access.get("policy_revision") or 0),
+            "revocation_epoch": int(agent_access.get("revocation_epoch") or 0),
+            "active_revocations": int(agent_access.get("active_revocations") or 0),
+            "stale_grants_suppressed": int(agent_access.get("stale_grants_suppressed") or 0),
+            "summary": agent_access.get("summary") or "",
+            "revocation_wins": True,
+            "cloud_read_only": True,
+        }
+    except Exception:
+        output["federation_access_operations"] = {
+            "protocol": "",
+            "policy_revision": 0,
+            "revocation_epoch": 0,
+            "active_revocations": 0,
+            "stale_grants_suppressed": 0,
+            "summary": "Federation access policy is unavailable.",
+            "revocation_wins": True,
+            "cloud_read_only": True,
+        }
     return output
 
 
