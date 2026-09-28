@@ -109,7 +109,7 @@ def _local_fleet_site(local_site_id: str, now_ms: int, stale_after_ms: int, offl
         "site_id":local_site_id,
         "generated_at_ms":now_ms,
         "diagnostics_allowed":diagnostics_allowed,
-        "devices":[device],
+        "devices":[device] if diagnostics_allowed else [],
     }
 
 def build_report(operations: dict[str,Any], federation_health: dict[str,Any], access: dict[str,Any], *, now_ms: int | None = None) -> dict[str,Any]:
