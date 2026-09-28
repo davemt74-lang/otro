@@ -615,9 +615,9 @@ def _notification_event(event: dict[str, Any]) -> None:
         )
 
 
-def _cognitive_event(event: dict[str, Any]) -> None:
+def _cognitive_event(event: dict[str, Any]) -> dict[str, Any]:
     event_id = "federation-health:" + _text(event.get("dedupe_key"), 120) + ":" + str(_number(event.get("occurred_at")))
-    cognitive_runtime.emit_event(
+    return cognitive_runtime.emit_event(
         source_app_key="tracky",
         source_kind="system",
         event_id=event_id,
@@ -637,7 +637,9 @@ def _cognitive_event(event: dict[str, Any]) -> None:
 
 
 def _deliver(event: dict[str, Any]) -> None:
-    _cognitive_event(event)
+    result = _cognitive_event(event)
+    if result.get("duplicate"):
+        return
     if event.get("chat"):
         _chat_event(event)
     if event.get("notification"):
