@@ -163,4 +163,8 @@ assert '@router.get("/api/v1/tracky/release-v280")' in tracky_api
 assert '"release_hardening": tracky_release_hardening.public_capability()' in physical
 assert "tracky_v280_golden_operational_release.py" in ci
 assert "tracky_v280_golden_operational_release.py" in release_workflow
+assert "feature_track = 'Tracky V2.80'" in ci
+assert "feature_section = 10" in ci
+assert "current_schema_version = 53" in ci
+assert "golden_operational_scenarios = 24" in ci
 print("TRACKY_V280_GOLDEN_OPERATIONAL_RELEASE=PASS")
