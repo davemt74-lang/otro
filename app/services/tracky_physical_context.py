@@ -572,7 +572,8 @@ def current_context() -> dict[str, Any]:
         "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True),
         "federation_policy": tracky_federation_policy.current_report(),
         "federation_agent_health": tracky_federation_agent_health.current_report().get("agent_context", {}),
-        "federation_fleet_health": tracky_federation_fleet_health.current_report().get("agent_context", {}),\n        "federation_governed_operations": tracky_federation_governed_operations.report().get("agent_context", {}),
+        "federation_fleet_health": tracky_federation_fleet_health.current_report().get("agent_context", {}),
+        "federation_governed_operations": tracky_federation_governed_operations.report().get("agent_context", {}),
     }
 
 
@@ -997,7 +998,9 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federation_agent_health": bool(federation_ready),
                 "federation_agent_health_protocol": tracky_federation_agent_health.FEDERATION_AGENT_HEALTH_PROTOCOL,
                 "federation_fleet_health": bool(federation_ready),
-                "federation_fleet_health_protocol": tracky_federation_fleet_health.FEDERATION_FLEET_HEALTH_PROTOCOL,\n                "federation_governed_operations": bool(federation_governed_operations_projection),\n                "federation_governed_operations_protocol": tracky_federation_governed_operations.PROTOCOL,
+                "federation_fleet_health_protocol": tracky_federation_fleet_health.FEDERATION_FLEET_HEALTH_PROTOCOL,
+                "federation_governed_operations": bool(federation_governed_operations_projection),
+                "federation_governed_operations_protocol": tracky_federation_governed_operations.PROTOCOL,
             },
             "health": {
                 "runtime": "healthy",
@@ -1045,7 +1048,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "federation_policy": federation_policy_projection,
             "federation_sync_visibility": sync_visibility_projection,
             "federation_agent_health": federation_agent_health_projection,
-            "federation_fleet_health": federation_fleet_health_projection,\n            "federation_governed_operations": federation_governed_operations_projection,
+            "federation_fleet_health": federation_fleet_health_projection,
+            "federation_governed_operations": federation_governed_operations_projection,
             "events": events,
             "world_state": world,
             "context": context,
@@ -1125,7 +1129,16 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
             _record_sync_failure(f"Federation policy mirror rejected: {exc}")
             raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
 
-    federation_operation_request_result = []\n    federation_operation_requests = body.get("federation_operation_requests")\n    if isinstance(federation_operation_requests, dict):\n        try:\n            federation_operation_request_result = tracky_federation_governed_operations.ingest_cloud_requests(federation_operation_requests)\n        except tracky_federation_governed_operations.FederationOperationError as exc:\n            _record_sync_failure(f"Federation operation request relay rejected: {exc}")\n            raise TrackyPhysicalError(f"VP3 Tracky federation operation request sync failed: {exc}", 503) from exc\n\n    federation_result = None
+    federation_operation_request_result = []
+    federation_operation_requests = body.get("federation_operation_requests")
+    if isinstance(federation_operation_requests, dict):
+        try:
+            federation_operation_request_result = tracky_federation_governed_operations.ingest_cloud_requests(federation_operation_requests)
+        except tracky_federation_governed_operations.FederationOperationError as exc:
+            _record_sync_failure(f"Federation operation request relay rejected: {exc}")
+            raise TrackyPhysicalError(f"VP3 Tracky federation operation request sync failed: {exc}", 503) from exc
+
+    federation_result = None
     federation_batch = body.get("federation_sync")
     if isinstance(federation_batch, dict):
         try:
