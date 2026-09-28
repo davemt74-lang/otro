@@ -144,7 +144,9 @@ jobs:
         run: python tests/tracky_federation_fleet_health_v280.py
       - name: Tracky V2.80 governed federation operations
         run: python tests/tracky_federation_governed_operations_v280.py
-      - name: Tracky V2.80 golden operational scenarios and release hardening\n        run: python tests/tracky_v280_golden_operational_release.py\n      - name: Governed HomeServer actions v2.3 regression
+      - name: Tracky V2.80 golden operational scenarios and release hardening
+        run: python tests/tracky_v280_golden_operational_release.py
+      - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
         run: python tests/voice_profile_execution_v235.py
