@@ -1,0 +1,228 @@
+{
+  "format": "tracky_v278_golden_multisite_scenarios.v1",
+  "version": "2.78",
+  "purpose": "Permanent regression scenarios for multi-site federation, failure recovery, privacy and release hardening.",
+  "invariants": [
+    "origin-site-authority-only",
+    "cloud-remains-relay-and-mirror-only",
+    "semantic-only-federation",
+    "cross-site-identity-deny-by-default",
+    "stale-data-must-be-labeled",
+    "partition-never-promotes-remote-or-cloud-authority",
+    "authority-epoch-change-requires-revalidation",
+    "same-revision-fingerprint-conflict-fails-closed",
+    "revocation-wins-over-cached-permission",
+    "reconciliation-state-survives-restart",
+    "history-remains-immutable",
+    "mobile-transitions-do-not-merge-site-local-identities"
+  ],
+  "sites": {
+    "home": {
+      "site_id": "11111111-1111-4111-8111-111111111111",
+      "authority_device_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    },
+    "office": {
+      "site_id": "22222222-2222-4222-8222-222222222222",
+      "authority_device_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    },
+    "cabin": {
+      "site_id": "33333333-3333-4333-8333-333333333333",
+      "authority_device_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    }
+  },
+  "scenarios": [
+    {
+      "id": "healthy-two-site-current",
+      "title": "Healthy two-site federation",
+      "arrange": {
+        "local_site": "home",
+        "remote_site": "office",
+        "local_cursor": 4,
+        "remote_cursor": 4,
+        "authority_epoch": 1,
+        "permission": "semantic_world_read"
+      },
+      "act": "query_current_state",
+      "expect": {
+        "peer_status": "current",
+        "query_status": "ok",
+        "fresh": true,
+        "authority_assignment": "origin_only"
+      }
+    },
+    {
+      "id": "transport-partition-stale-query",
+      "title": "Partition labels cached remote data stale",
+      "arrange": {
+        "local_site": "home",
+        "remote_site": "office",
+        "local_cursor": 4,
+        "remote_cursor": 4,
+        "authority_epoch": 1,
+        "partition": true
+      },
+      "act": "query_current_state",
+      "expect": {
+        "peer_status": "partitioned",
+        "query_status": "partial",
+        "fresh": false,
+        "uncertainty": "federation_stale"
+      }
+    },
+    {
+      "id": "reconnect-revision-gap-full-snapshot",
+      "title": "Reconnect across revision gap",
+      "arrange": {
+        "local_site": "home",
+        "remote_site": "office",
+        "local_cursor": 4,
+        "remote_cursor": 9,
+        "authority_epoch": 1,
+        "partition": true
+      },
+      "act": "reconcile",
+      "expect": {
+        "request_mode": "authoritative_full",
+        "intermediate_status": "reconciling",
+        "final_status": "current",
+        "applied_revision": 9
+      }
+    },
+    {
+      "id": "authority-epoch-change-revalidation",
+      "title": "Authority epoch change forces revalidation",
+      "arrange": {
+        "local_site": "home",
+        "remote_site": "office",
+        "local_cursor": 7,
+        "remote_cursor": 7,
+        "local_authority_epoch": 1,
+        "remote_authority_epoch": 2
+      },
+      "act": "reconcile",
+      "expect": {
+        "request_mode": "authoritative_full",
+        "requires_revalidation": true,
+        "old_epoch_result": "failed",
+        "new_epoch_result": "current"
+      }
+    },
+    {
+      "id": "same-revision-fingerprint-conflict",
+      "title": "Conflicting same-revision snapshot fails closed",
+      "arrange": {
+        "local_site": "home",
+        "remote_site": "office",
+        "local_cursor": 9,
+        "remote_cursor": 9,
+        "local_fingerprint": "alpha",
+        "remote_fingerprint": "beta",
+        "authority_epoch": 1
+      },
+      "act": "receive_cursor",
+      "expect": {
+        "peer_status": "failed",
+        "reason": "same_revision_fingerprint_conflict",
+        "authority_mutation": false
+      }
+    },
+    {
+      "id": "permission-revoked-during-partition",
+      "title": "Revocation wins during partition recovery",
+      "arrange": {
+        "local_site": "home",
+        "remote_site": "office",
+        "partition": true,
+        "permission_before": "semantic_world_read",
+        "revocation_epoch_before": 1,
+        "revocation_epoch_after": 2
+      },
+      "act": "reconnect_with_cached_grant",
+      "expect": {
+        "ingest": "quarantined_or_denied",
+        "fresh": false,
+        "cloud_can_grant": false
+      }
+    },
+    {
+      "id": "mobile-transition-site-boundary",
+      "title": "Mobile transition preserves site-local identity boundaries",
+      "arrange": {
+        "entity_ref": "person:dave",
+        "from_site": "home",
+        "to_site": "office",
+        "cross_site_identity_consent": false
+      },
+      "act": "record_mobile_transition",
+      "expect": {
+        "transition_visible": true,
+        "identity_merge": false,
+        "cross_site_identity_links": 0
+      }
+    },
+    {
+      "id": "history-immutable-through-reconciliation",
+      "title": "History remains immutable while current state catches up",
+      "arrange": {
+        "local_site": "home",
+        "remote_site": "office",
+        "history_revisions": [
+          2,
+          4
+        ],
+        "current_revision": 4,
+        "remote_revision": 9
+      },
+      "act": "reconcile",
+      "expect": {
+        "history_preserved": [
+          2,
+          4
+        ],
+        "new_current_revision": 9,
+        "history_query_requires_permission": true
+      }
+    },
+    {
+      "id": "restart-during-reconciliation",
+      "title": "Reconciliation state survives HomeServer restart",
+      "arrange": {
+        "local_site": "home",
+        "remote_site": "office",
+        "peer_status": "reconciling",
+        "local_cursor": 4,
+        "remote_cursor": 9,
+        "retry_count": 2
+      },
+      "act": "restart_homeserver",
+      "expect": {
+        "peer_status_after_restart": "reconciling",
+        "retry_count_after_restart": 2,
+        "fresh": false
+      }
+    },
+    {
+      "id": "three-site-cloud-relay-no-authority",
+      "title": "Three-site relay never makes Cloud authoritative",
+      "arrange": {
+        "sites": [
+          "home",
+          "office",
+          "cabin"
+        ],
+        "relay": "cloud",
+        "world_revisions": {
+          "home": 5,
+          "office": 8,
+          "cabin": 3
+        }
+      },
+      "act": "relay_federated_snapshots",
+      "expect": {
+        "cloud_role": "relay_and_mirror_only",
+        "authority_assignment": "origin_only",
+        "cloud_can_assign_authority": false
+      }
+    }
+  ]
+}
