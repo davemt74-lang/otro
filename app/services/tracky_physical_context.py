@@ -1056,7 +1056,10 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                     "active" if federation_governed_operations_projection and int((federation_governed_operations_projection.get("counts") or {}).get("active") or 0) else "idle"
                 ),
                 "federated_automation": (
-                    "active" if federated_automation_projection and int((federated_automation_projection.get("agent_context") or {}).get("active_runs") and len((federated_automation_projection.get("agent_context") or {}).get("active_runs") or [])) else "idle"
+                    "active"
+                    if federated_automation_projection
+                    and len((federated_automation_projection.get("agent_context") or {}).get("active_runs") or []) > 0
+                    else "idle"
                 ),
             },
             "forecast_calibration": tracky_forecast_calibration.cloud_projection(),
