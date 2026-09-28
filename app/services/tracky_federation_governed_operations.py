@@ -217,7 +217,7 @@ def propose(payload: dict[str, Any], *, actor: dict[str, Any] | None = None) -> 
 
     device_id = _text(payload.get("device_id"), 80)
     parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
-    if op in {"restart_runtime", "request_update", "revoke_device"} and not device_id:
+    if op == "revoke_device" and not device_id:
         reasons.append("device_required")
     if op == "request_update" and (not _text(parameters.get("package_sha256"), 64) or not _text(parameters.get("release_version"), 40)):
         reasons.append("update_package_required")
@@ -435,6 +435,13 @@ def execute(request_id: str) -> dict[str, Any]:
                 _text(parameters.get("release_version"), 40),
                 int(parameters["rollout_id"]) if parameters.get("rollout_id") is not None else None,
             )
+            if result.get("status") not in {"pending_owner", "approved"}:
+                raise FederationOperationError("The requested update package is not staged and available.", 409)
+            result = {
+                "update_request": result,
+                "target_site_id": target,
+                "rollback_delegated_to_rollout_runtime": True,
+            }
         elif op == "revoke_site":
             return _set(request_id, "completed", result=_revoke_site_access(target))
         elif op == "revoke_device":
