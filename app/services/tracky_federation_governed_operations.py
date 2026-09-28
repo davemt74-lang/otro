@@ -252,7 +252,6 @@ def propose(payload: dict[str, Any], *, actor: dict[str, Any] | None = None) -> 
         "reconnect",
         "reconcile",
         "restart_runtime",
-        "request_update",
         "transfer_authority",
     }
 
@@ -650,6 +649,8 @@ def public_capability() -> dict[str, Any]:
         "operation_expiration": True,
         "durable_audit": True,
         "update_uses_staged_rollout": True,
+        "update_request_not_install": True,
+        "rollback_delegated_to_rollout_runtime": True,
         "revocation_wins": True,
         "agent_proposal_only": True,
         "cloud_execution_allowed": False,
