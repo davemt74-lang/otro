@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -41,9 +41,11 @@ async def lifespan(_: FastAPI):
     local_automation.start()
     automation_intelligence.start()
     ambient_orchestration.start()
+    tracky_federation_agent_health.start()
     try:
         yield
     finally:
+        tracky_federation_agent_health.stop()
         ambient_orchestration.stop()
         automation_intelligence.stop()
         local_automation.stop()
@@ -299,6 +301,16 @@ def control_federation_sync_visibility() -> dict:
     return {
         "visibility": tracky_sync_visibility.current_report(),
         "capability": tracky_sync_visibility.public_capability(),
+    }
+
+
+@app.get("/api/v1/control/federation-agent-health")
+def control_federation_agent_health() -> dict:
+    return {
+        "health": tracky_federation_agent_health.current_report(),
+        "history": tracky_federation_agent_health.history(100),
+        "runtime": tracky_federation_agent_health.status(),
+        "capability": tracky_federation_agent_health.public_capability(),
     }
 
 
