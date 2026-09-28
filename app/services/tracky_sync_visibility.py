@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import (
-    tracky_cross_site_presence,
     tracky_federation_operations,
     tracky_federation_reconciliation,
     tracky_federation_sync,
+    tracky_mobile_transition,
 )
 
 TRACKY_SYNC_VISIBILITY_VERSION = "2.80"
@@ -359,7 +359,18 @@ def current_report() -> dict[str, Any]:
     sync = tracky_federation_sync.status()
     reconciliation["local_site_id"] = sync.get("local_site_id") or operations.get("local_site_id") or ""
     try:
-        transitions = tracky_cross_site_presence.current_report().get("active_transitions") or []
+        raw_transitions = tracky_mobile_transition.current_report(active_only=True).get("transitions") or []
+        transitions = [
+            {
+                **item,
+                "active": item.get("state") not in {"arrived", "canceled"},
+                "subject_label": item.get("subject_id") or "",
+                "source_site": {"site_id": item.get("source_site_id") or ""},
+                "destination_site": {"site_id": item.get("destination_site_id") or ""} if item.get("destination_site_id") else None,
+            }
+            for item in raw_transitions
+            if isinstance(item, dict)
+        ]
     except Exception:
         transitions = []
     return build_report(operations, reconciliation, sync, cross_site_transitions=transitions)
