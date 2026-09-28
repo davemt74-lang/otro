@@ -120,6 +120,8 @@ class FederatedAutomationDefinitionRequest(BaseModel):
     state: str = Field(default="draft", max_length=30)
     trigger: dict = Field(default_factory=dict)
     steps: list[dict] = Field(default_factory=list, min_length=1, max_length=64)
+    participating_site_ids: list[str] = Field(default_factory=list, max_length=64)
+    participating_device_ids: list[str] = Field(default_factory=list, max_length=128)
     approval_policy: str = Field(default="governed", max_length=30)
     default_deadline_ms: int = Field(default=0, ge=0)
 
