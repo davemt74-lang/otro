@@ -10,7 +10,6 @@ from typing import Any
 from ..database import db
 from . import (
     cognitive_runtime,
-    remote_bridge,
     tracky_federation_access_operations,
     tracky_federation_operations,
     tracky_sync_visibility,
@@ -515,6 +514,8 @@ def build_report(
 
 
 def _bridge_report() -> dict[str, Any]:
+    # Lazy import avoids the Remote Bridge -> physical context -> health cycle.
+    from . import remote_bridge
     cloud = remote_bridge.cloud_connection_status().get("cloud") or {}
     runtime = remote_bridge.bridge_status().get("runtime") or {}
     return {
