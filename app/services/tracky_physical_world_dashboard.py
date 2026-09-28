@@ -315,12 +315,21 @@ def current_report(selected_site_id: str = "") -> dict[str, Any]:
         agent_context = tracky_federated_agent_context.current_context(refresh=True)
     except Exception:
         agent_context = {}
-    return build_dashboard(
+    dashboard = build_dashboard(
         operations,
         world,
         agent_context,
         selected_site_id=selected_site_id,
     )
+    try:
+        from . import tracky_sync_visibility
+        dashboard = tracky_sync_visibility.annotate_dashboard(
+            dashboard,
+            tracky_sync_visibility.current_report(),
+        )
+    except Exception:
+        pass
+    return dashboard
 
 
 def public_capability() -> dict[str, Any]:
