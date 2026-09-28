@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..database import db
-from . import tracky_federation_sync, tracky_site_topology
+from . import federated_data, tracky_federation_sync, tracky_site_topology
 
 VERSION="2.81"
 PROTOCOL="physical_federated_automation.v1"
