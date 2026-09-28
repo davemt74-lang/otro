@@ -69,6 +69,23 @@ def run():
     assert unavailable["selected_site"]["basis"] == "current_agent_site"
     assert unavailable["issues"][0]["code"] == "requested_site_not_available"
 
+    ui_index = (ROOT / "ui/index.html").read_text(encoding="utf-8")
+    ui_app = (ROOT / "ui/app.js").read_text(encoding="utf-8")
+    ui_script = (ROOT / "ui/physical-world-dashboard-v280.js").read_text(encoding="utf-8")
+    main_source = (ROOT / "app/main.py").read_text(encoding="utf-8")
+    paired_source = (ROOT / "app/tracky_api.py").read_text(encoding="utf-8")
+    spec = (ROOT / "HomeServer.spec").read_text(encoding="utf-8")
+    assert 'data-view="physical-world"' in ui_index
+    assert 'id="view-physical-world"' in ui_index
+    assert "physical-world-dashboard-v280.css" in ui_index
+    assert "physical-world-dashboard-v280.js" in ui_index
+    assert "loadPhysicalWorldDashboard" in ui_app
+    assert "/api/v1/control/physical-world-dashboard" in main_source
+    assert "/api/v1/tracky/physical-world-dashboard" in paired_source
+    assert "('ui', 'ui')" in spec
+    for mutation in ("method:'POST'", 'method:"POST"', "method:'PUT'", "method:'PATCH'", "method:'DELETE'"):
+        assert mutation not in ui_script, f"Section 3 dashboard must remain view-only: {mutation}"
+
     cap = dashboard.public_capability()
     assert cap["site_switching"] is True
     assert cap["agent_context_follows_selected_site"] is True
