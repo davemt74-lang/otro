@@ -584,6 +584,20 @@
           <div data-ffh-list><div class="empty-state">Loading fleet diagnostics…</div></div>
           <p class="federation-boundary"><strong>Diagnostic boundary:</strong> diagnostics are observational. Remote diagnostics policy can suppress device details, and healthy diagnostics never override stale, partitioned, reconciling, or recovering federation state.</p>
         </section>
+        <section class="panel" id="governedFederationOperationsV280" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">GOVERNED FEDERATION OPERATIONS</p><h3>Operational requests & recovery gates</h3><p class="muted">Reconnect, reconcile, runtime restart, staged update, site/device revocation, and explicit authority transfer. Commands never mark physical truth current.</p></div><div><span class="muted" data-fgo-status>Loading ledger…</span> <button class="button secondary" type="button" data-fgo-refresh>Refresh operations</button></div></div>
+          <div class="fgo-summary"><div><span>Active</span><strong data-fgo-active>0</strong></div><div><span>Awaiting approval</span><strong data-fgo-approval>0</strong></div><div><span>Reconciling</span><strong data-fgo-reconciling>0</strong></div></div>
+          <form class="fgo-create" data-fgo-create>
+            <label>Operation<select name="operation_type" required><option value="reconnect">Reconnect</option><option value="reconcile">Reconcile</option><option value="restart_runtime">Restart runtime</option><option value="request_update">Request update</option><option value="revoke_site">Revoke site access</option><option value="revoke_device">Revoke device</option><option value="transfer_authority">Transfer authority</option></select></label>
+            <label>Target site UUID<input name="target_site_id" required maxlength="64"></label>
+            <label>Device ID<input name="device_id" maxlength="80"></label>
+            <label>New authority device<input name="new_authority_device_id" maxlength="80"></label>
+            <label class="check-inline"><input type="checkbox" name="explicit_confirmation" value="1"> Explicit authority-transfer confirmation</label>
+            <button class="button secondary" type="submit">Create local request</button>
+          </form>
+          <div data-fgo-list><div class="empty-state">Loading governed operations…</div></div>
+          <p class="federation-boundary"><strong>Recovery boundary:</strong> command success or reconnect is not recovery. Section 7 authoritative reconciliation must report current/fresh before reconciliation-gated operations complete. Authority transfer also requires an advanced authority epoch.</p>
+        </section>
         <section class="panel" style="margin-top:16px">
           <div class="panel-head"><div><p class="eyebrow">INVENTORY</p><h3>Hardware units</h3></div></div>
           <div id="federationDevices" class="federation-device-list"><div class="empty-state">Loading hardware inventory…</div></div>
