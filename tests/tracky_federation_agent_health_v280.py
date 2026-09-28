@@ -79,7 +79,9 @@ def run():
     relay["cloud"]={"state":"offline","connected":False,"paired":True,"transport":"vp3_https","last_error":"relay unavailable"}
     relay_failed=health.build_report(operations,sync,access,relay,previous={},now_ms=1000)
     assert relay_failed["relay_health"]["state"]=="offline"
+    assert relay_failed["overall_state"]=="offline"
     assert next(row for row in relay_failed["sites"] if row["site_id"]==OFFICE)["state"]=="current"
+    assert any(row.get("component")=="vp3_cloud_relay" for row in relay_failed["agent_context"]["active_issues"])
     relay["cloud"]={"state":"connected","connected":True,"paired":True,"transport":"vp3_https"}
     relay_recovered=health.build_report(operations,sync,access,relay,previous=relay_failed,now_ms=2000)
     assert relay_recovered["relay_health"]["state"]=="current"
@@ -91,6 +93,14 @@ def run():
     assert any(row["site_id"]==OFFICE for row in filtered["sites"])
     assert all(row["site_id"]!=OFFICE for row in filtered["agent_context"]["sites"])
     assert all(row["site_id"]!=OFFICE for row in filtered["agent_context"]["active_issues"])
+
+    operations,sync,access,relay=fixture("reconciling",False)
+    long_running=health.build_report(operations,sync,access,relay,previous={},now_ms=1000)
+    escalated=health.build_report(operations,sync,access,relay,previous=long_running,now_ms=302000)
+    office=next(row for row in escalated["sites"] if row["site_id"]==OFFICE)
+    assert office["state"]=="reconciling"
+    assert office["severity"]=="critical"
+    assert any(event["event_type"]=="site.escalated" for event in escalated["events"])
 
     delivery={}
     event={"dedupe_key":"office|reconciling|x","severity":"warning"}
