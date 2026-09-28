@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS tracky_federation_operation_ledger (
   state TEXT NOT NULL,
   requires_approval INTEGER NOT NULL DEFAULT 0,
   requires_reconciliation INTEGER NOT NULL DEFAULT 0,
+  expires_at_ms INTEGER NOT NULL DEFAULT 0,
   actor_json TEXT NOT NULL DEFAULT '{}',
   reason_codes_json TEXT NOT NULL DEFAULT '[]',
   parameters_json TEXT NOT NULL DEFAULT '{}',
