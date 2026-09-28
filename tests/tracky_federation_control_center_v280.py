@@ -16,7 +16,7 @@ def run():
     need("ui/index.html", "federation-control-center-v280.css")
     need("ui/index.html", "federation-control-center-v280.js")
     need("ui/app.js", "loadFederationControlCenter")
-    need("ui/app.js", "'federation':'Physical Network'")
+    need("ui/app.js", "federation:'Physical Network'")
     need("ui/federation-control-center-v280.js", "/api/v1/control/federation-operations")
     need("ui/federation-control-center-v280.js", "Section 2")
     need("HomeServer.spec", "('ui', 'ui')")
