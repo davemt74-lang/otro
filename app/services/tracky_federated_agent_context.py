@@ -755,6 +755,29 @@ def _attach_sync_visibility(context: dict[str, Any]) -> dict[str, Any]:
             "revocation_wins": True,
             "cloud_read_only": True,
         }
+    try:
+        from . import tracky_federation_agent_health
+        health = tracky_federation_agent_health.current_report()
+        health_agent = health.get("agent_context") if isinstance(health.get("agent_context"), dict) else {}
+        output["federation_agent_health"] = {
+            "protocol": health.get("protocol") or "",
+            "state": health_agent.get("state") or health.get("overall_state") or "unknown",
+            "site_health": list(health_agent.get("site_health") or [])[:32],
+            "bridge": dict(health_agent.get("bridge") or {}),
+            "recovery_rule": health_agent.get("recovery_rule") or "",
+            "local_truth_survives_cloud_relay_failure": True,
+            "no_remote_authority_promotion": True,
+        }
+    except Exception:
+        output["federation_agent_health"] = {
+            "protocol": "",
+            "state": "unknown",
+            "site_health": [],
+            "bridge": {},
+            "recovery_rule": "Recovery status is unavailable.",
+            "local_truth_survives_cloud_relay_failure": True,
+            "no_remote_authority_promotion": True,
+        }
     return output
 
 
