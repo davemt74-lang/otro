@@ -220,7 +220,7 @@ def _delivery_decision(event: dict[str, Any], delivery: dict[str, Any], now_ms: 
     last = _number(prior.get("last_delivered_at"))
     prior_severity = _text(prior.get("severity") or "info", 20)
     cooldown = 60_000 if event.get("severity") == "critical" else 120_000
-    increased = _SEVERITY_RANK.get(str(event.get("severity")), 0) > _SEVERITY_RANK.get(prior_severity, 0)
+    increased = bool(last) and _SEVERITY_RANK.get(str(event.get("severity")), 0) > _SEVERITY_RANK.get(prior_severity, 0)
     if last and now_ms - last < cooldown and not increased:
         return False, "dedupe_cooldown"
     delivery[key] = {"last_delivered_at": now_ms, "severity": event.get("severity")}
