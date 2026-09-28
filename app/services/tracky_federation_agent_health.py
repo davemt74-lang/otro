@@ -289,7 +289,10 @@ def build_report(
     events: list[dict[str, Any]] = []
     event_state: dict[str, Any] = {}
 
-    if relay_health["previous_state"] and relay_health["previous_state"] != relay_health_state:
+    if (
+        (relay_health["previous_state"] and relay_health["previous_state"] != relay_health_state)
+        or (not relay_health["previous_state"] and relay_health_state != "current")
+    ):
         events.append({
             "event_id": f"federation-health:vp3-cloud-relay:{relay_health_state}:{now_ms}",
             "event_type": "relay.recovered" if relay_health_state == "current" else f"relay.{relay_health_state}",
@@ -381,8 +384,13 @@ def build_report(
             "transition_times": transition_times[-20:],
         }
         changed = not previous_state or previous_state != state
-        if changed and not (state == "current" and not previous_state):
-            event_type = "site.recovered" if state == "current" and previous_state else f"site.{state}"
+        prior_severity = _text(prior.get("severity") or "info", 20)
+        escalated = (
+            not changed
+            and _SEVERITY_RANK.get(severity, 0) > _SEVERITY_RANK.get(prior_severity, 0)
+        )
+        if (changed or escalated) and not (state == "current" and not previous_state):
+            event_type = "site.escalated" if escalated else ("site.recovered" if state == "current" and previous_state else f"site.{state}")
             events.append({
                 "event_id": f"federation-health:{site_id}:{state}:{now_ms}",
                 "event_type": event_type,
@@ -393,7 +401,7 @@ def build_report(
                 "severity": severity,
                 "importance": 0.95 if severity == "critical" else 0.75 if severity == "warning" else 0.55,
                 "priority": "priority" if severity == "critical" else "normal",
-                "title": row["title"],
+                "title": f"{label} health escalated" if escalated else row["title"],
                 "summary": message,
                 "cause": row["cause"],
                 "trust": trust,
@@ -408,7 +416,20 @@ def build_report(
     for row in sites:
         if _RANK.get(row["state"], 1) > _RANK.get(overall_state, 0):
             overall_state = row["state"]
+    if _RANK.get(relay_health_state, 0) > _RANK.get(overall_state, 0):
+        overall_state = relay_health_state
     visible = [row for row in sites if row["agent_visible"]]
+    relay_issue = (
+        {
+            "component": "vp3_cloud_relay",
+            "state": relay_health_state,
+            "severity": relay_health["severity"],
+            "cause": relay_health["cause"],
+            "message": relay_health["message"],
+        }
+        if relay_health_state != "current"
+        else None
+    )
     return {
         "protocol": FEDERATION_AGENT_HEALTH_PROTOCOL,
         "version": TRACKY_FEDERATION_AGENT_HEALTH_VERSION,
@@ -450,22 +471,30 @@ def build_report(
                 }
                 for row in visible
             ],
-            "active_issues": [
-                {
-                    "site_id": row["site_id"],
-                    "label": row["label"],
-                    "state": row["state"],
-                    "severity": row["severity"],
-                    "cause": row["cause"],
-                    "message": row["message"],
-                    "trust": row["trust"],
-                }
-                for row in visible
-                if row["state"] != "current"
-            ][:24],
+            "active_issues": (
+                [
+                    {
+                        "site_id": row["site_id"],
+                        "label": row["label"],
+                        "state": row["state"],
+                        "severity": row["severity"],
+                        "cause": row["cause"],
+                        "message": row["message"],
+                        "trust": row["trust"],
+                    }
+                    for row in visible
+                    if row["state"] != "current"
+                ]
+                + ([relay_issue] if relay_issue else [])
+            )[:24],
             "summary": (
-                "; ".join(f"{row['label']} is {row['state']}" for row in visible if row["state"] != "current")[:1000]
-                or "All authorized federation sites are current."
+                "; ".join(
+                    [
+                        *[f"{row['label']} is {row['state']}" for row in visible if row["state"] != "current"][:6],
+                        *([f"VP3 Cloud relay is {relay_health_state}"] if relay_issue else []),
+                    ]
+                )[:1000]
+                or "All authorized federation sites and the Cloud relay are current."
             ),
             "recovery_requires_authoritative_reconciliation": True,
             "connectivity_returned_is_not_recovery": True,
