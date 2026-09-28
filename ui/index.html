@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="/assets/federation-sync-visibility-v280.css">
   <link rel="stylesheet" href="/assets/federation-access-operations-v280.css">
   <link rel="stylesheet" href="/assets/federation-agent-health-v280.css">
+  <link rel="stylesheet" href="/assets/federation-fleet-health-v280.css">
 </head>
 <body>
   <div class="shell">
@@ -575,6 +576,13 @@
           </div>
           <p class="fah-boundary"><strong>Recovery rule:</strong> reconnecting is not recovered. The Agent marks a site recovered only after authoritative reconciliation confirms current state. Priority failures are routed through Agent notifications and can be spoken when proactive voice is enabled.</p>
         </section>
+        <section class="panel" id="fleetHealthV280" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">FLEET HEALTH & DIAGNOSTICS</p><h3>Hardware runtime health</h3><p class="muted">Version, model/calibration, storage, camera/sensor, sync, error and upgrade diagnostics. Section 7 federation freshness remains authoritative.</p></div><div><span class="muted" data-ffh-status>Loading diagnostics…</span> <button class="button secondary" type="button" data-ffh-refresh>Refresh diagnostics</button></div></div>
+          <div class="ffh-summary"><div><span>Overall</span><strong data-ffh-overall><span class="ffh-state unknown">Unknown</span></strong></div><div><span>Sites</span><strong data-ffh-sites>0</strong></div><div><span>Devices</span><strong data-ffh-devices>0</strong></div><div><span>Degraded</span><strong data-ffh-degraded>0</strong></div><div><span>Critical</span><strong data-ffh-critical>0</strong></div></div>
+          <div class="ffh-agent" data-ffh-agent>No fleet diagnostic summary.</div>
+          <div data-ffh-list><div class="empty-state">Loading fleet diagnostics…</div></div>
+          <p class="federation-boundary"><strong>Diagnostic boundary:</strong> diagnostics are observational. Remote diagnostics policy can suppress device details, and healthy diagnostics never override stale, partitioned, reconciling, or recovering federation state.</p>
+        </section>
         <section class="panel" style="margin-top:16px">
           <div class="panel-head"><div><p class="eyebrow">INVENTORY</p><h3>Hardware units</h3></div></div>
           <div id="federationDevices" class="federation-device-list"><div class="empty-state">Loading hardware inventory…</div></div>
@@ -606,6 +614,7 @@
   <script src="/assets/federation-sync-visibility-v280.js" defer></script>
   <script src="/assets/federation-access-operations-v280.js" defer></script>
   <script src="/assets/federation-agent-health-v280.js" defer></script>
+  <script src="/assets/federation-fleet-health-v280.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
 </body>
