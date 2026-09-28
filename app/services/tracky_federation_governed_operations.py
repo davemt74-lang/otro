@@ -563,10 +563,17 @@ def ingest_cloud_requests(projection: dict[str, Any]) -> list[dict[str, Any]]:
             "Cloud request relay attempted forbidden execution authority.",
             403,
         )
+    local_site = _site(
+        tracky_federation_agent_health.current_report().get("local_site_id")
+        or tracky_federation_fleet_health.current_report().get("local_site_id")
+    )
     out = []
     for item in list(projection.get("requests") or [])[:50]:
         if not isinstance(item, dict):
             continue
+        origin_site = _site(item.get("origin_site_id"))
+        if not local_site or origin_site != local_site:
+            raise FederationOperationError("Cloud operation request was routed to the wrong origin HomeServer.", 409)
         payload = {
             "request_id": _text(item.get("request_id"), 128),
             "idempotency_key": _text(item.get("idempotency_key"), 160),
