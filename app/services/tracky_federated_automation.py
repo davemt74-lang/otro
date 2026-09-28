@@ -285,14 +285,14 @@ def transition_run(run_id:str,state:str,*,reason:str="",actor:dict[str,Any]|None
         if run["state"] in TERMINAL_RUN: raise FederatedAutomationError("Terminal federated automation run is immutable.",409)
         if next_state not in RUN_TRANSITIONS.get(run["state"],set()): raise FederatedAutomationError("Federated automation run transition is invalid.",409)
         if next_state=="running": raise FederatedAutomationError("V2.81 Section 1 records automation ledgers but does not execute physical actions.",409)
-    actor_n=_actor(actor);now=_now_ms();run["state"]=next_state;run["updated_at_ms"]=now;run["last_event"]={"state":next_state,"reason":_text(reason,240),"occurred_at_ms":now}
+    actor_n=_actor(actor);_validate_actor(actor_n);now=_now_ms();run["state"]=next_state;run["updated_at_ms"]=now;run["last_event"]={"state":next_state,"reason":_text(reason,240),"occurred_at_ms":now}
     run["recovery"]["resume_required"]=next_state=="recovering";run["recovery"]["last_checkpoint_ms"]=now
     _write_run(run);_event(run["automation_id"],run["run_id"],"run.state",next_state,actor_n,run["last_event"]);return get_run(run_id)
 
 def cancel_run(run_id:str,*,reason:str="",actor:dict[str,Any]|None=None)->dict[str,Any]:
     run=get_run(run_id)
     if run["state"] in TERMINAL_RUN:return run
-    actor_n=_actor(actor);now=_now_ms();run["state"]="cancelled";run["updated_at_ms"]=now;run["last_event"]={"state":"cancelled","reason":_text(reason,240),"occurred_at_ms":now}
+    actor_n=_actor(actor);_validate_actor(actor_n);now=_now_ms();run["state"]="cancelled";run["updated_at_ms"]=now;run["last_event"]={"state":"cancelled","reason":_text(reason,240),"occurred_at_ms":now}
     with db() as c:
         for step in run["steps"]:
             if step["state"] not in TERMINAL_STEP:
