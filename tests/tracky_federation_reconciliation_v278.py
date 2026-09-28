@@ -143,6 +143,15 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s9-") as data_dir:
     assert query["status"] == "partial"
     assert "federation_stale" in query["uncertainty"]
 
+    # Retry scheduling is bounded and fails closed after exhaustion.
+    retry = None
+    for attempt in range(1, 7):
+        retry = tracky_federation_reconciliation.schedule_retry(HOME, f"retry-{attempt}")
+    assert retry is not None
+    assert retry["status"] == "failed"
+    assert retry["retry_count"] == 6
+    assert retry["next_retry_at"] == ""
+
     capability = tracky_federation_reconciliation.public_capability()
     assert capability["protocol"] == "physical_federation_reconciliation.v1"
     assert capability["authority_assignment"] == "origin_only"
