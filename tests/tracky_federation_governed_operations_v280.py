@@ -29,6 +29,11 @@ def run():
     assert '@router.get("/api/v1/tracky/federation-governed-operations")' in api
     assert '@router.post("/api/v1/tracky/federation-governed-operations' not in api
     assert '"federation_governed_operations"' in physical
+    assert "ingest_cloud_requests" in source
+    assert "cloud_request_requires_local_approval" in source
+    assert "operation_requires_origin_local" in source
+    assert 'body.get("federation_operation_requests")' in physical
+    assert "\\\\n" not in physical
     assert 'id="governedFederationOperationsV280"' in ui
     assert "/api/v1/control/federation-operations" in js
     print("TRACKY_V280_FEDERATION_GOVERNED_OPERATIONS=PASS")
