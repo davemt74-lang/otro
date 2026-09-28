@@ -1,3 +1,12 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from app.services import tracky_federation_operations as operations
 
 HOME = "11111111-1111-4111-8111-111111111111"
