@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_federation_operations
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -262,6 +262,14 @@ def control_agent_update(payload: AgentUpdate) -> dict:
             connection.execute("UPDATE agents SET name=?, instructions=?, model=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (payload.name.strip(), payload.instructions.strip(), payload.model.strip(), agent_id))
     _log("agent.updated", "agent", str(agent_id))
     return {"updated": True, "id": agent_id}
+
+
+@app.get("/api/v1/control/federation-operations")
+def control_federation_operations() -> dict:
+    return {
+        "operations": tracky_federation_operations.current_report(),
+        "capability": tracky_federation_operations.public_capability(),
+    }
 
 
 @app.get("/api/v1/control/knowledge")
