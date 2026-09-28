@@ -707,9 +707,35 @@ def refresh_context(
         )
     return context
 
+def _attach_sync_visibility(context: dict[str, Any]) -> dict[str, Any]:
+    output = dict(context if isinstance(context, dict) else {})
+    try:
+        from . import tracky_sync_visibility
+        visibility = tracky_sync_visibility.current_report()
+        agent = visibility.get("agent_context") if isinstance(visibility.get("agent_context"), dict) else {}
+        output["federation_sync_visibility"] = {
+            "protocol": visibility.get("protocol") or "",
+            "state": agent.get("state") or visibility.get("overall_state") or "unknown",
+            "summary": agent.get("summary") or "",
+            "alerts": list(agent.get("alerts") or [])[:16],
+            "cloud_can_mark_destination_current": False,
+            "no_remote_authority_promotion": True,
+        }
+    except Exception:
+        output["federation_sync_visibility"] = {
+            "protocol": "",
+            "state": "unknown",
+            "summary": "Federation sync visibility is unavailable.",
+            "alerts": [],
+            "cloud_can_mark_destination_current": False,
+            "no_remote_authority_promotion": True,
+        }
+    return output
+
+
 def current_context(*, refresh: bool = True) -> dict[str, Any]:
     if refresh:
-        return refresh_context()
+        return _attach_sync_visibility(refresh_context())
     with db() as connection:
         row = connection.execute(
             "SELECT revision,fingerprint,context_json FROM tracky_federated_agent_context WHERE id=1"
@@ -724,7 +750,7 @@ def current_context(*, refresh: bool = True) -> dict[str, Any]:
         return refresh_context()
     context["revision"] = int(row["revision"] or 0)
     context["fingerprint"] = str(row["fingerprint"] or "")
-    return context
+    return _attach_sync_visibility(context)
 
 def cloud_projection() -> dict[str, Any]:
     context = current_context(refresh=True)
