@@ -352,38 +352,38 @@ def control_federation_fleet_health() -> dict:
     }
 
 
-@app.get("/api/v1/control/federation-operations")
-def control_federation_operations() -> dict:
+@app.get("/api/v1/control/federation-governed-operations")
+def control_federation_governed_operations() -> dict:
     return {"operations": _federation_operation_guard(tracky_federation_governed_operations.report), "capability": tracky_federation_governed_operations.public_capability()}
 
 
-@app.post("/api/v1/control/federation-operations/propose")
+@app.post("/api/v1/control/federation-governed-operations/propose")
 def control_federation_operation_propose(payload: FederationGovernedOperationRequest) -> dict:
     result=_federation_operation_guard(lambda: tracky_federation_governed_operations.propose(payload.model_dump(),actor={"actor_type":"owner","actor_id":"local_owner"}))
     _log("tracky.federation_operation.proposed","tracky_federation_operation",result["request_id"],{"operation_type":result["operation_type"]})
     return {"operation":result}
 
 
-@app.post("/api/v1/control/federation-operations/{request_id}/decision")
+@app.post("/api/v1/control/federation-governed-operations/{request_id}/decision")
 def control_federation_operation_decision(request_id: str,payload: FederationOperationDecision) -> dict:
     result=_federation_operation_guard(lambda: tracky_federation_governed_operations.decide(request_id,payload.approved,actor={"actor_type":"owner","actor_id":"local_owner"}))
     _log("tracky.federation_operation.decision","tracky_federation_operation",request_id,{"approved":payload.approved})
     return {"operation":result}
 
 
-@app.post("/api/v1/control/federation-operations/{request_id}/execute")
+@app.post("/api/v1/control/federation-governed-operations/{request_id}/execute")
 def control_federation_operation_execute(request_id: str) -> dict:
     result=_federation_operation_guard(lambda: tracky_federation_governed_operations.execute(request_id))
     _log("tracky.federation_operation.executed","tracky_federation_operation",request_id,{"state":result["state"]})
     return {"operation":result}
 
 
-@app.post("/api/v1/control/federation-operations/{request_id}/refresh")
+@app.post("/api/v1/control/federation-governed-operations/{request_id}/refresh")
 def control_federation_operation_refresh(request_id: str) -> dict:
     return {"operation":_federation_operation_guard(lambda: tracky_federation_governed_operations.refresh_reconciliation(request_id))}
 
 
-@app.post("/api/v1/control/federation-operations/{request_id}/cancel")
+@app.post("/api/v1/control/federation-governed-operations/{request_id}/cancel")
 def control_federation_operation_cancel(request_id: str) -> dict:
     result=_federation_operation_guard(lambda: tracky_federation_governed_operations.cancel(request_id))
     _log("tracky.federation_operation.cancelled","tracky_federation_operation",request_id)
