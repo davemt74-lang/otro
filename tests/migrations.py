@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 53))
+        assert versions == list(range(1, 54))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -424,6 +424,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             assert migrated.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
                 (federation_table,),
+            ).fetchone() is not None
+        for governed_operation_table in ("tracky_federation_operation_ledger","tracky_federation_operation_events"):
+            assert migrated.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (governed_operation_table,),
             ).fetchone() is not None
         for mobile_table in ("tracky_mobile_transitions","tracky_mobile_transition_history"):
             assert migrated.execute(
