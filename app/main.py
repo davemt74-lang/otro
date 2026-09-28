@@ -117,6 +117,7 @@ class FederationGovernedOperationRequest(BaseModel):
     confirmation_token: str = Field(default="", max_length=160)
     idempotency_key: str = Field(default="", max_length=160)
     require_approval: bool = False
+    expires_at_ms: int = Field(default=0, ge=0)
     parameters: dict = Field(default_factory=dict)
 
 
