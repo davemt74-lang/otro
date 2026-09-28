@@ -506,7 +506,8 @@ def public_capability() -> dict[str, Any]:
         "federated_agent_context": tracky_federated_agent_context.public_capability(),
         "federation_policy": tracky_federation_policy.public_capability(),
         "federated_query": tracky_federated_query.public_capability(),
-        "federation_governed_operations": tracky_federation_governed_operations.public_capability(),\n        "release_hardening": tracky_release_hardening.public_capability(),
+        "federation_governed_operations": tracky_federation_governed_operations.public_capability(),
+        "release_hardening": tracky_release_hardening.public_capability(),
     }
 
 
