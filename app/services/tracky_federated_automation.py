@@ -141,6 +141,13 @@ def create_definition(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->di
     idempotency=_id(explicit_idempotency or automation_id+":"+str(int(payload.get("revision") or 1)),"idempotency_key",160)
     state=_text(payload.get("state") or "draft",30).lower()
     if state not in AUTOMATION_STATES: raise FederatedAutomationError("Federated automation state is invalid.")
+    request_fingerprint=_hash({k:payload.get(k) for k in ("automation_id","revision","idempotency_key","name","description","origin_site_id","state","trigger","steps","participating_site_ids","participating_device_ids","approval_policy","default_deadline_ms")})
+    with db() as c:
+        replay=c.execute("SELECT definition_json FROM tracky_federated_automation_definitions WHERE idempotency_key=? LIMIT 1",(idempotency,)).fetchone()
+    if replay is not None:
+        prior=_definition_row(replay)
+        if prior.get("request_fingerprint")!=request_fingerprint: raise FederatedAutomationError("Federated automation definition idempotency conflict.",409)
+        return prior
     trigger=_normalize_trigger(payload.get("trigger"),origin); steps=_normalize_steps(payload.get("steps"),origin)
     known_sites=_known_sites()
     if trigger["source_site_id"] not in known_sites: raise FederatedAutomationError("Federated automation trigger references an unknown federation site.",409)
@@ -161,17 +168,6 @@ def create_definition(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->di
     if approval_policy not in {"governed","always"}: raise FederatedAutomationError("Federated automation approval policy is invalid.")
     default_deadline=min(2_592_000_000,max(0,int(payload.get("default_deadline_ms") or 0)))
     with db() as c:
-        existing=c.execute("SELECT definition_json FROM tracky_federated_automation_definitions WHERE idempotency_key=? LIMIT 1",(idempotency,)).fetchone()
-        if existing is not None:
-            prior=_definition_row(existing)
-            same=(prior.get("automation_id")==automation_id and prior.get("origin_site_id")==origin and prior.get("state")==state and
-                  prior.get("name")==(_text(payload.get("name"),160) or automation_id) and prior.get("description")==_text(payload.get("description"),1000) and
-                  prior.get("trigger")==trigger and prior.get("steps")==steps and prior.get("participating_site_ids")==participating_sites and
-                  prior.get("participating_device_ids")==participating_devices and prior.get("approval_policy")==approval_policy and
-                  int(prior.get("default_deadline_ms") or 0)==default_deadline and
-                  (int(payload.get("revision") or 0)==0 or int(prior.get("revision") or 0)==int(payload.get("revision") or 0)))
-            if not same: raise FederatedAutomationError("Federated automation definition idempotency conflict.",409)
-            return prior
         head=c.execute("SELECT * FROM tracky_federated_automation_heads WHERE automation_id=? LIMIT 1",(automation_id,)).fetchone()
         revision=int(payload.get("revision") or (int(head["current_revision"])+1 if head else 1))
         if head is not None:
@@ -182,7 +178,7 @@ def create_definition(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->di
           "name":_text(payload.get("name"),160) or automation_id,"description":_text(payload.get("description"),1000),"origin_site_id":origin,
           "state":state,"trigger":trigger,"steps":steps,"participating_site_ids":participating_sites,"participating_device_ids":participating_devices,
           "approval_policy":approval_policy,"default_deadline_ms":default_deadline,
-          "idempotency_key":idempotency,"actor":actor_n,"created_at_ms":_now_ms(),"updated_at_ms":_now_ms(),
+          "idempotency_key":idempotency,"request_fingerprint":request_fingerprint,"actor":actor_n,"created_at_ms":_now_ms(),"updated_at_ms":_now_ms(),
           "safety":{"execution_enabled":False,"cloud_execution_allowed":False,"agent_execution_allowed":False,"origin_homeserver_authoritative":True,
                     "step_authority_site_required":True,"permissions_required":True,"federation_v280_invariants_required":True}}
         semantic=_hash({k:v for k,v in definition.items() if k not in {"created_at_ms","updated_at_ms"}})
@@ -231,14 +227,12 @@ def create_run(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,
     if definition["state"]!="active": raise FederatedAutomationError("Only active federated automations may create runs.",409)
     if definition["origin_site_id"]!=_local_site(): raise FederatedAutomationError("Only the origin HomeServer may create a federated automation run.",409)
     run_id=_id(payload.get("run_id") or ("far-"+uuid.uuid4().hex),"run_id",160);idem=_id(payload.get("idempotency_key") or run_id,"idempotency_key",160)
+    run_request_fingerprint=_hash({k:payload.get(k) for k in ("automation_id","idempotency_key","trigger_event_id","deadline_at_ms")})
     with db() as c:
         existing=c.execute("SELECT run_json FROM tracky_federated_automation_runs WHERE idempotency_key=? LIMIT 1",(idem,)).fetchone()
         if existing is not None:
             run=_run_row(existing)
-            requested_trigger=_text(payload.get("trigger_event_id"),160) or None
-            requested_deadline=int(payload.get("deadline_at_ms") or 0)
-            if run.get("automation_id")!=automation_id or run.get("trigger_event_id")!=requested_trigger or (requested_deadline and int(run.get("deadline_at_ms") or 0)!=requested_deadline):
-                raise FederatedAutomationError("Federated automation run idempotency conflict.",409)
+            if run.get("request_fingerprint")!=run_request_fingerprint: raise FederatedAutomationError("Federated automation run idempotency conflict.",409)
             return run
     now=_now_ms();deadline=int(payload.get("deadline_at_ms") or (now+int(definition.get("default_deadline_ms") or 0) if definition.get("default_deadline_ms") else 0))
     steps=[]
@@ -250,7 +244,7 @@ def create_run(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,
         steps.append(step_row)
     run={"protocol":PROTOCOL,"version":VERSION,"schema_version":1,"run_id":run_id,"idempotency_key":idem,"automation_id":automation_id,
       "automation_revision":definition["revision"],"origin_site_id":definition["origin_site_id"],"trigger_event_id":_text(payload.get("trigger_event_id"),160) or None,
-      "state":"waiting" if any(x["state"]=="blocked" for x in steps) else "ready","deadline_at_ms":deadline,"steps":steps,"created_at_ms":now,"updated_at_ms":now,
+      "state":"waiting" if any(x["state"]=="blocked" for x in steps) else "ready","deadline_at_ms":deadline,"steps":steps,"request_fingerprint":run_request_fingerprint,"created_at_ms":now,"updated_at_ms":now,
       "last_event":None,"last_error":"","recovery":{"durable":True,"resume_required":False,"last_checkpoint_ms":now},
       "safety":{"execution_enabled":False,"cloud_execution_allowed":False,"agent_execution_allowed":False,"authoritative_homeserver_required":True}}
     with db() as c:
