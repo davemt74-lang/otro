@@ -78,6 +78,27 @@ def run():
     assert office["fingerprint_conflict"] is True
     assert office["conflict_code"]=="same_revision_fingerprint_conflict"
 
+    ui_index=(ROOT/"ui/index.html").read_text(encoding="utf-8")
+    ui_script=(ROOT/"ui/federation-sync-visibility-v280.js").read_text(encoding="utf-8")
+    world_script=(ROOT/"ui/physical-world-dashboard-v280.js").read_text(encoding="utf-8")
+    main_source=(ROOT/"app/main.py").read_text(encoding="utf-8")
+    paired_source=(ROOT/"app/tracky_api.py").read_text(encoding="utf-8")
+    cloud_source=(ROOT/"app/services/tracky_physical_context.py").read_text(encoding="utf-8")
+    spec=(ROOT/"HomeServer.spec").read_text(encoding="utf-8")
+    assert "federation-sync-visibility-v280.css" in ui_index
+    assert "federation-sync-visibility-v280.js" in ui_index
+    assert 'id="syncVisibilitySites"' in ui_index
+    assert 'id="physicalWorldSyncWarning"' in ui_index
+    assert "/api/v1/control/federation-sync-visibility" in main_source
+    assert "/api/v1/tracky/federation-sync-visibility" in paired_source
+    assert "federation_sync_visibility" in cloud_source
+    assert "federation_sync_visibility_protocol" in cloud_source
+    assert "loadFederationSyncVisibility" in ui_script
+    assert "Federation freshness:" in world_script
+    assert "('ui', 'ui')" in spec
+    for mutation in ("method:'POST'", 'method:"POST"', "method:'PUT'", "method:'PATCH'", "method:'DELETE'"):
+        assert mutation not in ui_script, f"Section 5 visibility must remain read-only: {mutation}"
+
     cap=visibility.public_capability()
     assert cap["retry_visibility"] is True
     assert cap["physical_world_freshness_annotations"] is True
