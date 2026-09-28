@@ -32,6 +32,9 @@
     e.preventDefault(); const form=e.currentTarget; const fd=new FormData(form);
     const payload=Object.fromEntries(fd.entries());
     payload.require_approval=true; payload.parameters={};
+    for(const key of ['package_sha256','release_version','rollout_id']){
+      const value=String(fd.get(key)||'').trim(); if(value)payload.parameters[key]=key==='rollout_id'?Number(value):value; delete payload[key];
+    }
     if(fd.get('explicit_confirmation'))payload.confirmation_token='local_owner_explicit_confirmation';
     delete payload.explicit_confirmation;
     status.textContent='Creating local governed request…';
