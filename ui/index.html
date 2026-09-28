@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/assets/cross-site-presence-v280.css">
   <link rel="stylesheet" href="/assets/federation-sync-visibility-v280.css">
   <link rel="stylesheet" href="/assets/federation-access-operations-v280.css">
+  <link rel="stylesheet" href="/assets/federation-agent-health-v280.css">
 </head>
 <body>
   <div class="shell">
@@ -558,6 +559,23 @@
           <p class="federation-boundary"><strong>Revocation always wins.</strong> A stale remote grant cannot restore access after the local authority revokes a permission or recognition consent—even while a site is partitioned.</p>
         </section>
         <section class="panel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">AGENT BRAIN HEALTH</p><h3>Federation failures & recovery</h3></div><div><span id="fahLoading" class="muted">Agent Brain live health</span> <button class="button secondary" id="refreshFederationAgentHealth" type="button">Refresh health</button></div></div>
+          <div class="fah-summary">
+            <div><span>Overall</span><strong id="fahOverall"><span class="fah-state unknown">Unknown</span></strong></div>
+            <div><span>Current</span><strong id="fahCurrent">0</strong></div>
+            <div><span>Degraded</span><strong id="fahDegraded">0</strong></div>
+            <div><span>Critical</span><strong id="fahCritical">0</strong></div>
+            <div><span>Recovering</span><strong id="fahRecovering">0</strong></div>
+            <div><span>Cloud relay</span><strong id="fahRelay"><span class="fah-state unknown">Unknown</span></strong></div>
+          </div>
+          <div id="fahAgentSummary" class="fah-agent">No federation health summary.</div>
+          <div class="fah-layout" style="margin-top:12px">
+            <div><div class="panel-head"><div><p class="eyebrow">SITE HEALTH</p><h3>Trust, authority & recovery gate</h3></div></div><div id="fahSites" class="fah-sites"><div class="empty-state">Loading site health…</div></div></div>
+            <aside><div class="panel-head"><div><p class="eyebrow">OPERATIONAL HISTORY</p><h3>Agent health events</h3></div></div><div id="fahHistory" class="fah-history"><div class="empty-state">No federation health events yet.</div></div></aside>
+          </div>
+          <p class="fah-boundary"><strong>Recovery rule:</strong> reconnecting is not recovered. The Agent marks a site recovered only after authoritative reconciliation confirms current state. Priority failures are routed through Agent notifications and can be spoken when proactive voice is enabled.</p>
+        </section>
+        <section class="panel" style="margin-top:16px">
           <div class="panel-head"><div><p class="eyebrow">INVENTORY</p><h3>Hardware units</h3></div></div>
           <div id="federationDevices" class="federation-device-list"><div class="empty-state">Loading hardware inventory…</div></div>
         </section>
@@ -587,6 +605,7 @@
   <script src="/assets/cross-site-presence-v280.js" defer></script>
   <script src="/assets/federation-sync-visibility-v280.js" defer></script>
   <script src="/assets/federation-access-operations-v280.js" defer></script>
+  <script src="/assets/federation-agent-health-v280.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
 </body>
