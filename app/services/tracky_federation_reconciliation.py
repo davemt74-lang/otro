@@ -452,7 +452,7 @@ def annotate_query_result(result: dict[str, Any]) -> dict[str, Any]:
                 "reconciliation_required": state["status"] in {"partitioned", "reconciling", "stale", "failed", "unknown"},
             }
         item["federation_freshness"] = freshness
-        if not freshness["fresh"]:
+        if freshness["status"] in {"partitioned", "reconciling", "stale", "failed"}:
             stale_count += 1
     if stale_count and "federation_stale" not in uncertainty:
         uncertainty.append("federation_stale")
