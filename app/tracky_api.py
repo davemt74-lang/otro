@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from .services import tracky_cross_site_presence, tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_physical_context, tracky_physical_world_dashboard, tracky_site_topology, tracky_sync_visibility
+from .services import tracky_cross_site_presence, tracky_federation_access_operations, tracky_federated_agent_context, tracky_federated_query, tracky_federated_world, tracky_federation_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_physical_context, tracky_physical_world_dashboard, tracky_site_topology, tracky_sync_visibility
 from .services.pairing import authenticate
 
 
@@ -304,6 +304,17 @@ def paired_tracky_federated_query_audit(
     return {
         "audit": _call(tracky_federated_query.recent_query_audit, limit),
         "capability": tracky_federated_query.public_capability(),
+        "app": identity["app_key"],
+    }
+
+
+@router.get("/api/v1/tracky/federation-access")
+def paired_tracky_federation_access(
+    identity: dict = Depends(_physical_reader),
+) -> dict:
+    return {
+        "access": tracky_federation_access_operations.current_report(),
+        "capability": tracky_federation_access_operations.public_capability(),
         "app": identity["app_key"],
     }
 
