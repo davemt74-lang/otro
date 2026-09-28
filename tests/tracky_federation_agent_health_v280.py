@@ -92,7 +92,9 @@ def run():
     filtered=health.build_report(operations,sync,access,relay,previous={},now_ms=1000)
     assert any(row["site_id"]==OFFICE for row in filtered["sites"])
     assert all(row["site_id"]!=OFFICE for row in filtered["agent_context"]["sites"])
-    assert all(row["site_id"]!=OFFICE for row in filtered["agent_context"]["active_issues"])
+    assert all(row.get("site_id")!=OFFICE for row in filtered["agent_context"]["active_issues"])
+    assert "Office" not in filtered["agent_context"]["summary"]
+    assert filtered["agent_context"]["overall_state"]=="current"
 
     operations,sync,access,relay=fixture("reconciling",False)
     long_running=health.build_report(operations,sync,access,relay,previous={},now_ms=1000)
@@ -140,6 +142,8 @@ def run():
     assert '"federation_agent_health"' in physical
     assert "federation_agent_health_protocol" in physical
     assert "INSERT INTO notifications" in source
+    assert "from . import remote_bridge" in source
+    assert "remote_bridge," not in source.split(")\n\nTRACKY_FEDERATION_AGENT_HEALTH_VERSION",1)[0]
     assert 'source_app_key="tracky.federation.health"' in source
     assert "cognitive_runtime.list_events" in source
     assert "proactive_voice" in ambient
