@@ -311,14 +311,14 @@ def recover_incomplete_runs()->dict[str,Any]:
     return {"recovered":len(recovered),"run_ids":[x["run_id"] for x in recovered]}
 
 def agent_context()->dict[str,Any]:
-    defs=list_definitions(32);runs=list_runs(32,active_only=True)
+    expire_due_runs();defs=list_definitions(32);runs=list_runs(32,active_only=True)
     return {"protocol":PROTOCOL,"version":VERSION,
       "definitions":[{"automation_id":x["automation_id"],"revision":x["revision"],"name":x["name"],"state":x["state"],"origin_site_id":x["origin_site_id"],"participating_site_ids":x["participating_site_ids"]} for x in defs],
       "active_runs":[{"run_id":x["run_id"],"automation_id":x["automation_id"],"state":x["state"],"origin_site_id":x["origin_site_id"],"deadline_at_ms":x["deadline_at_ms"]} for x in runs],
       "agent_may_propose":True,"agent_may_activate":False,"agent_may_execute":False,"cloud_may_execute":False,"execution_phase":"future_v281_distributed_execution"}
 
 def cloud_projection()->dict[str,Any]:
-    defs=list_definitions(100);runs=list_runs(100)
+    expire_due_runs();defs=list_definitions(100);runs=list_runs(100)
     return {"protocol":PROTOCOL,"version":VERSION,"schema_version":1,"generated_at":_now_ms(),"local_site_id":_local_site(),
       "definitions":[{"automation_id":x["automation_id"],"revision":x["revision"],"name":x["name"],"state":x["state"],"origin_site_id":x["origin_site_id"],
                       "trigger_kind":x["trigger"]["kind"],"participating_site_ids":x["participating_site_ids"],"participating_device_ids":x["participating_device_ids"],
