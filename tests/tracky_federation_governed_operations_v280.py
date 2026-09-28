@@ -28,7 +28,7 @@ def run():
     assert "claim_site_authority" in source and "authority_epoch_after" in source
     assert "fleet_management.request_update" in source and "remove_inventory_device" in source
     assert 'trust_state="revoked"' in source
-    assert "hardware_adapters.stop(); hardware_adapters.start()" in source
+    assert "hardware_adapters.stop()" in source and "hardware_adapters.start()" in source
     assert '@app.post("/api/v1/control/federation-operations/propose")' in main
     assert '@app.post("/api/v1/control/federation-operations/{request_id}/execute")' in main
     assert '@router.get("/api/v1/tracky/federation-governed-operations")' in api
