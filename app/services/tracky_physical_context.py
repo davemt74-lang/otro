@@ -571,6 +571,8 @@ def current_context() -> dict[str, Any]:
         ),
         "federated_agent_context": tracky_federated_agent_context.current_context(refresh=True),
         "federation_policy": tracky_federation_policy.current_report(),
+        "federation_agent_health": tracky_federation_agent_health.current_report().get("agent_context", {}),
+        "federation_fleet_health": tracky_federation_fleet_health.current_report().get("agent_context", {}),
     }
 
 
