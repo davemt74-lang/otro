@@ -741,10 +741,11 @@ class FederationHealthRuntime:
         if self._thread and self._thread.is_alive():
             return
         self._stop.clear()
-        # Establish a baseline without generating startup chatter. Real state
-        # transitions after this point are delivered.
+        # Persisted state suppresses duplicate restart chatter. On a first run,
+        # however, an already-critical federation condition is real information
+        # and must reach Agent Brain rather than being silently baselined away.
         try:
-            refresh(deliver=False)
+            refresh(deliver=True)
         except Exception:
             pass
         self._thread = threading.Thread(
