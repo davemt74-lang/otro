@@ -159,6 +159,16 @@ def run():
         assert notes==1
         assert messages==1
 
+        health._notification_event({
+            "priority":"info","voice_eligible":True,
+            "title":"Office recovered","body":"Office recovered after reconciliation."
+        })
+        with db() as connection:
+            recovery_level=connection.execute(
+                "SELECT level FROM notifications WHERE source='tracky' AND title='Office recovered' ORDER BY id DESC LIMIT 1"
+            ).fetchone()["level"]
+        assert recovery_level=="warning"
+
         history=health.history(10)
         assert len(history)==1
         assert history[0]["immutable"] is True
