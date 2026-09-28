@@ -785,13 +785,17 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
         )
 
     automation_results = []
+    federated_trigger_results = []
     if events:
+        event_ids = [str(event["event_id"]) for event in events]
         try:
-            automation_results = tracky_governed_actions.process_event_automations(
-                [str(event["event_id"]) for event in events]
-            )
+            automation_results = tracky_governed_actions.process_event_automations(event_ids)
         except Exception:
             automation_results = []
+        try:
+            federated_trigger_results = tracky_federated_automation.process_physical_trigger_events(event_ids)
+        except Exception:
+            federated_trigger_results = []
 
     return {
         "accepted": True,
@@ -800,6 +804,7 @@ def ingest_semantic_projection(payload: dict[str, Any], *, source: str = "provid
         "relations": len(relations),
         "last_sequence": max_sequence,
         "automation_results": automation_results,
+        "federated_trigger_results": federated_trigger_results,
         "forecast_calibration": {
             "accepted": calibration_report is not None,
             "changed": bool(calibration_result and calibration_result.get("changed")),
