@@ -1125,7 +1125,7 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
             _record_sync_failure(f"Federation policy mirror rejected: {exc}")
             raise TrackyPhysicalError(f"VP3 Tracky federation policy sync failed: {exc}", 503) from exc
 
-    federation_result = None
+    federation_operation_request_result = []\n    federation_operation_requests = body.get("federation_operation_requests")\n    if isinstance(federation_operation_requests, dict):\n        try:\n            federation_operation_request_result = tracky_federation_governed_operations.ingest_cloud_requests(federation_operation_requests)\n        except tracky_federation_governed_operations.FederationOperationError as exc:\n            _record_sync_failure(f"Federation operation request relay rejected: {exc}")\n            raise TrackyPhysicalError(f"VP3 Tracky federation operation request sync failed: {exc}", 503) from exc\n\n    federation_result = None
     federation_batch = body.get("federation_sync")
     if isinstance(federation_batch, dict):
         try:
@@ -1166,6 +1166,7 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
     return {
         "ok": True,
         "protocol": PHYSICAL_CONTEXT_PROTOCOL,
+        "federation_operation_requests": len(federation_operation_request_result),
         "cloud": body,
         "synced_events": len(package["event_ids"]),
         "cursor": cursor,
