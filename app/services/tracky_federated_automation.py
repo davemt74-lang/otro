@@ -130,8 +130,15 @@ def create_definition(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->di
     actor_n=_actor(actor or payload.get("actor"));_validate_actor(actor_n)
     origin=_site(payload.get("origin_site_id")); local=_local_site()
     if origin!=local: raise FederatedAutomationError("Only the origin HomeServer may author an authoritative federated automation definition.",409)
-    automation_id=_id(payload.get("automation_id") or ("fa-"+uuid.uuid4().hex),"automation_id",128)
-    idempotency=_id(payload.get("idempotency_key") or automation_id+":"+str(int(payload.get("revision") or 1)),"idempotency_key",160)
+    explicit_idempotency=_text(payload.get("idempotency_key"),160)
+    explicit_automation=_text(payload.get("automation_id"),128)
+    if explicit_automation:
+        automation_id=_id(explicit_automation,"automation_id",128)
+    elif explicit_idempotency:
+        automation_id="fa-"+hashlib.sha256(explicit_idempotency.encode("utf-8")).hexdigest()[:32]
+    else:
+        automation_id="fa-"+uuid.uuid4().hex
+    idempotency=_id(explicit_idempotency or automation_id+":"+str(int(payload.get("revision") or 1)),"idempotency_key",160)
     state=_text(payload.get("state") or "draft",30).lower()
     if state not in AUTOMATION_STATES: raise FederatedAutomationError("Federated automation state is invalid.")
     trigger=_normalize_trigger(payload.get("trigger"),origin); steps=_normalize_steps(payload.get("steps"),origin)
@@ -161,7 +168,8 @@ def create_definition(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->di
                   prior.get("name")==(_text(payload.get("name"),160) or automation_id) and prior.get("description")==_text(payload.get("description"),1000) and
                   prior.get("trigger")==trigger and prior.get("steps")==steps and prior.get("participating_site_ids")==participating_sites and
                   prior.get("participating_device_ids")==participating_devices and prior.get("approval_policy")==approval_policy and
-                  int(prior.get("default_deadline_ms") or 0)==default_deadline)
+                  int(prior.get("default_deadline_ms") or 0)==default_deadline and
+                  (int(payload.get("revision") or 0)==0 or int(prior.get("revision") or 0)==int(payload.get("revision") or 0)))
             if not same: raise FederatedAutomationError("Federated automation definition idempotency conflict.",409)
             return prior
         head=c.execute("SELECT * FROM tracky_federated_automation_heads WHERE automation_id=? LIMIT 1",(automation_id,)).fetchone()
