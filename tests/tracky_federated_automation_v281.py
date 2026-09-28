@@ -49,4 +49,28 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_definitions").fetchone()[0]==1
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_runs").fetchone()[0]==1
 
+
+main=(ROOT/"app/main.py").read_text(encoding="utf-8")
+tracky_api=(ROOT/"app/tracky_api.py").read_text(encoding="utf-8")
+physical=(ROOT/"app/services/tracky_physical_context.py").read_text(encoding="utf-8")
+ci=(ROOT/".github/workflows/ci.yml").read_text(encoding="utf-8")
+release_workflow=(ROOT/".github/workflows/homeserver-v24-release.yml").read_text(encoding="utf-8")
+migration=(ROOT/"database/migrations/054_tracky_federated_automation.sql").read_text(encoding="utf-8")
+assert '@app.get("/api/v1/control/federated-automation")' in main
+assert '@app.post("/api/v1/control/federated-automation/definitions")' in main
+assert '@app.post("/api/v1/control/federated-automation/runs")' in main
+assert '@app.post("/api/v1/control/federated-automation/runs/{run_id}/cancel")' in main
+assert '/api/v1/control/federated-automation/runs/{run_id}/execute' not in main
+assert '@router.get("/api/v1/tracky/federated-automation")' in tracky_api
+assert '"federated_automation": tracky_federated_automation.public_capability()' in physical
+assert '"federated_automation": tracky_federated_automation.agent_context()' in physical
+assert '"federated_automation": federated_automation_projection' in physical
+assert "tracky_federated_automation.recover_incomplete_runs()" in main
+assert "tracky_federated_automation_v281.py" in ci
+assert "tracky_federated_automation_v281.py" in release_workflow
+assert "tracky_federated_automation_definitions" in migration and "tracky_federated_automation_events" in migration
+assert "current_schema_version = 54" in ci
+assert "feature_track = 'Tracky V2.81'" in ci
+assert "feature_section = 1" in ci
+assert "federated_automation_execution_enabled = $false" in ci
 print("TRACKY_V281_FEDERATED_AUTOMATION_LEDGER=PASS")
