@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..database import db
-from . import federated_data, tracky_federation_sync, tracky_site_topology
+from . import federated_data, local_automation, room_device_automation, tracky_federation_sync, tracky_site_topology
 
 VERSION="2.81"
 PROTOCOL="physical_federated_automation.v1"
-SECTION=2
+SECTION=3
 AUTOMATION_STATES={"draft","active","paused","retired"}
 RUN_STATES={"planned","waiting","ready","running","blocked","recovering","completed","failed","cancelled","expired"}
 STEP_STATES={"pending","blocked","ready","running","completed","failed","cancelled","expired"}
@@ -415,6 +415,140 @@ def trigger_receipts(limit:int=100)->list[dict[str,Any]]:
           FROM tracky_federated_automation_trigger_receipts ORDER BY id DESC LIMIT ?""",(max(1,min(500,int(limit))),)).fetchall()
     return [dict(x) for x in rows]
 
+
+EXECUTION_PROTOCOL="physical_federated_execution.v1"
+
+def _authority_for_site(site_id:str)->dict[str,Any]:
+    site_id=_site(site_id)
+    topology=tracky_site_topology.current_topology()
+    site=next((x for x in topology.get("sites",[]) if _site(x.get("id"))==site_id),None)
+    if not site or not site.get("authority_device_id") or int(site.get("authority_epoch") or 0)<1:
+        raise FederatedAutomationError("Federated execution requires an active site authority.",409)
+    device=tracky_site_topology.get_device(str(site["authority_device_id"]))
+    if device.get("trust_state")!="trusted":
+        raise FederatedAutomationError("Federated execution authority device is not trusted.",409)
+    return {"site_id":site_id,"device_id":str(site["authority_device_id"]),"authority_epoch":int(site["authority_epoch"]),"device":device}
+
+def _definition_step(definition:dict[str,Any],step_id:str)->dict[str,Any]:
+    step=next((x for x in definition.get("steps",[]) if x.get("step_id")==step_id),None)
+    if step is None: raise FederatedAutomationError("Federated automation step definition was not found.",404)
+    return step
+
+def _run_step(run:dict[str,Any],step_id:str)->dict[str,Any]:
+    step=next((x for x in run.get("steps",[]) if x.get("step_id")==step_id),None)
+    if step is None: raise FederatedAutomationError("Federated automation run step was not found.",404)
+    return step
+
+def create_step_dispatch(run_id:str,step_id:str,*,approval_id:str="",actor:dict[str,Any]|None=None)->dict[str,Any]:
+    run=get_run(run_id); definition=get_definition(run["automation_id"]); step_id=_id(step_id,"step_id",80)
+    spec=_definition_step(definition,step_id); state=_run_step(run,step_id)
+    if run["state"] in TERMINAL_RUN: raise FederatedAutomationError("Terminal federated automation run cannot dispatch.",409)
+    if state["state"]!="ready": raise FederatedAutomationError("Federated automation step is not ready.",409)
+    authority=_authority_for_site(spec["authority_site_id"])
+    attempt=int(state.get("attempt") or 0)+1
+    dispatch_id="fad-"+hashlib.sha256(f'{run_id}|{step_id}|{attempt}|{authority["site_id"]}|{authority["authority_epoch"]}'.encode("utf-8")).hexdigest()[:40]
+    idem="exec:"+hashlib.sha256(f'{run_id}|{step_id}|{attempt}'.encode("utf-8")).hexdigest()[:48]
+    dispatch={"protocol":EXECUTION_PROTOCOL,"section":3,"dispatch_id":dispatch_id,"idempotency_key":idem,"run_id":run_id,
+      "automation_id":definition["automation_id"],"automation_revision":definition["revision"],"step_id":step_id,"attempt":attempt,
+      "origin_site_id":definition["origin_site_id"],"authority_site_id":spec["authority_site_id"],"target_site_id":spec["target_site_id"],
+      "authority_epoch":authority["authority_epoch"],"device_id":spec.get("device_id"),"action_type":spec["action_type"],"action_key":spec["action_key"],
+      "arguments":spec.get("arguments") or {},"required_permissions":spec.get("required_permissions") or [],"approval_mode":spec.get("approval_mode") or "governed",
+      "approval_id":_text(approval_id,160) or None,"issued_at_ms":_now_ms(),"deadline_at_ms":int(state.get("deadline_at_ms") or 0),
+      "safety":{"cloud_execution_allowed":False,"agent_execution_allowed":False,"authoritative_homeserver_only":True}}
+    actor_n=_actor(actor);_validate_actor(actor_n)
+    with db() as c:
+        prior=c.execute("SELECT dispatch_json FROM tracky_federated_automation_dispatches WHERE dispatch_id=?",(dispatch_id,)).fetchone()
+        if prior is not None:return _decode(prior["dispatch_json"],{})
+        c.execute("""INSERT INTO tracky_federated_automation_dispatches(
+          dispatch_id,idempotency_key,run_id,step_id,authority_site_id,authority_epoch,state,dispatch_json
+        ) VALUES (?,?,?,?,?,?,?,?)""",(dispatch_id,idem,run_id,step_id,spec["authority_site_id"],authority["authority_epoch"],"created",_json(dispatch)))
+        state["dispatch_id"]=dispatch_id;state["attempt"]=attempt;state["updated_at_ms"]=_now_ms()
+        c.execute("UPDATE tracky_federated_automation_steps SET attempt=?,dispatch_id=?,step_json=?,updated_at=CURRENT_TIMESTAMP WHERE run_id=? AND step_id=?",
+          (attempt,dispatch_id,_json(state),run_id,step_id))
+    _event(run["automation_id"],run_id,"step.dispatched","ready",actor_n,{"step_id":step_id,"dispatch_id":dispatch_id,"authority_site_id":spec["authority_site_id"],"authority_epoch":authority["authority_epoch"]})
+    return dispatch
+
+def execute_step_dispatch(dispatch:dict[str,Any],*,executor_device_id:str,permission_grants:list[str],actor:dict[str,Any]|None=None)->dict[str,Any]:
+    if not isinstance(dispatch,dict) or dispatch.get("protocol")!=EXECUTION_PROTOCOL: raise FederatedAutomationError("Federated execution protocol is invalid.")
+    dispatch_id=_id(dispatch.get("dispatch_id"),"dispatch_id",160);local=_local_site();authority_site=_site(dispatch.get("authority_site_id"))
+    if local!=authority_site: raise FederatedAutomationError("Only the authoritative target HomeServer may execute this dispatch.",409)
+    authority=_authority_for_site(authority_site)
+    if _id(executor_device_id,"executor_device_id",100)!=authority["device_id"]: raise FederatedAutomationError("Executor device is not the current site authority.",409)
+    if int(dispatch.get("authority_epoch") or 0)!=authority["authority_epoch"]: raise FederatedAutomationError("Federated execution authority epoch changed.",409)
+    if bool(federated_data.reconciliation_state("vp3_cloud").get("needs_reconciliation")): raise FederatedAutomationError("Federated execution is blocked while reconciliation is required.",409)
+    now=_now_ms()
+    if int(dispatch.get("deadline_at_ms") or 0)>0 and now>int(dispatch["deadline_at_ms"]): raise FederatedAutomationError("Federated execution dispatch expired.",409)
+    grants={_text(x,80) for x in permission_grants if _text(x,80)}
+    missing=[x for x in dispatch.get("required_permissions",[]) if x not in grants]
+    if missing: raise FederatedAutomationError("Federated execution permission denied.",403)
+    if dispatch.get("action_type")=="physical_action" and dispatch.get("approval_mode")!="inherit" and not dispatch.get("approval_id"):
+        raise FederatedAutomationError("Physical federated action requires approved execution evidence.",403)
+    with db() as c:
+        prior=c.execute("SELECT receipt_json FROM tracky_federated_automation_execution_receipts WHERE dispatch_id=?",(dispatch_id,)).fetchone()
+        if prior is not None:return _decode(prior["receipt_json"],{})
+    actor_n=_actor(actor);_validate_actor(actor_n)
+    status="completed";result:dict[str,Any]={};error=""
+    try:
+        action_type=str(dispatch.get("action_type") or "")
+        if action_type=="physical_action":
+            args=dispatch.get("arguments") if isinstance(dispatch.get("arguments"),dict) else {}
+            device_key=_text(args.get("device_key"),80)
+            if not device_key: raise FederatedAutomationError("Physical federated action requires arguments.device_key.",409)
+            executed=room_device_automation.execute_command(device_key,str(dispatch.get("action_key") or ""),args.get("command_arguments") if isinstance(args.get("command_arguments"),dict) else {},
+              source_app_key="tracky-federated-automation",action_request_id=str(dispatch.get("approval_id") or ""))
+            result={"executed":True,"action_id":executed.get("action_id"),"device_key":executed.get("device_key"),"state":executed.get("state")}
+        elif action_type=="local_routine":
+            executed=local_automation.run_routine(str(dispatch.get("action_key") or ""),source_kind=f"federated-automation:{dispatch['run_id']}",snapshot={"dispatch_id":dispatch_id,"run_id":dispatch["run_id"],"step_id":dispatch["step_id"]})
+            result={"executed":True,"execution_id":executed.get("execution_id"),"status":executed.get("status")}
+        else:
+            raise FederatedAutomationError("This federated action type has no authoritative local executor in Section 3.",409)
+    except Exception as exc:
+        status="failed";error=f"{type(exc).__name__}: {str(exc)}"[:500]
+    receipt={"protocol":EXECUTION_PROTOCOL,"section":3,"receipt_id":"fer-"+hashlib.sha256(f'{dispatch_id}|{status}|{error}'.encode("utf-8")).hexdigest()[:40],
+      "dispatch_id":dispatch_id,"idempotency_key":dispatch.get("idempotency_key"),"run_id":dispatch["run_id"],"step_id":dispatch["step_id"],
+      "attempt":int(dispatch.get("attempt") or 1),"authority_site_id":authority_site,"authority_epoch":authority["authority_epoch"],
+      "executor_device_id":authority["device_id"],"status":status,"result":result,"error":error or None,"completed_at_ms":_now_ms()}
+    with db() as c:
+        c.execute("""INSERT INTO tracky_federated_automation_execution_receipts(
+          receipt_id,dispatch_id,idempotency_key,run_id,step_id,authority_site_id,authority_epoch,status,receipt_json
+        ) VALUES (?,?,?,?,?,?,?,?,?)""",(receipt["receipt_id"],dispatch_id,str(receipt["idempotency_key"] or ""),receipt["run_id"],receipt["step_id"],authority_site,authority["authority_epoch"],status,_json(receipt)))
+        c.execute("UPDATE tracky_federated_automation_dispatches SET state=?,updated_at=CURRENT_TIMESTAMP WHERE dispatch_id=?",(status,dispatch_id))
+    _event(str(dispatch["automation_id"]),str(dispatch["run_id"]),"step.executed",status,actor_n,{"step_id":dispatch["step_id"],"dispatch_id":dispatch_id,"authority_site_id":authority_site})
+    return receipt
+
+def apply_execution_receipt(receipt:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,Any]:
+    if not isinstance(receipt,dict) or receipt.get("protocol")!=EXECUTION_PROTOCOL: raise FederatedAutomationError("Federated execution receipt protocol is invalid.")
+    run=get_run(str(receipt.get("run_id") or ""));definition=get_definition(run["automation_id"]);step_id=_id(receipt.get("step_id"),"step_id",80)
+    state=_run_step(run,step_id);spec=_definition_step(definition,step_id)
+    if _site(receipt.get("authority_site_id"))!=spec["authority_site_id"]: raise FederatedAutomationError("Execution receipt authority site mismatch.",409)
+    authority=_authority_for_site(spec["authority_site_id"])
+    if int(receipt.get("authority_epoch") or 0)!=authority["authority_epoch"]: raise FederatedAutomationError("Execution receipt authority epoch is stale.",409)
+    if state.get("dispatch_id") and state["dispatch_id"]!=receipt.get("dispatch_id"): raise FederatedAutomationError("Execution receipt dispatch mismatch.",409)
+    status=_text(receipt.get("status"),30).lower()
+    if status not in {"completed","failed"}: raise FederatedAutomationError("Execution receipt state is invalid.")
+    now=int(receipt.get("completed_at_ms") or _now_ms());state["state"]=status;state["last_error"]=_text(receipt.get("error"),500) if status=="failed" else None;state["updated_at_ms"]=now
+    for candidate in run["steps"]:
+        if candidate["state"]=="blocked" and all(next((x for x in run["steps"] if x["step_id"]==dep),{}).get("state")=="completed" for dep in candidate["depends_on"]):
+            candidate["state"]="ready";candidate["updated_at_ms"]=now
+    if all(x["state"]=="completed" for x in run["steps"]):run["state"]="completed"
+    elif any(x["state"]=="failed" for x in run["steps"]):run["state"]="failed"
+    elif any(x["state"]=="ready" for x in run["steps"]):run["state"]="running"
+    else:run["state"]="waiting"
+    run["updated_at_ms"]=now;run["safety"]["execution_enabled"]=True;run["safety"]["distributed_execution_only"]=True
+    actor_n=_actor(actor);_validate_actor(actor_n)
+    with db() as c:
+        for step in run["steps"]:
+            c.execute("UPDATE tracky_federated_automation_steps SET state=?,attempt=?,dispatch_id=?,step_json=?,updated_at=CURRENT_TIMESTAMP WHERE run_id=? AND step_id=?",
+              (step["state"],int(step.get("attempt") or 0),step.get("dispatch_id"),_json(step),run["run_id"],step["step_id"]))
+        c.execute("UPDATE tracky_federated_automation_runs SET state=?,run_json=?,updated_at=CURRENT_TIMESTAMP WHERE run_id=?",(run["state"],_json(run),run["run_id"]))
+    _event(run["automation_id"],run["run_id"],"execution.receipt",run["state"],actor_n,{"step_id":step_id,"dispatch_id":receipt.get("dispatch_id"),"status":status})
+    return get_run(run["run_id"])
+
+def execution_receipts(limit:int=100)->list[dict[str,Any]]:
+    with db() as c:rows=c.execute("SELECT receipt_json FROM tracky_federated_automation_execution_receipts ORDER BY id DESC LIMIT ?",(max(1,min(500,int(limit))),)).fetchall()
+    return [_decode(x["receipt_json"],{}) for x in rows]
+
+
 def cloud_projection()->dict[str,Any]:
     expire_due_runs();defs=list_definitions(100);runs=list_runs(100)
     return {"protocol":PROTOCOL,"version":VERSION,"schema_version":1,"generated_at":_now_ms(),"local_site_id":_local_site(),
@@ -423,7 +557,7 @@ def cloud_projection()->dict[str,Any]:
                       "step_count":len(x["steps"]),"default_deadline_ms":x["default_deadline_ms"]} for x in defs],
       "runs":[{"run_id":x["run_id"],"automation_id":x["automation_id"],"automation_revision":x["automation_revision"],"origin_site_id":x["origin_site_id"],
                "state":x["state"],"deadline_at_ms":x["deadline_at_ms"],"step_states":{s["step_id"]:s["state"] for s in x["steps"]}} for x in runs],
-      "trigger_receipts":trigger_receipts(100),"agent_context":agent_context(),"summary_only":True,"cloud_read_only":True,"remote_action_execution":False,"authority_mutation":False}
+      "trigger_receipts":trigger_receipts(100),"execution_receipts":[{"receipt_id":x.get("receipt_id"),"dispatch_id":x.get("dispatch_id"),"run_id":x.get("run_id"),"step_id":x.get("step_id"),"authority_site_id":x.get("authority_site_id"),"authority_epoch":x.get("authority_epoch"),"status":x.get("status"),"completed_at_ms":x.get("completed_at_ms")} for x in execution_receipts(100)],"agent_context":agent_context(),"summary_only":True,"cloud_read_only":True,"remote_action_execution":False,"authority_mutation":False}
 
 def expire_due_runs(now_ms:int|None=None)->dict[str,Any]:
     cutoff=int(now_ms or _now_ms());expired=[]
@@ -444,9 +578,9 @@ def report()->dict[str,Any]:
       "agent_context":agent_context(),"safety":{"execution_enabled":False,"cloud_execution_allowed":False,"agent_execution_allowed":False,"origin_homeserver_authoritative":True}}
 
 def public_capability()->dict[str,Any]:
-    return {"protocol":PROTOCOL,"version":VERSION,"section":SECTION,"schema_version":55,
+    return {"protocol":PROTOCOL,"version":VERSION,"section":SECTION,"schema_version":56,
       "automation_states":sorted(AUTOMATION_STATES),"run_states":sorted(RUN_STATES),"step_states":sorted(STEP_STATES),
       "trigger_kinds":sorted(TRIGGER_KINDS),"action_types":sorted(ACTION_TYPES),"durable_action_ledger":True,"immutable_audit_events":True,
       "idempotent_definitions":True,"idempotent_runs":True,"dag_dependencies":True,"deadlines":True,"deadline_expiration":True,"cancellation":True,"recovery_state":True,
-      "per_step_authority":True,"per_step_permissions":True,"execution_enabled":False,"cloud_execution_allowed":False,"agent_execution_allowed":False,
-      "origin_homeserver_authoritative":True,"federation_v280_invariants_required":True,"physical_world_trigger_runtime":True,"trigger_receipts_immutable":True,"trigger_execution_enabled":False}
+      "per_step_authority":True,"per_step_permissions":True,"execution_enabled":True,"distributed_action_execution":True,"authority_epoch_bound_dispatch":True,"immutable_execution_receipts":True,"cloud_execution_allowed":False,"agent_execution_allowed":False,
+      "origin_homeserver_authoritative":True,"federation_v280_invariants_required":True,"physical_world_trigger_runtime":True,"trigger_receipts_immutable":True,"trigger_execution_enabled":False,"cloud_execution_allowed":False}

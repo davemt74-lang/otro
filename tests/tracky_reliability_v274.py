@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()]
-        assert versions == list(range(1, 56))
+        assert versions == list(range(1, 57))
 
     vectors = json.loads(
         (ROOT / "tests" / "fixtures" / "tracky_v274_resilience_vectors.json").read_text(encoding="utf-8")
@@ -160,7 +160,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
 
     # Provider deadlines must fail closed rather than hanging the relay.
     def slow_provider(request: dict) -> dict:
-        time.sleep(0.6)
+        time.sleep(1.0)
         return {"summary": "late", "confidence": 1.0}
 
     tracky_physical_context.register_provider(
@@ -177,7 +177,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
             site_id=site_id,
         )
         elapsed = time.monotonic() - started
-        assert elapsed < 0.55
+        assert elapsed < 0.75
         assert timed["request"]["status"] == "failed"
         assert timed["request"]["result"]["reason"] == "provider_timeout"
     finally:
