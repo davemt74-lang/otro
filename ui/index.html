@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/assets/local-apps.css">
   <link rel="stylesheet" href="/assets/shell.css">
   <link rel="stylesheet" href="/assets/universal-shell-v220.css">
+  <link rel="stylesheet" href="/assets/federation-control-center-v280.css">
 </head>
 <body>
   <div class="shell">
@@ -35,6 +36,7 @@
         <button class="nav-item" data-view="apps">Connected Apps</button>
         <button class="nav-item" data-view="ambient">Ambient Agent</button>
         <button class="nav-item" data-view="automation">Rooms & Devices</button>
+        <button class="nav-item" data-view="federation">Physical Network</button>
         <button class="nav-item" data-view="activity">Activity</button>
       </nav>
       <div class="sidebar-foot">
@@ -406,6 +408,41 @@
         </div>
       </section>
 
+      <section class="view" id="view-federation">
+        <div class="section-intro split">
+          <div><h2>Physical Network</h2><p>Live federation inventory, site authority, hardware topology and reconciliation health from this HomeServer.</p></div>
+          <div class="federation-intro-actions"><span id="federationLoading" class="muted">Live local authority view</span><button class="button secondary" id="refreshFederation" type="button">Refresh network</button></div>
+        </div>
+        <div class="federation-context-line"><span>Local site: <strong id="federationLocalSite">Not pinned</strong></span><span>Topology revision: <strong id="federationTopologyRevision">0</strong></span><span>Authority remains local to each origin site.</span></div>
+        <div class="federation-overview">
+          <article class="panel federation-stat"><span>Network health</span><strong id="federationHealth"><span class="federation-health unknown">Unknown</span></strong></article>
+          <article class="panel federation-stat"><span>Sites</span><strong id="federationSiteCount">0</strong></article>
+          <article class="panel federation-stat"><span>Hardware units</span><strong id="federationDeviceCount">0</strong></article>
+          <article class="panel federation-stat"><span>Current sites</span><strong id="federationCurrentCount">0</strong></article>
+        </div>
+        <div class="federation-layout">
+          <div>
+            <div class="panel-head"><div><p class="eyebrow">LIVE TOPOLOGY</p><h3>Sites + authority</h3></div></div>
+            <div id="federationSites" class="federation-site-grid-wrap"><div class="panel empty-state">Loading physical network…</div></div>
+          </div>
+          <aside>
+            <section class="panel">
+              <div class="panel-head"><div><p class="eyebrow">HEALTH</p><h3>Issues</h3></div><strong id="federationIssueCount">0</strong></div>
+              <div id="federationIssues" class="federation-issues"><div class="empty-state">Loading health…</div></div>
+              <p class="federation-boundary">Section 2 is observational. It cannot transfer authority, merge identities, or execute device actions.</p>
+            </section>
+            <section class="panel">
+              <div class="panel-head"><div><p class="eyebrow">FLEET</p><h3>Hardware profiles</h3></div></div>
+              <div id="federationProfiles" class="federation-profile-counts"></div>
+            </section>
+          </aside>
+        </div>
+        <section class="panel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">INVENTORY</p><h3>Hardware units</h3></div></div>
+          <div id="federationDevices" class="federation-device-list"><div class="empty-state">Loading hardware inventory…</div></div>
+        </section>
+      </section>
+
       <section class="view" id="view-activity">
         <div class="section-intro"><div><h2>Activity</h2><p>A local audit trail of meaningful HomeServer actions.</p></div></div>
         <div class="panel table-wrap"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th></tr></thead><tbody id="activityTable"></tbody></table></div>
@@ -425,6 +462,7 @@
   <script src="/assets/contacts.js" defer></script>
   <script src="/assets/knowledge-sources.js" defer></script>
   <script src="/assets/local-apps.js" defer></script>
+  <script src="/assets/federation-control-center-v280.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
 </body>
