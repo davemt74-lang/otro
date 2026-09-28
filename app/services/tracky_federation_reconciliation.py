@@ -396,6 +396,32 @@ def mark_all_remote_partitioned(reason: str = "cloud_transport_failure") -> int:
     return changed
 
 
+def schedule_retry(site_id: str, reason: str = "reconciliation_failed") -> dict[str, Any]:
+    site_id = _uuid(site_id, "remote site id")
+    current = _state_row(site_id)
+    retry_count = max(0, int(current.get("retry_count") or 0)) + 1
+    if retry_count > MAX_RETRIES:
+        return _upsert_state(
+            site_id,
+            status="failed",
+            retry_count=retry_count,
+            next_retry_at="",
+            stale_since=current.get("stale_since") or _now_iso(),
+            last_error=_text(reason, 240),
+        )
+    delay = min(60, 2 ** max(0, retry_count - 1))
+    retry_at = datetime.now(timezone.utc).timestamp() + delay
+    next_retry_at = datetime.fromtimestamp(retry_at, timezone.utc).isoformat()
+    return _upsert_state(
+        site_id,
+        status="reconciling",
+        retry_count=retry_count,
+        next_retry_at=next_retry_at,
+        stale_since=current.get("stale_since") or _now_iso(),
+        last_error=_text(reason, 240),
+    )
+
+
 def annotate_query_result(result: dict[str, Any]) -> dict[str, Any]:
     output = json.loads(json.dumps(result))
     uncertainty = list(output.get("uncertainty") or [])
