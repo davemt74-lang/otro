@@ -25,7 +25,7 @@
   }
   async function load(){
     status.textContent='Refreshing…';
-    const d=await json('/api/v1/control/federation-operations');
+    const d=await json('/api/v1/control/federation-governed-operations');
     render(d.operations||{}); status.textContent='HomeServer authoritative ledger';
   }
   root.querySelector('[data-fgo-create]')?.addEventListener('submit',async e=>{
@@ -38,7 +38,7 @@
     if(fd.get('explicit_confirmation'))payload.confirmation_token='local_owner_explicit_confirmation';
     delete payload.explicit_confirmation;
     status.textContent='Creating local governed request…';
-    await json('/api/v1/control/federation-operations/propose',{method:'POST',body:JSON.stringify(payload)});
+    await json('/api/v1/control/federation-governed-operations/propose',{method:'POST',body:JSON.stringify(payload)});
     form.reset(); await load();
   });
   root.addEventListener('click',async e=>{
@@ -46,8 +46,8 @@
     b.disabled=true; status.textContent='Applying local governed decision…';
     try{
       const id=encodeURIComponent(b.dataset.fgoId),kind=b.dataset.fgoAction;
-      if(kind==='approve'||kind==='reject')await json('/api/v1/control/federation-operations/'+id+'/decision',{method:'POST',body:JSON.stringify({approved:kind==='approve'})});
-      else await json('/api/v1/control/federation-operations/'+id+'/'+kind,{method:'POST',body:'{}'});
+      if(kind==='approve'||kind==='reject')await json('/api/v1/control/federation-governed-operations/'+id+'/decision',{method:'POST',body:JSON.stringify({approved:kind==='approve'})});
+      else await json('/api/v1/control/federation-governed-operations/'+id+'/'+kind,{method:'POST',body:'{}'});
       await load();
     }catch(err){status.textContent=err.message;b.disabled=false;}
   });
