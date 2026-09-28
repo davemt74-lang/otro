@@ -216,8 +216,11 @@ def propose(payload: dict[str, Any], *, actor: dict[str, Any] | None = None) -> 
         reasons.append("actor_not_authorized")
 
     device_id = _text(payload.get("device_id"), 80)
+    parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
     if op in {"restart_runtime", "request_update", "revoke_device"} and not device_id:
         reasons.append("device_required")
+    if op == "request_update" and (not _text(parameters.get("package_sha256"), 64) or not _text(parameters.get("release_version"), 40)):
+        reasons.append("update_package_required")
     if op == "revoke_site" and target == local:
         reasons.append("revoke_site_must_target_peer")
     if op in {"restart_runtime", "request_update", "revoke_device", "transfer_authority"} and target != local:
@@ -263,7 +266,6 @@ def propose(payload: dict[str, Any], *, actor: dict[str, Any] | None = None) -> 
         or (topology_site.get("authority") or {}).get("epoch")
         or 0
     )
-    parameters = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
 
     with db() as connection:
         existing = connection.execute(
