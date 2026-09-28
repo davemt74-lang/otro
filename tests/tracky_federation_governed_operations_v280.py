@@ -19,6 +19,9 @@ def run():
     assert cap["agent_proposal_only"] is True
     assert cap["completion_requires_authoritative_reconciliation"] is True
     assert cap["authority_transfer_requires_epoch_advance"] is True
+    assert cap["operation_expiration"] is True
+    assert cap["queued_before_running"] is True
+    assert cap["revocation_wins"] is True
     assert "tracky_federation_operation_ledger" in migration and "idempotency_key" in migration
     assert "tracky_federation_reconciliation.schedule_retry" in source
     assert '"revoke_site"' in source and "_revoke_site_access" in source
@@ -37,10 +40,14 @@ def run():
     assert "ingest_cloud_requests" in source
     assert "cloud_request_requires_local_approval" in source
     assert "operation_requires_origin_local" in source
+    assert "wrong origin HomeServer" in source
+    assert "update_package_required" in source
     assert 'body.get("federation_operation_requests")' in physical
     assert "\\n" not in physical
     assert 'id="governedFederationOperationsV280"' in ui
     assert "/api/v1/control/federation-operations" in js
+    assert "data-fgo-action" in js and "data-fgo-create" in ui
+    assert "package_sha256" in ui
     print("TRACKY_V280_FEDERATION_GOVERNED_OPERATIONS=PASS")
 
 if __name__=="__main__": run()
