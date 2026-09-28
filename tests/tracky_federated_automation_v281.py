@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
  try:tracky_federated_automation.create_definition({**payload,"automation_id":"fa:agent","idempotency_key":"fa:agent:1"},actor={"actor_type":"agent","actor_id":"agent"});raise AssertionError("agent created definition")
  except tracky_federated_automation.FederatedAutomationError as exc:assert exc.status_code==403
  projection=tracky_federated_automation.cloud_projection();assert projection["cloud_read_only"] is True and projection["remote_action_execution"] is False
- cap=tracky_federated_automation.public_capability();assert cap["schema_version"]==54 and cap["execution_enabled"] is False and cap["durable_action_ledger"] is True
+ cap=tracky_federated_automation.public_capability();assert cap["schema_version"]==54 and cap["execution_enabled"] is False and cap["durable_action_ledger"] is True and cap["deadline_expiration"] is True
  with db() as c:
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_events").fetchone()[0]>=3
   assert c.execute("SELECT COUNT(*) FROM tracky_federated_automation_definitions").fetchone()[0]==2
