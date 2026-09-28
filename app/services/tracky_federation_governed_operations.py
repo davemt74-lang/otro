@@ -10,10 +10,19 @@ from . import fleet_management, hardware_adapters, tracky_federation_access_oper
 
 VERSION="2.80"
 PROTOCOL="physical_federation_governed_operations.v1"
-OPERATIONS=("reconnect","reconcile","restart_runtime","request_update","revoke_device","transfer_authority")
+OPERATIONS=("reconnect","reconcile","restart_runtime","request_update","revoke_site","revoke_device","transfer_authority")
 STATES=("proposed","awaiting_approval","approved","queued","running","reconciling","completed","failed","rejected","cancelled","expired")
 TERMINAL={"completed","failed","rejected","cancelled","expired"}
-HIGH_RISK={"restart_runtime","request_update","revoke_device","transfer_authority"}
+TRANSITIONS={
+ "proposed":{"awaiting_approval","approved","rejected","cancelled","expired"},
+ "awaiting_approval":{"approved","rejected","cancelled","expired"},
+ "approved":{"queued","rejected","cancelled","expired"},
+ "queued":{"running","failed","cancelled","expired"},
+ "running":{"reconciling","completed","failed","cancelled","expired"},
+ "reconciling":{"completed","failed","cancelled","expired"},
+ "completed":set(),"failed":set(),"rejected":set(),"cancelled":set(),"expired":set(),
+}
+HIGH_RISK={"restart_runtime","request_update","revoke_site","revoke_device","transfer_authority"}
 
 class FederationOperationError(RuntimeError):
     def __init__(self,message:str,status_code:int=400):
@@ -31,7 +40,7 @@ def _row(row:Any)->dict[str,Any]:
     return {
       "request_id":str(row["request_id"]),"idempotency_key":str(row["idempotency_key"]),"operation_type":str(row["operation_type"]),
       "target_site_id":str(row["target_site_id"]),"device_id":str(row["device_id"] or ""),"new_authority_device_id":str(row["new_authority_device_id"] or ""),
-      "state":str(row["state"]),"requires_approval":bool(row["requires_approval"]),"requires_reconciliation":bool(row["requires_reconciliation"]),
+      "state":str(row["state"]),"requires_approval":bool(row["requires_approval"]),"requires_reconciliation":bool(row["requires_reconciliation"]),"expires_at_ms":int(row["expires_at_ms"] or 0),
       "actor":_loads(row["actor_json"],{}),"reason_codes":_loads(row["reason_codes_json"],[]),"parameters":_loads(row["parameters_json"],{}),
       "authority_epoch_before":int(row["authority_epoch_before"] or 0),"authority_epoch_after":int(row["authority_epoch_after"] or 0),
       "result":_loads(row["result_json"],{}),"last_error":str(row["last_error"] or ""),"created_at":str(row["created_at"] or ""),"updated_at":str(row["updated_at"] or "")
