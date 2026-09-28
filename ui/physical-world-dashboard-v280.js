@@ -109,6 +109,9 @@
     try { data = await response.json(); } catch (_) {}
     if (!response.ok) throw new Error(data.detail || 'Physical World dashboard is unavailable.');
     render(data.dashboard || {});
+    if (typeof window.loadCrossSitePresence === 'function') {
+      try { await window.loadCrossSitePresence(); } catch (_) {}
+    }
     if (status) status.textContent = 'Governed live semantic view';
   }
 

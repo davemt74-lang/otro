@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="/assets/universal-shell-v220.css">
   <link rel="stylesheet" href="/assets/federation-control-center-v280.css">
   <link rel="stylesheet" href="/assets/physical-world-dashboard-v280.css">
+  <link rel="stylesheet" href="/assets/cross-site-presence-v280.css">
 </head>
 <body>
   <div class="shell">
@@ -434,6 +435,23 @@
           <div class="world-agent-context"><div><span>Agent view site</span><strong id="physicalWorldAgentView">None</strong></div><div><span>Physical current site</span><strong id="physicalWorldAgentPhysical">Unknown</strong></div><div><span>View basis</span><strong id="physicalWorldAgentBasis">none</strong></div></div>
           <p id="physicalWorldAgentNote" class="world-agent-note">Site switching changes the Agent's dashboard context only; it never changes physical authority or invents a physical location.</p>
         </section>
+        <section class="panel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">CROSS-SITE PRESENCE</p><h3>Mobile transitions</h3></div><div><span id="crossSiteLoading" class="muted">Live governed transition view</span> <button class="button secondary" id="refreshCrossSitePresence" type="button">Refresh transitions</button></div></div>
+          <div class="cross-site-summary">
+            <div><span>Active</span><strong id="crossSiteActiveCount">0</strong></div>
+            <div><span>In transit</span><strong id="crossSiteTransitCount">0</strong></div>
+            <div><span>Arriving</span><strong id="crossSiteArrivingCount">0</strong></div>
+            <div><span>Offline</span><strong id="crossSiteOfflineCount">0</strong></div>
+          </div>
+          <p id="crossSiteAgentRule" class="presence-boundary">Agent confirms destination presence only after ARRIVED.</p>
+          <div class="cross-site-layout">
+            <div><div class="panel-head"><div><p class="eyebrow">ACTIVE MOVEMENT</p><h3>People + mobile hardware</h3></div></div><div id="crossSiteActive" class="presence-list"><div class="empty-state">Loading transitions…</div></div></div>
+            <aside><div class="panel-head"><div><p class="eyebrow">SITE FLOW</p><h3>Presence by site</h3></div></div><div id="crossSiteSites"><div class="empty-state">Loading site presence…</div></div></aside>
+          </div>
+          <div class="panel-head" style="margin-top:16px"><div><p class="eyebrow">HISTORY</p><h3>Transition timeline</h3></div><span id="crossSiteHistorySource" class="muted">Current snapshots only</span></div>
+          <div id="crossSiteTimeline" class="presence-timeline"><div class="empty-state">Loading transition history…</div></div>
+          <p class="presence-boundary">Arrival is never inferred from departure. Temporary/offline contexts never become durable sites, and moving a site-authority device never transfers authority.</p>
+        </section>
         <div class="world-section-grid">
           <section class="panel"><div class="panel-head"><div><p class="eyebrow">SPACES</p><h3>Rooms + areas</h3></div></div><div id="physicalWorldRooms" class="world-list"><div class="empty-state">Loading rooms…</div></div></section>
           <section class="panel"><div class="panel-head"><div><p class="eyebrow">PRESENCE</p><h3>People</h3></div></div><div id="physicalWorldPeople" class="world-list"><div class="empty-state">Loading people…</div></div></section>
@@ -499,6 +517,7 @@
   <script src="/assets/local-apps.js" defer></script>
   <script src="/assets/federation-control-center-v280.js" defer></script>
   <script src="/assets/physical-world-dashboard-v280.js" defer></script>
+  <script src="/assets/cross-site-presence-v280.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
 </body>
