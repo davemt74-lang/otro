@@ -11,6 +11,7 @@ from ..database import db
 from . import (
     tracky_federated_world,
     tracky_federation_policy,
+    tracky_federation_reconciliation,
     tracky_federation_sync,
 )
 
@@ -473,6 +474,7 @@ def execute_query(input: dict[str, Any]) -> dict[str, Any]:
         "read_only": True,
         "cloud_can_answer_from_mirrors_only": True,
     }
+    result = tracky_federation_reconciliation.annotate_query_result(result)
     _audit(query, result)
     return result
 
