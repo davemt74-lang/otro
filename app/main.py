@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federation_access_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -105,6 +105,28 @@ class AppScopeUpdate(BaseModel):
     knowledge_kinds: list[str] = Field(default_factory=list, max_length=32)
     tool_names: list[str] = Field(default_factory=list, max_length=32)
     plugin_keys: list[str] = Field(default_factory=list, max_length=32)
+
+
+class FederationSitePolicyUpdate(BaseModel):
+    mode: str = Field(default="private", max_length=30)
+    allow_federation: bool = False
+    allow_remote_observation: bool = False
+    default_identity_visibility: str = Field(default="none", max_length=30)
+    allowed_peer_sites: list[str] = Field(default_factory=list, max_length=128)
+
+
+class FederationPermissionOperation(BaseModel):
+    action: str = Field(min_length=4, max_length=20)
+    destination_site_id: str = Field(min_length=36, max_length=64)
+    scope: str = Field(min_length=3, max_length=80)
+    reason: str = Field(default="", max_length=200)
+
+
+class FederationConsentOperation(BaseModel):
+    canonical_identity_id: str = Field(min_length=36, max_length=64)
+    scope: str = Field(min_length=3, max_length=80)
+    status: str = Field(min_length=3, max_length=30)
+    reason: str = Field(default="", max_length=200)
 
 
 def _log(action: str, resource_type: str | None = None, resource_key: str | None = None, metadata: dict | None = None) -> None:
@@ -278,6 +300,35 @@ def control_federation_sync_visibility() -> dict:
         "visibility": tracky_sync_visibility.current_report(),
         "capability": tracky_sync_visibility.public_capability(),
     }
+
+
+@app.get("/api/v1/control/federation-access")
+def control_federation_access() -> dict:
+    return {
+        "access": tracky_federation_access_operations.current_report(),
+        "capability": tracky_federation_access_operations.public_capability(),
+    }
+
+
+@app.put("/api/v1/control/federation-access/site-policy")
+def control_federation_access_site_policy(payload: FederationSitePolicyUpdate) -> dict:
+    result = tracky_federation_access_operations.update_site_policy(payload.model_dump())
+    _log("tracky.federation_site_policy.updated", "tracky_federation_policy", result["access"].get("local_site_id") or "")
+    return result
+
+
+@app.post("/api/v1/control/federation-access/permission")
+def control_federation_access_permission(payload: FederationPermissionOperation) -> dict:
+    result = tracky_federation_access_operations.set_permission(payload.model_dump())
+    _log("tracky.federation_permission." + payload.action.strip().lower(), "tracky_federation_permission", payload.destination_site_id)
+    return result
+
+
+@app.post("/api/v1/control/federation-access/consent")
+def control_federation_access_consent(payload: FederationConsentOperation) -> dict:
+    result = tracky_federation_access_operations.set_consent(payload.model_dump())
+    _log("tracky.federation_consent." + payload.status.strip().lower(), "tracky_recognition_consent", payload.canonical_identity_id)
+    return result
 
 
 @app.get("/api/v1/control/physical-world-dashboard")

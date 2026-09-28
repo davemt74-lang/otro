@@ -77,6 +77,9 @@
     if (typeof window.loadFederationSyncVisibility === 'function') {
       try { await window.loadFederationSyncVisibility(); } catch (_) {}
     }
+    if (typeof window.loadFederationAccessOperations === 'function') {
+      try { await window.loadFederationAccessOperations(); } catch (_) {}
+    }
     if (state) state.textContent = 'Live local authority view';
   }
 
