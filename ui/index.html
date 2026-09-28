@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/assets/shell.css">
   <link rel="stylesheet" href="/assets/universal-shell-v220.css">
   <link rel="stylesheet" href="/assets/federation-control-center-v280.css">
+  <link rel="stylesheet" href="/assets/physical-world-dashboard-v280.css">
 </head>
 <body>
   <div class="shell">
@@ -37,6 +38,7 @@
         <button class="nav-item" data-view="ambient">Ambient Agent</button>
         <button class="nav-item" data-view="automation">Rooms & Devices</button>
         <button class="nav-item" data-view="federation">Physical Network</button>
+        <button class="nav-item" data-view="physical-world">Physical World</button>
         <button class="nav-item" data-view="activity">Activity</button>
       </nav>
       <div class="sidebar-foot">
@@ -408,6 +410,39 @@
         </div>
       </section>
 
+      <section class="view" id="view-physical-world">
+        <div class="section-intro split">
+          <div><h2>Physical World</h2><p>Governed semantic view of rooms, people, objects and hardware across authorized sites.</p></div>
+          <div class="physical-world-toolbar">
+            <label>Site<select id="physicalWorldSiteSelect" disabled><option>Loading sites…</option></select></label>
+            <button class="button secondary" id="refreshPhysicalWorld" type="button">Refresh world</button>
+          </div>
+        </div>
+        <div id="physicalWorldSelectionWarning" class="world-warning" hidden></div>
+        <section class="panel world-site-banner">
+          <div><p class="eyebrow">SELECTED SITE</p><h3 id="physicalWorldSiteName">No site</h3><div class="world-site-meta"><span>Health <strong id="physicalWorldSiteHealth">unknown</strong></span><span>Federation <strong id="physicalWorldFederationState">unknown</strong></span><span>World revision <strong id="physicalWorldRevision">0</strong></span></div></div>
+          <span id="physicalWorldLoading" class="muted">Governed live semantic view</span>
+        </section>
+        <div class="world-metrics">
+          <article class="panel world-metric"><span>Rooms</span><strong id="physicalWorldRoomCount">0</strong></article>
+          <article class="panel world-metric"><span>People</span><strong id="physicalWorldPeopleCount">0</strong></article>
+          <article class="panel world-metric"><span>Objects</span><strong id="physicalWorldObjectCount">0</strong></article>
+          <article class="panel world-metric"><span>Hardware</span><strong id="physicalWorldDeviceCount">0</strong></article>
+        </div>
+        <section class="panel">
+          <div class="panel-head"><div><p class="eyebrow">AGENT CONTEXT</p><h3>Selected-site view</h3></div></div>
+          <div class="world-agent-context"><div><span>Agent view site</span><strong id="physicalWorldAgentView">None</strong></div><div><span>Physical current site</span><strong id="physicalWorldAgentPhysical">Unknown</strong></div><div><span>View basis</span><strong id="physicalWorldAgentBasis">none</strong></div></div>
+          <p id="physicalWorldAgentNote" class="world-agent-note">Site switching changes the Agent's dashboard context only; it never changes physical authority or invents a physical location.</p>
+        </section>
+        <div class="world-section-grid">
+          <section class="panel"><div class="panel-head"><div><p class="eyebrow">SPACES</p><h3>Rooms + areas</h3></div></div><div id="physicalWorldRooms" class="world-list"><div class="empty-state">Loading rooms…</div></div></section>
+          <section class="panel"><div class="panel-head"><div><p class="eyebrow">PRESENCE</p><h3>People</h3></div></div><div id="physicalWorldPeople" class="world-list"><div class="empty-state">Loading people…</div></div></section>
+          <section class="panel"><div class="panel-head"><div><p class="eyebrow">WORLD OBJECTS</p><h3>Objects + last known location</h3></div></div><div id="physicalWorldObjects" class="world-list"><div class="empty-state">Loading objects…</div></div></section>
+          <section class="panel"><div class="panel-head"><div><p class="eyebrow">SEMANTIC DEVICES</p><h3>Observed devices</h3></div></div><div id="physicalWorldWorldDevices" class="world-list"><div class="empty-state">Loading devices…</div></div></section>
+        </div>
+        <section class="panel" style="margin-top:16px"><div class="panel-head"><div><p class="eyebrow">SITE HARDWARE</p><h3>Registered HomeServer hardware</h3></div></div><div id="physicalWorldHardware"><div class="empty-state">Loading hardware…</div></div></section>
+      </section>
+
       <section class="view" id="view-federation">
         <div class="section-intro split">
           <div><h2>Physical Network</h2><p>Live federation inventory, site authority, hardware topology and reconciliation health from this HomeServer.</p></div>
@@ -463,6 +498,7 @@
   <script src="/assets/knowledge-sources.js" defer></script>
   <script src="/assets/local-apps.js" defer></script>
   <script src="/assets/federation-control-center-v280.js" defer></script>
+  <script src="/assets/physical-world-dashboard-v280.js" defer></script>
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
 </body>
