@@ -9,7 +9,6 @@ from typing import Any
 from ..database import db
 from . import (
     cognitive_runtime,
-    remote_bridge,
     tracky_federation_access_operations,
     tracky_federation_operations,
     tracky_sync_visibility,
@@ -561,6 +560,7 @@ def monitor_once(*, now_ms: int | None = None, emit: bool = True) -> dict[str, A
     operations = tracky_federation_operations.current_report()
     sync = tracky_sync_visibility.current_report()
     access = tracky_federation_access_operations.current_report()
+    from . import remote_bridge
     relay = remote_bridge.cloud_connection_status()
     report = build_report(operations, sync, access, relay, previous=persisted.get("report") or {}, now_ms=now_ms)
     delivery = persisted.get("delivery") if isinstance(persisted.get("delivery"), dict) else {}
