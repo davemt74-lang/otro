@@ -25,15 +25,26 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
    {"step_id":"home-check","action_type":"data_operation","authority_site_id":HOME,"target_site_id":HOME,"action_key":"world.validate","required_permissions":["semantic_world_read"]},
    {"step_id":"office-light","action_type":"physical_action","authority_site_id":OFFICE,"target_site_id":OFFICE,"device_id":ODEV,"action_key":"light.on","required_permissions":["device_control"],"depends_on":["home-check"]}
   ]}
+ try:tracky_federated_automation.create_definition({**payload,"automation_id":"","idempotency_key":""},actor={"actor_type":"owner","actor_id":"owner"});raise AssertionError("identity-free definition accepted")
+ except tracky_federated_automation.FederatedAutomationError:pass
+ deterministic={**payload,"automation_id":"","idempotency_key":"fa:deterministic"}
+ dd1=tracky_federated_automation.create_definition(deterministic,actor={"actor_type":"owner","actor_id":"owner"})
+ dd2=tracky_federated_automation.create_definition(deterministic,actor={"actor_type":"owner","actor_id":"owner"})
+ assert dd1["automation_id"]==dd2["automation_id"]
  d=tracky_federated_automation.create_definition(payload,actor={"actor_type":"owner","actor_id":"owner"})
  assert d["protocol"]=="physical_federated_automation.v1" and d["version"]=="2.81"
  assert d["participating_site_ids"]==sorted([HOME,OFFICE]);assert d["safety"]["execution_enabled"] is False
  assert tracky_federated_automation.create_definition(payload,actor={"actor_type":"owner","actor_id":"owner"})["revision"]==1
  try:tracky_federated_automation.create_definition({**payload,"name":"Conflict"},actor={"actor_type":"owner","actor_id":"owner"});raise AssertionError("idempotency conflict not detected")
  except tracky_federated_automation.FederatedAutomationError:pass
+ try:tracky_federated_automation.create_run({"automation_id":d["automation_id"]},actor={"actor_type":"owner","actor_id":"owner"});raise AssertionError("identity-free run accepted")
+ except tracky_federated_automation.FederatedAutomationError:pass
  run=tracky_federated_automation.create_run({"automation_id":d["automation_id"],"run_id":"run-1","idempotency_key":"run-idem"},actor={"actor_type":"owner","actor_id":"owner"})
  assert run["state"]=="waiting";assert {x["step_id"]:x["state"] for x in run["steps"]}=={"home-check":"ready","office-light":"blocked"}
  assert tracky_federated_automation.create_run({"automation_id":d["automation_id"],"run_id":"run-2","idempotency_key":"run-idem"},actor={"actor_type":"owner","actor_id":"owner"})["run_id"]=="run-1"
+ exp=tracky_federated_automation.create_run({"automation_id":d["automation_id"],"run_id":"run-exp","idempotency_key":"run-exp","deadline_at_ms":1},actor={"actor_type":"owner","actor_id":"owner"})
+ assert tracky_federated_automation.expire_due_runs(now_ms=2)["expired"]==1
+ assert tracky_federated_automation.get_run(exp["run_id"])["state"]=="expired"
  try:tracky_federated_automation.transition_run("run-1","running",actor={"actor_type":"system"});raise AssertionError("Section 1 executed a run")
  except tracky_federated_automation.FederatedAutomationError as exc:assert exc.status_code==409
  cancelled=tracky_federated_automation.cancel_run("run-1",reason="operator_cancel",actor={"actor_type":"owner"})
