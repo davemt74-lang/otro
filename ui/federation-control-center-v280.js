@@ -80,6 +80,9 @@
     if (typeof window.loadFederationAccessOperations === 'function') {
       try { await window.loadFederationAccessOperations(); } catch (_) {}
     }
+    if (typeof window.loadFederationAgentHealth === 'function') {
+      try { await window.loadFederationAgentHealth(); } catch (_) {}
+    }
     if (state) state.textContent = 'Live local authority view';
   }
 
