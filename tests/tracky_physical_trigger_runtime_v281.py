@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sys
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
-from app.database import db, migrate
+from app.database import db, initialize_database
 from app.services import tracky_federated_automation as fa
 
 HOME="11111111-1111-4111-8111-111111111111"
@@ -14,7 +14,7 @@ def main():
     import os
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOMESERVER_DATA_DIR"]=tmp
-        migrate()
+        initialize_database();initialize_database()
         fa.tracky_federation_sync.local_site_id=lambda auto_pin=False: HOME
         fa.tracky_site_topology.current_topology=lambda:{"sites":[{"id":HOME},{"id":OFFICE}]}
         fa.federated_data.reconciliation_state=lambda peer:{"needs_reconciliation":False}
