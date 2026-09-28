@@ -1,3 +1,4 @@
+// Tracky V2.80 Section 2 — Live Federation Topology & Control Center UI.
 (() => {
   const $ = (id) => document.getElementById(id);
   const esc = (value = '') => String(value).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
