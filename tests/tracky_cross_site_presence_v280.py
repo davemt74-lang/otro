@@ -86,6 +86,23 @@ def run():
     assert [row["state"] for row in report["timeline"]]==["arriving","in_transit","departing"]
     assert all(row["immutable"] for row in report["timeline"])
 
+    ui_index=(ROOT/"ui/index.html").read_text(encoding="utf-8")
+    ui_presence=(ROOT/"ui/cross-site-presence-v280.js").read_text(encoding="utf-8")
+    ui_dashboard=(ROOT/"ui/physical-world-dashboard-v280.js").read_text(encoding="utf-8")
+    main_source=(ROOT/"app/main.py").read_text(encoding="utf-8")
+    paired_source=(ROOT/"app/tracky_api.py").read_text(encoding="utf-8")
+    spec=(ROOT/"HomeServer.spec").read_text(encoding="utf-8")
+    assert "cross-site-presence-v280.css" in ui_index
+    assert "cross-site-presence-v280.js" in ui_index
+    assert 'id="crossSiteActive"' in ui_index
+    assert 'id="crossSiteTimeline"' in ui_index
+    assert "/api/v1/control/cross-site-presence" in main_source
+    assert "/api/v1/tracky/cross-site-presence" in paired_source
+    assert "loadCrossSitePresence" in ui_dashboard
+    assert "('ui', 'ui')" in spec
+    for mutation in ("method:'POST'", 'method:"POST"', "method:'PUT'", "method:'PATCH'", "method:'DELETE'"):
+        assert mutation not in ui_presence, f"Section 4 cross-site presence must remain read-only: {mutation}"
+
     cap=presence.public_capability()
     assert cap["transition_history"] is True
     assert cap["destination_claim_requires_arrived"] is True
