@@ -36,6 +36,14 @@ def _epoch_ms(value: Any) -> int:
     except ValueError:
         return 0
 
+def _cap_count(value: Any, limit: int) -> int:
+    if isinstance(value,(list,tuple,set,dict)):
+        return min(len(value),limit)
+    try:
+        return max(0,min(int(value or 0),limit))
+    except (TypeError,ValueError):
+        return 0
+
 def _severity(state: str) -> str:
     if state in {"failed","offline"}:
         return "critical"
@@ -106,8 +114,8 @@ def _local_fleet_site(local_site_id: str, now_ms: int, stale_after_ms: int, offl
         "privacy_fault":bool(snapshot.get("privacy_fault")),
         "runtime_status":_text(op_device.get("runtime_status") or "online",32).lower(),
         "runtime_version":_text(op_device.get("version") or snapshot.get("os_version"),80),
-        "camera_count":max(0,min(int(caps.get("camera_count") or caps.get("cameras") or 0),128)),
-        "sensor_count":max(0,min(int(caps.get("sensor_count") or caps.get("sensors") or 0),512)),
+        "camera_count":_cap_count(caps.get("camera_count") if caps.get("camera_count") is not None else caps.get("cameras"),128),
+        "sensor_count":_cap_count(caps.get("sensor_count") if caps.get("sensor_count") is not None else caps.get("sensors"),512),
         "model_health":_text(model.get("state") or "unknown",32).lower(),
         "active_models":max(0,min(int(model.get("active_models") or 0),256)),
         "calibration_profiles":max(0,min(int(calibration.get("active_profiles") or 0),256)),
