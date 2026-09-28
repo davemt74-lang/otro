@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v280-release-") as data_dir:
     initialize_database()
     with db() as connection:
         versions=[int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-    assert versions==list(range(1,54))
+    assert versions==list(range(1,55))
 
     for site_id,label in ((HOME,"Home"),(OFFICE,"Office")):
         tracky_site_topology.register_site(site_id=site_id,label=label)
