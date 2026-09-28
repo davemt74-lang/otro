@@ -34,7 +34,7 @@ def main():
         replay=fa.process_physical_trigger_events(["evt-100"])
         assert replay[0]["decision"]=="duplicate"
         cap=fa.public_capability()
-        assert cap["section"]==2 and cap["schema_version"]==55 and cap["trigger_execution_enabled"] is False
+        assert cap["section"]==3 and cap["schema_version"]==56 and cap["trigger_execution_enabled"] is False
         with db() as conn:
             assert conn.execute("SELECT COUNT(*) FROM tracky_federated_automation_trigger_receipts").fetchone()[0]==1
             try:
