@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_packages, homeserver_app_resources, homeserver_app_security, homeserver_apps
+from .services import homeserver_app_packages, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_apps
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -36,6 +36,11 @@ class ResourceLimitsRequest(BaseModel):
     sqlite_limit_bytes:int|None=Field(default=None,ge=1)
 
 
+class AppEventRequest(BaseModel):
+    topic:str=Field(min_length=1,max_length=160)
+    payload:dict=Field(default_factory=dict)
+
+
 def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
     try:
         return operation(*args,**kwargs)
@@ -47,6 +52,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_resources.AppResourceError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_runtime.AppRuntimeError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("")
@@ -56,7 +63,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability()}
+    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability()}
 
 
 @router.post("")
@@ -145,3 +152,71 @@ def app_resource_limits_update(app_key:str,payload:ResourceLimitsRequest)->dict:
         storage_limit_bytes=payload.storage_limit_bytes,
         sqlite_limit_bytes=payload.sqlite_limit_bytes,
     )}
+
+
+@router.get("/{app_key}/runtime/services")
+def app_runtime_services(app_key:str)->dict:
+    return {"runtime":_call(homeserver_app_runtime.runtime_status,app_key)}
+
+
+@router.get("/{app_key}/runtime/events")
+def app_events(app_key:str,topic:str=Query(default="",max_length=160),limit:int=Query(default=100,ge=1,le=500))->dict:
+    return {"events":_call(homeserver_app_runtime.list_events,app_key,topic=topic,limit=limit)}
+
+
+@router.post("/{app_key}/runtime/events")
+def app_event_publish(app_key:str,payload:AppEventRequest)->dict:
+    return {"event":_call(homeserver_app_runtime.publish_event,app_key,payload.topic,payload.payload,source="owner")}
+
+
+@router.get("/{app_key}/runtime/jobs")
+def app_jobs(app_key:str)->dict:
+    return {"jobs":_call(homeserver_app_runtime.list_jobs,app_key)}
+
+
+@router.post("/{app_key}/runtime/jobs/{job_id}/run")
+def app_job_run(app_key:str,job_id:str)->dict:
+    return {"run":_call(homeserver_app_runtime.run_job,app_key,job_id)}
+
+
+@router.put("/{app_key}/data/file")
+async def app_data_write(app_key:str,path:str=Query(min_length=1,max_length=1000),file:UploadFile=File(...))->dict:
+    data=await file.read(16*1024*1024+1)
+    if len(data)>16*1024*1024:
+        raise HTTPException(status_code=413,detail="App data upload exceeds the request limit.")
+    return {"file":_call(homeserver_app_resources.write_file,app_key,path,data)}
+
+
+@router.get("/{app_key}/data/file")
+def app_data_read(app_key:str,path:str=Query(min_length=1,max_length=1000)):
+    data=_call(homeserver_app_resources.read_file,app_key,path,16*1024*1024)
+    from fastapi.responses import Response
+    return Response(content=data,media_type="application/octet-stream",headers={"Cache-Control":"no-store"})
+
+
+@router.delete("/{app_key}/data/file")
+def app_data_delete(app_key:str,path:str=Query(min_length=1,max_length=1000))->dict:
+    return {"deleted":_call(homeserver_app_resources.delete_file,app_key,path)}
+
+
+@router.api_route("/{app_key}/preview/{request_path:path}",methods=["GET","HEAD","POST"],include_in_schema=False)
+async def app_preview(app_key:str,request_path:str,request:Request):
+    content_length=request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length)>8*1024*1024:
+                raise HTTPException(status_code=413,detail="App request body exceeds the runtime limit.")
+        except ValueError as exc:
+            raise HTTPException(status_code=400,detail="Invalid Content-Length header.") from exc
+    body=await request.body()
+    if len(body)>8*1024*1024:
+        raise HTTPException(status_code=413,detail="App request body exceeds the runtime limit.")
+    return _call(
+        homeserver_app_runtime.serve,
+        app_key,
+        request_path,
+        method=request.method,
+        query_string=request.url.query,
+        content_type=request.headers.get("content-type"),
+        body=body,
+    )

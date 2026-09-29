@@ -13,7 +13,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import homeserver_app_resources, homeserver_app_sdk, homeserver_app_security, homeserver_apps
+from . import homeserver_app_resources, homeserver_app_runtime, homeserver_app_sdk, homeserver_app_security, homeserver_apps
 
 CONTRACT="vp3.app.package.v1"
 RUNTIME_CONTRACT="vp3.app.runtime-install.v1"
@@ -23,7 +23,7 @@ MAX_FILES=5000
 _ALLOWED_RUNTIMES={"static","php"}
 _ALLOWED_KEYS={
     "contract","app_key","name","version","runtime","entrypoint","sdk_version",
-    "permissions","settings_schema","database_migrations","agent_actions","routes",
+    "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events",
 }
 
 
@@ -110,7 +110,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
             raise AppPackageError("App routes are invalid.")
         if any(not isinstance(v,bool) for v in routes.values()):
             raise AppPackageError("App route flags must be booleans.")
-    for field in ("settings_schema","database_migrations","agent_actions"):
+    for field in ("settings_schema","database_migrations","agent_actions","jobs","events"):
         if manifest.get(field):
             _safe_rel(str(manifest[field]))
     manifest["app_key"]=key
@@ -158,7 +158,7 @@ def validate_package(package:bytes,*,expected_app_key:str|None=None)->dict[str,A
         if expected_app_key and manifest["app_key"]!=str(expected_app_key).strip().lower():
             raise AppPackageError("App package identity does not match the target app.",409)
         required=[manifest["entrypoint"]]
-        for field in ("settings_schema","agent_actions"):
+        for field in ("settings_schema","agent_actions","jobs","events"):
             if manifest.get(field):
                 required.append(_safe_rel(str(manifest[field])).as_posix())
         for path in required:
@@ -257,7 +257,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
     if current_state not in {"draft","installed","running","degraded","stopped","failed"}:
         raise AppPackageError("App is busy with another lifecycle operation.",409)
     transition_target="updating" if current_state in {"installed","running","degraded","stopped"} else "installing"
-    homeserver_apps.transition(app_key,transition_target,metadata={"version":manifest["version"],"package_sha256":validation["package_sha256"]})
+    transitioned=False
     root=releases_root(app_key)
     release_id="apprel_"+uuid.uuid4().hex[:24]
     staging=Path(tempfile.mkdtemp(prefix=".staging-",dir=root))
@@ -281,6 +281,12 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
         entry=(content/Path(*_safe_rel(manifest["entrypoint"]).parts)).resolve()
         if not entry.is_file():
             raise AppPackageError("App entrypoint was not extracted.")
+        try:
+            homeserver_app_runtime.validate_release_contracts(app_key,content)
+        except homeserver_app_runtime.AppRuntimeError as exc:
+            raise AppPackageError(str(exc),exc.status_code) from exc
+        homeserver_apps.transition(app_key,transition_target,metadata={"version":manifest["version"],"package_sha256":validation["package_sha256"]})
+        transitioned=True
         release={
             "contract":"vp3.app.release.v1",
             "release_id":release_id,
@@ -334,16 +340,19 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
             )
         homeserver_app_security.sync_declared_permissions(app_key,list(manifest.get("permissions") or []))
         homeserver_app_resources.resource_status(app_key)
+        homeserver_app_runtime.sync_release(app_key,final/"content")
+        homeserver_app_resources.enforce_sqlite_quota(app_key)
         result=dict(release)
         result["active"]=True
         result["previous_release_id"]=state["previous_release_id"]
         return result
     except Exception as exc:
         shutil.rmtree(staging,ignore_errors=True)
-        try:
-            homeserver_apps.transition(app_key,"failed",metadata={"reason":str(exc)[:500]})
-        except Exception:
-            pass
+        if transitioned:
+            try:
+                homeserver_apps.transition(app_key,"failed",metadata={"reason":str(exc)[:500]})
+            except Exception:
+                pass
         raise
     finally:
         archive.close()
