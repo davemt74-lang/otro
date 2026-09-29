@@ -45,6 +45,7 @@ def _site_summary(site:dict[str,Any])->dict[str,Any]:
         "active_release_id":deployment.get("active_release_id"),
         "previous_release_id":deployment.get("previous_release_id"),
         "serving_ready":bool(serving.get("local_serving_ready")),
+        "runtime_scheduler":serving.get("scheduler") or {},
         "sqlite_healthy":bool(sqlite.get("healthy")),
         "recovery_points":recovery.get("recovery_points"),
         "latest_recovery_verified":recovery.get("latest_verified"),
@@ -66,6 +67,8 @@ def dashboard()->dict[str,Any]:
         "public_routes":sum(1 for s in sites if s["public_route_ready"]),
         "serving_ready":sum(1 for s in sites if s["serving_ready"]),
         "sqlite_healthy":sum(1 for s in sites if s["sqlite_healthy"]),
+        "runtime_inflight":sum(int((s.get("runtime_scheduler") or {}).get("inflight") or 0) for s in sites),
+        "runtime_rejected":sum(int((s.get("runtime_scheduler") or {}).get("rejected") or 0) for s in sites),
     }
     issues=[]
     for s in sites:
