@@ -132,7 +132,6 @@ async function refreshHardwareExperience() {
   const [experience, events] = await Promise.all([
     systemApi('/api/v1/control/vp3-os/hardware-experience'),
     systemApi('/api/v1/control/vp3-os/hardware-experience/events?limit=12'),
-    systemApi('/api/v1/control/hosting/dashboard'),
   ]);
   renderHardwareExperience(experience);
   const items = events.items || [];
@@ -328,7 +327,9 @@ function hostingSiteCard(item) {
     escSystem(item.hostname || 'No hostname') + ' · ' + escSystem(item.runtime_kind) + ' · ' + escSystem(item.state) +
     '</span><small>Release ' + escSystem(item.active_release_id || 'none') + ' · public ' +
     escSystem(item.public_route_ready ? 'ready' : 'not ready') + ' · SQLite ' +
-    escSystem(item.sqlite_healthy ? 'healthy' : 'degraded') + ' · storage ' + escSystem(bytes(item.usage?.storage_bytes || 0)) +
+    escSystem(item.sqlite_healthy ? 'healthy' : 'degraded') + ' · requests ' + escSystem(item.observability?.requests_total || 0) +
+    ' · errors ' + escSystem((item.observability?.client_error_total || 0) + (item.observability?.server_error_total || 0)) +
+    ' · storage ' + escSystem(bytes(item.usage?.storage_bytes || 0)) +
     '</small></div><div class="runtime-actions">' + actions.join('') + '</div></article>';
 }
 
@@ -337,7 +338,7 @@ function renderHosting(data) {
   const ent = data.entitlements || {};
   byId('hostingSummary').innerHTML = [
     diagnosticCard('Hosted sites', data.healthy ? true : false, [['Sites', counts.sites || 0], ['Active', counts.active || 0], ['Issues', (data.issues || []).length]]),
-    diagnosticCard('Runtime isolation', (counts.runtime_rejected || 0) === 0, [['In flight', counts.runtime_inflight || 0], ['Rejected', counts.runtime_rejected || 0], ['Serving ready', counts.serving_ready || 0]]),
+    diagnosticCard('Traffic', (counts.server_errors_total || 0) === 0, [['Requests', counts.requests_total || 0], ['Server errors', counts.server_errors_total || 0], ['In flight', counts.runtime_inflight || 0]]),
     diagnosticCard('Package entitlement', ent.within_entitlement !== false, [['Package', ent.package_key || 'not synced'], ['Within limits', ent.within_entitlement === false ? 'no' : 'yes'], ['Overages', (ent.overages || []).join(', ') || 'none']]),
   ].join('');
   const sites = data.sites || [];
