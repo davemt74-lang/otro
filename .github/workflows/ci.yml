@@ -152,6 +152,8 @@ jobs:
         run: python tests/tracky_physical_trigger_runtime_v281.py
       - name: Tracky V2.81 distributed action execution
         run: python tests/tracky_distributed_action_execution_v281.py
+      - name: HomeServer Hosting v1.00 runtime foundation
+        run: python tests/hosting_runtime_v100.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
@@ -275,7 +277,8 @@ jobs:
             }
             if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
             $secondary = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
-            Wait-Process -Id $secondary.Id -Timeout 10
+            # PyInstaller onefile children must unpack before the named-mutex check executes; Windows CI can exceed 10s under load.
+            Wait-Process -Id $secondary.Id -Timeout 30
             $secondary.Refresh()
             if (-not $secondary.HasExited) { throw 'Second HomeServer instance did not exit' }
             if ($secondary.ExitCode -ne 23) { throw "Second HomeServer instance exited with $($secondary.ExitCode), expected 23" }
@@ -614,7 +617,7 @@ jobs:
             version = '2.4'
             channel = 'stable'
             minimum_schema_version = 38
-            current_schema_version = 56
+            current_schema_version = 57
             feature_track = 'Tracky V2.81'
             feature_section = 3
             federated_automation_protocol = 'physical_federated_automation.v1'

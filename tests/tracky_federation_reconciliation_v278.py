@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s9-") as data_dir:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()]
-        assert versions == list(range(1, 57))
+        assert versions == list(range(1, 58))
         for table in (
             "tracky_federation_reconciliation_state",
             "tracky_federation_reconciliation_runs",

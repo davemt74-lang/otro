@@ -12,6 +12,7 @@ from . import (
     context_engine,
     knowledge_collection_policy,
     shared_agent_context,
+    hosting_runtime,
 )
 
 CANONICAL_CONTEXT_VERSION = "v4.30"
@@ -29,6 +30,7 @@ class CanonicalContext:
     awareness_fragment: str
     collaboration: dict[str, Any]
     surface_fragment: str
+    hosting_fragment: str
     budget: dict[str, int | str]
     effective_settings: dict[str, Any]
     model_tool_permissions: set[str]
@@ -376,6 +378,9 @@ def build_authorized_context(
     overlay_pool -= surface_limit
     desired_awareness = requested_budget // 10 if allow_awareness else 0
     awareness_limit = min(desired_awareness, overlay_pool, MAX_AWARENESS_CONTEXT_CHARS)
+    overlay_pool -= awareness_limit
+    desired_hosting = requested_budget // 12 if owner or source_app_key == "app:vp3" else 0
+    hosting_limit = min(desired_hosting, overlay_pool, 1800)
 
     collaboration_grants = (
         app_collaboration.eligible_grants(
@@ -416,9 +421,12 @@ def build_authorized_context(
             awareness_items = []
     awareness_used = len(awareness_fragment)
 
+    hosting_fragment = hosting_runtime.agent_context_fragment(query, max_chars=hosting_limit) if hosting_limit >= MIN_FRAGMENT_CHARS else ""
+    hosting_used = len(hosting_fragment)
+
     base_budget = max(
         context_engine.MIN_CONTEXT_CHARS,
-        requested_budget - collaboration_used - surface_used - awareness_used,
+        requested_budget - collaboration_used - surface_used - awareness_used - hosting_used,
     )
     base_settings = {**effective, "max_context_chars": base_budget}
     bundle = _base_context(
@@ -429,7 +437,7 @@ def build_authorized_context(
         source_app_key=source_app_key,
         owner=owner,
     )
-    used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used
+    used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used + hosting_used
     if used > requested_budget:
         raise context_engine.ContextError("Canonical context budget exceeded.", 500)
 
@@ -454,6 +462,8 @@ def build_authorized_context(
         "surface_used_chars": surface_used,
         "awareness_limit_chars": awareness_limit,
         "awareness_used_chars": awareness_used,
+        "hosting_limit_chars": hosting_limit,
+        "hosting_used_chars": hosting_used,
         "used_chars": used,
         "remaining_chars": max(0, requested_budget - used),
     }
@@ -467,6 +477,7 @@ def build_authorized_context(
         awareness_fragment=awareness_fragment,
         collaboration=collaboration,
         surface_fragment=surface_fragment,
+        hosting_fragment=hosting_fragment,
         budget=budget,
         effective_settings=effective,
         model_tool_permissions=model_tool_permissions,
@@ -481,6 +492,7 @@ def system_prompt(agent: dict[str, Any], context: CanonicalContext) -> str:
         context.awareness_fragment,
         str(context.collaboration.get("fragment") or ""),
         context.surface_fragment,
+        context.hosting_fragment,
     ):
         if fragment:
             prompt += "\n\n" + fragment

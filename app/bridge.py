@@ -22,6 +22,7 @@ from .device_rollout_api import router as device_rollout_router
 from .files_api import router as files_router
 from .fleet_api import router as fleet_router
 from .hardware_experience_api import router as hardware_experience_router
+from .hosting_api import router as hosting_router
 from .handoffs_api import router as handoffs_router
 from .knowledge_backup_api import router as knowledge_backup_router
 from .knowledge_collections_api import router as knowledge_collections_router
@@ -34,7 +35,7 @@ from .release_readiness_api import router as release_readiness_router
 from .remote_bridge_api import router as remote_bridge_router
 from .room_device_api import router as room_device_router
 from .tracky_api import router as tracky_router
-from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
+from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, hosting_runtime, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -115,6 +116,7 @@ app.include_router(release_readiness_router)
 app.include_router(device_rollout_router)
 app.include_router(fleet_router)
 app.include_router(hardware_experience_router)
+app.include_router(hosting_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -149,6 +151,7 @@ def capabilities() -> dict:
         "vp3_os_device_rollout": device_rollout.public_capability(),
         "vp3_os_fleet_management": fleet_management.public_capability(),
         "vp3_os_hardware_experience": hardware_experience.public_capability(),
+        "vp3_hosting": hosting_runtime.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
