@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, hosting_cloud_control, hosting_cloud_deployment, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, hosting_cloud_control, hosting_cloud_deployment, hosting_public, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -522,6 +522,30 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     request_key=str(body.get("request_key") or ""),
                 )
             except hosting_cloud_deployment.CloudDeploymentError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.route.reconcile":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_public.reconcile(
+                    str(body.get("cloud_site_id") or ""),
+                    revision=int(body.get("revision")),
+                    hostname=str(body.get("hostname") or ""),
+                    desired_state=str(body.get("desired_state") or ""),
+                    hostname_verified=bool(body.get("hostname_verified")),
+                    tls_state=str(body.get("tls_state") or ""),
+                    certificate_not_after=str(body.get("certificate_not_after") or "") or None,
+                    rotate_token=bool(body.get("rotate_token",False)),
+                )
+            except (TypeError,ValueError,hosting_public.PublicRoutingError) as exc:
+                status=int(getattr(exc,"status_code",422))
+                return {"status":status,"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.route.status":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_public.status(str(body.get("cloud_site_id") or ""))
+            except hosting_public.PublicRoutingError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "system.ping":
