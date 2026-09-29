@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from ..database import db
+from . import homeserver_app_sdk
 
 CONTRACT = "vp3.homeserver-apps.registry.v1"
 APP_CLASSES = {"system", "user"}
@@ -139,6 +140,24 @@ def register_user_app(
     return get(key)
 
 
+
+def create_user_app(app_key: str, name: str, *, runtime: str="static", source_type: str="user_created", metadata: dict[str,Any]|None=None) -> dict[str,Any]:
+    source=str(source_type or "user_created").strip()
+    if source not in {"user_created","agent_builder"}:
+        raise HomeServerAppError("Create App uses the VP3 SDK and supports user_created or agent_builder sources.")
+    try:
+        scaffold=homeserver_app_sdk.scaffold(app_key,name,runtime=runtime)
+    except homeserver_app_sdk.AppSdkError as exc:
+        raise HomeServerAppError(str(exc),409 if "already exists" in str(exc).lower() else 400) from exc
+    combined=dict(metadata or {})
+    combined.update({"sdk_version":scaffold["sdk_version"],"runtime":runtime,"sdk_scaffolded":True})
+    try:
+        app=register_user_app(app_key,name,source_type=source,metadata=combined)
+    except Exception:
+        homeserver_app_sdk.remove_project(app_key)
+        raise
+    return {"app":app,"sdk":scaffold}
+
 def get(app_key: str) -> dict[str, Any]:
     with db() as connection:
         row = connection.execute("SELECT * FROM homeserver_apps WHERE app_key=?", (str(app_key or "").strip().lower(),)).fetchone()
@@ -217,6 +236,7 @@ def public_capability() -> dict[str,Any]:
         "user_apps":True,
         "legacy_local_apps_migrate_in_place":True,
         "user_app_sources":["user_created","zip","git","agent_builder"],
+        "user_app_default":"vp3_sdk_1.0",
         "app_store":"future",
         "lifecycle_states":sorted(LIFECYCLE_STATES),
     }
