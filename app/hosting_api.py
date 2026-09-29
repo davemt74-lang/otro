@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_deployment, hosting_runtime, hosting_serving
+from .services import hosting_deployment, hosting_recovery, hosting_runtime, hosting_serving
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -103,6 +103,29 @@ def rollback(site_id: str) -> dict:
 @router.get("/sites/{site_id}/runtime-health")
 def runtime_health(site_id: str) -> dict:
     return _call(hosting_serving.runtime_health,site_id)
+
+
+@router.get("/sites/{site_id}/recovery")
+def recovery_points(site_id: str) -> dict:
+    return {
+        "health":_call(hosting_recovery.recovery_health,site_id),
+        "points":_call(hosting_recovery.list_recovery_points,site_id),
+    }
+
+
+@router.post("/sites/{site_id}/recovery")
+def create_recovery_point(site_id: str) -> dict:
+    return _call(hosting_recovery.create_recovery_point,site_id,reason="owner-manual")
+
+
+@router.post("/sites/{site_id}/recovery/{recovery_id}/verify")
+def verify_recovery_point(site_id: str,recovery_id: str) -> dict:
+    return _call(hosting_recovery.verify,site_id,recovery_id)
+
+
+@router.post("/sites/{site_id}/recovery/{recovery_id}/restore")
+def restore_recovery_point(site_id: str,recovery_id: str) -> dict:
+    return _call(hosting_recovery.restore,site_id,recovery_id)
 
 
 @router.api_route(
