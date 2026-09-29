@@ -156,6 +156,8 @@ jobs:
         run: python tests/hosting_runtime_v100.py
       - name: HomeServer Hosting v1.10 deployment packages
         run: python tests/hosting_deployment_v110.py
+      - name: HomeServer Hosting v1.20 local serving
+        run: python tests/hosting_serving_v120.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
