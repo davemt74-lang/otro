@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
  initialize_database();initialize_database()
  with db() as c:
   versions=[int(x["version"]) for x in c.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
- assert versions==list(range(1,58))
+ assert versions==list(range(1,59))
  for site,label in ((HOME,"Home"),(OFFICE,"Office")):tracky_site_topology.register_site(site_id=site,label=label)
  for device,label,site in ((HDEV,"Home Node",HOME),(ODEV,"Office Node",OFFICE)):
   tracky_site_topology.register_device(device_id=device,label=label,site_id=site,hardware_profile="Node",trust_state="trusted",roles=["site_authority"],capabilities={"site_authority_eligible":True})
