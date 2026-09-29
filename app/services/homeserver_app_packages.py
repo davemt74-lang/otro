@@ -281,6 +281,10 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
         entry=(content/Path(*_safe_rel(manifest["entrypoint"]).parts)).resolve()
         if not entry.is_file():
             raise AppPackageError("App entrypoint was not extracted.")
+        try:
+            homeserver_app_runtime.validate_release_contracts(app_key,content)
+        except homeserver_app_runtime.AppRuntimeError as exc:
+            raise AppPackageError(str(exc),exc.status_code) from exc
         release={
             "contract":"vp3.app.release.v1",
             "release_id":release_id,
@@ -335,6 +339,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
         homeserver_app_security.sync_declared_permissions(app_key,list(manifest.get("permissions") or []))
         homeserver_app_resources.resource_status(app_key)
         homeserver_app_runtime.sync_release(app_key,final/"content")
+        homeserver_app_resources.enforce_sqlite_quota(app_key)
         result=dict(release)
         result["active"]=True
         result["previous_release_id"]=state["previous_release_id"]
