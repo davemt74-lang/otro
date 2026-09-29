@@ -199,6 +199,8 @@ jobs:
         run: python tests/hosting_entitlements_v180.py
       - name: Verify HomeServer Hosting v1.90 dashboard Agent controls and release hardening
         run: python tests/hosting_release_v190.py
+      - name: Verify HomeServer Hosting V2 Section 1 runtime isolation and scheduling
+        run: python tests/hosting_runtime_isolation_v200.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance

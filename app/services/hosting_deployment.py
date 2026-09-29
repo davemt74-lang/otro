@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..database import db
-from . import hosting_runtime, hosting_sqlite
+from . import hosting_runtime, hosting_scheduler, hosting_sqlite
 
 MAX_PACKAGE_BYTES = 64 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
@@ -303,15 +303,19 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
             release_id=release_id,
         )
 
-        old=_read_state(site_id)
-        next_state={
-            "contract":"vp3.hosting.deployment-state.v1",
-            "site_id":site_id,
-            "active_release_id":release_id,
-            "previous_release_id":old.get("active_release_id"),
-        }
-        _write_state(site_id,next_state)
-        hosting_runtime.set_state(site_id,"active")
+        hosting_scheduler.begin_drain(site_id)
+        try:
+            old=_read_state(site_id)
+            next_state={
+                "contract":"vp3.hosting.deployment-state.v1",
+                "site_id":site_id,
+                "active_release_id":release_id,
+                "previous_release_id":old.get("active_release_id"),
+            }
+            _write_state(site_id,next_state)
+            hosting_runtime.set_state(site_id,"active")
+        finally:
+            hosting_scheduler.end_drain(site_id)
         _record(site_id,"deployment.activated","active",{
             "release_id":release_id,
             "package_sha256":digest,
@@ -348,13 +352,17 @@ def rollback(site_id: str) -> dict[str, Any]:
     if not previous:
         raise DeploymentError("No previous release is available for rollback.",409)
     previous_manifest=_release_manifest(site_id,str(previous))
-    _write_state(site_id,{
-        "contract":"vp3.hosting.deployment-state.v1",
-        "site_id":site_id,
-        "active_release_id":previous,
-        "previous_release_id":active,
-    })
-    hosting_runtime.set_state(site_id,"active")
+    hosting_scheduler.begin_drain(site_id)
+    try:
+        _write_state(site_id,{
+            "contract":"vp3.hosting.deployment-state.v1",
+            "site_id":site_id,
+            "active_release_id":previous,
+            "previous_release_id":active,
+        })
+        hosting_runtime.set_state(site_id,"active")
+    finally:
+        hosting_scheduler.end_drain(site_id)
     _record(site_id,"deployment.rolled_back","active",{"release_id":previous,"replaced_release_id":active})
     result=dict(previous_manifest)
     result["active"]=True
@@ -384,6 +392,7 @@ def public_capability() -> dict[str, Any]:
         "rollback":True,
         "request_idempotency":True,
         "governed_sqlite_migrations":True,
+        "graceful_runtime_drain":True,
         "max_package_bytes":MAX_PACKAGE_BYTES,
         "max_uncompressed_bytes":MAX_UNCOMPRESSED_BYTES,
         "max_files":MAX_FILES,

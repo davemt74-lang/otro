@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_cloud_deployment, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_serving, hosting_sqlite
+from .services import hosting_cloud_deployment, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, hosting_sqlite
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -41,6 +41,7 @@ def capability() -> dict:
     result["public_routing"]=hosting_public.public_capability()
     result["entitlements"]=hosting_entitlements.public_capability()
     result["operations"]=hosting_operations.public_capability()
+    result["scheduler"]=hosting_scheduler.public_capability()
     return result
 
 
