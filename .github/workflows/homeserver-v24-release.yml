@@ -65,6 +65,8 @@ jobs:
           app/services/hosting_serving.py
           app/services/hosting_cloud_control.py
           app/services/hosting_recovery.py
+          app/services/hosting_diagnostics.py
+          app/services/hosting_health_recovery.py
           app/hosting_api.py
           tests/hosting_runtime_v100.py
           tests/hosting_deployment_v110.py
@@ -73,6 +75,8 @@ jobs:
           tests/hosting_cloud_remote_v130.py
           tests/hosting_recovery_v140.py
           tests/hosting_release_history_v220.py
+          tests/hosting_diagnostics_v230.py
+          tests/hosting_health_recovery_v240.py
           app/tracky_api.py
           tests/federated_data_authority_v240.py
           tests/contacts_continuity_v241.py
@@ -204,6 +208,10 @@ jobs:
         run: python tests/hosting_runtime_isolation_v200.py
       - name: Verify HomeServer Hosting V2 Section 2 release history promotion and retention
         run: python tests/hosting_release_history_v220.py
+      - name: Verify HomeServer Hosting V2 Section 3 traffic and runtime diagnostics
+        run: python tests/hosting_diagnostics_v230.py
+      - name: Verify HomeServer Hosting V2 Section 4 automated health checks and recovery
+        run: python tests/hosting_health_recovery_v240.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance
