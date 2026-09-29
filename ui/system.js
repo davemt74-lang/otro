@@ -323,6 +323,7 @@ function hostingSiteCard(item) {
   if (item.state !== 'active') actions.push('<button class="button primary" data-hosting-action="site.activate" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Activate</button>');
   if (item.previous_release_id) actions.push('<button class="button secondary" data-hosting-action="deployment.rollback" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Rollback</button>');
   actions.push('<button class="button secondary" data-hosting-action="recovery.create" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Recovery point</button>');
+  actions.push('<button class="button secondary" data-hosting-requests="' + escSystem(item.site_id) + '" type="button">Requests</button>');
   return '<article class="fleet-card"><div><strong>' + escSystem(item.display_name) + '</strong><span>' +
     escSystem(item.hostname || 'No hostname') + ' · ' + escSystem(item.runtime_kind) + ' · ' + escSystem(item.state) +
     '</span><small>Release ' + escSystem(item.active_release_id || 'none') + ' · public ' +
@@ -351,6 +352,19 @@ function renderHosting(data) {
 
 async function refreshHosting() {
   renderHosting(await systemApi('/api/v1/control/hosting/dashboard'));
+}
+
+async function loadHostingRequests(siteId) {
+  const data = await systemApi('/api/v1/control/hosting/sites/' + encodeURIComponent(siteId) + '/requests?limit=30');
+  const items = data.items || [];
+  byId('hostingRequests').innerHTML = items.length
+    ? items.map(item => '<article class="fleet-card"><div><strong>' +
+      escSystem(item.method + ' ' + item.path) + '</strong><span>' +
+      escSystem(String(item.status)) + ' · ' + escSystem(String(item.duration_ms)) + ' ms · ' +
+      escSystem(bytes(item.bytes_out || 0)) + '</span><small>' +
+      escSystem(item.at || '') + (item.error_code ? ' · ' + escSystem(item.error_code) : '') +
+      '</small></div></article>').join('')
+    : '<div class="muted">No recent requests for this hosted site.</div>';
 }
 
 async function refreshSystem() {
@@ -384,6 +398,14 @@ byId('refreshHosting').addEventListener('click', async () => {
 });
 
 byId('hostingSites').addEventListener('click', async event => {
+  const requestsButton = event.target.closest('[data-hosting-requests]');
+  if (requestsButton) {
+    try {
+      await loadHostingRequests(requestsButton.dataset.hostingRequests);
+      systemFlash('Recent hosting requests loaded.');
+    } catch (err) { systemFlash(err.message, true); }
+    return;
+  }
   const button = event.target.closest('[data-hosting-action]');
   if (!button) return;
   const action = button.dataset.hostingAction;
