@@ -139,6 +139,17 @@ def create_site(
     if runtime not in {"static", "php"}:
         raise HostingError("Runtime must be static or php.")
 
+    try:
+        from . import hosting_entitlements
+        hosting_entitlements.enforce_site_request(
+            runtime_kind=runtime,
+            storage_limit_bytes=storage_limit_bytes,
+            sqlite_limit_bytes=sqlite_limit_bytes,
+            is_new=True,
+        )
+    except ImportError:
+        pass
+
     site_id = _new_site_id()
     root = site_root(site_id)
     for relative in ("public", "storage", "database", "backups"):
@@ -195,6 +206,12 @@ def set_state(site_id: str, state: str) -> dict[str, Any]:
     if state not in {"configured","active","suspended","failed"}:
         raise HostingError("Invalid hosting runtime state.")
     get_site(site_id)
+    if state=="active":
+        try:
+            from . import hosting_entitlements
+            hosting_entitlements.enforce_activation(site_id)
+        except ImportError:
+            pass
     with db() as connection:
         connection.execute("UPDATE hosting_sites SET state=?,updated_at=CURRENT_TIMESTAMP WHERE site_id=?",(state,site_id))
         connection.execute(

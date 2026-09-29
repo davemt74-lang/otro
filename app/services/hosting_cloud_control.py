@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..database import db
-from . import hosting_deployment, hosting_recovery, hosting_runtime, hosting_serving
+from . import hosting_deployment, hosting_entitlements, hosting_recovery, hosting_runtime, hosting_serving
 
 CONTRACT="vp3.hosting.cloud-control.v1"
 _CLOUD_SITE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$")
@@ -142,6 +142,11 @@ def _apply_desired(site_id:str,desired:dict[str,Any])->tuple[dict[str,Any],str|N
                 if not hosting_serving.php_cgi_path():
                     blocked_reason="php_runtime_unavailable"
             if blocked_reason is None:
+                try:
+                    hosting_entitlements.enforce_activation(site_id)
+                except hosting_entitlements.EntitlementError:
+                    blocked_reason="package_entitlement"
+            if blocked_reason is None:
                 hosting_runtime.set_state(site_id,"active")
             elif hosting_runtime.get_site(site_id)["state"] not in {"suspended","failed"}:
                 hosting_runtime.set_state(site_id,"configured")
@@ -211,6 +216,12 @@ def reconcile(payload:dict[str,Any])->dict[str,Any]:
     found=_find_binding(desired["cloud_site_id"])
 
     if found is None:
+        hosting_entitlements.enforce_site_request(
+            runtime_kind=desired["runtime_kind"],
+            storage_limit_bytes=desired["storage_limit_bytes"],
+            sqlite_limit_bytes=desired["sqlite_limit_bytes"],
+            is_new=True,
+        )
         site=hosting_runtime.create_site(
             desired["display_name"],
             requested_hostname=desired["requested_hostname"],

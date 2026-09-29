@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_cloud_deployment, hosting_deployment, hosting_public, hosting_recovery, hosting_runtime, hosting_serving, hosting_sqlite
+from .services import hosting_cloud_deployment, hosting_deployment, hosting_entitlements, hosting_public, hosting_recovery, hosting_runtime, hosting_serving, hosting_sqlite
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -33,6 +33,7 @@ def capability() -> dict:
     result["sqlite_runtime"]=hosting_sqlite.public_capability()
     result["cloud_deployment"]=hosting_cloud_deployment.public_capability()
     result["public_routing"]=hosting_public.public_capability()
+    result["entitlements"]=hosting_entitlements.public_capability()
     return result
 
 
@@ -60,6 +61,7 @@ def site(site_id: str) -> dict:
     item["database_health"]=_call(hosting_runtime.database_health,site_id)
     item["sqlite_runtime"]=_call(hosting_sqlite.schema_status,site_id)
     item["public_route"]=_call(hosting_public.route_status_for_site,site_id)
+    item["entitlements"]=hosting_entitlements.status()
     return item
 
 
