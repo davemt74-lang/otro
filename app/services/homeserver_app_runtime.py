@@ -128,15 +128,15 @@ def _load_contract_file(root:Path,relative:str,contract:str)->dict[str,Any]:
     return value
 
 
-def sync_release(app_key:str,content_root:Path|None=None)->dict[str,Any]:
-    root=(content_root or _app_runtime_root(app_key)).resolve()
+def validate_release_contracts(app_key:str,content_root:Path)->dict[str,Any]:
+    root=content_root.resolve()
     manifest_path=root/"vp3-app.json"
     try:
         manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception as exc:
-        raise AppRuntimeError("Installed app manifest is unavailable.",500) from exc
-    if manifest.get("app_key")!=app_key:
-        raise AppRuntimeError("Installed app manifest identity mismatch.",500)
+        raise AppRuntimeError("Installed app manifest is unavailable.",400) from exc
+    if not isinstance(manifest,dict) or manifest.get("app_key")!=app_key:
+        raise AppRuntimeError("Installed app manifest identity mismatch.",400)
     jobs_path=str(manifest.get("jobs") or "").strip()
     events_path=str(manifest.get("events") or "").strip()
     jobs=[]
@@ -146,15 +146,20 @@ def sync_release(app_key:str,content_root:Path|None=None)->dict[str,Any]:
         raw_jobs=payload.get("jobs",[])
         if not isinstance(raw_jobs,list) or len(raw_jobs)>64:
             raise AppRuntimeError("App jobs contract is invalid.")
+        seen=set()
         for row in raw_jobs:
             if not isinstance(row,dict):
                 raise AppRuntimeError("App job definition is invalid.")
             job_id=str(row.get("job_id") or "").strip()
             enabled=bool(row.get("enabled",True))
-            interval=int(row.get("interval_seconds") or 0)
+            try:
+                interval=int(row.get("interval_seconds") or 0)
+            except (TypeError,ValueError) as exc:
+                raise AppRuntimeError("App job interval is invalid.") from exc
             action=row.get("action")
-            if not _JOB_ID.fullmatch(job_id):
-                raise AppRuntimeError("App job_id is invalid.")
+            if not _JOB_ID.fullmatch(job_id) or job_id in seen:
+                raise AppRuntimeError("App job_id is invalid or duplicated.")
+            seen.add(job_id)
             if interval<60 or interval>86400:
                 raise AppRuntimeError("App job interval must be between 60 and 86400 seconds.")
             if not isinstance(action,dict):
@@ -166,11 +171,16 @@ def sync_release(app_key:str,content_root:Path|None=None)->dict[str,Any]:
                 topic=str(action.get("topic") or "")
                 if not _TOPIC.fullmatch(topic):
                     raise AppRuntimeError("App job event topic is invalid.")
+                raw_payload=json.dumps(action.get("payload") if isinstance(action.get("payload"),dict) else {},separators=(",",":"),sort_keys=True)
+                if len(raw_payload.encode("utf-8"))>MAX_EVENT_BYTES:
+                    raise AppRuntimeError("App job event payload exceeds the size limit.")
             if kind=="php.script":
                 script=_safe_rel(str(action.get("script") or ""))
                 target=(root/Path(*script.parts)).resolve()
                 if root not in target.parents or not target.is_file() or target.suffix.lower()!=".php":
                     raise AppRuntimeError("App PHP job script is unavailable.")
+                if str(manifest.get("runtime") or "")!="php":
+                    raise AppRuntimeError("PHP jobs require a PHP app runtime.")
             jobs.append({"job_id":job_id,"enabled":enabled,"interval_seconds":interval,"action":action})
     if events_path:
         payload=_load_contract_file(root,events_path,EVENTS_CONTRACT)
@@ -183,6 +193,21 @@ def sync_release(app_key:str,content_root:Path|None=None)->dict[str,Any]:
                 raise AppRuntimeError("App event subscription topic is invalid.")
             if value not in subscriptions:
                 subscriptions.append(value)
+    return {"jobs":jobs,"subscriptions":subscriptions}
+
+
+def sync_release(app_key:str,content_root:Path|None=None)->dict[str,Any]:
+    root=(content_root or _app_runtime_root(app_key)).resolve()
+    manifest_path=root/"vp3-app.json"
+    try:
+        manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise AppRuntimeError("Installed app manifest is unavailable.",500) from exc
+    if manifest.get("app_key")!=app_key:
+        raise AppRuntimeError("Installed app manifest identity mismatch.",500)
+    contracts=validate_release_contracts(app_key,root)
+    jobs=contracts["jobs"]
+    subscriptions=contracts["subscriptions"]
     now=int(time.time())
     connection=_connect(app_key)
     try:
