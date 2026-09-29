@@ -43,6 +43,11 @@ with tempfile.TemporaryDirectory(prefix="hosting-v110-") as data_dir:
     replay=hosting_deployment.deploy_package(site["site_id"],package("1.0.0","one"),request_key="deploy-1")
     assert replay["release_id"]==first["release_id"]
     assert len(hosting_deployment.list_releases(site["site_id"]))==1
+    try:
+        hosting_deployment.deploy_package(site["site_id"],package("1.0.1","different"),request_key="deploy-1")
+        raise AssertionError("idempotency key conflict was accepted")
+    except hosting_deployment.DeploymentError as exc:
+        assert exc.status_code==409
 
     second=hosting_deployment.deploy_package(site["site_id"],package("2.0.0","two"),request_key="deploy-2")
     assert second["release_id"]!=first["release_id"]
