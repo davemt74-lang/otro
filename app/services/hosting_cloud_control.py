@@ -105,6 +105,36 @@ def _find_binding(cloud_site_id:str)->tuple[dict[str,Any],dict[str,Any]]|None:
     return None
 
 
+def _apply_desired(site_id:str,desired:dict[str,Any])->tuple[dict[str,Any],str|None]:
+    site=hosting_runtime.get_site(site_id)
+    if str(site["runtime_kind"])!=desired["runtime_kind"]:
+        raise CloudHostingError("Runtime kind cannot be changed after site creation.",409)
+    with db() as connection:
+        connection.execute(
+            """
+            UPDATE hosting_sites
+            SET display_name=?,requested_hostname=?,storage_limit_bytes=?,sqlite_limit_bytes=?,updated_at=CURRENT_TIMESTAMP
+            WHERE site_id=?
+            """,
+            (
+                desired["display_name"],desired["requested_hostname"],
+                desired["storage_limit_bytes"],desired["sqlite_limit_bytes"],site_id,
+            ),
+        )
+    blocked_reason=None
+    if desired["desired_state"]=="active":
+        deployment=hosting_deployment.deployment_status(site_id)
+        if not deployment.get("active_release_id"):
+            if hosting_runtime.get_site(site_id)["state"]!="configured":
+                hosting_runtime.set_state(site_id,"configured")
+            blocked_reason="deployment_required"
+        else:
+            hosting_runtime.set_state(site_id,"active")
+    else:
+        hosting_runtime.set_state(site_id,desired["desired_state"])
+    return hosting_runtime.get_site(site_id),blocked_reason
+
+
 def _site_projection(site:dict[str,Any],binding:dict[str,Any])->dict[str,Any]:
     deployment=hosting_deployment.deployment_status(str(site["site_id"]))
     health=hosting_serving.runtime_health(str(site["site_id"]))
@@ -180,23 +210,14 @@ def reconcile(payload:dict[str,Any])->dict[str,Any]:
         if desired["revision"]==current_revision:
             if current_fingerprint!=fingerprint:
                 raise CloudHostingError("Revision already exists with different desired state.",409)
-            result=_site_projection(site,binding)
+            repaired,blocked_reason=_apply_desired(str(site["site_id"]),desired)
+            result=_site_projection(repaired,binding)
             result["reconcile_result"]="idempotent"
+            if blocked_reason:
+                result["blocked_reason"]=blocked_reason
             return result
         if str(site["runtime_kind"])!=desired["runtime_kind"]:
             raise CloudHostingError("Runtime kind cannot be changed after site creation.",409)
-        with db() as connection:
-            connection.execute(
-                """
-                UPDATE hosting_sites
-                SET display_name=?,requested_hostname=?,storage_limit_bytes=?,sqlite_limit_bytes=?,updated_at=CURRENT_TIMESTAMP
-                WHERE site_id=?
-                """,
-                (
-                    desired["display_name"],desired["requested_hostname"],
-                    desired["storage_limit_bytes"],desired["sqlite_limit_bytes"],site["site_id"],
-                ),
-            )
         binding={
             "contract":CONTRACT,
             "cloud_site_id":desired["cloud_site_id"],
@@ -207,26 +228,12 @@ def reconcile(payload:dict[str,Any])->dict[str,Any]:
         }
         _write_binding(str(site["site_id"]),binding)
 
-    site=hosting_runtime.get_site(str(binding["site_id"]))
+    site,blocked_reason=_apply_desired(str(binding["site_id"]),desired)
     desired_state=desired["desired_state"]
-    if desired_state=="active":
-        deployment=hosting_deployment.deployment_status(str(site["site_id"]))
-        if not deployment.get("active_release_id"):
-            # A desired public/active state never fabricates readiness.
-            observed="configured"
-            if site["state"]!="configured":
-                hosting_runtime.set_state(str(site["site_id"]),"configured")
-        else:
-            hosting_runtime.set_state(str(site["site_id"]),"active")
-            observed="active"
-    else:
-        hosting_runtime.set_state(str(site["site_id"]),desired_state)
-        observed=desired_state
-
-    result=_site_projection(hosting_runtime.get_site(str(site["site_id"])),binding)
+    result=_site_projection(site,binding)
     result["reconcile_result"]="applied"
-    if desired_state=="active" and observed!="active":
-        result["blocked_reason"]="deployment_required"
+    if blocked_reason:
+        result["blocked_reason"]=blocked_reason
     with db() as connection:
         connection.execute(
             "INSERT INTO hosting_runtime_events(site_id,event_type,state,details_json) VALUES (?,?,?,?)",
