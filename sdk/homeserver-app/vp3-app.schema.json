@@ -3,28 +3,92 @@
   "$id": "vp3://schemas/app-package-v1",
   "title": "VP3 HomeServer App Package",
   "type": "object",
-  "required": ["contract","app_key","name","version","runtime","entrypoint","permissions"],
+  "required": [
+    "contract",
+    "app_key",
+    "name",
+    "version",
+    "runtime",
+    "entrypoint",
+    "permissions"
+  ],
   "additionalProperties": false,
   "properties": {
-    "contract": {"const":"vp3.app.package.v1"},
-    "app_key": {"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{1,79}$"},
-    "name": {"type":"string","minLength":1,"maxLength":160},
-    "version": {"type":"string","minLength":1,"maxLength":80},
-    "runtime": {"enum":["static","php"]},
-    "entrypoint": {"type":"string","minLength":1,"maxLength":240},
-    "sdk_version": {"type":"string","const":"1.0"},
-    "permissions": {"type":"array","items":{"type":"string","minLength":1,"maxLength":120},"uniqueItems":true},
-    "settings_schema": {"type":"string","maxLength":240},
-    "database_migrations": {"type":"string","maxLength":240},
-    "agent_actions": {"type":"string","maxLength":240},
+    "contract": {
+      "const": "vp3.app.package.v1"
+    },
+    "app_key": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{1,79}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "runtime": {
+      "enum": [
+        "static",
+        "php"
+      ]
+    },
+    "entrypoint": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "sdk_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      },
+      "uniqueItems": true
+    },
+    "settings_schema": {
+      "type": "string",
+      "maxLength": 240
+    },
+    "database_migrations": {
+      "type": "string",
+      "maxLength": 240
+    },
+    "agent_actions": {
+      "type": "string",
+      "maxLength": 240
+    },
     "routes": {
-      "type":"object",
-      "additionalProperties":false,
-      "properties":{
-        "local":{"type":"boolean"},
-        "private_remote":{"type":"boolean"},
-        "public":{"type":"boolean"}
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "local": {
+          "type": "boolean"
+        },
+        "private_remote": {
+          "type": "boolean"
+        },
+        "public": {
+          "type": "boolean"
+        }
       }
+    },
+    "jobs": {
+      "type": "string",
+      "maxLength": 240
+    },
+    "events": {
+      "type": "string",
+      "maxLength": 240
     }
   }
 }
