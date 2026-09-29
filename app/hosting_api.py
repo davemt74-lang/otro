@@ -120,4 +120,5 @@ async def preview(site_id: str, request_path: str, request: Request):
         query_string=request.url.query,
         content_type=request.headers.get("content-type"),
         body=body,
+        request_headers=dict(request.headers),
     )
