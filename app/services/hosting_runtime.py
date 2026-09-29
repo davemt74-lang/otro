@@ -220,7 +220,13 @@ def measure_usage(site_id: str) -> dict[str, int]:
             except OSError:
                 pass
     db_path=site_db_path(site_id)
-    sqlite_bytes=db_path.stat().st_size if db_path.exists() else 0
+    sqlite_bytes=0
+    for candidate in (db_path, Path(str(db_path)+"-wal"), Path(str(db_path)+"-shm")):
+        if candidate.exists() and not candidate.is_symlink():
+            try:
+                sqlite_bytes += candidate.stat().st_size
+            except OSError:
+                pass
     return {"storage_bytes":storage,"sqlite_bytes":sqlite_bytes}
 
 
@@ -304,6 +310,7 @@ def public_capability() -> dict[str, Any]:
         "foreign_keys":True,
         "busy_timeout_ms":SITE_DB_BUSY_TIMEOUT_MS,
         "backups":True,
+        "governed_sqlite_runtime":True,
         "agent_context":True,
         "public_routing":False,
         "cpanel_credentials":False,
