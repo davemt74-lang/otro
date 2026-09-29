@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_apps
+from .services import homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_apps
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -60,6 +60,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_sample_data.AppSampleDataError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_releases.AppReleaseError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("")
@@ -69,7 +71,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability()}
+    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"releases":homeserver_app_releases.public_capability()}
 
 
 @router.get("/catalog/prebuilt")
@@ -261,3 +263,23 @@ def archive_user_app(app_key:str)->dict:
 @router.post("/{app_key}/resume")
 def resume_user_app(app_key:str)->dict:
     return {"app":_call(homeserver_apps.resume_user_app,app_key)}
+
+
+@router.get("/{app_key}/releases")
+def app_release_history(app_key:str)->dict:
+    return homeserver_app_releases.list_releases(app_key)
+
+
+@router.post("/{app_key}/releases/{release_id}/promote")
+def app_release_promote(app_key:str,release_id:str)->dict:
+    return _call(homeserver_app_releases.promote,app_key,release_id)
+
+
+@router.post("/{app_key}/rollback")
+def app_release_rollback(app_key:str)->dict:
+    return _call(homeserver_app_releases.rollback,app_key)
+
+
+@router.post("/{app_key}/recover")
+def app_release_recover(app_key:str)->dict:
+    return _call(homeserver_app_releases.recover,app_key)
