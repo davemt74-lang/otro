@@ -35,6 +35,19 @@ with tempfile.TemporaryDirectory(prefix="hosting-v180-") as data_dir:
       "runtime_kind":"static","desired_state":"active","storage_limit_bytes":1_000_000,"sqlite_limit_bytes":250_000}
     first=hosting_cloud_control.reconcile(desired)
     sid=first["site_id"]
+
+    from app.services import hosting_runtime
+    try:
+        hosting_runtime.create_site(
+            "Local Bypass",
+            requested_hostname="local-bypass.vp3.me",
+            runtime_kind="static",
+            storage_limit_bytes=1_000_000,
+            sqlite_limit_bytes=250_000,
+        )
+        raise AssertionError("canonical create_site bypassed package limit")
+    except hosting_entitlements.EntitlementError:
+        pass
     hosting_deployment.deploy_package(sid,pkg("ok"),request_key="ent-deploy-1")
     ready=hosting_cloud_control.reconcile(dict(desired))
     assert ready["observed_state"]=="active"
