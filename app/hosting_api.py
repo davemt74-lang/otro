@@ -188,9 +188,11 @@ async def preview(site_id: str, request_path: str, request: Request):
             request_headers=dict(request.headers),
         )
     except HTTPException as exc:
+        detail=str(exc.detail or "").lower()
         hosting_diagnostics.observe_request(
             site_id,source="preview",method=request.method,path=request_path,
-            status_code=int(exc.status_code),duration_ms=(time.monotonic()-started)*1000,error_class="preview.error",
+            status_code=int(exc.status_code),duration_ms=(time.monotonic()-started)*1000,
+            error_class="php.runtime" if "php" in detail else "preview.error",
         )
         raise
     hosting_diagnostics.observe_request(
