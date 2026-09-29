@@ -12,6 +12,7 @@ class CreateUserAppRequest(BaseModel):
     app_key:str=Field(min_length=2,max_length=80)
     name:str=Field(min_length=1,max_length=160)
     source_type:str=Field(default="user_created",max_length=40)
+    runtime:str=Field(default="static",pattern="^(static|php)$")
     source_ref:str=Field(default="",max_length=500)
     metadata:dict=Field(default_factory=dict)
 
@@ -40,14 +41,14 @@ def apps_capability()->dict:
 
 @router.post("")
 def create_user_app(payload:CreateUserAppRequest)->dict:
-    return {"app":_call(
-        homeserver_apps.register_user_app,
+    return _call(
+        homeserver_apps.create_user_app,
         payload.app_key,
         payload.name,
+        runtime=payload.runtime,
         source_type=payload.source_type,
-        source_ref=payload.source_ref,
         metadata=payload.metadata,
-    )}
+    )
 
 
 @router.get("/{app_key}")
