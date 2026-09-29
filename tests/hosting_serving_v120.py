@@ -15,17 +15,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 
 
-def package() -> bytes:
+def package(runtime: str="static") -> bytes:
     buffer=io.BytesIO()
     with zipfile.ZipFile(buffer,"w",zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("vp3-hosting.json",json.dumps({
             "contract":"vp3.hosting.package.v1",
             "version":"1.2.0",
-            "runtime":"static",
-            "entrypoint":"public/index.html",
+            "runtime":runtime,
+            "entrypoint":"public/index.php" if runtime=="php" else "public/index.html",
         }))
-        archive.writestr("public/index.html","<h1>VP3 Hosted</h1>")
-        archive.writestr("public/app.css","body{font-family:sans-serif}")
+        if runtime=="php":
+            archive.writestr("public/index.php","<?php echo 'real php'; ?>")
+        else:
+            archive.writestr("public/index.html","<h1>VP3 Hosted</h1>")
+            archive.writestr("public/app.css","body{font-family:sans-serif}")
     return buffer.getvalue()
 
 
@@ -67,6 +70,47 @@ with tempfile.TemporaryDirectory(prefix="hosting-v120-") as data_dir:
         hosting_runtime.set_state(site_id,"suspended")
         blocked=client.get(f"/api/v1/control/hosting/sites/{site_id}/preview/")
         assert blocked.status_code==503
+
+        php_site=hosting_runtime.create_site("PHP Serving",requested_hostname="php.vp3.me",runtime_kind="php")
+        php_id=php_site["site_id"]
+        hosting_deployment.deploy_package(php_id,package("php"),request_key="php-serve-1")
+
+        captured={}
+        original_path=hosting_serving.php_cgi_path
+        original_run=hosting_serving.subprocess.run
+        os.environ["CPANEL_API_TOKEN"]="must-not-leak"
+
+        class Completed:
+            returncode=0
+            stdout=b"Status: 201 Created\r\nContent-Type: text/plain\r\nSet-Cookie: app_session=ok; Path=/\r\n\r\nphp-ok"
+            stderr=b""
+
+        def fake_run(args,**kwargs):
+            captured["args"]=args
+            captured["env"]=dict(kwargs["env"])
+            captured["input"]=kwargs["input"]
+            captured["timeout"]=kwargs["timeout"]
+            return Completed()
+
+        hosting_serving.php_cgi_path=lambda: "php-cgi-test"
+        hosting_serving.subprocess.run=fake_run
+        try:
+            client.cookies.set("site_session","abc123")
+            php=client.get(f"/api/v1/control/hosting/sites/{php_id}/preview/")
+            assert php.status_code==201
+            assert php.text=="php-ok"
+            assert "app_session=ok" in php.headers.get("set-cookie","")
+            assert captured["timeout"]==hosting_serving.PHP_TIMEOUT_SECONDS
+            assert captured["env"]["VP3_SITE_ID"]==php_id
+            assert captured["env"]["VP3_SQLITE_PATH"].endswith("database"+os.sep+"site.sqlite")
+            assert captured["env"]["VP3_STORAGE_DIR"].endswith("storage")
+            assert "CPANEL_API_TOKEN" not in captured["env"]
+            assert "homeserver_owner" not in captured["env"].get("HTTP_COOKIE","")
+            assert "site_session=abc123" in captured["env"].get("HTTP_COOKIE","")
+        finally:
+            hosting_serving.php_cgi_path=original_path
+            hosting_serving.subprocess.run=original_run
+            os.environ.pop("CPANEL_API_TOKEN",None)
 
     capability=hosting_serving.public_capability()
     assert capability["loopback_serving"] is True
