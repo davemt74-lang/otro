@@ -746,6 +746,8 @@ def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[st
         }
     if tool_key in {"memory.write", "memory.update", "memory.delete"}:
         return memory_continuity.safe_memory_mutation_meta(tool_key, arguments)
+    if tool_key.startswith("apps."):
+        return homeserver_app_agent.safe_action_meta(tool_key, arguments)
     if tool_key == "tasks.create":
         return {
             "title_length": len(str(arguments.get("title") or "")),
@@ -1492,6 +1494,30 @@ def _apps_recover(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         raise ToolError(str(exc),exc.status_code) from exc
     return {"app_key":key,**result},{"app_key":key,"release_id":(result.get("release") or {}).get("release_id")}
 
+
+
+def _apps_read(tool_key:str,arguments:dict[str,Any])->tuple[dict[str,Any],dict[str,Any]]:
+    try:
+        if tool_key=="apps.list":
+            result=homeserver_app_agent.list_apps(arguments)
+        elif tool_key=="apps.get":
+            result=homeserver_app_agent.get_app(arguments)
+        elif tool_key=="apps.releases":
+            result=homeserver_app_agent.releases(arguments)
+        else:
+            raise ToolError("Unsupported Apps read tool.")
+    except homeserver_app_agent.AppAgentError as exc:
+        raise ToolError(str(exc),exc.status_code) from exc
+    homeserver_app_agent.record_context_read(tool_key,result)
+    return result, {"count":int(result.get("count",1)),"contract":homeserver_app_agent.CONTRACT}
+
+
+def _apps_write(tool_key:str,arguments:dict[str,Any])->tuple[dict[str,Any],dict[str,Any]]:
+    try:
+        result=homeserver_app_agent.execute_action(tool_key,arguments)
+    except homeserver_app_agent.AppAgentError as exc:
+        raise ToolError(str(exc),exc.status_code) from exc
+    return result, {"app_key":str(arguments.get("app_key") or "")[:80],"contract":homeserver_app_agent.CONTRACT}
 
 def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
                  granted_permissions: set[str] | None = None, *, owner: bool = False,
