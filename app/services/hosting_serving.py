@@ -9,8 +9,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from fastapi.responses import FileResponse, Response
+from starlette.background import BackgroundTask
 
-from . import hosting_deployment, hosting_runtime
+from . import hosting_deployment, hosting_runtime, hosting_scheduler
 
 SERVING_CONTRACT = "vp3.hosting.serving.v1"
 PHP_TIMEOUT_SECONDS = 5
@@ -231,27 +232,42 @@ def serve(
     if target.suffix.lower() == ".php":
         if str(site["runtime_kind"]).lower() != "php":
             raise ServingError("PHP execution is not enabled for this site.", 403)
-        return _execute_php(
-            site_id,
-            target,
-            method=method,
-            query_string=query_string,
-            content_type=content_type,
-            body=body,
-            request_path=request_path,
-            request_headers=request_headers,
-        )
+        try:
+            hosting_scheduler.acquire(site_id)
+            return _execute_php(
+                site_id,
+                target,
+                method=method,
+                query_string=query_string,
+                content_type=content_type,
+                body=body,
+                request_path=request_path,
+                request_headers=request_headers,
+            )
+        except Exception:
+            hosting_scheduler.release(site_id,failed=True)
+            raise
+        finally:
+            state=hosting_scheduler.status(site_id)
+            if state["inflight"]>0:
+                hosting_scheduler.release(site_id,failed=False)
 
     if method == "POST":
         raise ServingError("POST requests require a PHP entrypoint.",405)
 
     media_type, _ = mimetypes.guess_type(str(target))
-    return FileResponse(
-        target,
-        media_type=media_type or "application/octet-stream",
-        filename=None,
-        headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"},
-    )
+    hosting_scheduler.acquire(site_id)
+    try:
+        return FileResponse(
+            target,
+            media_type=media_type or "application/octet-stream",
+            filename=None,
+            headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"},
+            background=BackgroundTask(hosting_scheduler.release,site_id,False),
+        )
+    except Exception:
+        hosting_scheduler.release(site_id,failed=True)
+        raise
 
 
 def runtime_health(site_id: str) -> dict[str, Any]:
@@ -269,6 +285,7 @@ def runtime_health(site_id: str) -> dict[str, Any]:
         "local_serving_ready": False,
         "php_cgi_available": bool(php_cgi_path()),
         "public_routing": False,
+        "scheduler": hosting_scheduler.status(site_id),
     }
     if not active or site["state"] != "active":
         return result
@@ -298,5 +315,6 @@ def public_capability() -> dict[str, Any]:
         "secret_environment_inheritance": False,
         "site_state_gate": True,
         "active_release_gate": True,
+        "scheduler": hosting_scheduler.public_capability(),
         "public_routing": False,
     }
