@@ -96,8 +96,14 @@ def begin(
             payload=json.loads(meta.read_text(encoding="utf-8"))
         except Exception:
             continue
-        if payload.get("request_key")==key and payload.get("package_sha256")==digest:
-            return status(cloud_site_id,str(payload["transfer_id"]))
+        if payload.get("request_key")==key:
+            if (
+                payload.get("package_sha256")==digest
+                and int(payload.get("package_bytes") or 0)==size
+                and int(payload.get("revision") or 0)==int(revision)
+            ):
+                return status(cloud_site_id,str(payload["transfer_id"]))
+            raise CloudDeploymentError("Deployment request key was already used for a different package or revision.",409)
 
     transfer_id="transfer_"+uuid.uuid4().hex[:24]
     payload={
@@ -111,6 +117,7 @@ def begin(
         "request_key":key,
         "received_bytes":0,
         "next_chunk":0,
+        "chunk_sha256":[],
         "state":"receiving",
         "release_id":None,
         "error":None,
@@ -131,6 +138,15 @@ def append_chunk(cloud_site_id:str,transfer_id:str,chunk_index:int,data_b64:str)
     index=int(chunk_index)
     expected=int(payload.get("next_chunk") or 0)
     if index<expected:
+        hashes=payload.get("chunk_sha256") or []
+        if index>=len(hashes):
+            raise CloudDeploymentError("Deployment retry cannot be verified.",409)
+        try:
+            retry_data=base64.b64decode(str(data_b64 or "").strip(),validate=True)
+        except (binascii.Error,ValueError) as exc:
+            raise CloudDeploymentError("Deployment chunk is not valid base64.") from exc
+        if hashlib.sha256(retry_data).hexdigest()!=str(hashes[index]):
+            raise CloudDeploymentError("Deployment chunk retry does not match the previously accepted chunk.",409)
         return _projection(payload)
     if index!=expected:
         raise CloudDeploymentError("Deployment chunk is out of order.",409)
@@ -148,6 +164,9 @@ def append_chunk(cloud_site_id:str,transfer_id:str,chunk_index:int,data_b64:str)
     with path.open("ab") as handle:
         handle.write(data)
     payload["received_bytes"]=received
+    hashes=list(payload.get("chunk_sha256") or [])
+    hashes.append(hashlib.sha256(data).hexdigest())
+    payload["chunk_sha256"]=hashes
     payload["next_chunk"]=expected+1
     _write(site_id,payload)
     return _projection(payload)
@@ -194,25 +213,39 @@ def commit(cloud_site_id:str,transfer_id:str)->dict[str,Any]:
 
 def rollback(cloud_site_id:str,*,request_key:str)->dict[str,Any]:
     site,_=_site_for_cloud(cloud_site_id)
+    site_id=str(site["site_id"])
     key=str(request_key or "").strip()
     if not key or len(key)>160:
         raise CloudDeploymentError("request_key is required and must be at most 160 characters.")
+    replay_path=_transfer_root(site_id)/("rollback_"+hashlib.sha256(key.encode("utf-8")).hexdigest()+".json")
+    if replay_path.is_file():
+        try:
+            saved=json.loads(replay_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise CloudDeploymentError("Rollback acknowledgement is unreadable.",500) from exc
+        if saved.get("cloud_site_id")!=cloud_site_id or saved.get("request_key")!=key:
+            raise CloudDeploymentError("Rollback request key conflicts with existing acknowledgement.",409)
+        return saved
     try:
-        release=hosting_deployment.rollback(str(site["site_id"]))
+        release=hosting_deployment.rollback(site_id)
     except hosting_runtime.HostingError as exc:
         raise CloudDeploymentError(str(exc),exc.status_code) from exc
-    return {
+    result={
         "contract":CONTRACT,
         "cloud_site_id":cloud_site_id,
-        "site_id":site["site_id"],
+        "site_id":site_id,
         "operation":"rollback",
         "request_key":key,
         "state":"applied",
         "release_id":release.get("release_id"),
         "previous_release_id":release.get("previous_release_id"),
-        "recovery":hosting_recovery.recovery_health(str(site["site_id"])),
-        "sqlite":hosting_sqlite.schema_status(str(site["site_id"])),
+        "recovery":hosting_recovery.recovery_health(site_id),
+        "sqlite":hosting_sqlite.schema_status(site_id),
     }
+    tmp=replay_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    os.replace(tmp,replay_path)
+    return result
 
 
 def status(cloud_site_id:str,transfer_id:str|None=None)->dict[str,Any]:
