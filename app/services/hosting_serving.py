@@ -197,6 +197,8 @@ def _execute_php(
         raise ServingError("PHP runtime failed while serving the request.", 502)
     status, headers, cookies, response_body = _parse_cgi_output(completed.stdout)
     media_type = headers.pop("Content-Type", headers.pop("content-type", None))
+    headers.setdefault("Cache-Control","no-store")
+    headers.setdefault("X-Content-Type-Options","nosniff")
     response=Response(
         content=b"" if method == "HEAD" else response_body,
         status_code=status,
@@ -240,12 +242,15 @@ def serve(
             request_headers=request_headers,
         )
 
+    if method == "POST":
+        raise ServingError("POST requests require a PHP entrypoint.",405)
+
     media_type, _ = mimetypes.guess_type(str(target))
     return FileResponse(
         target,
         media_type=media_type or "application/octet-stream",
         filename=None,
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"},
     )
 
 
