@@ -26,6 +26,7 @@ DEFAULT_PERMISSIONS = {
     "fleet.manage",
     "fleet.read",
     "fleet.telemetry",
+    "hosting.manage",
     "knowledge.search",
     "knowledge.write",
     "memory.read",
