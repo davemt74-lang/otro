@@ -344,6 +344,93 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
         raise
 
 
+def promote_release(site_id: str, release_id: str) -> dict[str, Any]:
+    site=hosting_runtime.get_site(site_id)
+    target=str(release_id or "").strip()
+    if not target.startswith("release_") or len(target)>64:
+        raise DeploymentError("Hosting release identifier is invalid.")
+    manifest=_release_manifest(site_id,target)
+    state=_read_state(site_id)
+    active=state.get("active_release_id")
+    if active==target:
+        result=dict(manifest)
+        result["active"]=True
+        result["previous_release_id"]=state.get("previous_release_id")
+        result["replayed"]=True
+        return result
+
+    from . import hosting_recovery
+    recovery=hosting_recovery.create_recovery_point(
+        site_id,
+        reason=f"pre-promote:{target}",
+    )
+    hosting_scheduler.begin_drain(site_id)
+    try:
+        _write_state(site_id,{
+            "contract":"vp3.hosting.deployment-state.v1",
+            "site_id":site_id,
+            "active_release_id":target,
+            "previous_release_id":active,
+        })
+        hosting_runtime.set_state(site_id,"active")
+    finally:
+        hosting_scheduler.end_drain(site_id)
+
+    _record(site_id,"deployment.promoted","active",{
+        "release_id":target,
+        "replaced_release_id":active,
+        "pre_promote_recovery_id":recovery["recovery_id"],
+        "runtime":site["runtime_kind"],
+    })
+    result=dict(manifest)
+    result["active"]=True
+    result["previous_release_id"]=active
+    result["pre_promote_recovery_id"]=recovery["recovery_id"]
+    result["replayed"]=False
+    return result
+
+
+def prune_releases(site_id: str, keep: int=5) -> dict[str, Any]:
+    hosting_runtime.get_site(site_id)
+    retain=max(2,min(50,int(keep)))
+    state=_read_state(site_id)
+    protected={str(state.get("active_release_id") or ""),str(state.get("previous_release_id") or "")}
+    releases=list_releases(site_id)
+    keep_ids=set(item["release_id"] for item in releases[:retain])
+    keep_ids.update(item for item in protected if item)
+    deleted=[]
+    root=releases_root(site_id).resolve()
+    for item in releases:
+        release_id=str(item.get("release_id") or "")
+        if not release_id or release_id in keep_ids:
+            continue
+        path=(root/release_id)
+        try:
+            resolved=path.resolve()
+        except OSError:
+            continue
+        if root not in resolved.parents or path.is_symlink():
+            raise DeploymentError("Hosting release retention found an unsafe release path.",500)
+        if path.is_dir():
+            shutil.rmtree(path)
+            deleted.append(release_id)
+    if deleted:
+        _record(site_id,"deployment.releases_pruned","active",{
+            "keep":retain,
+            "deleted_release_ids":deleted,
+            "active_release_id":state.get("active_release_id"),
+            "previous_release_id":state.get("previous_release_id"),
+        })
+    return {
+        "site_id":site_id,
+        "keep":retain,
+        "deleted_release_ids":deleted,
+        "active_release_id":state.get("active_release_id"),
+        "previous_release_id":state.get("previous_release_id"),
+        "releases":list_releases(site_id),
+    }
+
+
 def rollback(site_id: str) -> dict[str, Any]:
     hosting_runtime.get_site(site_id)
     state=_read_state(site_id)
@@ -390,6 +477,10 @@ def public_capability() -> dict[str, Any]:
         "zip_upload":True,
         "atomic_release_activation":True,
         "rollback":True,
+        "release_history":True,
+        "historical_release_promotion":True,
+        "safe_release_retention":True,
+        "sqlite_schema_rewind_on_promotion":False,
         "request_idempotency":True,
         "governed_sqlite_migrations":True,
         "graceful_runtime_drain":True,
