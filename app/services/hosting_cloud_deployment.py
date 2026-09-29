@@ -90,6 +90,7 @@ def begin(
     package_sha256:str,
     package_bytes:int,
     request_key:str,
+    provenance:dict[str,Any]|None=None,
 )->dict[str,Any]:
     site,binding=_site_for_cloud(cloud_site_id)
     if int(revision)!=int(binding.get("revision") or 0):
@@ -101,6 +102,12 @@ def begin(
     if size<1 or size>hosting_deployment.MAX_PACKAGE_BYTES:
         raise CloudDeploymentError("Deployment package size is outside the allowed range.",413)
     key=str(request_key or "").strip()
+    provenance=dict(provenance or {})
+    safe_provenance={}
+    for name in ("source_type","repository","ref","commit_sha","trigger","scheduled_at","requested_at"):
+        value=str(provenance.get(name) or "").strip()
+        if value:
+            safe_provenance[name]=value[:240]
     if not key or len(key)>160:
         raise CloudDeploymentError("request_key is required and must be at most 160 characters.")
 
@@ -129,6 +136,7 @@ def begin(
         "package_sha256":digest,
         "package_bytes":size,
         "request_key":key,
+        "provenance":safe_provenance,
         "received_bytes":0,
         "next_chunk":0,
         "chunk_sha256":[],
@@ -215,7 +223,7 @@ def commit(cloud_site_id:str,transfer_id:str)->dict[str,Any]:
         _write(site_id,payload)
         raise CloudDeploymentError("Deployment transfer checksum verification failed.",409)
     try:
-        release=hosting_deployment.deploy_package(site_id,package,request_key=str(payload["request_key"]))
+        release=hosting_deployment.deploy_package(site_id,package,request_key=str(payload["request_key"]),provenance=dict(payload.get("provenance") or {}))
         payload["state"]="applied"
         payload["release_id"]=release["release_id"]
         payload["pre_deploy_recovery_id"]=release.get("pre_deploy_recovery_id")
