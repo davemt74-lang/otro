@@ -9,6 +9,7 @@ from . import (
     hosting_deployment,
     hosting_diagnostics,
     hosting_entitlements,
+    hosting_health_recovery,
     hosting_public,
     hosting_recovery,
     hosting_runtime,
@@ -56,6 +57,7 @@ def _site_summary(site:dict[str,Any])->dict[str,Any]:
         "cloud_revision":int(binding.get("revision") or 0) if binding else None,
         "cloud_desired_state":binding.get("desired_state") if binding else None,
         "observability":hosting_diagnostics.summary(site_id,window_minutes=60,recent_limit=0),
+        "health_recovery":hosting_health_recovery.status(site_id),
     }
 
 
