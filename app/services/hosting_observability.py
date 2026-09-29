@@ -13,12 +13,23 @@ from . import hosting_runtime
 CONTRACT="vp3.hosting.observability.v2"
 MAX_RECENT_EVENTS=500
 MAX_LOG_BYTES=512*1024
-_LOCK=threading.RLock()
+_LOCKS_GUARD=threading.RLock()
+_LOCKS:dict[str,threading.RLock]={}
 _TOKENISH=re.compile(r"^(?:[A-Fa-f0-9]{24,}|[A-Za-z0-9_-]{32,})$")
 
 
 class ObservabilityError(hosting_runtime.HostingError):
     pass
+
+
+def _site_lock(site_id:str)->threading.RLock:
+    hosting_runtime._safe_site_id(site_id)
+    with _LOCKS_GUARD:
+        lock=_LOCKS.get(site_id)
+        if lock is None:
+            lock=threading.RLock()
+            _LOCKS[site_id]=lock
+        return lock
 
 
 def _root(site_id:str)->Path:
@@ -120,7 +131,7 @@ def record(
         "release_id":str(release_id or "")[:80] or None,
         "error_code":str(error_code or "")[:80] or None,
     }
-    with _LOCK:
+    with _site_lock(site_id):
         summary=_load_summary(site_id)
         summary["requests_total"]=int(summary.get("requests_total") or 0)+1
         if status<400:
@@ -151,10 +162,11 @@ def record(
 def _trim_log(site_id:str)->None:
     path=_log_path(site_id)
     try:
-        if path.stat().st_size<=MAX_LOG_BYTES:
-            return
+        size=path.stat().st_size
         lines=path.read_text(encoding="utf-8").splitlines()
     except OSError:
+        return
+    if len(lines)<=MAX_RECENT_EVENTS and size<=MAX_LOG_BYTES:
         return
     kept=lines[-MAX_RECENT_EVENTS:]
     while kept and len(("\n".join(kept)+"\n").encode("utf-8"))>MAX_LOG_BYTES:
@@ -165,7 +177,7 @@ def _trim_log(site_id:str)->None:
 
 
 def summary(site_id:str)->dict[str,Any]:
-    with _LOCK:
+    with _site_lock(site_id):
         payload=_load_summary(site_id)
     total=int(payload.get("requests_total") or 0)
     duration=float(payload.get("duration_ms_total") or 0.0)
@@ -183,7 +195,8 @@ def recent(site_id:str,limit:int=50)->dict[str,Any]:
     items=[]
     if path.is_file():
         try:
-            lines=path.read_text(encoding="utf-8").splitlines()[-bounded:]
+            with _site_lock(site_id):
+                lines=path.read_text(encoding="utf-8").splitlines()[-bounded:]
         except (OSError,UnicodeDecodeError) as exc:
             raise ObservabilityError("Hosting request log is unreadable.",500) from exc
         for line in lines:
