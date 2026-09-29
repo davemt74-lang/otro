@@ -212,6 +212,42 @@ def transition(app_key: str, target_state: str, *, actor_type: str="owner", acto
     return get(str(app_key))
 
 
+
+def archive_user_app(app_key:str)->dict[str,Any]:
+    app=get(app_key)
+    if app["app_class"]!="user" or app["protected_system_app"]:
+        raise HomeServerAppError("System apps cannot be archived from the user app manager.",409)
+    current=str(app["lifecycle_state"])
+    if current=="archived":
+        return app
+    if current not in {"draft","installed","running","degraded","stopped","failed"}:
+        raise HomeServerAppError("App is busy with another lifecycle operation.",409)
+    if current in {"running","degraded","installed"}:
+        app=transition(app_key,"stopped",metadata={"reason":"owner_archive"})
+        current="stopped"
+    if current=="draft":
+        return transition(app_key,"archived",metadata={"reason":"owner_archive"})
+    if current in {"stopped","failed"}:
+        return transition(app_key,"archived",metadata={"reason":"owner_archive"})
+    raise HomeServerAppError("App could not be archived from its current state.",409)
+
+
+def resume_user_app(app_key:str)->dict[str,Any]:
+    app=get(app_key)
+    if app["app_class"]!="user":
+        raise HomeServerAppError("System apps are managed by VP3.",409)
+    current=str(app["lifecycle_state"])
+    if current=="running":
+        return app
+    if current=="archived":
+        app=transition(app_key,"draft",metadata={"reason":"owner_restore"})
+        return app
+    if current=="stopped":
+        return transition(app_key,"running",metadata={"reason":"owner_start"})
+    if current=="installed":
+        return transition(app_key,"running",metadata={"reason":"owner_start"})
+    raise HomeServerAppError("App cannot be started from its current state.",409)
+
 def history(app_key: str, limit: int=100) -> list[dict[str,Any]]:
     app=get(app_key)
     with db() as connection:
