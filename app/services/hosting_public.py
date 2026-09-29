@@ -84,12 +84,17 @@ def _tls_valid(payload:dict[str,Any])->bool:
 
 def _find_by_hostname(hostname:str)->tuple[str,dict[str,Any]]|None:
     wanted=_normalize_hostname(hostname)
+    inactive=None
     for site in hosting_runtime.list_sites():
         site_id=str(site["site_id"])
         route=_load(site_id)
-        if route and route.get("hostname")==wanted:
+        if not route or route.get("hostname")!=wanted:
+            continue
+        if route.get("desired_state")=="active":
             return site_id,route
-    return None
+        if inactive is None:
+            inactive=(site_id,route)
+    return inactive
 
 
 def reconcile(
