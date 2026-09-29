@@ -72,10 +72,11 @@ async def public_ingress(
             request_headers=dict(request.headers),
         )
     except HTTPException as exc:
+        detail=str(exc.detail or "").lower()
         hosting_diagnostics.observe_request(
             route["site_id"],source="public",method=request.method,path=request_path,
             status_code=int(exc.status_code),duration_ms=(time.monotonic()-started)*1000,
-            error_class="http.error",
+            error_class="php.runtime" if "php" in detail else "http.error",
         )
         raise
     status=int(getattr(response,"status_code",200))
@@ -83,6 +84,6 @@ async def public_ingress(
     hosting_diagnostics.observe_request(
         route["site_id"],source="public",method=request.method,path=request_path,
         status_code=status,duration_ms=(time.monotonic()-started)*1000,response_bytes=size,
-        error_class="php.response" if status>=500 and str(route.get("runtime_kind") or "")=="php" else "",
+        error_class="",
     )
     return response
