@@ -39,10 +39,13 @@ with tempfile.TemporaryDirectory(prefix="hosting-v140-") as data_dir:
     storage=hosting_runtime.site_root(site_id)/"storage"
     (storage/"uploads").mkdir(parents=True)
     (storage/"uploads"/"note.txt").write_text("before",encoding="utf-8")
-    with hosting_runtime.connect_site_db(site_id) as connection:
+    connection=hosting_runtime.connect_site_db(site_id)
+    try:
         connection.execute("CREATE TABLE IF NOT EXISTS demo(value TEXT NOT NULL)")
         connection.execute("INSERT INTO demo(value) VALUES ('before')")
         connection.commit()
+    finally:
+        connection.close()
 
     point=hosting_recovery.create_recovery_point(site_id,reason="manual-test")
     assert point["verified"] is True
@@ -50,17 +53,23 @@ with tempfile.TemporaryDirectory(prefix="hosting-v140-") as data_dir:
     assert hosting_recovery.verify(site_id,point["recovery_id"])["verified"] is True
 
     (storage/"uploads"/"note.txt").write_text("after",encoding="utf-8")
-    with hosting_runtime.connect_site_db(site_id) as connection:
+    connection=hosting_runtime.connect_site_db(site_id)
+    try:
         connection.execute("DELETE FROM demo")
         connection.execute("INSERT INTO demo(value) VALUES ('after')")
         connection.commit()
+    finally:
+        connection.close()
 
     restored=hosting_recovery.restore(site_id,point["recovery_id"])
     assert restored["restored"] is True
     assert restored["pre_restore_recovery_id"].startswith("recovery_")
     assert (storage/"uploads"/"note.txt").read_text(encoding="utf-8")=="before"
-    with hosting_runtime.connect_site_db(site_id) as connection:
+    connection=hosting_runtime.connect_site_db(site_id)
+    try:
         assert connection.execute("SELECT value FROM demo").fetchone()[0]=="before"
+    finally:
+        connection.close()
 
     health=hosting_recovery.recovery_health(site_id)
     assert health["recovery_points"]>=2
