@@ -157,6 +157,12 @@ def _site_projection(site:dict[str,Any],binding:dict[str,Any])->dict[str,Any]:
     }
 
 
+def binding_for_site(site_id:str)->dict[str,Any]|None:
+    hosting_runtime.get_site(site_id)
+    binding=_load_binding(site_id)
+    return dict(binding) if binding else None
+
+
 def list_bound_sites()->list[dict[str,Any]]:
     items=[]
     for site in hosting_runtime.list_sites():
