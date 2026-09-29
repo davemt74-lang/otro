@@ -99,9 +99,12 @@ def _event_exists(site_id:str,action:str,idempotency_key:str)->dict[str,Any]|Non
             details=json.loads(row["details_json"] or "{}")
         except Exception:
             continue
-        if details.get("action")==action and details.get("idempotency_key")==idempotency_key:
-            result=details.get("result")
-            return result if isinstance(result,dict) else None
+        if details.get("idempotency_key")!=idempotency_key:
+            continue
+        if details.get("action")!=action:
+            raise HostingOperationsError("Idempotency key was already used for a different hosting action.",409)
+        result=details.get("result")
+        return result if isinstance(result,dict) else None
     return None
 
 
