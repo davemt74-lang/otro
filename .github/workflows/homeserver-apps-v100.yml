@@ -1,0 +1,63 @@
+name: HomeServer Apps V1
+
+on:
+  pull_request:
+    paths:
+      - 'app/homeserver_apps_api.py'
+      - 'app/services/homeserver_apps.py'
+      - 'app/services/local_apps.py'
+      - 'app/services/local_app_catalog.py'
+      - 'app/bridge.py'
+      - 'database/migrations/059_homeserver_apps_registry.sql'
+      - 'sdk/homeserver-app/**'
+      - 'tests/homeserver_apps_v100.py'
+      - 'tests/local_apps_v040.py'
+      - 'tests/migrations.py'
+      - '.github/workflows/homeserver-apps-v100.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/homeserver_apps_api.py'
+      - 'app/services/homeserver_apps.py'
+      - 'database/migrations/059_homeserver_apps_registry.sql'
+      - 'sdk/homeserver-app/**'
+      - 'tests/homeserver_apps_v100.py'
+      - '.github/workflows/homeserver-apps-v100.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-apps-v100-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apps-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Apps foundation
+        run: >-
+          python -m py_compile
+          app/bridge.py
+          app/homeserver_apps_api.py
+          app/services/homeserver_apps.py
+          app/services/homeserver_app_sdk.py
+          app/services/local_apps.py
+          sdk/homeserver-app/create_app.py
+          tests/homeserver_apps_v100.py
+          tests/local_apps_v040.py
+          tests/migrations.py
+      - name: Verify migration chain
+        run: python tests/migrations.py
+      - name: Verify existing Local Apps compatibility
+        run: python tests/local_apps_v040.py
+      - name: Verify Apps registry lifecycle and SDK
+        run: python tests/homeserver_apps_v100.py

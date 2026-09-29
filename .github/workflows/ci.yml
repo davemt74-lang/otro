@@ -647,7 +647,7 @@ jobs:
             version = '2.4'
             channel = 'stable'
             minimum_schema_version = 38
-            current_schema_version = 58
+            current_schema_version = 59
             feature_track = 'Tracky V2.81'
             feature_section = 3
             federated_automation_protocol = 'physical_federated_automation.v1'
