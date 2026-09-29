@@ -277,11 +277,17 @@ def restore(site_id:str,recovery_id:str)->dict[str,Any]:
             raise RecoveryError("Restored SQLite database is unhealthy.",409)
 
         deployment=json.loads((source_dir/"deployment.json").read_text(encoding="utf-8"))
+        active_release_id=deployment.get("active_release_id")
+        previous_release_id=deployment.get("previous_release_id")
+        if active_release_id:
+            hosting_deployment._release_manifest(site_id,str(active_release_id))
+        if previous_release_id:
+            hosting_deployment._release_manifest(site_id,str(previous_release_id))
         state_payload={
             "contract":"vp3.hosting.deployment-state.v1",
             "site_id":site_id,
-            "active_release_id":deployment.get("active_release_id"),
-            "previous_release_id":deployment.get("previous_release_id"),
+            "active_release_id":active_release_id,
+            "previous_release_id":previous_release_id,
         }
         hosting_deployment._write_state(site_id,state_payload)
 
