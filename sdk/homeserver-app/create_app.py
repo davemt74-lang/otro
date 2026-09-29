@@ -93,6 +93,7 @@ def create(root:Path,key:str,name:str,runtime:str)->Path:
     (target/"database"/"migrations").mkdir(parents=True)
     (target/"agent").mkdir(parents=True)
     (target/"runtime").mkdir(parents=True)
+    (target/"sample").mkdir(parents=True)
     manifest={
         "contract":"vp3.app.package.v1",
         "app_key":key,
@@ -107,6 +108,7 @@ def create(root:Path,key:str,name:str,runtime:str)->Path:
         "agent_actions":"agent/actions.json",
         "jobs":"runtime/jobs.json",
         "events":"runtime/events.json",
+        "sample_data":"sample/data.json",
         "routes":{"local":True,"private_remote":False,"public":False},
     }
     (target/"vp3-app.json").write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
@@ -122,6 +124,7 @@ def create(root:Path,key:str,name:str,runtime:str)->Path:
     (target/"agent"/"actions.json").write_text(ACTIONS+"\n",encoding="utf-8")
     (target/"runtime"/"jobs.json").write_text(json.dumps({"contract":"vp3.app.jobs.v1","jobs":[]},indent=2)+"\n",encoding="utf-8")
     (target/"runtime"/"events.json").write_text(json.dumps({"contract":"vp3.app.events.v1","subscriptions":[]},indent=2)+"\n",encoding="utf-8")
+    (target/"sample"/"data.json").write_text(json.dumps({"contract":"vp3.app.sample-data.v1","items":[{"id":"welcome","title":"Sample item","description":"Replace this with app-specific demo data."}]},indent=2)+"\n",encoding="utf-8")
     (target/"database"/"migrations"/".gitkeep").write_text("",encoding="utf-8")
     (target/"README.md").write_text(README.replace("{{APP_NAME}}",name),encoding="utf-8")
     return target
