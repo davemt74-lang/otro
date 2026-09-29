@@ -229,6 +229,12 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
                     result["active"]=release_id==_read_state(site_id).get("active_release_id")
                     return result
 
+    from . import hosting_recovery
+    pre_deploy=hosting_recovery.create_recovery_point(
+        site_id,
+        reason=f"pre-deploy:{manifest.get('version') or digest[:12]}",
+    )
+
     release_id="release_"+uuid.uuid4().hex[:24]
     root=releases_root(site_id)
     staging=Path(tempfile.mkdtemp(prefix=".staging-",dir=root))
@@ -280,10 +286,12 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
             "package_sha256":digest,
             "request_key":request_key,
             "runtime":runtime,
+            "pre_deploy_recovery_id":pre_deploy["recovery_id"],
         })
         result=dict(release_manifest)
         result["active"]=True
         result["previous_release_id"]=next_state["previous_release_id"]
+        result["pre_deploy_recovery_id"]=pre_deploy["recovery_id"]
         return result
     except Exception:
         archive.close()

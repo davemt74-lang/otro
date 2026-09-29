@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..database import db
-from . import hosting_deployment, hosting_runtime, hosting_serving
+from . import hosting_deployment, hosting_recovery, hosting_runtime, hosting_serving
 
 CONTRACT="vp3.hosting.cloud-control.v1"
 _CLOUD_SITE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$")
@@ -153,6 +153,7 @@ def _apply_desired(site_id:str,desired:dict[str,Any])->tuple[dict[str,Any],str|N
 def _site_projection(site:dict[str,Any],binding:dict[str,Any])->dict[str,Any]:
     deployment=hosting_deployment.deployment_status(str(site["site_id"]))
     health=hosting_serving.runtime_health(str(site["site_id"]))
+    recovery=hosting_recovery.recovery_health(str(site["site_id"]))
     return {
         "contract":CONTRACT,
         "cloud_site_id":binding["cloud_site_id"],
@@ -168,6 +169,9 @@ def _site_projection(site:dict[str,Any],binding:dict[str,Any])->dict[str,Any]:
         "active_release_id":deployment.get("active_release_id"),
         "local_serving_ready":bool(health.get("local_serving_ready")),
         "sqlite_healthy":bool((health.get("sqlite") or {}).get("healthy")),
+        "recovery_points":recovery.get("recovery_points"),
+        "latest_recovery_at":recovery.get("latest_created_at"),
+        "latest_recovery_verified":recovery.get("latest_verified"),
         "public_routing":False,
     }
 

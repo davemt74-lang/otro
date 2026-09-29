@@ -162,6 +162,8 @@ jobs:
         run: python tests/hosting_cloud_control_v130.py
       - name: HomeServer Hosting v1.30 VP3 remote control
         run: python tests/hosting_cloud_remote_v130.py
+      - name: HomeServer Hosting v1.40 recovery points
+        run: python tests/hosting_recovery_v140.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression

@@ -329,7 +329,7 @@ def agent_context_fragment(query: str, max_chars: int=1800) -> str:
         serving_text="serving unavailable"
         cloud_text="local-only"
         try:
-            from . import hosting_cloud_control, hosting_deployment, hosting_serving
+            from . import hosting_cloud_control, hosting_deployment, hosting_recovery, hosting_serving
             deployment=hosting_deployment.deployment_status(site["site_id"])
             active=deployment.get("active_release") or {}
             if active:
@@ -337,8 +337,14 @@ def agent_context_fragment(query: str, max_chars: int=1800) -> str:
             serving=hosting_serving.runtime_health(site["site_id"])
             serving_text="serving ready" if serving.get("local_serving_ready") else "serving degraded"
             binding=hosting_cloud_control.binding_for_site(str(site["site_id"]))
+            recovery=hosting_recovery.recovery_health(str(site["site_id"]))
+            recovery_text=(
+                f"{recovery.get('recovery_points')} recovery points"
+                if recovery.get("recovery_points") else "no recovery point"
+            )
             if binding:
                 cloud_text=f"Cloud desired {binding.get('desired_state')} rev {binding.get('revision')}"
+            cloud_text=f"{cloud_text} · {recovery_text}"
         except Exception:
             release_text="deployment status unavailable"
         lines.append(
