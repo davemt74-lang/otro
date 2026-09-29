@@ -161,7 +161,13 @@ def reconcile(
             raise PublicRoutingError("Public route cannot activate with an expired Cloud-edge certificate.",409)
 
     token=(current or {}).get("route_token")
-    if not token or rotate_token:
+    route_identity_changed=bool(
+        current and (
+            current.get("hostname")!=host
+            or (current.get("desired_state")!="active" and state=="active")
+        )
+    )
+    if not token or rotate_token or route_identity_changed:
         token=secrets.token_urlsafe(32)
 
     payload={
