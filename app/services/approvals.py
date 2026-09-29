@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, knowledge as knowledge_service, memory_continuity, room_device_automation, task_calendar_continuity as continuity, tools
+from . import contacts, homeserver_app_agent, knowledge as knowledge_service, memory_continuity, room_device_automation, task_calendar_continuity as continuity, tools
 
 
 LOCAL_OWNER_ONLY_ACTIONS = {"devices.command"}
@@ -597,6 +597,26 @@ def create_device_command_request(
     )
 
 
+
+def create_app_action_request(
+    source_app_key:str,
+    action_key:str,
+    arguments:dict[str,Any]|None,
+    *,
+    owner:bool=False,
+)->dict[str,Any]:
+    source=source_app_key.strip() or ("owner" if owner else "app:unknown")
+    actor_type="owner" if owner else "app"
+    if not owner:
+        raise ApprovalError("HomeServer app administration is available only to the owner Agent.",403)
+    raw_meta=homeserver_app_agent.safe_action_meta(action_key,arguments)
+    try:
+        normalized=homeserver_app_agent.normalize_action(action_key,arguments)
+    except homeserver_app_agent.AppAgentError as exc:
+        run_id=_record_failed_proposal(source,actor_type,action_key,[],raw_meta,str(exc))
+        raise ApprovalError(f"{exc} Run {run_id} was recorded.",exc.status_code) from exc
+    return _create_action_request(source,actor_type,action_key,normalized,raw_meta,[])
+
 def _decode_row(row, *, include_arguments: bool) -> dict[str, Any]:
     item = dict(row)
     raw_meta = item.pop("arguments_meta_json", None)
@@ -690,6 +710,7 @@ def approve_request(request_id: str) -> dict[str, Any]:
         "contacts.create", "contacts.update", "contacts.delete",
         "knowledge.create", "knowledge.update", "knowledge.delete",
         "calendar.create", "calendar.update", "calendar.delete",
+        "apps.prebuilt.install", "apps.build_install", "apps.rollback", "apps.recover", "apps.start", "apps.stop",
     }:
         raise ApprovalError("Action type is not approved for local execution.", 403)
     with db() as connection:
