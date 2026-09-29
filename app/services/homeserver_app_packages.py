@@ -264,9 +264,9 @@ def _read_state(app_key:str)->dict[str,Any]:
     return value
 
 
-def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict[str,Any]:
+def install_package(app_key:str,package:bytes,*,source_type:str|None=None,_system_managed:bool=False)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
-    if app["app_class"]!="user":
+    if app["app_class"]!="user" and not (_system_managed and app["app_class"]=="system" and app["protected_system_app"]):
         raise AppPackageError("System apps are managed by the VP3 system app installer.",409)
     validation=validate_package(package,expected_app_key=app_key)
     manifest=validation["manifest"]
@@ -302,7 +302,12 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
             homeserver_app_runtime.validate_release_contracts(app_key,content)
         except homeserver_app_runtime.AppRuntimeError as exc:
             raise AppPackageError(str(exc),exc.status_code) from exc
-        homeserver_apps.transition(app_key,transition_target,metadata={"version":manifest["version"],"package_sha256":validation["package_sha256"]})
+        homeserver_apps.transition(
+            app_key,transition_target,
+            actor_type="system" if _system_managed else "owner",
+            actor_key="vp3_prebuilt" if _system_managed else "local_owner",
+            metadata={"version":manifest["version"],"package_sha256":validation["package_sha256"]},
+        )
         transitioned=True
         release={
             "contract":"vp3.app.release.v1",
@@ -349,9 +354,11 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
             )
             connection.execute(
                 """INSERT INTO homeserver_app_events(app_id,event_type,from_state,to_state,actor_type,actor_key,metadata_json)
-                   VALUES (?, 'app.package.installed', ?, 'running', 'owner', 'local_owner', ?)""",
+                   VALUES (?, 'app.package.installed', ?, 'running', ?, ?, ?)""",
                 (
                     app["app_id"],transition_target,
+                    "system" if _system_managed else "owner",
+                    "vp3_prebuilt" if _system_managed else "local_owner",
                     json.dumps({"release_id":release_id,"version":manifest["version"],"package_sha256":validation["package_sha256"]},separators=(",",":"),sort_keys=True),
                 ),
             )
@@ -373,6 +380,13 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
         raise
     finally:
         archive.close()
+
+
+def install_system_package(app_key:str,package:bytes)->dict[str,Any]:
+    app=homeserver_apps.get(app_key)
+    if app["app_class"]!="system" or not app["protected_system_app"]:
+        raise AppPackageError("VP3 system package target is not a protected system app.",409)
+    return install_package(app_key,package,source_type="vp3_system",_system_managed=True)
 
 
 def runtime_status(app_key:str)->dict[str,Any]:
