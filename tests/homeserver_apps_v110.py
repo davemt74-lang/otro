@@ -163,7 +163,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v110-") as data_dir:
         )
         assert response.status_code==400
 
-        cap=client.get("/api/v1/capabilities").json()["homeserver_apps"]["packages"]
+        cap=client.get("/api/v1/control/homeserver-apps/capability").json()["packages"]
         assert cap["contract"]=="vp3.app.package.v1"
         assert cap["manifest_validation"] is True
         assert cap["atomic_release_activation"] is True
