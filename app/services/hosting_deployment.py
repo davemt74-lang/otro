@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..database import db
-from . import hosting_runtime
+from . import hosting_runtime, hosting_sqlite
 
 MAX_PACKAGE_BYTES = 64 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
@@ -272,6 +272,13 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
         (staging/"release.json").write_text(json.dumps(release_manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
         os.replace(staging,final)
 
+        migration_result=hosting_sqlite.apply_release_migrations(
+            site_id,
+            manifest,
+            final/"content",
+            release_id=release_id,
+        )
+
         old=_read_state(site_id)
         next_state={
             "contract":"vp3.hosting.deployment-state.v1",
@@ -287,11 +294,14 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
             "request_key":request_key,
             "runtime":runtime,
             "pre_deploy_recovery_id":pre_deploy["recovery_id"],
+            "sqlite_migrations_applied":migration_result.get("applied",[]),
+            "sqlite_migration_recovery_id":migration_result.get("recovery_id"),
         })
         result=dict(release_manifest)
         result["active"]=True
         result["previous_release_id"]=next_state["previous_release_id"]
         result["pre_deploy_recovery_id"]=pre_deploy["recovery_id"]
+        result["sqlite_migrations"]=migration_result
         return result
     except Exception:
         archive.close()
