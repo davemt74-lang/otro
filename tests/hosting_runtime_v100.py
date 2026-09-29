@@ -53,10 +53,15 @@ with tempfile.TemporaryDirectory(prefix="hosting-v100-") as data_dir:
     active=hosting_runtime.set_state(site["site_id"],"active")
     assert active["state"]=="active"
 
+    with db() as connection:
+        usage_before=connection.execute("SELECT COUNT(*) FROM hosting_usage_samples WHERE site_id=?",(site["site_id"],)).fetchone()[0]
     context=hosting_runtime.agent_context_fragment("How is my hosting and SQLite database?")
     assert "pizza.vp3.me" in context
     assert "SQLite healthy" in context
     assert str(root) not in context
+    with db() as connection:
+        usage_after=connection.execute("SELECT COUNT(*) FROM hosting_usage_samples WHERE site_id=?",(site["site_id"],)).fetchone()[0]
+    assert usage_after==usage_before
 
     capability=hosting_runtime.public_capability()
     assert capability["per_site_sqlite"] is True
