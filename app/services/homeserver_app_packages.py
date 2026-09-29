@@ -164,6 +164,23 @@ def validate_package(package:bytes,*,expected_app_key:str|None=None)->dict[str,A
         for path in required:
             if path not in seen:
                 raise AppPackageError(f"App package references missing file: {path}.")
+        sample_path=str(manifest.get("sample_data") or "").strip()
+        if sample_path:
+            try:
+                sample=json.loads(archive.read(_safe_rel(sample_path).as_posix()).decode("utf-8"))
+            except (KeyError,UnicodeDecodeError,json.JSONDecodeError) as exc:
+                raise AppPackageError("App sample data contract is invalid.") from exc
+            if not isinstance(sample,dict) or sample.get("contract")!="vp3.app.sample-data.v1":
+                raise AppPackageError("App sample data contract must be vp3.app.sample-data.v1.")
+            items=sample.get("items",[])
+            if not isinstance(items,list) or len(items)>500:
+                raise AppPackageError("App sample data items are invalid.")
+            for index,item in enumerate(items):
+                if not isinstance(item,dict):
+                    raise AppPackageError(f"App sample data item {index+1} must be an object.")
+                raw=json.dumps(item,separators=(",",":"),sort_keys=True)
+                if len(raw.encode("utf-8"))>64*1024:
+                    raise AppPackageError("An app sample data item exceeds the size limit.")
         mig=manifest.get("database_migrations")
         if mig:
             prefix=_safe_rel(str(mig)).as_posix().rstrip("/")+"/"
