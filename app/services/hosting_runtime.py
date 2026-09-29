@@ -353,13 +353,15 @@ def agent_context_fragment(query: str, max_chars: int=1800) -> str:
         serving_text="serving unavailable"
         cloud_text="local-only"
         try:
-            from . import hosting_cloud_control, hosting_deployment, hosting_recovery, hosting_serving
+            from . import hosting_cloud_control, hosting_deployment, hosting_observability, hosting_recovery, hosting_serving
             deployment=hosting_deployment.deployment_status(site["site_id"])
             active=deployment.get("active_release") or {}
             if active:
                 release_text=f"release {active.get('app_version') or active.get('release_id')}"
             serving=hosting_serving.runtime_health(site["site_id"])
             serving_text="serving ready" if serving.get("local_serving_ready") else "serving degraded"
+            observed=hosting_observability.summary(site["site_id"])
+            request_text=f"{observed.get('requests_total',0)} requests · {observed.get('server_error_total',0)} server errors"
             binding=hosting_cloud_control.binding_for_site(str(site["site_id"]))
             recovery=hosting_recovery.recovery_health(str(site["site_id"]))
             recovery_text=(
@@ -371,9 +373,10 @@ def agent_context_fragment(query: str, max_chars: int=1800) -> str:
             cloud_text=f"{cloud_text} · {recovery_text}"
         except Exception:
             release_text="deployment status unavailable"
+            request_text="request metrics unavailable"
         lines.append(
             f"- {site['display_name']} · {hostname} · {site['state']} · {site['runtime_kind']} · "
-            f"{release_text} · {serving_text} · {cloud_text} · SQLite {'healthy' if health['healthy'] else 'degraded'} · "
+            f"{release_text} · {serving_text} · {request_text} · {cloud_text} · SQLite {'healthy' if health['healthy'] else 'degraded'} · "
             f"storage {usage['storage_bytes']} bytes · database {usage['sqlite_bytes']} bytes"
         )
     return "\n".join(lines)[:max(240,int(max_chars))]
