@@ -161,6 +161,10 @@ def append_chunk(cloud_site_id:str,transfer_id:str,chunk_index:int,data_b64:str)
     if received>int(payload["package_bytes"]):
         raise CloudDeploymentError("Deployment transfer exceeds its declared size.",409)
     path=_data_path(site_id,transfer_id)
+    if path.is_symlink():
+        raise CloudDeploymentError("Deployment transfer storage is unsafe.",409)
+    if int(payload.get("received_bytes") or 0)>0 and not path.is_file():
+        raise CloudDeploymentError("Deployment transfer storage is missing and cannot resume.",409)
     with path.open("ab") as handle:
         handle.write(data)
     payload["received_bytes"]=received
@@ -186,7 +190,10 @@ def commit(cloud_site_id:str,transfer_id:str)->dict[str,Any]:
         raise CloudDeploymentError("Deployment transfer is not committable.",409)
     if int(payload.get("received_bytes") or 0)!=int(payload.get("package_bytes") or 0):
         raise CloudDeploymentError("Deployment transfer is incomplete.",409)
-    package=_data_path(site_id,transfer_id).read_bytes()
+    data_path=_data_path(site_id,transfer_id)
+    if not data_path.is_file() or data_path.is_symlink():
+        raise CloudDeploymentError("Deployment transfer storage is missing or unsafe.",409)
+    package=data_path.read_bytes()
     digest=hashlib.sha256(package).hexdigest()
     if digest!=payload.get("package_sha256"):
         payload["state"]="failed"
@@ -202,7 +209,7 @@ def commit(cloud_site_id:str,transfer_id:str)->dict[str,Any]:
         payload["sqlite_migration_recovery_id"]=(release.get("sqlite_migrations") or {}).get("recovery_id")
         payload["error"]=None
         _write(site_id,payload)
-        _data_path(site_id,transfer_id).unlink(missing_ok=True)
+        data_path.unlink(missing_ok=True)
         return _projection(payload)
     except hosting_runtime.HostingError as exc:
         payload["state"]="failed"
