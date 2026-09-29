@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_deployment, hosting_runtime
+from .services import hosting_deployment, hosting_runtime, hosting_serving
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -98,3 +98,26 @@ async def deploy(
 @router.post("/sites/{site_id}/deployments/rollback")
 def rollback(site_id: str) -> dict:
     return _call(hosting_deployment.rollback,site_id)
+
+
+@router.get("/sites/{site_id}/runtime-health")
+def runtime_health(site_id: str) -> dict:
+    return _call(hosting_serving.runtime_health,site_id)
+
+
+@router.api_route(
+    "/sites/{site_id}/preview/{request_path:path}",
+    methods=["GET","HEAD","POST"],
+    include_in_schema=False,
+)
+async def preview(site_id: str, request_path: str, request: Request):
+    body=await request.body()
+    return _call(
+        hosting_serving.serve,
+        site_id,
+        request_path,
+        method=request.method,
+        query_string=request.url.query,
+        content_type=request.headers.get("content-type"),
+        body=body,
+    )
