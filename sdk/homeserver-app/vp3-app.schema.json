@@ -89,6 +89,10 @@
     "events": {
       "type": "string",
       "maxLength": 240
+    },
+    "sample_data": {
+      "type": "string",
+      "maxLength": 240
     }
   }
 }
