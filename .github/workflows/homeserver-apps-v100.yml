@@ -11,6 +11,10 @@ on:
       - 'app/services/homeserver_app_resources.py'
       - 'app/services/homeserver_app_runtime.py'
       - 'app/services/homeserver_app_sample_data.py'
+      - 'ui/app.js'
+      - 'ui/index.html'
+      - 'ui/homeserver-apps.css'
+      - 'ui/homeserver-apps.js'
       - 'app/main.py'
       - 'app/services/local_apps.py'
       - 'app/services/local_app_catalog.py'
@@ -21,6 +25,7 @@ on:
       - 'tests/homeserver_apps_v110.py'
       - 'tests/homeserver_apps_v120.py'
       - 'tests/homeserver_apps_v130.py'
+      - 'tests/homeserver_apps_v140.py'
       - 'tests/local_apps_v040.py'
       - 'tests/migrations.py'
       - 'ui/system.html'
@@ -78,6 +83,8 @@ jobs:
           tests/migrations.py
       - name: Validate Apps admin JavaScript
         run: node --check ui/system.js
+      - name: Validate Apps manager JavaScript
+        run: node --check ui/homeserver-apps.js
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify existing Local Apps compatibility
@@ -90,3 +97,5 @@ jobs:
         run: python tests/homeserver_apps_v120.py
       - name: Verify App runtime routes data events and jobs
         run: python tests/homeserver_apps_v130.py
+      - name: Verify Installed Apps manager
+        run: python tests/homeserver_apps_v140.py
