@@ -23,6 +23,8 @@ on:
       - 'tests/homeserver_apps_v130.py'
       - 'tests/local_apps_v040.py'
       - 'tests/migrations.py'
+      - 'ui/system.html'
+      - 'ui/system.js'
       - '.github/workflows/homeserver-apps-v100.yml'
   push:
     branches: [main]
@@ -74,6 +76,8 @@ jobs:
           tests/homeserver_apps_v130.py
           tests/local_apps_v040.py
           tests/migrations.py
+      - name: Validate Apps admin JavaScript
+        run: node --check ui/system.js
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify existing Local Apps compatibility
