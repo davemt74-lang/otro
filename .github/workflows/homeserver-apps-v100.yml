@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'app/homeserver_apps_api.py'
+      - 'app/services/homeserver_app_*.py'
       - 'app/services/homeserver_apps.py'
       - 'app/services/homeserver_app_sdk.py'
       - 'app/services/homeserver_app_packages.py'
@@ -14,6 +15,7 @@ on:
       - 'tests/homeserver_apps_v150.py'
       - 'app/services/homeserver_app_prebuilt.py'
       - 'ui/app.js'
+      - 'ui/homeserver-apps.*'
       - 'ui/index.html'
       - 'ui/homeserver-apps.css'
       - 'ui/homeserver-apps.js'
@@ -23,6 +25,7 @@ on:
       - 'app/bridge.py'
       - 'database/migrations/059_homeserver_apps_registry.sql'
       - 'sdk/homeserver-app/**'
+      - 'tests/homeserver_apps_v1*.py'
       - 'tests/homeserver_apps_v100.py'
       - 'tests/homeserver_apps_v110.py'
       - 'tests/homeserver_apps_v120.py'
