@@ -81,6 +81,12 @@ def _validate_zip(package: bytes) -> tuple[zipfile.ZipFile, dict[str, Any], str]
         if mode == 0o120000:
             archive.close()
             raise DeploymentError("Deployment package may not contain symbolic links.")
+        if mode not in {0, 0o040000, 0o100000}:
+            archive.close()
+            raise DeploymentError("Deployment package contains an unsupported special file.")
+        if info.flag_bits & 0x1:
+            archive.close()
+            raise DeploymentError("Encrypted deployment packages are not supported.")
 
     try:
         raw_manifest = archive.read(MANIFEST_NAME)
@@ -191,6 +197,9 @@ def deployment_status(site_id: str) -> dict[str, Any]:
 
 def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None) -> dict[str, Any]:
     site=hosting_runtime.get_site(site_id)
+    request_key=str(request_key or "").strip() or None
+    if request_key is not None and len(request_key)>160:
+        raise DeploymentError("Idempotency key is too long.")
     if site["state"]=="suspended":
         raise DeploymentError("Suspended sites cannot receive deployments.",409)
     archive,manifest,digest=_validate_zip(package)
@@ -214,7 +223,11 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
                 release_id=str(details.get("release_id") or "")
                 if release_id:
                     archive.close()
-                    return _release_manifest(site_id,release_id)
+                    if str(details.get("package_sha256") or "") != digest:
+                        raise DeploymentError("Idempotency key was already used for a different deployment package.",409)
+                    result=_release_manifest(site_id,release_id)
+                    result["active"]=release_id==_read_state(site_id).get("active_release_id")
+                    return result
 
     release_id="release_"+uuid.uuid4().hex[:24]
     root=releases_root(site_id)
