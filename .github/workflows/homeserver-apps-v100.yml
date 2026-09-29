@@ -9,6 +9,8 @@ on:
       - 'app/services/homeserver_app_packages.py'
       - 'app/services/homeserver_app_security.py'
       - 'app/services/homeserver_app_resources.py'
+      - 'app/services/homeserver_app_runtime.py'
+      - 'app/main.py'
       - 'app/services/local_apps.py'
       - 'app/services/local_app_catalog.py'
       - 'app/bridge.py'
@@ -17,6 +19,7 @@ on:
       - 'tests/homeserver_apps_v100.py'
       - 'tests/homeserver_apps_v110.py'
       - 'tests/homeserver_apps_v120.py'
+      - 'tests/homeserver_apps_v130.py'
       - 'tests/local_apps_v040.py'
       - 'tests/migrations.py'
       - '.github/workflows/homeserver-apps-v100.yml'
@@ -59,11 +62,14 @@ jobs:
           app/services/homeserver_app_packages.py
           app/services/homeserver_app_security.py
           app/services/homeserver_app_resources.py
+          app/services/homeserver_app_runtime.py
+          app/main.py
           app/services/local_apps.py
           sdk/homeserver-app/create_app.py
           tests/homeserver_apps_v100.py
           tests/homeserver_apps_v110.py
           tests/homeserver_apps_v120.py
+          tests/homeserver_apps_v130.py
           tests/local_apps_v040.py
           tests/migrations.py
       - name: Verify migration chain
@@ -76,3 +82,5 @@ jobs:
         run: python tests/homeserver_apps_v110.py
       - name: Verify App permissions secrets and resource isolation
         run: python tests/homeserver_apps_v120.py
+      - name: Verify App runtime routes data events and jobs
+        run: python tests/homeserver_apps_v130.py
