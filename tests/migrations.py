@@ -560,7 +560,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 57))
+        assert versions_again == list(range(1, 58))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
