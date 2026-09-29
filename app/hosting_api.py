@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_runtime
+from .services import hosting_deployment, hosting_runtime
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -65,3 +65,36 @@ def site_state(site_id: str,payload: StateRequest) -> dict:
 @router.post("/sites/{site_id}/backups")
 def backup(site_id: str) -> dict:
     return _call(hosting_runtime.create_backup,site_id)
+
+
+@router.get("/sites/{site_id}/deployments")
+def deployments(site_id: str) -> dict:
+    return {
+        "status":_call(hosting_deployment.deployment_status,site_id),
+        "releases":_call(hosting_deployment.list_releases,site_id),
+    }
+
+
+@router.post("/sites/{site_id}/deployments")
+async def deploy(
+    site_id: str,
+    request: Request,
+    idempotency_key: str | None = Header(default=None,alias="Idempotency-Key"),
+) -> dict:
+    content_type=str(request.headers.get("content-type") or "").split(";",1)[0].strip().lower()
+    if content_type not in {"application/zip","application/octet-stream"}:
+        raise HTTPException(status_code=415,detail="Deployment body must be a ZIP package.")
+    content_length=request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length)>hosting_deployment.MAX_PACKAGE_BYTES:
+                raise HTTPException(status_code=413,detail="Deployment package exceeds the compressed size limit.")
+        except ValueError:
+            raise HTTPException(status_code=400,detail="Invalid Content-Length header.")
+    package=await request.body()
+    return _call(hosting_deployment.deploy_package,site_id,package,request_key=idempotency_key)
+
+
+@router.post("/sites/{site_id}/deployments/rollback")
+def rollback(site_id: str) -> dict:
+    return _call(hosting_deployment.rollback,site_id)

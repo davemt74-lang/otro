@@ -325,9 +325,18 @@ def agent_context_fragment(query: str, max_chars: int=1800) -> str:
         usage=measure_usage(site["site_id"])
         health=database_health(site["site_id"])
         hostname=site.get("requested_hostname") or "not assigned"
+        release_text="no active deployment"
+        try:
+            from . import hosting_deployment
+            deployment=hosting_deployment.deployment_status(site["site_id"])
+            active=deployment.get("active_release") or {}
+            if active:
+                release_text=f"release {active.get('app_version') or active.get('release_id')}"
+        except Exception:
+            release_text="deployment status unavailable"
         lines.append(
             f"- {site['display_name']} · {hostname} · {site['state']} · {site['runtime_kind']} · "
-            f"SQLite {'healthy' if health['healthy'] else 'degraded'} · "
+            f"{release_text} · SQLite {'healthy' if health['healthy'] else 'degraded'} · "
             f"storage {usage['storage_bytes']} bytes · database {usage['sqlite_bytes']} bytes"
         )
     return "\n".join(lines)[:max(240,int(max_chars))]
