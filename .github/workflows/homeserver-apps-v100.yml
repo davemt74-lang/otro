@@ -49,6 +49,7 @@ jobs:
           app/bridge.py
           app/homeserver_apps_api.py
           app/services/homeserver_apps.py
+          app/services/homeserver_app_sdk.py
           app/services/local_apps.py
           sdk/homeserver-app/create_app.py
           tests/homeserver_apps_v100.py
