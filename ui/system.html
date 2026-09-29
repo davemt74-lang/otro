@@ -134,6 +134,16 @@
       </div>
     </section>
 
+    <section class="system-section" id="hostingSection">
+      <div class="section-intro split">
+        <div><p class="eyebrow">HOMESERVER HOSTING · v1.90</p><h2>Hosting control center</h2><p>Review hosted-site health, releases, recovery, public routing, and package entitlement state. Actions reuse the canonical hosting runtime and never expose raw paths, SQL, or billing controls.</p></div>
+        <button class="button secondary" id="refreshHosting" type="button">Refresh hosting</button>
+      </div>
+      <div class="rollout-summary" id="hostingSummary"></div>
+      <div class="fleet-list" id="hostingSites"><div class="muted">No hosted sites.</div></div>
+      <div class="fleet-subsection"><h3>Hosting issues</h3><div class="fleet-list" id="hostingIssues"><div class="muted">No hosting issues.</div></div></div>
+    </section>
+
     <section class="system-section">
       <div class="section-intro"><div><p class="eyebrow">WINDOWS</p><h2>Runtime controls</h2><p>These controls operate the installed local application only. They are not part of the VP3 pairing permission catalog.</p></div></div>
       <div class="runtime-panel">

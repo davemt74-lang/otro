@@ -132,6 +132,7 @@ async function refreshHardwareExperience() {
   const [experience, events] = await Promise.all([
     systemApi('/api/v1/control/vp3-os/hardware-experience'),
     systemApi('/api/v1/control/vp3-os/hardware-experience/events?limit=12'),
+    systemApi('/api/v1/control/hosting/dashboard'),
   ]);
   renderHardwareExperience(experience);
   const items = events.items || [];
@@ -317,8 +318,42 @@ async function refreshPayments() {
   renderPayments(data);
 }
 
+function hostingSiteCard(item) {
+  const actions = [];
+  if (item.state === 'active') actions.push('<button class="button secondary" data-hosting-action="site.suspend" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Suspend</button>');
+  if (item.state !== 'active') actions.push('<button class="button primary" data-hosting-action="site.activate" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Activate</button>');
+  if (item.previous_release_id) actions.push('<button class="button secondary" data-hosting-action="deployment.rollback" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Rollback</button>');
+  actions.push('<button class="button secondary" data-hosting-action="recovery.create" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Recovery point</button>');
+  return '<article class="fleet-card"><div><strong>' + escSystem(item.display_name) + '</strong><span>' +
+    escSystem(item.hostname || 'No hostname') + ' · ' + escSystem(item.runtime_kind) + ' · ' + escSystem(item.state) +
+    '</span><small>Release ' + escSystem(item.active_release_id || 'none') + ' · public ' +
+    escSystem(item.public_route_ready ? 'ready' : 'not ready') + ' · SQLite ' +
+    escSystem(item.sqlite_healthy ? 'healthy' : 'degraded') + ' · storage ' + escSystem(bytes(item.usage?.storage_bytes || 0)) +
+    '</small></div><div class="runtime-actions">' + actions.join('') + '</div></article>';
+}
+
+function renderHosting(data) {
+  const counts = data.counts || {};
+  const ent = data.entitlements || {};
+  byId('hostingSummary').innerHTML = [
+    diagnosticCard('Hosted sites', data.healthy ? true : false, [['Sites', counts.sites || 0], ['Active', counts.active || 0], ['Issues', (data.issues || []).length]]),
+    diagnosticCard('Public routing', true, [['Routes', counts.public_routes || 0], ['Serving ready', counts.serving_ready || 0], ['SQLite healthy', counts.sqlite_healthy || 0]]),
+    diagnosticCard('Package entitlement', ent.within_entitlement !== false, [['Package', ent.package_key || 'not synced'], ['Within limits', ent.within_entitlement === false ? 'no' : 'yes'], ['Overages', (ent.overages || []).join(', ') || 'none']]),
+  ].join('');
+  const sites = data.sites || [];
+  byId('hostingSites').innerHTML = sites.length ? sites.map(hostingSiteCard).join('') : '<div class="muted">No hosted sites.</div>';
+  const issues = data.issues || [];
+  byId('hostingIssues').innerHTML = issues.length
+    ? issues.map(item => '<article class="fleet-alert warning"><strong>' + escSystem(item.code) + '</strong><span>' + escSystem(item.site_id) + '</span></article>').join('')
+    : '<div class="muted">No hosting issues.</div>';
+}
+
+async function refreshHosting() {
+  renderHosting(await systemApi('/api/v1/control/hosting/dashboard'));
+}
+
 async function refreshSystem() {
-  const [system, payments, rollout, fleet, experience, experienceEvents] = await Promise.all([
+  const [system, payments, rollout, fleet, experience, experienceEvents, hosting] = await Promise.all([
     systemApi('/api/v1/control/system'),
     systemApi('/api/v1/control/payments'),
     systemApi('/api/v1/control/vp3-os/rollout'),
@@ -332,6 +367,7 @@ async function refreshSystem() {
   renderRollout(rollout);
   renderFleet(fleet);
   renderHardwareExperience(experience);
+  renderHosting(hosting);
   const experienceEventItems = experienceEvents.items || [];
   byId('hardwareExperienceEvents').innerHTML = experienceEventItems.length
     ? experienceEventItems.map(experienceEventCard).join('')
@@ -339,6 +375,29 @@ async function refreshSystem() {
 }
 
 
+
+byId('refreshHosting').addEventListener('click', async () => {
+  try { await refreshHosting(); systemFlash('Hosting status refreshed.'); }
+  catch (err) { systemFlash(err.message, true); }
+});
+
+byId('hostingSites').addEventListener('click', async event => {
+  const button = event.target.closest('[data-hosting-action]');
+  if (!button) return;
+  const action = button.dataset.hostingAction;
+  const siteId = button.dataset.hostingSite;
+  const consequential = ['site.suspend','site.activate','deployment.rollback'].includes(action);
+  if (consequential && !confirm('Run ' + action + ' for this hosted site?')) return;
+  try {
+    const key = 'hosting-ui-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
+    await systemApi('/api/v1/control/hosting/sites/' + encodeURIComponent(siteId) + '/operations', {
+      method:'POST',
+      body:JSON.stringify({action, idempotency_key:key, confirmed:consequential}),
+    });
+    await refreshHosting();
+    systemFlash('Hosting action completed: ' + action + '.');
+  } catch (err) { systemFlash(err.message, true); }
+});
 
 byId('saveHardwareExperience').addEventListener('click', async () => {
   try {
