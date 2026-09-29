@@ -576,6 +576,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     str(body.get("site_id") or ""),
                     str(body.get("action") or ""),
                     str(body.get("idempotency_key") or ""),
+                    confirmed=bool(body.get("confirmed",False)),
                 )
             except hosting_runtime.HostingError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
