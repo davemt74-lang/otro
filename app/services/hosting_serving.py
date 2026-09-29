@@ -232,9 +232,9 @@ def serve(
     if target.suffix.lower() == ".php":
         if str(site["runtime_kind"]).lower() != "php":
             raise ServingError("PHP execution is not enabled for this site.", 403)
+        hosting_scheduler.acquire(site_id)
         try:
-            hosting_scheduler.acquire(site_id)
-            return _execute_php(
+            response=_execute_php(
                 site_id,
                 target,
                 method=method,
@@ -247,10 +247,8 @@ def serve(
         except Exception:
             hosting_scheduler.release(site_id,failed=True)
             raise
-        finally:
-            state=hosting_scheduler.status(site_id)
-            if state["inflight"]>0:
-                hosting_scheduler.release(site_id,failed=False)
+        hosting_scheduler.release(site_id,failed=False)
+        return response
 
     if method == "POST":
         raise ServingError("POST requests require a PHP entrypoint.",405)
