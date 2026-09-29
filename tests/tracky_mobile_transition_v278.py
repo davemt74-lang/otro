@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s4-") as data_dir:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()]
-        assert versions == list(range(1, 58))
+        assert versions == list(range(1, 59))
         for table in ("tracky_mobile_transitions", "tracky_mobile_transition_history"):
             assert connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)

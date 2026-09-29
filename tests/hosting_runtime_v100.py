@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix="hosting-v100-") as data_dir:
     initialize_database()
     with db() as connection:
         versions=[row["version"] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-    assert versions==list(range(1,58))
+    assert versions==list(range(1,59))
 
     site=hosting_runtime.create_site(
         "Pizza Site",

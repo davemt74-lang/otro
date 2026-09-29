@@ -5,7 +5,7 @@ import time
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_cloud_deployment, hosting_deployment, hosting_diagnostics, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, hosting_sqlite
+from .services import hosting_cloud_deployment, hosting_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, hosting_sqlite
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -28,6 +28,17 @@ class HostingOperationRequest(BaseModel):
     confirmed: bool = False
 
 
+class HealthPolicyRequest(BaseModel):
+    enabled: bool | None = None
+    interval_seconds: int | None = Field(default=None,ge=30,le=3600)
+    failure_threshold: int | None = Field(default=None,ge=1,le=10)
+    max_recovery_attempts: int | None = Field(default=None,ge=1,le=5)
+    cooldown_seconds: int | None = Field(default=None,ge=30,le=3600)
+    auto_reactivate: bool | None = None
+    auto_rollback: bool | None = None
+    auto_restore: bool | None = None
+
+
 def _call(fn,*args,**kwargs):
     try:
         return fn(*args,**kwargs)
@@ -45,6 +56,7 @@ def capability() -> dict:
     result["operations"]=hosting_operations.public_capability()
     result["scheduler"]=hosting_scheduler.public_capability()
     result["diagnostics"]=hosting_diagnostics.public_capability()
+    result["health_recovery"]=hosting_health_recovery.public_capability()
     return result
 
 
@@ -143,6 +155,22 @@ def runtime_health(site_id: str) -> dict:
 @router.get("/sites/{site_id}/diagnostics")
 def diagnostics(site_id: str, window_minutes: int=60, recent_limit: int=30) -> dict:
     return _call(hosting_diagnostics.summary,site_id,window_minutes=window_minutes,recent_limit=recent_limit)
+
+
+@router.get("/sites/{site_id}/health-recovery")
+def health_recovery_status(site_id: str) -> dict:
+    return _call(hosting_health_recovery.status,site_id)
+
+
+@router.post("/sites/{site_id}/health-recovery/check")
+def health_recovery_check(site_id: str, execute_recovery: bool=True) -> dict:
+    return _call(hosting_health_recovery.evaluate,site_id,execute_recovery=execute_recovery)
+
+
+@router.put("/sites/{site_id}/health-recovery/policy")
+def health_recovery_policy(site_id: str,payload: HealthPolicyRequest) -> dict:
+    changes={key:value for key,value in payload.model_dump().items() if value is not None}
+    return _call(hosting_health_recovery.update_policy,site_id,changes)
 
 
 @router.get("/sites/{site_id}/recovery")

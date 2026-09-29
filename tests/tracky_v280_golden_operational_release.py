@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v280-release-") as data_dir:
     initialize_database()
     with db() as connection:
         versions=[int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-    assert versions==list(range(1,58))
+    assert versions==list(range(1,59))
 
     for site_id,label in ((HOME,"Home"),(OFFICE,"Office")):
         tracky_site_topology.register_site(site_id=site_id,label=label)
@@ -165,7 +165,7 @@ assert "tracky_v280_golden_operational_release.py" in ci
 assert "tracky_v280_golden_operational_release.py" in release_workflow
 assert "feature_track = 'Tracky V2.81'" in ci
 assert "feature_section = 3" in ci
-assert "current_schema_version = 57" in ci
+assert "current_schema_version = 58" in ci
 assert "golden_operational_scenarios = 24" in ci
 assert "federated_automation_protocol = 'physical_federated_automation.v1'" in ci
 assert "federated_automation_execution_enabled = $true" in ci
