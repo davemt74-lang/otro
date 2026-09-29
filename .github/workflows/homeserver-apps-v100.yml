@@ -14,6 +14,8 @@ on:
       - 'app/services/homeserver_app_sample_data.py'
       - 'tests/homeserver_apps_v150.py'
       - 'app/services/homeserver_app_prebuilt.py'
+      - 'tests/homeserver_apps_v160.py'
+      - 'app/services/homeserver_app_releases.py'
       - 'ui/app.js'
       - 'ui/homeserver-apps.*'
       - 'ui/index.html'
@@ -78,6 +80,7 @@ jobs:
           app/services/homeserver_app_runtime.py
           app/services/homeserver_app_sample_data.py
           app/services/homeserver_app_prebuilt.py
+          app/services/homeserver_app_releases.py
           app/main.py
           app/services/local_apps.py
           sdk/homeserver-app/create_app.py
@@ -87,6 +90,7 @@ jobs:
           tests/homeserver_apps_v130.py
           tests/homeserver_apps_v140.py
           tests/homeserver_apps_v150.py
+          tests/homeserver_apps_v160.py
           tests/local_apps_v040.py
           tests/migrations.py
       - name: Validate Apps admin JavaScript
@@ -109,3 +113,5 @@ jobs:
         run: python tests/homeserver_apps_v140.py
       - name: Verify VP3 prebuilt apps
         run: python tests/homeserver_apps_v150.py
+      - name: Verify App updates rollback and recovery
+        run: python tests/homeserver_apps_v160.py
