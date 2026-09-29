@@ -23,6 +23,7 @@ class StateRequest(BaseModel):
 class HostingOperationRequest(BaseModel):
     action: str = Field(min_length=3,max_length=80)
     idempotency_key: str = Field(min_length=8,max_length=160)
+    confirmed: bool = False
 
 
 def _call(fn,*args,**kwargs):
@@ -51,7 +52,7 @@ def dashboard() -> dict:
 
 @router.post("/sites/{site_id}/operations")
 def execute_operation(site_id: str,payload: HostingOperationRequest) -> dict:
-    return _call(hosting_operations.execute,site_id,payload.action,payload.idempotency_key)
+    return _call(hosting_operations.execute,site_id,payload.action,payload.idempotency_key,confirmed=payload.confirmed)
 
 
 @router.get("/sites")
