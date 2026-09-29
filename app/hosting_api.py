@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_cloud_deployment, hosting_deployment, hosting_entitlements, hosting_public, hosting_recovery, hosting_runtime, hosting_serving, hosting_sqlite
+from .services import hosting_cloud_deployment, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_serving, hosting_sqlite
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -20,6 +20,11 @@ class StateRequest(BaseModel):
     state: str = Field(min_length=1,max_length=20)
 
 
+class HostingOperationRequest(BaseModel):
+    action: str = Field(min_length=3,max_length=80)
+    idempotency_key: str = Field(min_length=8,max_length=160)
+
+
 def _call(fn,*args,**kwargs):
     try:
         return fn(*args,**kwargs)
@@ -34,7 +39,19 @@ def capability() -> dict:
     result["cloud_deployment"]=hosting_cloud_deployment.public_capability()
     result["public_routing"]=hosting_public.public_capability()
     result["entitlements"]=hosting_entitlements.public_capability()
+    result["operations"]=hosting_operations.public_capability()
     return result
+
+
+
+@router.get("/dashboard")
+def dashboard() -> dict:
+    return _call(hosting_operations.dashboard)
+
+
+@router.post("/sites/{site_id}/operations")
+def execute_operation(site_id: str,payload: HostingOperationRequest) -> dict:
+    return _call(hosting_operations.execute,site_id,payload.action,payload.idempotency_key)
 
 
 @router.get("/sites")
