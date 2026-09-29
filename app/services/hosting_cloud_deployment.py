@@ -194,13 +194,19 @@ def commit(cloud_site_id:str,transfer_id:str)->dict[str,Any]:
 
 def rollback(cloud_site_id:str,*,request_key:str)->dict[str,Any]:
     site,_=_site_for_cloud(cloud_site_id)
-    release=hosting_deployment.rollback(str(site["site_id"]))
+    key=str(request_key or "").strip()
+    if not key or len(key)>160:
+        raise CloudDeploymentError("request_key is required and must be at most 160 characters.")
+    try:
+        release=hosting_deployment.rollback(str(site["site_id"]))
+    except hosting_runtime.HostingError as exc:
+        raise CloudDeploymentError(str(exc),exc.status_code) from exc
     return {
         "contract":CONTRACT,
         "cloud_site_id":cloud_site_id,
         "site_id":site["site_id"],
         "operation":"rollback",
-        "request_key":str(request_key or "")[:160],
+        "request_key":key,
         "state":"applied",
         "release_id":release.get("release_id"),
         "previous_release_id":release.get("previous_release_id"),
