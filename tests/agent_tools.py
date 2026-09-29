@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import gc
 import json
 import os
+import shutil
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -17,7 +20,8 @@ def tool_call(name: str, arguments: dict) -> dict:
     return {"type": "function", "function": {"name": name, "arguments": arguments}}
 
 
-with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
+data_dir = tempfile.mkdtemp(prefix="homeserver-agent-tools-")
+try:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
     from app.database import db  # noqa: E402
@@ -278,5 +282,22 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-tools-") as data_dir:
         assert disabled_again.json()["tools"]["policy_enabled"] is False
         assert disabled_again.json()["tools"]["call_count"] == 0
         assert len(normal_calls) == normal_before + 1
+finally:
+    try:
+        scheduler.stop()
+    except NameError:
+        pass
+    gc.collect()
+    cleanup_error = None
+    for _ in range(50):
+        try:
+            shutil.rmtree(data_dir)
+            cleanup_error = None
+            break
+        except PermissionError as exc:
+            cleanup_error = exc
+            time.sleep(0.1)
+    if cleanup_error is not None:
+        raise cleanup_error
 
 print("HomeServer Agent Tool test passed")
