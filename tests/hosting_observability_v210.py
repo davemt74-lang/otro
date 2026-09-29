@@ -44,12 +44,16 @@ with tempfile.TemporaryDirectory(prefix="hosting-v210-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
 
     from app.database import initialize_database
-    from app.services import hosting_deployment,hosting_observability,hosting_operations,hosting_runtime,hosting_serving
+    from app.services import hosting_deployment,hosting_observability,hosting_operations,hosting_runtime,hosting_serving,pairing,remote_bridge
 
     initialize_database()
     site=hosting_runtime.create_site("Observed Site",runtime_kind="static")
     site_id=site["site_id"]
     hosting_deployment.deploy_package(site_id,package("hello"),request_key="v210-observe")
+
+    vp3=pairing.create_pairing_request("vp3","VP3 Cloud",["hosting.manage"])
+    assert pairing.approve_pairing(vp3["code"]) is not None
+    token=vp3["claim_token"]
 
     response=hosting_serving.serve(
         site_id,
@@ -61,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix="hosting-v210-") as data_dir:
     asyncio.run(consume(response))
 
     try:
-        hosting_serving.serve(site_id,"missing.html",method="GET",query_string="secret=never-log")
+        hosting_serving.serve(site_id,"reset/ABCDEF0123456789ABCDEF0123456789",method="GET",query_string="secret=never-log")
         raise AssertionError("missing resource unexpectedly served")
     except hosting_serving.ServingError as exc:
         assert exc.status_code==404
@@ -84,12 +88,22 @@ with tempfile.TemporaryDirectory(prefix="hosting-v210-") as data_dir:
     assert "bearer secret" not in serialized
     assert "session=secret" not in serialized
     assert "secret=never-log" not in serialized
+    assert "abcdef0123456789abcdef0123456789" not in serialized
+    assert "[redacted]" in serialized
     assert "authorization" not in serialized
     assert "cookie" not in serialized
     assert "query" not in serialized
     assert "body" not in serialized
     assert "sqlite" not in serialized
     assert str(Path(data_dir)).lower() not in serialized
+
+    remote_status=remote_bridge.dispatch_remote_request("hosting.observability.status",{"site_id":site_id},token)
+    assert remote_status["ok"] is True
+    assert remote_status["payload"]["requests_total"]==2
+    remote_recent=remote_bridge.dispatch_remote_request("hosting.observability.recent",{"site_id":site_id,"limit":10},token)
+    assert remote_recent["ok"] is True
+    assert len(remote_recent["payload"]["items"])==2
+    assert "super-secret" not in json.dumps(remote_recent).lower()
 
     dashboard=hosting_operations.dashboard()
     observed=next(item for item in dashboard["sites"] if item["site_id"]==site_id)
