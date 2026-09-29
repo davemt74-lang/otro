@@ -152,6 +152,8 @@ def reconcile(
             raise PublicRoutingError("Public route cannot activate before hostname ownership is verified.",409)
         if tls not in {"active","renewing"} or not not_after:
             raise PublicRoutingError("Public route cannot activate without valid Cloud-edge TLS.",409)
+        if not _tls_valid({"tls_state":tls,"certificate_not_after":not_after}):
+            raise PublicRoutingError("Public route cannot activate with an expired Cloud-edge certificate.",409)
 
     token=(current or {}).get("route_token")
     if not token or rotate_token:
