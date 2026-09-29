@@ -174,6 +174,32 @@ def _open_incident(site_id: str, issues: list[str], consecutive_failures: int) -
     return incident_id
 
 
+def _cloud_allows_activation(site_id: str) -> bool:
+    try:
+        from . import hosting_cloud_control
+        binding = hosting_cloud_control.binding_for_site(site_id)
+    except Exception:
+        binding = None
+    return not binding or str(binding.get("desired_state") or "") == "active"
+
+
+def _cooldown_active(site_id: str, cooldown_seconds: int) -> bool:
+    with db() as connection:
+        row = connection.execute(
+            """SELECT created_at FROM hosting_runtime_events
+               WHERE site_id=? AND event_type='hosting.health.recovery.action'
+               ORDER BY id DESC LIMIT 1""",
+            (site_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        active = connection.execute(
+            "SELECT datetime(?) > datetime('now', ?)",
+            (row["created_at"], f"-{max(30, int(cooldown_seconds))} seconds"),
+        ).fetchone()[0]
+    return bool(active)
+
+
 def _action_count(site_id: str, incident_id: str) -> int:
     with db() as connection:
         rows = connection.execute(
@@ -210,7 +236,7 @@ def _recover(site_id: str, incident_id: str, issues: list[str], cfg: dict[str, A
     action = "none"
     result: dict[str, Any] = {}
 
-    if cfg["auto_reactivate"] and site["state"] in {"failed", "configured"} and deployment.get("active_release_id"):
+    if cfg["auto_reactivate"] and _cloud_allows_activation(site_id) and site["state"] in {"failed", "configured"} and deployment.get("active_release_id"):
         action = "reactivate"
         try:
             hosting_runtime.set_state(site_id, "active")
@@ -262,6 +288,7 @@ def _recover(site_id: str, incident_id: str, issues: list[str], cfg: dict[str, A
         "action": action,
         "succeeded": action != "none" and not remaining,
         "remaining_core_issues": remaining,
+        "no_safe_local_action": action == "none",
         **result,
     }
 
@@ -325,6 +352,14 @@ def evaluate(site_id: str, *, execute_recovery: bool = True) -> dict[str, Any]:
 
     incident_id = _open_incident(site_id, issues, consecutive)
     attempts = _action_count(site_id, incident_id)
+    if _cooldown_active(site_id, int(cfg["cooldown_seconds"])):
+        _event(site_id, "hosting.health.incident.recovering", "recovering", {
+            "incident_id": incident_id,
+            "issues": issues,
+            "attempts": attempts,
+            "reason": "recovery_cooldown",
+        })
+        return status(site_id)
     if attempts >= int(cfg["max_recovery_attempts"]):
         _event(site_id, "hosting.health.incident.escalated", "escalated", {
             "incident_id": incident_id,
@@ -336,13 +371,21 @@ def evaluate(site_id: str, *, execute_recovery: bool = True) -> dict[str, Any]:
 
     recovery = _recover(site_id, incident_id, issues, cfg)
     core_after = _core_issues(site_id)
-    if recovery.get("attempted") and not core_after:
+    if recovery.get("no_safe_local_action"):
+        _event(site_id, "hosting.health.incident.escalated", "escalated", {
+            "incident_id": incident_id,
+            "issues": issues,
+            "attempts": attempts,
+            "reason": "no_safe_local_recovery",
+            "cloud_authority_required": "public_route_not_ready" in issues,
+        })
+    elif recovery.get("attempted") and not core_after:
         _event(site_id, "hosting.health.incident.recovered", "recovered", {
             "incident_id": incident_id,
             "recovered_at": _now(),
             "action": recovery.get("action"),
         })
-    else:
+    elif not recovery.get("no_safe_local_action"):
         next_attempts = _action_count(site_id, incident_id)
         event_type = "hosting.health.incident.escalated" if next_attempts >= int(cfg["max_recovery_attempts"]) else "hosting.health.incident.recovering"
         state = "escalated" if event_type.endswith("escalated") else "recovering"
@@ -396,8 +439,11 @@ def status(site_id: str) -> dict[str, Any]:
         })
 
     health_state = str((check or {}).get("state") or "unknown")
-    if incident and incident["event_type"] != "hosting.health.incident.recovered":
-        health_state = str(incident.get("state") or health_state)
+    if incident:
+        if incident["event_type"] == "hosting.health.incident.recovered":
+            health_state = "recovered" if health_state != "healthy" else "healthy"
+        else:
+            health_state = str(incident.get("state") or health_state)
     return {
         "contract": CONTRACT,
         "site_id": site_id,
