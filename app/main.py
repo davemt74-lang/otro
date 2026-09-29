@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federated_automation, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
+from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, hosting_health_recovery, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federated_automation, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -43,9 +43,11 @@ async def lifespan(_: FastAPI):
     local_automation.start()
     automation_intelligence.start()
     ambient_orchestration.start()
+    hosting_health_recovery.start()
     try:
         yield
     finally:
+        hosting_health_recovery.stop()
         ambient_orchestration.stop()
         automation_intelligence.stop()
         local_automation.stop()
