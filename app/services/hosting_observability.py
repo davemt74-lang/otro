@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,7 @@ CONTRACT="vp3.hosting.observability.v2"
 MAX_RECENT_EVENTS=500
 MAX_LOG_BYTES=512*1024
 _LOCK=threading.RLock()
+_TOKENISH=re.compile(r"^(?:[A-Fa-f0-9]{24,}|[A-Za-z0-9_-]{32,})$")
 
 
 class ObservabilityError(hosting_runtime.HostingError):
@@ -82,8 +84,11 @@ def _sanitize_path(value:str)->str:
             continue
         if part=="..":
             parts.append("_")
-        else:
-            parts.append(part[:120])
+            continue
+        if "@" in part or _TOKENISH.fullmatch(part):
+            parts.append("[redacted]")
+            continue
+        parts.append(part[:120])
     result="/"+"/".join(parts)
     return result[:500] or "/"
 
