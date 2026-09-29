@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -532,6 +532,37 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     window_minutes=_bounded_int(body.get("window_minutes"),default=60,minimum=1,maximum=1440,name="window_minutes"),
                     recent_limit=_bounded_int(body.get("recent_limit"),default=30,minimum=0,maximum=100,name="recent_limit"),
                 )
+            except hosting_runtime.HostingError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.health.status":
+            _vp3_hosting_identity(token)
+            try:
+                projection=hosting_cloud_control.status(str(body.get("cloud_site_id") or ""))
+                payload_out=hosting_health_recovery.status(str(projection["site_id"]))
+                payload_out["cloud_site_id"]=str(projection["cloud_site_id"])
+            except hosting_runtime.HostingError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.health.check":
+            _vp3_hosting_identity(token)
+            try:
+                projection=hosting_cloud_control.status(str(body.get("cloud_site_id") or ""))
+                payload_out=hosting_health_recovery.evaluate(
+                    str(projection["site_id"]),
+                    execute_recovery=bool(body.get("execute_recovery",False)),
+                )
+                payload_out["cloud_site_id"]=str(projection["cloud_site_id"])
+            except hosting_runtime.HostingError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.health.policy.update":
+            _vp3_hosting_identity(token)
+            try:
+                projection=hosting_cloud_control.status(str(body.get("cloud_site_id") or ""))
+                changes=body.get("policy") if isinstance(body.get("policy"),dict) else {}
+                payload_out=hosting_health_recovery.update_policy(str(projection["site_id"]),changes)
+                payload_out["cloud_site_id"]=str(projection["cloud_site_id"])
             except hosting_runtime.HostingError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
