@@ -102,6 +102,15 @@ with tempfile.TemporaryDirectory(prefix="hosting-v160-") as data_dir:
     assert duplicate["ok"] is True
     assert duplicate["payload"]["next_chunk"]==1
 
+    altered=remote_bridge.dispatch_remote_request("hosting.deployment.chunk",{
+        "cloud_site_id":desired["cloud_site_id"],
+        "transfer_id":transfer_id,
+        "chunk_index":0,
+        "data_b64":base64.b64encode(b"different").decode(),
+    },token)
+    assert altered["ok"] is False
+    assert altered["status"]==409
+
     part1=remote_bridge.dispatch_remote_request("hosting.deployment.chunk",{
         "cloud_site_id":desired["cloud_site_id"],
         "transfer_id":transfer_id,
@@ -142,6 +151,16 @@ with tempfile.TemporaryDirectory(prefix="hosting-v160-") as data_dir:
     assert stale["ok"] is False
     assert stale["status"]==409
 
+    conflict=remote_bridge.dispatch_remote_request("hosting.deployment.begin",{
+        "cloud_site_id":desired["cloud_site_id"],
+        "revision":2,
+        "package_sha256":first_sha,
+        "package_bytes":len(first_package)+1,
+        "request_key":"cloud-deploy-1",
+    },token)
+    assert conflict["ok"] is False
+    assert conflict["status"]==409
+
     second_package=package("1.6.1","release-two")
     second_sha=hashlib.sha256(second_package).hexdigest()
     second=remote_bridge.dispatch_remote_request("hosting.deployment.begin",{
@@ -176,6 +195,13 @@ with tempfile.TemporaryDirectory(prefix="hosting-v160-") as data_dir:
     assert rolled["payload"]["release_id"]==first_release
     assert rolled["payload"]["recovery"]["latest_verified"] is True
     assert rolled["payload"]["sqlite"]["healthy"] is True
+
+    rolled_replay=remote_bridge.dispatch_remote_request("hosting.deployment.rollback",{
+        "cloud_site_id":desired["cloud_site_id"],
+        "request_key":"cloud-rollback-1",
+    },token)
+    assert rolled_replay["ok"] is True
+    assert rolled_replay["payload"]["release_id"]==first_release
 
     summary=remote_bridge.dispatch_remote_request("hosting.deployment.status",{
         "cloud_site_id":desired["cloud_site_id"],
