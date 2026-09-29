@@ -7,7 +7,7 @@
     while(n>=1024 && i<units.length-1){ n/=1024; i++; }
     return `${n.toFixed(i===0?0:n>=10?1:2)} ${units[i]}`;
   };
-  const state={data:null,filter:'all',loading:false};
+  const state={data:null,catalog:null,filter:'all',loading:false};
 
   function ensureWorkspace(){
     if(document.getElementById('view-homeserver-apps')) return;
@@ -29,6 +29,10 @@
         <div><p class="eyebrow">HOMESERVER APPS</p><h2>Installed Apps</h2><p>Manage VP3 system apps and the apps you build from the VP3 SDK.</p></div>
         <button class="button primary" type="button" data-hs-app-create>Create App</button>
       </div>
+      <section class="hs-prebuilt-section">
+        <div class="panel-head"><div><p class="eyebrow">VP3 PREBUILT</p><h3>VP3 Apps</h3><p class="muted">First-party apps bundled and maintained by VP3. App Store packages are not included here.</p></div></div>
+        <div id="hsPrebuiltGrid" class="hs-prebuilt-grid"><div class="panel empty-state">Loading VP3 Apps…</div></div>
+      </section>
       <div class="hs-apps-toolbar">
         <button class="button secondary active" type="button" data-hs-app-filter="all">All</button>
         <button class="button secondary" type="button" data-hs-app-filter="system">VP3 System</button>
@@ -57,7 +61,7 @@
   function card(app){
     const meta=app.metadata||{};
     const system=app.app_class==='system';
-    const canOpen=!system && app.lifecycle_state==='running' && meta.active_release_id;
+    const canOpen=app.lifecycle_state==='running' && meta.active_release_id && (!system || meta.prebuilt_app);
     return `
       <article class="panel hs-app-card" data-hs-app-card="${esc(app.app_key)}">
         <div class="hs-app-card-head">
@@ -75,19 +79,34 @@
       </article>`;
   }
 
+  function renderPrebuilt(){
+    const grid=document.getElementById('hsPrebuiltGrid');
+    if(!grid||!state.catalog) return;
+    const packages=state.catalog.packages||[];
+    grid.innerHTML=packages.length?packages.map(item=>{
+      const label=item.current?'Installed':item.update_available?'Update':'Install';
+      const disabled=item.current?'disabled':'';
+      return '<article class="panel hs-prebuilt-card"><div><div class="hs-app-status-row"><span class="hs-app-status '+(item.current?'running':'stopped')+'"></span><span>'+esc(item.category)+'</span></div><h3>'+esc(item.name)+'</h3><p>'+esc(item.description)+'</p><div class="hs-app-tags"><span>VP3</span><span>v'+esc(item.version)+'</span><span>Embedded</span></div></div><button class="button '+(item.current?'secondary':'primary')+'" type="button" data-hs-prebuilt-install="'+esc(item.key)+'" '+disabled+'>'+label+'</button></article>';
+    }).join(''):'<div class="panel empty-state">No VP3 prebuilt apps are available.</div>';
+  }
+
   function render(){
     const grid=document.getElementById('hsAppsGrid');
     if(!grid||!state.data) return;
     const apps=(state.data.apps||[]).filter(app=>state.filter==='all'||app.app_class===state.filter);
     document.getElementById('hsAppsSummary').textContent=`${state.data.counts?.system||0} system · ${state.data.counts?.user||0} user`;
     grid.innerHTML=apps.length?apps.map(card).join(''):'<div class="panel empty-state">No Apps match this filter.</div>';
+    renderPrebuilt();
   }
 
   async function load(force=false){
     if(state.loading) return;
     state.loading=true;
     try{
-      if(force||!state.data) state.data=await window.api('/api/v1/control/homeserver-apps');
+      if(force||!state.data||!state.catalog){
+        const loaded=await Promise.all([window.api('/api/v1/control/homeserver-apps'),window.api('/api/v1/control/homeserver-apps/catalog/prebuilt')]);
+        state.data=loaded[0]; state.catalog=loaded[1];
+      }
       render();
     }catch(error){
       const grid=document.getElementById('hsAppsGrid');
@@ -104,7 +123,7 @@
       const detail=await window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}`);
       const app=detail.app, system=app.app_class==='system';
       let permissions=null,resources=null,runtime=null,secrets=null;
-      if(!system){
+      if(!system || (app.metadata||{}).prebuilt_app){
         [permissions,resources,runtime,secrets]=await Promise.all([
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/permissions`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/resources`).catch(()=>null),
@@ -167,6 +186,18 @@
     if(event.target.closest('[data-hs-app-detail-close]')) document.getElementById('hsAppDetail')?.classList.add('hidden');
     const manage=event.target.closest('[data-hs-app-details]');
     if(manage) detail(manage.dataset.hsAppDetails);
+    const prebuilt=event.target.closest('[data-hs-prebuilt-install]');
+    if(prebuilt){
+      const key=prebuilt.dataset.hsPrebuiltInstall;
+      prebuilt.disabled=true;
+      const original=prebuilt.textContent;
+      prebuilt.textContent=original==='Update'?'Updating…':'Installing…';
+      post('/api/v1/control/homeserver-apps/catalog/prebuilt/'+encodeURIComponent(key)+'/install')
+        .then(async()=>{await load(true);window.flash('VP3 app installed.');})
+        .catch(error=>window.flash(error.message||'VP3 app install failed.',true))
+        .finally(()=>{prebuilt.disabled=false;});
+      return;
+    }
     const action=event.target.closest('[data-hs-app-stop],[data-hs-app-resume],[data-hs-app-archive],[data-hs-app-build]');
     if(action) act(action);
   });

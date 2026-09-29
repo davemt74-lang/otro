@@ -103,6 +103,51 @@ def sync_legacy_local_apps() -> int:
         return changed
 
 
+
+def ensure_system_app(
+    app_key:str,
+    name:str,
+    *,
+    source_ref:str="vp3-prebuilt",
+    metadata:dict[str,Any]|None=None,
+)->dict[str,Any]:
+    key=str(app_key or "").strip().lower()
+    label=str(name or "").strip()
+    if not _KEY_RE.fullmatch(key):
+        raise HomeServerAppError("System app key is invalid.")
+    if not label or len(label)>160:
+        raise HomeServerAppError("System app name is invalid.")
+    merged=dict(metadata or {})
+    merged.update({"vp3_managed":True,"prebuilt_app":True})
+    with db() as connection:
+        row=connection.execute("SELECT * FROM homeserver_apps WHERE app_key=?",(key,)).fetchone()
+        if row is not None:
+            if str(row["app_class"])!="system":
+                raise HomeServerAppError("A user app already uses this VP3 system app key.",409)
+            existing=_loads(row["metadata_json"])
+            existing.update(merged)
+            connection.execute(
+                """UPDATE homeserver_apps SET name=?,source_type='vp3_system',source_ref=?,
+                   protected_system_app=1,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE app_id=?""",
+                (label,str(source_ref or "")[:500],json.dumps(existing,separators=(",",":"),sort_keys=True),row["app_id"]),
+            )
+            return get(key)
+        app_id="app_"+uuid.uuid4().hex
+        connection.execute(
+            """INSERT INTO homeserver_apps(
+                app_id,app_key,name,app_class,source_type,lifecycle_state,
+                source_ref,owner_key,protected_system_app,metadata_json
+            ) VALUES (?,?,?,'system','vp3_system','draft',?,'vp3_system',1,?)""",
+            (app_id,key,label,str(source_ref or "")[:500],json.dumps(merged,separators=(",",":"),sort_keys=True)),
+        )
+        connection.execute(
+            """INSERT INTO homeserver_app_events(app_id,event_type,to_state,actor_type,actor_key,metadata_json)
+               VALUES (?, 'app.system.registered','draft','system','vp3_prebuilt',?)""",
+            (app_id,json.dumps({"source_ref":source_ref},separators=(",",":"),sort_keys=True)),
+        )
+    return get(key)
+
+
 def register_user_app(
     app_key: str,
     name: str,
