@@ -38,7 +38,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return homeserver_apps.public_capability()
+    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability()}
 
 
 @router.post("")
