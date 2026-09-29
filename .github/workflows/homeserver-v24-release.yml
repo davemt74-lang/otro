@@ -189,6 +189,10 @@ jobs:
         run: python tests/hosting_cloud_remote_v130.py
       - name: Verify HomeServer Hosting v1.40 recovery points
         run: python tests/hosting_recovery_v140.py
+      - name: Verify HomeServer Hosting v1.50 per-site SQLite runtime
+        run: python tests/hosting_sqlite_v150.py
+      - name: Verify HomeServer Hosting v1.60 Cloud deployment reconciliation
+        run: python tests/hosting_cloud_deployment_v160.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance
