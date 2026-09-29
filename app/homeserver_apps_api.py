@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_packages, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_apps
+from .services import homeserver_app_packages, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_apps
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -36,6 +36,10 @@ class ResourceLimitsRequest(BaseModel):
     sqlite_limit_bytes:int|None=Field(default=None,ge=1)
 
 
+class SampleDataSettingsRequest(BaseModel):
+    enabled:bool
+
+
 class AppEventRequest(BaseModel):
     topic:str=Field(min_length=1,max_length=160)
     payload:dict=Field(default_factory=dict)
@@ -54,6 +58,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_runtime.AppRuntimeError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_sample_data.AppSampleDataError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("")
@@ -63,7 +69,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability()}
+    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability()}
 
 
 @router.post("")
@@ -220,3 +226,18 @@ async def app_preview(app_key:str,request_path:str,request:Request):
         content_type=request.headers.get("content-type"),
         body=body,
     )
+
+
+@router.get("/admin/sample-data")
+def app_sample_data_settings()->dict:
+    return {"sample_data":homeserver_app_sample_data.settings_status()}
+
+
+@router.put("/admin/sample-data")
+def app_sample_data_settings_update(payload:SampleDataSettingsRequest)->dict:
+    return {"sample_data":homeserver_app_sample_data.set_enabled(payload.enabled)}
+
+
+@router.get("/{app_key}/sample-data")
+def app_sample_data(app_key:str)->dict:
+    return {"sample_data":_call(homeserver_app_sample_data.load_app_sample_data,app_key)}

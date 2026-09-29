@@ -23,7 +23,7 @@ MAX_FILES=5000
 _ALLOWED_RUNTIMES={"static","php"}
 _ALLOWED_KEYS={
     "contract","app_key","name","version","runtime","entrypoint","sdk_version",
-    "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events",
+    "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events","sample_data",
 }
 
 
@@ -110,7 +110,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
             raise AppPackageError("App routes are invalid.")
         if any(not isinstance(v,bool) for v in routes.values()):
             raise AppPackageError("App route flags must be booleans.")
-    for field in ("settings_schema","database_migrations","agent_actions","jobs","events"):
+    for field in ("settings_schema","database_migrations","agent_actions","jobs","events","sample_data"):
         if manifest.get(field):
             _safe_rel(str(manifest[field]))
     manifest["app_key"]=key
@@ -158,12 +158,29 @@ def validate_package(package:bytes,*,expected_app_key:str|None=None)->dict[str,A
         if expected_app_key and manifest["app_key"]!=str(expected_app_key).strip().lower():
             raise AppPackageError("App package identity does not match the target app.",409)
         required=[manifest["entrypoint"]]
-        for field in ("settings_schema","agent_actions","jobs","events"):
+        for field in ("settings_schema","agent_actions","jobs","events","sample_data"):
             if manifest.get(field):
                 required.append(_safe_rel(str(manifest[field])).as_posix())
         for path in required:
             if path not in seen:
                 raise AppPackageError(f"App package references missing file: {path}.")
+        sample_path=str(manifest.get("sample_data") or "").strip()
+        if sample_path:
+            try:
+                sample=json.loads(archive.read(_safe_rel(sample_path).as_posix()).decode("utf-8"))
+            except (KeyError,UnicodeDecodeError,json.JSONDecodeError) as exc:
+                raise AppPackageError("App sample data contract is invalid.") from exc
+            if not isinstance(sample,dict) or sample.get("contract")!="vp3.app.sample-data.v1":
+                raise AppPackageError("App sample data contract must be vp3.app.sample-data.v1.")
+            items=sample.get("items",[])
+            if not isinstance(items,list) or len(items)>500:
+                raise AppPackageError("App sample data items are invalid.")
+            for index,item in enumerate(items):
+                if not isinstance(item,dict):
+                    raise AppPackageError(f"App sample data item {index+1} must be an object.")
+                raw=json.dumps(item,separators=(",",":"),sort_keys=True)
+                if len(raw.encode("utf-8"))>64*1024:
+                    raise AppPackageError("An app sample data item exceeds the size limit.")
         mig=manifest.get("database_migrations")
         if mig:
             prefix=_safe_rel(str(mig)).as_posix().rstrip("/")+"/"
