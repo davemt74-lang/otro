@@ -12,13 +12,13 @@ from . import hosting_runtime
 CONTRACT = "vp3.hosting.sqlite.v1"
 MAX_MIGRATION_BYTES = 2 * 1024 * 1024
 MAX_MIGRATIONS_PER_RELEASE = 200
-_MIGRATION_NAME = re.compile(r"^[0-9]{1,8}_[A-Za-z0-9][A-Za-z0-9_.-]{0,119}\\.sql$")
+_MIGRATION_NAME = re.compile(r"^[0-9]{1,8}_[A-Za-z0-9][A-Za-z0-9_.-]{0,119}\.sql$")
 _FORBIDDEN_SQL = (
-    re.compile(r"\\bATTACH\\s+(?:DATABASE\\s+)?", re.IGNORECASE),
-    re.compile(r"\\bDETACH\\s+(?:DATABASE\\s+)?", re.IGNORECASE),
-    re.compile(r"\\bVACUUM\\s+INTO\\b", re.IGNORECASE),
-    re.compile(r"\\bload_extension\\s*\\(", re.IGNORECASE),
-    re.compile(r"\\bPRAGMA\\s+(?:writable_schema|temp_store_directory|data_store_directory)\\b", re.IGNORECASE),
+    re.compile(r"\bATTACH\s+(?:DATABASE\s+)?", re.IGNORECASE),
+    re.compile(r"\bDETACH\s+(?:DATABASE\s+)?", re.IGNORECASE),
+    re.compile(r"\bVACUUM\s+INTO\b", re.IGNORECASE),
+    re.compile(r"\bload_extension\s*\(", re.IGNORECASE),
+    re.compile(r"\bPRAGMA\s+(?:writable_schema|temp_store_directory|data_store_directory)\b", re.IGNORECASE),
 )
 _LOCKS: dict[str, threading.RLock] = {}
 _LOCKS_GUARD = threading.Lock()
