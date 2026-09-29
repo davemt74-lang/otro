@@ -15,6 +15,9 @@ MODEL_TOOL_NAMES = {
     "homeserver_memory_list": "memory.list",
     "homeserver_notifications_list": "notifications.list",
     "homeserver_tasks_list": "tasks.list",
+    "homeserver_apps_list": "apps.list",
+    "homeserver_app_get": "apps.get",
+    "homeserver_app_releases": "apps.releases",
 }
 MEMORY_PROPOSAL_TOOL_NAME = "homeserver_memory_write_request"
 MEMORY_PROPOSAL_TOOL_KEY = "memory.write"
@@ -26,6 +29,15 @@ TASK_PROPOSAL_TOOL_NAME = "homeserver_task_create_request"
 TASK_PROPOSAL_TOOL_KEY = "tasks.create"
 DEVICE_PROPOSAL_TOOL_NAME = "homeserver_device_command_request"
 DEVICE_PROPOSAL_TOOL_KEY = "devices.command"
+
+APP_ACTION_MODEL_TOOLS = {
+    "homeserver_app_install_prebuilt_request": "apps.prebuilt.install",
+    "homeserver_app_build_install_request": "apps.build_install",
+    "homeserver_app_rollback_request": "apps.rollback",
+    "homeserver_app_recover_request": "apps.recover",
+    "homeserver_app_start_request": "apps.start",
+    "homeserver_app_stop_request": "apps.stop",
+}
 
 
 class AgentToolError(RuntimeError):
@@ -239,6 +251,24 @@ def model_tool_schemas(
                     },
                 }
             )
+
+        for model_name, tool_key in APP_ACTION_MODEL_TOOLS.items():
+            app_tool=by_key.get(tool_key)
+            if not app_tool or not app_tool.get("available") or not owner:
+                continue
+            schemas.append(
+                {
+                    "type":"function",
+                    "function":{
+                        "name":model_name,
+                        "description":(
+                            app_tool["description"]+
+                            " This does not execute immediately; HomeServer creates an owner approval request."
+                        ),
+                        "parameters":app_tool["input_schema"],
+                    },
+                }
+            )
         device_tool = by_key.get(DEVICE_PROPOSAL_TOOL_KEY)
         device_execution = _execution_policy(source_app_key, DEVICE_PROPOSAL_TOOL_KEY, owner)
         if (
@@ -362,11 +392,14 @@ def execute_model_tool(
         MEMORY_DELETE_PROPOSAL_TOOL_NAME,
         TASK_PROPOSAL_TOOL_NAME,
         DEVICE_PROPOSAL_TOOL_NAME,
+        *APP_ACTION_MODEL_TOOLS.keys(),
     }:
         global_policy = get_policy()
         if not global_policy["enabled"] or not global_policy["allow_write_proposals"]:
             raise _deny_unavailable(source_app_key, owner)
-        if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
+        if model_tool_name in APP_ACTION_MODEL_TOOLS:
+            tool_key=APP_ACTION_MODEL_TOOLS[model_tool_name]
+        elif model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
             tool_key = MEMORY_PROPOSAL_TOOL_KEY
         elif model_tool_name == MEMORY_UPDATE_PROPOSAL_TOOL_NAME:
             tool_key = MEMORY_UPDATE_PROPOSAL_TOOL_KEY
@@ -398,7 +431,14 @@ def execute_model_tool(
             _record_policy(execution, "allowed_automatic", reason="Agent Tool execution allowed by owner-defined safe-automatic policy.")
             return result
         try:
-            if model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
+            if model_tool_name in APP_ACTION_MODEL_TOOLS:
+                result=approvals.create_app_action_request(
+                    source_app_key,
+                    APP_ACTION_MODEL_TOOLS[model_tool_name],
+                    args,
+                    owner=owner,
+                )
+            elif model_tool_name == MEMORY_PROPOSAL_TOOL_NAME:
                 result = approvals.create_memory_write_request(source_app_key, args, owner=owner)
             elif model_tool_name == MEMORY_UPDATE_PROPOSAL_TOOL_NAME:
                 result = approvals.create_memory_update_request(source_app_key, args, owner=owner)
