@@ -65,6 +65,12 @@ with tempfile.TemporaryDirectory(prefix="hosting-v130-") as data_dir:
     assert second["display_name"]=="Renamed Cloud Site"
     assert second["site_id"]==site_id
 
+    # Same revision must repair local drift rather than merely acknowledge replay.
+    hosting_runtime.set_state(site_id,"active")
+    repaired=hosting_cloud_control.reconcile(dict(updated))
+    assert repaired["reconcile_result"]=="idempotent"
+    assert repaired["observed_state"]=="suspended"
+
     old=dict(desired)
     old["revision"]=1
     stale_result=hosting_cloud_control.reconcile(old)
