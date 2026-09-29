@@ -7,6 +7,7 @@ from typing import Any
 from . import (
     hosting_cloud_control,
     hosting_deployment,
+    hosting_diagnostics,
     hosting_entitlements,
     hosting_public,
     hosting_recovery,
@@ -54,6 +55,7 @@ def _site_summary(site:dict[str,Any])->dict[str,Any]:
         "cloud_bound":bool(binding),
         "cloud_revision":int(binding.get("revision") or 0) if binding else None,
         "cloud_desired_state":binding.get("desired_state") if binding else None,
+        "observability":hosting_diagnostics.summary(site_id,window_minutes=60,recent_limit=0),
     }
 
 
