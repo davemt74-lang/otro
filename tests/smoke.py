@@ -141,6 +141,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert agent_tools.json()["policy"]["max_calls"] == 3
         assert agent_tools.json()["policy"]["allow_write_proposals"] is False
         assert set(agent_tools.json()["available_tools"]) == {
+            "homeserver_app_get",
+            "homeserver_app_releases",
+            "homeserver_apps_list",
             "homeserver_contacts_search",
             "homeserver_devices_list",
             "homeserver_file_read",
@@ -155,6 +158,15 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         owner_tools = client.get("/api/v1/control/tools")
         assert owner_tools.status_code == 200
         assert [item["key"] for item in owner_tools.json()["items"]] == [
+            "apps.build_install",
+            "apps.get",
+            "apps.list",
+            "apps.prebuilt.install",
+            "apps.recover",
+            "apps.releases",
+            "apps.rollback",
+            "apps.start",
+            "apps.stop",
             "calendar.create",
             "calendar.delete",
             "calendar.list",
