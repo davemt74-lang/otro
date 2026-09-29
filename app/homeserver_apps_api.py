@@ -82,3 +82,8 @@ async def install_app_package(app_key:str,file:UploadFile=File(...))->dict:
 @router.get("/{app_key}/runtime")
 def app_runtime_status(app_key:str)->dict:
     return {"runtime":_call(homeserver_app_packages.runtime_status,app_key)}
+
+
+@router.post("/{app_key}/build-install")
+def build_install_user_app(app_key:str)->dict:
+    return {"release":_call(homeserver_app_packages.install_project,app_key)}
