@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, hosting_cloud_control, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -427,6 +427,13 @@ def _direct_identity(token: str, required_permissions: set[str] | None = None) -
     return identity
 
 
+def _vp3_hosting_identity(token: str) -> dict:
+    identity=_direct_identity(token,{"hosting.manage"})
+    if str(identity.get("app_key") or "")!="vp3":
+        raise RemoteBridgeError("Hosting control is restricted to the paired VP3 Cloud app.")
+    return identity
+
+
 def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: str | None = None) -> dict:
     requested_op = str(operation or "").strip()
     op = _REMOTE_OPERATION_ALIASES.get(requested_op, requested_op)
@@ -442,6 +449,24 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
     with httpx.Client(base_url=base_url, timeout=125.0, trust_env=False) as client:
         if op == "capabilities":
             return _local_response(client.get("/api/v1/capabilities"))
+        if op == "hosting.inventory":
+            _vp3_hosting_identity(token)
+            return {"status":200,"ok":True,"payload":hosting_cloud_control.inventory()}
+        if op == "hosting.site.status":
+            _vp3_hosting_identity(token)
+            cloud_site_id=str(body.get("cloud_site_id") or "")
+            try:
+                payload_out=hosting_cloud_control.status(cloud_site_id)
+            except hosting_cloud_control.CloudHostingError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.site.reconcile":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_control.reconcile(body)
+            except hosting_cloud_control.CloudHostingError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
         if op == "system.ping":
             identity = _direct_identity(token)
             remote = load_or_create_remote_identity()
