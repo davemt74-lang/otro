@@ -4,6 +4,8 @@ on:
   pull_request:
     paths-ignore:
       - 'app/homeserver_apps_api.py'
+      - 'app/services/homeserver_app_*.py'
+      - 'ui/homeserver-apps.*'
       - 'app/services/homeserver_apps.py'
       - 'app/services/homeserver_app_sdk.py'
       - 'app/services/homeserver_app_packages.py'
