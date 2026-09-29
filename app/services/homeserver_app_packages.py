@@ -257,7 +257,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
     if current_state not in {"draft","installed","running","degraded","stopped","failed"}:
         raise AppPackageError("App is busy with another lifecycle operation.",409)
     transition_target="updating" if current_state in {"installed","running","degraded","stopped"} else "installing"
-    homeserver_apps.transition(app_key,transition_target,metadata={"version":manifest["version"],"package_sha256":validation["package_sha256"]})
+    transitioned=False
     root=releases_root(app_key)
     release_id="apprel_"+uuid.uuid4().hex[:24]
     staging=Path(tempfile.mkdtemp(prefix=".staging-",dir=root))
@@ -285,6 +285,8 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
             homeserver_app_runtime.validate_release_contracts(app_key,content)
         except homeserver_app_runtime.AppRuntimeError as exc:
             raise AppPackageError(str(exc),exc.status_code) from exc
+        homeserver_apps.transition(app_key,transition_target,metadata={"version":manifest["version"],"package_sha256":validation["package_sha256"]})
+        transitioned=True
         release={
             "contract":"vp3.app.release.v1",
             "release_id":release_id,
@@ -346,10 +348,11 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
         return result
     except Exception as exc:
         shutil.rmtree(staging,ignore_errors=True)
-        try:
-            homeserver_apps.transition(app_key,"failed",metadata={"reason":str(exc)[:500]})
-        except Exception:
-            pass
+        if transitioned:
+            try:
+                homeserver_apps.transition(app_key,"failed",metadata={"reason":str(exc)[:500]})
+            except Exception:
+                pass
         raise
     finally:
         archive.close()
