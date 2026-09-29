@@ -13,7 +13,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import homeserver_apps
+from . import homeserver_app_sdk, homeserver_apps
 
 CONTRACT="vp3.app.package.v1"
 RUNTIME_CONTRACT="vp3.app.runtime-install.v1"
@@ -178,6 +178,48 @@ def validate_package(package:bytes,*,expected_app_key:str|None=None)->dict[str,A
     finally:
         archive.close()
 
+
+
+def build_project_package(app_key:str)->dict[str,Any]:
+    app=homeserver_apps.get(app_key)
+    if app["app_class"]!="user":
+        raise AppPackageError("Only user apps can be packaged from an SDK project.",409)
+    try:
+        project=homeserver_app_sdk.app_root(app_key)
+    except homeserver_app_sdk.AppSdkError as exc:
+        raise AppPackageError(str(exc)) from exc
+    if not project.is_dir():
+        raise AppPackageError("User app project is missing.",404)
+    buffer=io.BytesIO()
+    file_count=0
+    expanded=0
+    with zipfile.ZipFile(buffer,"w",zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(project.rglob("*")):
+            if path.is_symlink():
+                raise AppPackageError("User app project may not contain symbolic links.")
+            if path.is_dir():
+                continue
+            rel=path.relative_to(project).as_posix()
+            _safe_rel(rel)
+            if any(part in {"__pycache__",".git",".svn"} for part in Path(rel).parts):
+                continue
+            size=path.stat().st_size
+            file_count+=1
+            expanded+=size
+            if file_count>MAX_FILES:
+                raise AppPackageError("User app project contains too many files.",413)
+            if expanded>MAX_UNCOMPRESSED_BYTES:
+                raise AppPackageError("User app project exceeds the expanded size limit.",413)
+            archive.write(path,rel)
+    package=buffer.getvalue()
+    validation=validate_package(package,expected_app_key=app_key)
+    return {"package":package,"validation":validation}
+
+
+def install_project(app_key:str)->dict[str,Any]:
+    app=homeserver_apps.get(app_key)
+    built=build_project_package(app_key)
+    return install_package(app_key,built["package"],source_type=app["source_type"])
 
 def _write_state(app_key:str,state:dict[str,Any])->None:
     root=runtime_root()/app_key
