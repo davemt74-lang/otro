@@ -22,6 +22,7 @@ from .device_rollout_api import router as device_rollout_router
 from .files_api import router as files_router
 from .fleet_api import router as fleet_router
 from .hardware_experience_api import router as hardware_experience_router
+from .homeserver_apps_api import router as homeserver_apps_router
 from .hosting_api import router as hosting_router
 from .hosting_public_api import router as hosting_public_router
 from .handoffs_api import router as handoffs_router
@@ -117,6 +118,7 @@ app.include_router(release_readiness_router)
 app.include_router(device_rollout_router)
 app.include_router(fleet_router)
 app.include_router(hardware_experience_router)
+app.include_router(homeserver_apps_router)
 app.include_router(hosting_router)
 app.include_router(hosting_public_router)
 
@@ -163,6 +165,7 @@ def capabilities() -> dict:
         "vp3_hosting_operations": hosting_operations.public_capability(),
         "vp3_hosting_scheduler": hosting_scheduler.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
+        "homeserver_apps": {"contract": "vp3.homeserver-apps.registry.v1", "system_apps": True, "user_apps": True, "sdk": "1.0", "app_store": "future"},
         "local_voice": {
             "version": "v0.41",
             "owner_api": True,
