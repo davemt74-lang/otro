@@ -10,7 +10,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from fastapi.responses import FileResponse, Response
-from starlette.background import BackgroundTask
 
 from . import hosting_deployment, hosting_observability, hosting_runtime, hosting_scheduler
 
@@ -241,24 +240,48 @@ def _record_request(
         pass
 
 
-def _finish_static_request(
-    site_id: str,
-    method: str,
-    request_path: str,
-    started_at: float,
-    bytes_out: int,
-) -> None:
-    try:
-        _record_request(
-            site_id,
-            method=method,
-            request_path=request_path,
-            status_code=200,
-            started_at=started_at,
-            bytes_out=bytes_out,
-        )
-    finally:
-        hosting_scheduler.release(site_id,False)
+class _TrackedFileResponse(FileResponse):
+    def __init__(
+        self,
+        *args,
+        site_id:str,
+        method:str,
+        request_path:str,
+        started_at:float,
+        bytes_out:int,
+        **kwargs,
+    ):
+        super().__init__(*args,**kwargs)
+        self._vp3_site_id=site_id
+        self._vp3_method=method
+        self._vp3_request_path=request_path
+        self._vp3_started_at=started_at
+        self._vp3_bytes_out=bytes_out
+
+    async def __call__(self,scope,receive,send):
+        status=200
+        error_code=None
+        failed=False
+        try:
+            return await super().__call__(scope,receive,send)
+        except Exception as exc:
+            failed=True
+            status=499 if exc.__class__.__name__.lower().find("disconnect")>=0 else 500
+            error_code=exc.__class__.__name__
+            raise
+        finally:
+            try:
+                _record_request(
+                    self._vp3_site_id,
+                    method=self._vp3_method,
+                    request_path=self._vp3_request_path,
+                    status_code=status,
+                    started_at=self._vp3_started_at,
+                    bytes_out=0 if failed else self._vp3_bytes_out,
+                    error_code=error_code,
+                )
+            finally:
+                hosting_scheduler.release(self._vp3_site_id,failed)
 
 
 def serve(
@@ -284,7 +307,18 @@ def serve(
         if target.suffix.lower() == ".php":
             if str(site["runtime_kind"]).lower() != "php":
                 raise ServingError("PHP execution is not enabled for this site.", 403)
-            hosting_scheduler.acquire(site_id)
+            try:
+                hosting_scheduler.acquire(site_id)
+            except Exception as exc:
+                _record_request(
+                    site_id,
+                    method=method,
+                    request_path=request_path,
+                    status_code=int(getattr(exc,"status_code",503)),
+                    started_at=started_at,
+                    error_code=exc.__class__.__name__,
+                )
+                raise
             try:
                 response=_execute_php(
                     site_id,
@@ -327,12 +361,16 @@ def serve(
         hosting_scheduler.acquire(site_id)
         try:
             size=0 if method=="HEAD" else int(target.stat().st_size)
-            return FileResponse(
+            return _TrackedFileResponse(
                 target,
                 media_type=media_type or "application/octet-stream",
                 filename=None,
                 headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"},
-                background=BackgroundTask(_finish_static_request,site_id,method,request_path,started_at,size),
+                site_id=site_id,
+                method=method,
+                request_path=request_path,
+                started_at=started_at,
+                bytes_out=size,
             )
         except Exception:
             hosting_scheduler.release(site_id,failed=True)
