@@ -114,14 +114,20 @@ with tempfile.TemporaryDirectory(prefix="hosting-v190-") as data_dir:
     except hosting_operations.HostingOperationsError as exc:
         assert exc.status_code==409
 
-    suspended=hosting_operations.execute(site_id,"site.suspend","release-op-suspend-0001")
+    try:
+        hosting_operations.execute(site_id,"site.suspend","release-op-suspend-unconfirmed")
+        raise AssertionError("consequential action did not require confirmation")
+    except hosting_operations.HostingOperationsError as exc:
+        assert exc.status_code==409
+
+    suspended=hosting_operations.execute(site_id,"site.suspend","release-op-suspend-0001",confirmed=True)
     assert suspended["state"]=="suspended"
-    activated=hosting_operations.execute(site_id,"site.activate","release-op-activate-0001")
+    activated=hosting_operations.execute(site_id,"site.activate","release-op-activate-0001",confirmed=True)
     assert activated["state"]=="active"
 
-    rolled=hosting_operations.execute(site_id,"deployment.rollback","release-op-rollback-0001")
+    rolled=hosting_operations.execute(site_id,"deployment.rollback","release-op-rollback-0001",confirmed=True)
     assert rolled["release_id"]==release1["release_id"]
-    rolled_replay=hosting_operations.execute(site_id,"deployment.rollback","release-op-rollback-0001")
+    rolled_replay=hosting_operations.execute(site_id,"deployment.rollback","release-op-rollback-0001",confirmed=True)
     assert rolled_replay["replayed"] is True
     assert rolled_replay["release_id"]==release1["release_id"]
 
@@ -141,6 +147,7 @@ with tempfile.TemporaryDirectory(prefix="hosting-v190-") as data_dir:
         "site_id":site_id,
         "action":"site.delete",
         "idempotency_key":"release-op-delete-0001",
+        "confirmed":True,
     },token)
     assert bad_action["ok"] is False
     assert bad_action["status"]==403
@@ -151,6 +158,8 @@ with tempfile.TemporaryDirectory(prefix="hosting-v190-") as data_dir:
     assert cap["raw_filesystem_access"] is False
     assert cap["raw_sql_access"] is False
     assert cap["billing_mutations"] is False
+    assert cap["explicit_confirmation_for_consequential_actions"] is True
+    assert cap["cloud_desired_state_activation_gate"] is True
     assert cap["automatic_destructive_actions"] is False
 
 print("HomeServer Hosting v1.90 Section 10 release hardening: PASS")
