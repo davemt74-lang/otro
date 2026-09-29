@@ -44,6 +44,7 @@ def _resolve_target(site_id: str, request_path: str) -> Path:
     target = root if rel.as_posix() == "." else (root / Path(*rel.parts)).resolve()
     if target != root and root not in target.parents:
         raise ServingError("Requested site path escaped the active release.", 400)
+    hosting_runtime._ensure_no_symlink(target.parent)
     if target.exists() and target.is_symlink():
         raise ServingError("Hosted site symlinks are not served.", 403)
     if target.is_dir():
@@ -66,7 +67,7 @@ def _safe_runtime_environment() -> dict[str, str]:
     return env
 
 
-def _parse_cgi_output(raw: bytes) -> tuple[int, dict[str, str], bytes]:
+def _parse_cgi_output(raw: bytes) -> tuple[int, dict[str, str], list[str], bytes]:
     if len(raw) > MAX_PHP_OUTPUT_BYTES:
         raise ServingError("PHP response exceeded the output limit.", 502)
     marker = b"\r\n\r\n"
@@ -80,6 +81,7 @@ def _parse_cgi_output(raw: bytes) -> tuple[int, dict[str, str], bytes]:
     body = raw[split + len(marker):]
     status = 200
     headers: dict[str, str] = {}
+    cookies: list[str] = []
     for line in header_blob.replace("\r\n", "\n").split("\n"):
         if not line.strip() or ":" not in line:
             continue
@@ -95,10 +97,13 @@ def _parse_cgi_output(raw: bytes) -> tuple[int, dict[str, str], bytes]:
         if not _HEADER_NAME.fullmatch(name):
             continue
         lower = name.lower()
-        if lower in {"connection", "transfer-encoding", "content-length", "set-cookie"}:
+        if lower in {"connection", "transfer-encoding", "content-length"}:
+            continue
+        if lower == "set-cookie":
+            cookies.append(value)
             continue
         headers[name] = value
-    return status, headers, body
+    return status, headers, cookies, body
 
 
 def _execute_php(
@@ -110,6 +115,7 @@ def _execute_php(
     content_type: str | None,
     body: bytes,
     request_path: str,
+    request_headers: dict[str, str] | None = None,
 ) -> Response:
     binary = php_cgi_path()
     if not binary:
@@ -119,18 +125,55 @@ def _execute_php(
 
     public_root = hosting_deployment.active_public_root(site_id).resolve()
     env = _safe_runtime_environment()
+    site=hosting_runtime.get_site(site_id)
+    storage_root=(hosting_runtime.site_root(site_id)/"storage").resolve()
+    sqlite_path=hosting_runtime.site_db_path(site_id).resolve()
+    script_name="/" + str(request_path or target.name).replace("\\", "/").lstrip("/")
+    hostname=str(site.get("requested_hostname") or "localhost")
     env.update({
         "GATEWAY_INTERFACE": "CGI/1.1",
         "SERVER_PROTOCOL": "HTTP/1.1",
         "SERVER_SOFTWARE": "VP3-HomeServer",
+        "SERVER_NAME": hostname,
+        "SERVER_PORT": "80",
+        "REMOTE_ADDR": "127.0.0.1",
         "REQUEST_METHOD": method,
         "QUERY_STRING": query_string,
+        "REQUEST_URI": script_name + (("?" + query_string) if query_string else ""),
         "SCRIPT_FILENAME": str(target),
-        "SCRIPT_NAME": "/" + str(request_path or target.name).replace("\\", "/").lstrip("/"),
+        "SCRIPT_NAME": script_name,
         "DOCUMENT_ROOT": str(public_root),
         "REDIRECT_STATUS": "1",
         "CONTENT_LENGTH": str(len(body)),
+        "VP3_SITE_ID": site_id,
+        "VP3_SQLITE_PATH": str(sqlite_path),
+        "VP3_STORAGE_DIR": str(storage_root),
+        "VP3_PUBLIC_ROOT": str(public_root),
     })
+    incoming={str(k).lower():str(v) for k,v in (request_headers or {}).items()}
+    forwarded={
+        "accept":"HTTP_ACCEPT",
+        "accept-language":"HTTP_ACCEPT_LANGUAGE",
+        "user-agent":"HTTP_USER_AGENT",
+        "referer":"HTTP_REFERER",
+    }
+    for header,env_key in forwarded.items():
+        value=incoming.get(header)
+        if value:
+            env[env_key]=value[:4096]
+    cookie=incoming.get("cookie","")
+    if cookie:
+        safe_parts=[]
+        for part in cookie.split(";"):
+            item=part.strip()
+            if not item:
+                continue
+            name=item.split("=",1)[0].strip().lower()
+            if name=="homeserver_owner":
+                continue
+            safe_parts.append(item)
+        if safe_parts:
+            env["HTTP_COOKIE"]="; ".join(safe_parts)[:8192]
     if content_type:
         env["CONTENT_TYPE"] = content_type
 
@@ -152,14 +195,17 @@ def _execute_php(
 
     if completed.returncode != 0:
         raise ServingError("PHP runtime failed while serving the request.", 502)
-    status, headers, response_body = _parse_cgi_output(completed.stdout)
+    status, headers, cookies, response_body = _parse_cgi_output(completed.stdout)
     media_type = headers.pop("Content-Type", headers.pop("content-type", None))
-    return Response(
+    response=Response(
         content=b"" if method == "HEAD" else response_body,
         status_code=status,
         headers=headers,
         media_type=media_type,
     )
+    for cookie_value in cookies:
+        response.headers.append("set-cookie",cookie_value)
+    return response
 
 
 def serve(
@@ -170,6 +216,7 @@ def serve(
     query_string: str = "",
     content_type: str | None = None,
     body: bytes = b"",
+    request_headers: dict[str, str] | None = None,
 ):
     site = hosting_runtime.get_site(site_id)
     method = str(method or "GET").upper()
@@ -190,6 +237,7 @@ def serve(
             content_type=content_type,
             body=body,
             request_path=request_path,
+            request_headers=request_headers,
         )
 
     media_type, _ = mimetypes.guess_type(str(target))
