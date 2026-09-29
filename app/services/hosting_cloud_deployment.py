@@ -14,7 +14,7 @@ from . import hosting_cloud_control, hosting_deployment, hosting_recovery, hosti
 
 CONTRACT="vp3.hosting.cloud-deployment.v1"
 _TRANSFER_ID=re.compile(r"^transfer_[a-z0-9]{24}$")
-_RELEASE_ID=re.compile(r"^release_[a-z0-9]{24}$")
+_RELEASE_ID=re.compile(r"^release_[0-9a-f]{24}$")
 MAX_CHUNK_BYTES=128*1024
 
 
@@ -270,6 +270,7 @@ def releases(cloud_site_id:str)->dict[str,Any]:
             "package_sha256":str(item.get("package_sha256") or ""),
             "created_at":str(item.get("created_at") or ""),
             "active":bool(item.get("active")),
+            "previous":bool(item.get("previous")),
         })
     return {
         "contract":CONTRACT,
@@ -362,6 +363,7 @@ def prune(cloud_site_id:str,keep:int,*,request_key:str)->dict[str,Any]:
             "package_sha256":str(item.get("package_sha256") or ""),
             "created_at":str(item.get("created_at") or ""),
             "active":bool(item.get("active")),
+            "previous":bool(item.get("previous")),
         } for item in (pruned.get("releases") or [])],
     }
     tmp=replay_path.with_suffix(".tmp")
