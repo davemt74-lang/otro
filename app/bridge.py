@@ -37,7 +37,7 @@ from .release_readiness_api import router as release_readiness_router
 from .remote_bridge_api import router as remote_bridge_router
 from .room_device_api import router as room_device_router
 from .tracky_api import router as tracky_router
-from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, hosting_cloud_control, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
+from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, homeserver_app_packages, hosting_cloud_control, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -165,7 +165,7 @@ def capabilities() -> dict:
         "vp3_hosting_operations": hosting_operations.public_capability(),
         "vp3_hosting_scheduler": hosting_scheduler.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
-        "homeserver_apps": {"contract": "vp3.homeserver-apps.registry.v1", "system_apps": True, "user_apps": True, "sdk": "1.0", "app_store": "future"},
+        "homeserver_apps": {"contract": "vp3.homeserver-apps.registry.v1", "system_apps": True, "user_apps": True, "sdk": "1.0", "app_store": "future", "packages": homeserver_app_packages.public_capability()},
         "local_voice": {
             "version": "v0.41",
             "owner_api": True,
