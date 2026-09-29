@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,18 @@ CONTRACT="vp3.hosting.cloud-deployment.v1"
 _TRANSFER_ID=re.compile(r"^transfer_[a-z0-9]{24}$")
 _RELEASE_ID=re.compile(r"^release_[0-9a-f]{24}$")
 MAX_CHUNK_BYTES=128*1024
+_OP_LOCK_GUARD=threading.RLock()
+_OP_LOCKS:dict[str,threading.RLock]={}
+
+
+def _operation_lock(site_id:str)->threading.RLock:
+    with _OP_LOCK_GUARD:
+        lock=_OP_LOCKS.get(site_id)
+        if lock is None:
+            lock=threading.RLock()
+            _OP_LOCKS[site_id]=lock
+        return lock
+
 
 
 class CloudDeploymentError(hosting_runtime.HostingError):
@@ -278,12 +291,18 @@ def releases(cloud_site_id:str)->dict[str,Any]:
         "site_id":site_id,
         "active_release_id":deployment.get("active_release_id"),
         "previous_release_id":deployment.get("previous_release_id"),
-        "previous_release_id":deployment.get("previous_release_id"),
         "releases":items,
     }
 
 
 def promote(cloud_site_id:str,release_id:str,*,request_key:str)->dict[str,Any]:
+    site,_=_site_for_cloud(cloud_site_id)
+    site_id=str(site["site_id"])
+    with _operation_lock(site_id):
+        return _promote_locked(cloud_site_id,release_id,request_key=request_key)
+
+
+def _promote_locked(cloud_site_id:str,release_id:str,*,request_key:str)->dict[str,Any]:
     site,_=_site_for_cloud(cloud_site_id)
     site_id=str(site["site_id"])
     release=str(release_id or "").strip()
@@ -326,6 +345,13 @@ def promote(cloud_site_id:str,release_id:str,*,request_key:str)->dict[str,Any]:
 
 
 def prune(cloud_site_id:str,keep:int,*,request_key:str)->dict[str,Any]:
+    site,_=_site_for_cloud(cloud_site_id)
+    site_id=str(site["site_id"])
+    with _operation_lock(site_id):
+        return _prune_locked(cloud_site_id,keep,request_key=request_key)
+
+
+def _prune_locked(cloud_site_id:str,keep:int,*,request_key:str)->dict[str,Any]:
     site,_=_site_for_cloud(cloud_site_id)
     site_id=str(site["site_id"])
     key=str(request_key or "").strip()
@@ -437,6 +463,7 @@ def public_capability()->dict[str,Any]:
         "release_retention":True,
         "promotion_acknowledgement":True,
         "retention_acknowledgement":True,
+        "serialized_release_operations":True,
         "recovery_health":True,
         "sqlite_migration_status":True,
         "homeserver_authoritative_execution":True,
