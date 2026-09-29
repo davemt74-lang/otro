@@ -83,7 +83,7 @@ def inventory()->dict[str,Any]:
         }
 
 
-def _admit(site_id:str,timeout:float)->None:
+def acquire(site_id:str,timeout:float=ADMISSION_WAIT_SECONDS)->None:
     global _GLOBAL_INFLIGHT
     state=_state(site_id)
     deadline=time.monotonic()+max(0.0,float(timeout))
@@ -106,7 +106,7 @@ def _admit(site_id:str,timeout:float)->None:
             _GLOBAL_CONDITION.wait(timeout=remaining)
 
 
-def _release(site_id:str,failed:bool)->None:
+def release(site_id:str,failed:bool=False)->None:
     global _GLOBAL_INFLIGHT
     state=_state(site_id)
     with _GLOBAL_CONDITION:
@@ -123,13 +123,13 @@ def _release(site_id:str,failed:bool)->None:
 
 @contextmanager
 def request_slot(site_id:str,timeout:float=ADMISSION_WAIT_SECONDS):
-    _admit(site_id,timeout)
+    acquire(site_id,timeout)
     failed=True
     try:
         yield status(site_id)
         failed=False
     finally:
-        _release(site_id,failed)
+        release(site_id,failed)
 
 
 def begin_drain(site_id:str,timeout:float=DRAIN_WAIT_SECONDS)->dict[str,Any]:
