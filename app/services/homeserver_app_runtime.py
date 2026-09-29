@@ -433,6 +433,8 @@ def stop()->None:
 def _resolve_target(app_key:str,request_path:str)->Path:
     root=_app_runtime_root(app_key)
     rel=_safe_rel(request_path)
+    if rel.as_posix()!="." and (rel.parts[0] in {"agent","runtime","database"} or rel.as_posix() in {"vp3-app.json","settings.schema.json","README.md"}):
+        raise AppRuntimeError("Requested app resource is not web-exposed.",403)
     target=root if rel.as_posix()=="." else (root/Path(*rel.parts)).resolve()
     if target!=root and root not in target.parents:
         raise AppRuntimeError("Requested app path escaped the active release.")
