@@ -13,7 +13,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import homeserver_app_resources, homeserver_app_sdk, homeserver_app_security, homeserver_apps
+from . import homeserver_app_resources, homeserver_app_runtime, homeserver_app_sdk, homeserver_app_security, homeserver_apps
 
 CONTRACT="vp3.app.package.v1"
 RUNTIME_CONTRACT="vp3.app.runtime-install.v1"
@@ -23,7 +23,7 @@ MAX_FILES=5000
 _ALLOWED_RUNTIMES={"static","php"}
 _ALLOWED_KEYS={
     "contract","app_key","name","version","runtime","entrypoint","sdk_version",
-    "permissions","settings_schema","database_migrations","agent_actions","routes",
+    "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events",
 }
 
 
@@ -110,7 +110,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
             raise AppPackageError("App routes are invalid.")
         if any(not isinstance(v,bool) for v in routes.values()):
             raise AppPackageError("App route flags must be booleans.")
-    for field in ("settings_schema","database_migrations","agent_actions"):
+    for field in ("settings_schema","database_migrations","agent_actions","jobs","events"):
         if manifest.get(field):
             _safe_rel(str(manifest[field]))
     manifest["app_key"]=key
@@ -158,7 +158,7 @@ def validate_package(package:bytes,*,expected_app_key:str|None=None)->dict[str,A
         if expected_app_key and manifest["app_key"]!=str(expected_app_key).strip().lower():
             raise AppPackageError("App package identity does not match the target app.",409)
         required=[manifest["entrypoint"]]
-        for field in ("settings_schema","agent_actions"):
+        for field in ("settings_schema","agent_actions","jobs","events"):
             if manifest.get(field):
                 required.append(_safe_rel(str(manifest[field])).as_posix())
         for path in required:
@@ -334,6 +334,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
             )
         homeserver_app_security.sync_declared_permissions(app_key,list(manifest.get("permissions") or []))
         homeserver_app_resources.resource_status(app_key)
+        homeserver_app_runtime.sync_release(app_key,final/"content")
         result=dict(release)
         result["active"]=True
         result["previous_release_id"]=state["previous_release_id"]
