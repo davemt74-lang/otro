@@ -110,7 +110,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
             raise AppPackageError("App routes are invalid.")
         if any(not isinstance(v,bool) for v in routes.values()):
             raise AppPackageError("App route flags must be booleans.")
-    for field in ("settings_schema","database_migrations","agent_actions","jobs","events"):
+    for field in ("settings_schema","database_migrations","agent_actions","jobs","events","sample_data"):
         if manifest.get(field):
             _safe_rel(str(manifest[field]))
     manifest["app_key"]=key
@@ -158,7 +158,7 @@ def validate_package(package:bytes,*,expected_app_key:str|None=None)->dict[str,A
         if expected_app_key and manifest["app_key"]!=str(expected_app_key).strip().lower():
             raise AppPackageError("App package identity does not match the target app.",409)
         required=[manifest["entrypoint"]]
-        for field in ("settings_schema","agent_actions","jobs","events"):
+        for field in ("settings_schema","agent_actions","jobs","events","sample_data"):
             if manifest.get(field):
                 required.append(_safe_rel(str(manifest[field])).as_posix())
         for path in required:
