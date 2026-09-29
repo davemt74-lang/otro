@@ -48,7 +48,24 @@ def _normalize_member(name: str) -> PurePosixPath:
     return path
 
 
-def _validate_zip(package: bytes) -> tuple[zipfile.ZipFile, dict[str, Any], str]:
+def _content_digest(archive: zipfile.ZipFile) -> str:
+    digest=hashlib.sha256()
+    entries=[]
+    for info in archive.infolist():
+        if info.is_dir():
+            continue
+        path=_normalize_member(info.filename).as_posix()
+        entries.append((path,archive.read(info)))
+    for path,data in sorted(entries,key=lambda item:item[0]):
+        path_bytes=path.encode("utf-8")
+        digest.update(len(path_bytes).to_bytes(4,"big"))
+        digest.update(path_bytes)
+        digest.update(len(data).to_bytes(8,"big"))
+        digest.update(data)
+    return digest.hexdigest()
+
+
+def _validate_zip(package: bytes) -> tuple[zipfile.ZipFile, dict[str, Any], str, str]:
     if not package:
         raise DeploymentError("Deployment package is empty.")
     if len(package) > MAX_PACKAGE_BYTES:
@@ -120,7 +137,8 @@ def _validate_zip(package: bytes) -> tuple[zipfile.ZipFile, dict[str, Any], str]
         archive.close()
         raise DeploymentError("Deployment entrypoint must live under public/.")
 
-    return archive, manifest, digest
+    content_digest=_content_digest(archive)
+    return archive, manifest, digest, content_digest
 
 
 def _record(site_id: str, event_type: str, state: str, details: dict[str, Any]) -> None:
@@ -202,7 +220,7 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
         raise DeploymentError("Idempotency key is too long.")
     if site["state"]=="suspended":
         raise DeploymentError("Suspended sites cannot receive deployments.",409)
-    archive,manifest,digest=_validate_zip(package)
+    archive,manifest,digest,content_digest=_validate_zip(package)
     runtime=str(manifest["runtime"]).lower()
     if runtime != str(site["runtime_kind"]).lower():
         archive.close()
@@ -223,7 +241,13 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
                 release_id=str(details.get("release_id") or "")
                 if release_id:
                     archive.close()
-                    if str(details.get("package_sha256") or "") != digest:
+                    prior_content=str(details.get("package_content_sha256") or "")
+                    prior_raw=str(details.get("package_sha256") or "")
+                    if prior_content:
+                        same_package=prior_content==content_digest
+                    else:
+                        same_package=prior_raw==digest
+                    if not same_package:
                         raise DeploymentError("Idempotency key was already used for a different deployment package.",409)
                     result=_release_manifest(site_id,release_id)
                     result["active"]=release_id==_read_state(site_id).get("active_release_id")
@@ -291,6 +315,7 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
         _record(site_id,"deployment.activated","active",{
             "release_id":release_id,
             "package_sha256":digest,
+            "package_content_sha256":content_digest,
             "request_key":request_key,
             "runtime":runtime,
             "pre_deploy_recovery_id":pre_deploy["recovery_id"],
