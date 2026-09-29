@@ -337,7 +337,7 @@ function renderHosting(data) {
   const ent = data.entitlements || {};
   byId('hostingSummary').innerHTML = [
     diagnosticCard('Hosted sites', data.healthy ? true : false, [['Sites', counts.sites || 0], ['Active', counts.active || 0], ['Issues', (data.issues || []).length]]),
-    diagnosticCard('Public routing', true, [['Routes', counts.public_routes || 0], ['Serving ready', counts.serving_ready || 0], ['SQLite healthy', counts.sqlite_healthy || 0]]),
+    diagnosticCard('Runtime isolation', (counts.runtime_rejected || 0) === 0, [['In flight', counts.runtime_inflight || 0], ['Rejected', counts.runtime_rejected || 0], ['Serving ready', counts.serving_ready || 0]]),
     diagnosticCard('Package entitlement', ent.within_entitlement !== false, [['Package', ent.package_key || 'not synced'], ['Within limits', ent.within_entitlement === false ? 'no' : 'yes'], ['Overages', (ent.overages || []).join(', ') || 'none']]),
   ].join('');
   const sites = data.sites || [];
@@ -360,6 +360,7 @@ async function refreshSystem() {
     systemApi('/api/v1/control/vp3-os/fleet'),
     systemApi('/api/v1/control/vp3-os/hardware-experience'),
     systemApi('/api/v1/control/vp3-os/hardware-experience/events?limit=12'),
+    systemApi('/api/v1/control/hosting/dashboard'),
   ]);
   renderSetup(system.setup || {});
   renderDiagnostics(system.diagnostics || {});
