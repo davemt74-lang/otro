@@ -94,13 +94,22 @@ def _deployment_snapshot(site_id:str,destination:Path)->dict[str,Any]:
     return {"sha256":_sha(destination)}
 
 
-def _clear_sqlite_sidecars(path:Path)->None:
-    for suffix in ("-wal","-shm"):
-        sidecar=Path(str(path)+suffix)
-        try:
-            sidecar.unlink()
-        except FileNotFoundError:
-            pass
+def _restore_sqlite_snapshot(site_id:str,snapshot:Path)->None:
+    source=sqlite3.connect(snapshot)
+    target=hosting_runtime.connect_site_db(site_id)
+    try:
+        integrity=str(source.execute("PRAGMA integrity_check").fetchone()[0])
+        if integrity!="ok":
+            raise RecoveryError("Restore source SQLite integrity check failed.",409)
+        source.backup(target)
+        target.commit()
+        target.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        restored=str(target.execute("PRAGMA integrity_check").fetchone()[0])
+        if restored!="ok":
+            raise RecoveryError("Restored SQLite database failed integrity verification.",409)
+    finally:
+        target.close()
+        source.close()
 
 
 def _manifest_path(site_id:str,recovery_id:str)->Path:
@@ -278,10 +287,8 @@ def restore(site_id:str,recovery_id:str)->dict[str,Any]:
 
         if rollback_db.exists():
             rollback_db.unlink()
-        shutil.copy2(db_path,rollback_db)
-        _clear_sqlite_sidecars(db_path)
-        os.replace(staging/"site.sqlite",db_path)
-        _clear_sqlite_sidecars(db_path)
+        _snapshot_sqlite(site_id,rollback_db)
+        _restore_sqlite_snapshot(site_id,staging/"site.sqlite")
 
         health=hosting_runtime.database_health(site_id)
         if not health.get("healthy"):
@@ -325,9 +332,8 @@ def restore(site_id:str,recovery_id:str)->dict[str,Any]:
                 shutil.rmtree(old_storage,ignore_errors=True)
                 os.replace(rollback_storage,old_storage)
             if rollback_db.exists():
-                _clear_sqlite_sidecars(db_path)
-                os.replace(rollback_db,db_path)
-                _clear_sqlite_sidecars(db_path)
+                _restore_sqlite_snapshot(site_id,rollback_db)
+                rollback_db.unlink(missing_ok=True)
             hosting_runtime.set_state(site_id,site["state"])
         except Exception:
             try:
