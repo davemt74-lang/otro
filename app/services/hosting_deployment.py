@@ -219,9 +219,15 @@ def deployment_status(site_id: str) -> dict[str, Any]:
     }
 
 
-def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None) -> dict[str, Any]:
+def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None, provenance: dict[str, Any] | None=None) -> dict[str, Any]:
     site=hosting_runtime.get_site(site_id)
     request_key=str(request_key or "").strip() or None
+    provenance=dict(provenance or {})
+    safe_provenance={}
+    for key in ("source_type","repository","ref","commit_sha","trigger","scheduled_at","requested_at"):
+        value=str(provenance.get(key) or "").strip()
+        if value:
+            safe_provenance[key]=value[:240]
     if request_key is not None and len(request_key)>160:
         raise DeploymentError("Idempotency key is too long.")
     if site["state"]=="suspended":
@@ -297,6 +303,7 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
             "runtime":runtime,
             "entrypoint":str(manifest["entrypoint"]),
             "app_version":str(manifest.get("version") or ""),
+            "provenance":safe_provenance,
             "created_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
         }
         (staging/"release.json").write_text(json.dumps(release_manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
@@ -331,6 +338,7 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
             "pre_deploy_recovery_id":pre_deploy["recovery_id"],
             "sqlite_migrations_applied":migration_result.get("applied",[]),
             "sqlite_migration_recovery_id":migration_result.get("recovery_id"),
+            "provenance":safe_provenance,
         })
         result=dict(release_manifest)
         result["active"]=True
