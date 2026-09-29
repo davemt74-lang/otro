@@ -176,6 +176,8 @@ jobs:
         run: python tests/hosting_release_v190.py
       - name: HomeServer Hosting V2 Section 1 runtime isolation and scheduling
         run: python tests/hosting_runtime_isolation_v200.py
+      - name: HomeServer Hosting V2 Section 2 release history promotion and retention
+        run: python tests/hosting_release_history_v220.py
       - name: HomeServer Hosting v1.50 per-site SQLite runtime
         run: python tests/hosting_sqlite_v150.py
       - name: Governed HomeServer actions v2.3 regression

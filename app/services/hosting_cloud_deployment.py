@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,20 @@ from . import hosting_cloud_control, hosting_deployment, hosting_recovery, hosti
 
 CONTRACT="vp3.hosting.cloud-deployment.v1"
 _TRANSFER_ID=re.compile(r"^transfer_[a-z0-9]{24}$")
+_RELEASE_ID=re.compile(r"^release_[0-9a-f]{24}$")
 MAX_CHUNK_BYTES=128*1024
+_OP_LOCK_GUARD=threading.RLock()
+_OP_LOCKS:dict[str,threading.RLock]={}
+
+
+def _operation_lock(site_id:str)->threading.RLock:
+    with _OP_LOCK_GUARD:
+        lock=_OP_LOCKS.get(site_id)
+        if lock is None:
+            lock=threading.RLock()
+            _OP_LOCKS[site_id]=lock
+        return lock
+
 
 
 class CloudDeploymentError(hosting_runtime.HostingError):
@@ -255,6 +269,135 @@ def rollback(cloud_site_id:str,*,request_key:str)->dict[str,Any]:
     return result
 
 
+def releases(cloud_site_id:str)->dict[str,Any]:
+    site,_=_site_for_cloud(cloud_site_id)
+    site_id=str(site["site_id"])
+    deployment=hosting_deployment.deployment_status(site_id)
+    items=[]
+    for item in hosting_deployment.list_releases(site_id):
+        items.append({
+            "release_id":str(item.get("release_id") or ""),
+            "app_version":str(item.get("app_version") or ""),
+            "runtime":str(item.get("runtime") or ""),
+            "entrypoint":str(item.get("entrypoint") or ""),
+            "package_sha256":str(item.get("package_sha256") or ""),
+            "created_at":str(item.get("created_at") or ""),
+            "active":bool(item.get("active")),
+            "previous":bool(item.get("previous")),
+        })
+    return {
+        "contract":CONTRACT,
+        "cloud_site_id":cloud_site_id,
+        "site_id":site_id,
+        "active_release_id":deployment.get("active_release_id"),
+        "previous_release_id":deployment.get("previous_release_id"),
+        "releases":items,
+    }
+
+
+def promote(cloud_site_id:str,release_id:str,*,request_key:str)->dict[str,Any]:
+    site,_=_site_for_cloud(cloud_site_id)
+    site_id=str(site["site_id"])
+    with _operation_lock(site_id):
+        return _promote_locked(cloud_site_id,release_id,request_key=request_key)
+
+
+def _promote_locked(cloud_site_id:str,release_id:str,*,request_key:str)->dict[str,Any]:
+    site,_=_site_for_cloud(cloud_site_id)
+    site_id=str(site["site_id"])
+    release=str(release_id or "").strip()
+    if not _RELEASE_ID.fullmatch(release):
+        raise CloudDeploymentError("release_id is invalid.")
+    key=str(request_key or "").strip()
+    if not key or len(key)>160:
+        raise CloudDeploymentError("request_key is required and must be at most 160 characters.")
+    replay_path=_transfer_root(site_id)/("promote_"+hashlib.sha256(key.encode("utf-8")).hexdigest()+".json")
+    if replay_path.is_file():
+        try:
+            saved=json.loads(replay_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise CloudDeploymentError("Release promotion acknowledgement is unreadable.",500) from exc
+        if saved.get("cloud_site_id")!=cloud_site_id or saved.get("request_key")!=key or saved.get("release_id")!=release:
+            raise CloudDeploymentError("Release promotion request key conflicts with existing acknowledgement.",409)
+        return saved
+    try:
+        promoted=hosting_deployment.promote_release(site_id,release)
+    except hosting_runtime.HostingError as exc:
+        raise CloudDeploymentError(str(exc),exc.status_code) from exc
+    result={
+        "contract":CONTRACT,
+        "cloud_site_id":cloud_site_id,
+        "site_id":site_id,
+        "operation":"promote",
+        "request_key":key,
+        "state":"applied",
+        "release_id":promoted.get("release_id"),
+        "previous_release_id":promoted.get("previous_release_id"),
+        "pre_promote_recovery_id":promoted.get("pre_promote_recovery_id"),
+        "replayed":bool(promoted.get("replayed")),
+        "recovery":hosting_recovery.recovery_health(site_id),
+        "sqlite":hosting_sqlite.schema_status(site_id),
+    }
+    tmp=replay_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    os.replace(tmp,replay_path)
+    return result
+
+
+def prune(cloud_site_id:str,keep:int,*,request_key:str)->dict[str,Any]:
+    site,_=_site_for_cloud(cloud_site_id)
+    site_id=str(site["site_id"])
+    with _operation_lock(site_id):
+        return _prune_locked(cloud_site_id,keep,request_key=request_key)
+
+
+def _prune_locked(cloud_site_id:str,keep:int,*,request_key:str)->dict[str,Any]:
+    site,_=_site_for_cloud(cloud_site_id)
+    site_id=str(site["site_id"])
+    key=str(request_key or "").strip()
+    if not key or len(key)>160:
+        raise CloudDeploymentError("request_key is required and must be at most 160 characters.")
+    retain=max(2,min(50,int(keep)))
+    replay_path=_transfer_root(site_id)/("prune_"+hashlib.sha256(key.encode("utf-8")).hexdigest()+".json")
+    if replay_path.is_file():
+        try:
+            saved=json.loads(replay_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise CloudDeploymentError("Release retention acknowledgement is unreadable.",500) from exc
+        if saved.get("cloud_site_id")!=cloud_site_id or saved.get("request_key")!=key or int(saved.get("keep") or 0)!=retain:
+            raise CloudDeploymentError("Release retention request key conflicts with existing acknowledgement.",409)
+        return saved
+    try:
+        pruned=hosting_deployment.prune_releases(site_id,retain)
+    except hosting_runtime.HostingError as exc:
+        raise CloudDeploymentError(str(exc),exc.status_code) from exc
+    result={
+        "contract":CONTRACT,
+        "cloud_site_id":cloud_site_id,
+        "site_id":site_id,
+        "operation":"prune",
+        "request_key":key,
+        "state":"applied",
+        "keep":retain,
+        "deleted_release_ids":list(pruned.get("deleted_release_ids") or []),
+        "active_release_id":pruned.get("active_release_id"),
+        "previous_release_id":pruned.get("previous_release_id"),
+        "releases":[{
+            "release_id":str(item.get("release_id") or ""),
+            "app_version":str(item.get("app_version") or ""),
+            "runtime":str(item.get("runtime") or ""),
+            "package_sha256":str(item.get("package_sha256") or ""),
+            "created_at":str(item.get("created_at") or ""),
+            "active":bool(item.get("active")),
+            "previous":bool(item.get("previous")),
+        } for item in (pruned.get("releases") or [])],
+    }
+    tmp=replay_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(result,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    os.replace(tmp,replay_path)
+    return result
+
+
 def status(cloud_site_id:str,transfer_id:str|None=None)->dict[str,Any]:
     site,_=_site_for_cloud(cloud_site_id)
     site_id=str(site["site_id"])
@@ -278,6 +421,7 @@ def status(cloud_site_id:str,transfer_id:str|None=None)->dict[str,Any]:
         "cloud_site_id":cloud_site_id,
         "site_id":site_id,
         "active_release_id":deployment.get("active_release_id"),
+        "previous_release_id":deployment.get("previous_release_id"),
         "transfers":items[:20],
         "recovery":hosting_recovery.recovery_health(site_id),
         "sqlite":hosting_sqlite.schema_status(site_id),
@@ -315,6 +459,12 @@ def public_capability()->dict[str,Any]:
         "desired_revision_gate":True,
         "deployment_acknowledgement":True,
         "rollback_acknowledgement":True,
+        "release_history":True,
+        "release_promotion":True,
+        "release_retention":True,
+        "promotion_acknowledgement":True,
+        "retention_acknowledgement":True,
+        "serialized_release_operations":True,
         "recovery_health":True,
         "sqlite_migration_status":True,
         "homeserver_authoritative_execution":True,

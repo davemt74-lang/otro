@@ -524,6 +524,37 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             except hosting_cloud_deployment.CloudDeploymentError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.deployment.releases":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_deployment.releases(
+                    str(body.get("cloud_site_id") or ""),
+                )
+            except hosting_cloud_deployment.CloudDeploymentError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.deployment.promote":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_deployment.promote(
+                    str(body.get("cloud_site_id") or ""),
+                    str(body.get("release_id") or ""),
+                    request_key=str(body.get("request_key") or ""),
+                )
+            except hosting_cloud_deployment.CloudDeploymentError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.deployment.prune":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_deployment.prune(
+                    str(body.get("cloud_site_id") or ""),
+                    int(body.get("keep") or 0),
+                    request_key=str(body.get("request_key") or ""),
+                )
+            except (TypeError,ValueError,hosting_cloud_deployment.CloudDeploymentError) as exc:
+                return {"status":int(getattr(exc,"status_code",422)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
         if op == "hosting.route.reconcile":
             _vp3_hosting_identity(token)
             try:
