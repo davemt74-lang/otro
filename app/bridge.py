@@ -452,6 +452,7 @@ def capabilities() -> dict:
                 "physical_context.active_perception", "physical_context.request_status", "physical_context.sync",
                 "physical_context.calibration", "physical_context.model_lifecycle",
                 "physical_context.action.propose", "physical_context.action.status",
+                "hosting.inventory", "hosting.site.status", "hosting.site.reconcile",
             ],
             "local_domains": ["inference", "files", "knowledge", "contacts", "tools", "plugins", "voice", "devices", "physical_context"],
             "approval_boundaries_preserved": True,
