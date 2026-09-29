@@ -2,6 +2,18 @@ name: HomeServer v2.4 Data Continuity
 
 on:
   pull_request:
+    paths-ignore:
+      - 'app/homeserver_apps_api.py'
+      - 'app/services/homeserver_apps.py'
+      - 'app/services/homeserver_app_sdk.py'
+      - 'app/services/homeserver_app_packages.py'
+      - 'sdk/homeserver-app/**'
+      - 'tests/homeserver_apps_v1*.py'
+      - '.github/workflows/homeserver-apps-v100.yml'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/homeserver-v23-release.yml'
+      - '.github/workflows/homeserver-v24-data-continuity.yml'
+      - '.github/workflows/homeserver-v24-release.yml'
   push:
     branches:
       - main
