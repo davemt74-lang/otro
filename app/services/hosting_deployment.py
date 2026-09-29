@@ -306,6 +306,12 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
     except Exception:
         archive.close()
         shutil.rmtree(staging,ignore_errors=True)
+        try:
+            current=_read_state(site_id).get("active_release_id")
+        except Exception:
+            current=None
+        if final.exists() and current != release_id:
+            shutil.rmtree(final,ignore_errors=True)
         raise
 
 
@@ -352,6 +358,7 @@ def public_capability() -> dict[str, Any]:
         "atomic_release_activation":True,
         "rollback":True,
         "request_idempotency":True,
+        "governed_sqlite_migrations":True,
         "max_package_bytes":MAX_PACKAGE_BYTES,
         "max_uncompressed_bytes":MAX_UNCOMPRESSED_BYTES,
         "max_files":MAX_FILES,
