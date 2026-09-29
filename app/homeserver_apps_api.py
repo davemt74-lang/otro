@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_apps
+from .services import homeserver_app_packages, homeserver_apps
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -27,6 +27,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         return operation(*args,**kwargs)
     except homeserver_apps.HomeServerAppError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_packages.AppPackageError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("")
@@ -36,7 +38,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return homeserver_apps.public_capability()
+    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability()}
 
 
 @router.post("")
@@ -59,3 +61,29 @@ def app_detail(app_key:str)->dict:
 @router.post("/{app_key}/lifecycle")
 def app_lifecycle(app_key:str,payload:LifecycleRequest)->dict:
     return {"app":_call(homeserver_apps.transition,app_key,payload.state,metadata=payload.metadata)}
+
+
+@router.post("/{app_key}/package/validate")
+async def validate_app_package(app_key:str,file:UploadFile=File(...))->dict:
+    package=await file.read(homeserver_app_packages.MAX_PACKAGE_BYTES+1)
+    if len(package)>homeserver_app_packages.MAX_PACKAGE_BYTES:
+        raise HTTPException(status_code=413,detail="App package exceeds the compressed size limit.")
+    return {"validation":_call(homeserver_app_packages.validate_package,package,expected_app_key=app_key)}
+
+
+@router.post("/{app_key}/package/install")
+async def install_app_package(app_key:str,file:UploadFile=File(...))->dict:
+    package=await file.read(homeserver_app_packages.MAX_PACKAGE_BYTES+1)
+    if len(package)>homeserver_app_packages.MAX_PACKAGE_BYTES:
+        raise HTTPException(status_code=413,detail="App package exceeds the compressed size limit.")
+    return {"release":_call(homeserver_app_packages.install_package,app_key,package,source_type="zip")}
+
+
+@router.get("/{app_key}/runtime")
+def app_runtime_status(app_key:str)->dict:
+    return {"runtime":_call(homeserver_app_packages.runtime_status,app_key)}
+
+
+@router.post("/{app_key}/build-install")
+def build_install_user_app(app_key:str)->dict:
+    return {"release":_call(homeserver_app_packages.install_project,app_key)}
