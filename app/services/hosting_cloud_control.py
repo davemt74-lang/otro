@@ -154,6 +154,8 @@ def _site_projection(site:dict[str,Any],binding:dict[str,Any])->dict[str,Any]:
     deployment=hosting_deployment.deployment_status(str(site["site_id"]))
     health=hosting_serving.runtime_health(str(site["site_id"]))
     recovery=hosting_recovery.recovery_health(str(site["site_id"]))
+    from . import hosting_public
+    public_route=hosting_public.route_status_for_site(str(site["site_id"]))
     return {
         "contract":CONTRACT,
         "cloud_site_id":binding["cloud_site_id"],
@@ -172,7 +174,8 @@ def _site_projection(site:dict[str,Any],binding:dict[str,Any])->dict[str,Any]:
         "recovery_points":recovery.get("recovery_points"),
         "latest_recovery_at":recovery.get("latest_created_at"),
         "latest_recovery_verified":recovery.get("latest_verified"),
-        "public_routing":False,
+        "public_routing":bool(public_route and public_route.get("route_ready")),
+        "public_route":public_route,
     }
 
 
@@ -284,7 +287,7 @@ def inventory()->dict[str,Any]:
         "count":len(items),
         "cloud_authoritative_identity":True,
         "homeserver_authoritative_runtime":True,
-        "public_routing":False,
+        "public_routing":any(bool(item.get("public_routing")) for item in items),
     }
 
 
@@ -301,5 +304,6 @@ def public_capability()->dict[str,Any]:
         "active_requires_deployment":True,
         "filesystem_paths_remote":False,
         "sqlite_remote_access":False,
-        "public_routing":False,
+        "public_routing_reconciliation":True,
+        "cloud_edge_tls":True,
     }
