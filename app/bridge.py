@@ -35,7 +35,7 @@ from .release_readiness_api import router as release_readiness_router
 from .remote_bridge_api import router as remote_bridge_router
 from .room_device_api import router as room_device_router
 from .tracky_api import router as tracky_router
-from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, hosting_deployment, hosting_runtime, hosting_serving, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
+from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, hosting_cloud_control, hosting_deployment, hosting_runtime, hosting_serving, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -154,6 +154,7 @@ def capabilities() -> dict:
         "vp3_hosting": hosting_runtime.public_capability(),
         "vp3_hosting_deployment": hosting_deployment.public_capability(),
         "vp3_hosting_serving": hosting_serving.public_capability(),
+        "vp3_hosting_cloud_control": hosting_cloud_control.public_capability(),
         "local_apps": {"version": "v0.40", "owner_managed": True, "catalog": "embedded-sha256-pinned"},
         "local_voice": {
             "version": "v0.41",
@@ -451,6 +452,7 @@ def capabilities() -> dict:
                 "physical_context.active_perception", "physical_context.request_status", "physical_context.sync",
                 "physical_context.calibration", "physical_context.model_lifecycle",
                 "physical_context.action.propose", "physical_context.action.status",
+                "hosting.inventory", "hosting.site.status", "hosting.site.reconcile",
             ],
             "local_domains": ["inference", "files", "knowledge", "contacts", "tools", "plugins", "voice", "devices", "physical_context"],
             "approval_boundaries_preserved": True,

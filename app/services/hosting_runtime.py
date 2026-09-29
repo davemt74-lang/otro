@@ -327,19 +327,23 @@ def agent_context_fragment(query: str, max_chars: int=1800) -> str:
         hostname=site.get("requested_hostname") or "not assigned"
         release_text="no active deployment"
         serving_text="serving unavailable"
+        cloud_text="local-only"
         try:
-            from . import hosting_deployment, hosting_serving
+            from . import hosting_cloud_control, hosting_deployment, hosting_serving
             deployment=hosting_deployment.deployment_status(site["site_id"])
             active=deployment.get("active_release") or {}
             if active:
                 release_text=f"release {active.get('app_version') or active.get('release_id')}"
             serving=hosting_serving.runtime_health(site["site_id"])
             serving_text="serving ready" if serving.get("local_serving_ready") else "serving degraded"
+            binding=hosting_cloud_control.binding_for_site(str(site["site_id"]))
+            if binding:
+                cloud_text=f"Cloud desired {binding.get('desired_state')} rev {binding.get('revision')}"
         except Exception:
             release_text="deployment status unavailable"
         lines.append(
             f"- {site['display_name']} · {hostname} · {site['state']} · {site['runtime_kind']} · "
-            f"{release_text} · {serving_text} · SQLite {'healthy' if health['healthy'] else 'degraded'} · "
+            f"{release_text} · {serving_text} · {cloud_text} · SQLite {'healthy' if health['healthy'] else 'degraded'} · "
             f"storage {usage['storage_bytes']} bytes · database {usage['sqlite_bytes']} bytes"
         )
     return "\n".join(lines)[:max(240,int(max_chars))]
