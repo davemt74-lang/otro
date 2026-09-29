@@ -7,6 +7,8 @@ on:
       - 'app/services/homeserver_apps.py'
       - 'app/services/homeserver_app_sdk.py'
       - 'app/services/homeserver_app_packages.py'
+      - 'app/services/homeserver_app_security.py'
+      - 'app/services/homeserver_app_resources.py'
       - 'sdk/homeserver-app/**'
       - 'tests/homeserver_apps_v1*.py'
       - '.github/workflows/homeserver-apps-v100.yml'
