@@ -42,7 +42,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v100-") as data_dir, te
             "metadata":{"sdk_version":"1.0"},
         })
         assert created.status_code==200,created.text
-        item=created.json()["app"]
+        created_payload=created.json()
+        item=created_payload["app"]
+        assert created_payload["sdk"]["sdk_version"]=="1.0"
+        managed_project=Path(data_dir)/"apps"/"garage.inventory"
+        assert (managed_project/"vp3-app.json").is_file()
+        assert (managed_project/"assets"/"vp3-sdk.js").is_file()
+        assert (managed_project/"agent"/"actions.json").is_file()
         assert item["app_class"]=="user"
         assert item["source_type"]=="agent_builder"
         assert item["lifecycle_state"]=="draft"
