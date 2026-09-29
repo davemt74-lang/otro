@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from .services import homeserver_apps
 
-router=APIRouter(prefix="/api/v1/control/apps",tags=["homeserver-apps"])
+router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
 
 class CreateUserAppRequest(BaseModel):
