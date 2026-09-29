@@ -521,7 +521,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     str(body.get("cloud_site_id") or ""),
                     request_key=str(body.get("request_key") or ""),
                 )
-            except hosting_runtime.HostingError as exc:
+            except hosting_cloud_deployment.CloudDeploymentError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "system.ping":
