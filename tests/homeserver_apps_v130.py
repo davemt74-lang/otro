@@ -31,6 +31,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v130-") as data_dir:
         })
         assert created.status_code==200,created.text
         project=Path(data_dir)/"apps"/"runtime.demo"
+        manifest_path=project/"vp3-app.json"
         jobs_path=project/"runtime"/"jobs.json"
         events_path=project/"runtime"/"events.json"
         jobs_path.write_text(json.dumps({
