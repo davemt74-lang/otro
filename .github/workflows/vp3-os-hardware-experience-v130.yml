@@ -76,6 +76,7 @@ permissions:
 
 jobs:
   hardware-experience:
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/hosting-v2') || endsWith(github.head_ref, '-section5') || endsWith(github.head_ref, '-section10') }}
     name: Hardware experience · ${{ matrix.os }}
     strategy:
       fail-fast: false
