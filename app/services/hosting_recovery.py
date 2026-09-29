@@ -94,6 +94,15 @@ def _deployment_snapshot(site_id:str,destination:Path)->dict[str,Any]:
     return {"sha256":_sha(destination)}
 
 
+def _clear_sqlite_sidecars(path:Path)->None:
+    for suffix in ("-wal","-shm"):
+        sidecar=Path(str(path)+suffix)
+        try:
+            sidecar.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def _manifest_path(site_id:str,recovery_id:str)->Path:
     return _root(site_id)/recovery_id/"recovery.json"
 
@@ -270,7 +279,9 @@ def restore(site_id:str,recovery_id:str)->dict[str,Any]:
         if rollback_db.exists():
             rollback_db.unlink()
         shutil.copy2(db_path,rollback_db)
+        _clear_sqlite_sidecars(db_path)
         os.replace(staging/"site.sqlite",db_path)
+        _clear_sqlite_sidecars(db_path)
 
         health=hosting_runtime.database_health(site_id)
         if not health.get("healthy"):
@@ -314,7 +325,9 @@ def restore(site_id:str,recovery_id:str)->dict[str,Any]:
                 shutil.rmtree(old_storage,ignore_errors=True)
                 os.replace(rollback_storage,old_storage)
             if rollback_db.exists():
+                _clear_sqlite_sidecars(db_path)
                 os.replace(rollback_db,db_path)
+                _clear_sqlite_sidecars(db_path)
             hosting_runtime.set_state(site_id,site["state"])
         except Exception:
             try:
