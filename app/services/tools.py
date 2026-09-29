@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, contacts, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
+from . import app_scopes, contacts, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -13,6 +13,95 @@ from .tasks import TaskError, create_task, list_notifications, list_tasks
 TOOL_EXECUTE_PERMISSION = "tools.execute"
 
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "apps.list": {
+        "key": "apps.list",
+        "name": "List HomeServer Apps",
+        "description": "List installed VP3 system apps and user-created HomeServer apps with bounded lifecycle metadata.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "maxLength": 160},
+                "app_class": {"type": ["string","null"], "enum": ["system","user",None]},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50}
+            },
+            "additionalProperties": False
+        },
+    },
+    "apps.status": {
+        "key": "apps.status",
+        "name": "Read HomeServer App Status",
+        "description": "Read one HomeServer app's lifecycle, runtime, release, permission and resource status without exposing secrets.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.prebuilt.list": {
+        "key": "apps.prebuilt.list",
+        "name": "List VP3 Prebuilt Apps",
+        "description": "List trusted first-party VP3 apps available for one-click HomeServer installation.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    "apps.prebuilt.install": {
+        "key": "apps.prebuilt.install",
+        "name": "Install VP3 Prebuilt App",
+        "description": "Install or update one trusted embedded VP3 prebuilt app after explicit owner approval.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.build_install": {
+        "key": "apps.build_install",
+        "name": "Build and Install User App",
+        "description": "Package the user's current VP3 SDK app project and promote it to the HomeServer runtime after owner approval.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.rollback": {
+        "key": "apps.rollback",
+        "name": "Rollback User App",
+        "description": "Rollback a user-created app to its previous release after explicit owner approval.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.recover": {
+        "key": "apps.recover",
+        "name": "Recover User App",
+        "description": "Recover a failed or degraded user-created app using its canonical release history after explicit owner approval.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
     "contacts.search": {
         "key": "contacts.search",
         "name": "Search Contacts",
@@ -1272,6 +1361,138 @@ def _calendar_delete(arguments: dict[str, Any], source: str) -> tuple[dict[str, 
     return {"deleted": deleted, "canonical_id": arguments.get("canonical_id")}, {"deleted": deleted}
 
 
+
+def _apps_key(arguments: dict[str, Any]) -> str:
+    unknown=set(arguments)-{"app_key"}
+    if unknown:
+        raise ToolError(f"Unsupported Apps argument: {sorted(unknown)[0]}")
+    key=str(arguments.get("app_key") or "").strip().lower()
+    if not homeserver_apps._KEY_RE.fullmatch(key):
+        raise ToolError("A valid app_key is required.")
+    return key
+
+
+def _apps_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown=set(arguments)-{"query","app_class","limit"}
+    if unknown:
+        raise ToolError(f"Unsupported apps.list argument: {sorted(unknown)[0]}")
+    query=str(arguments.get("query") or "").strip().lower()
+    if len(query)>160:
+        raise ToolError("apps.list query exceeds 160 characters.")
+    app_class=arguments.get("app_class")
+    if app_class not in (None,"system","user"):
+        raise ToolError("apps.list app_class must be system or user.")
+    limit=_bounded_int(arguments.get("limit"),20,1,50,"limit")
+    data=homeserver_apps.list_apps()
+    items=[]
+    for app in data["apps"]:
+        if app_class and app.get("app_class")!=app_class:
+            continue
+        if query and query not in str(app.get("name") or "").lower() and query not in str(app.get("app_key") or "").lower():
+            continue
+        meta=dict(app.get("metadata") or {})
+        items.append({
+            "app_key":app.get("app_key"),
+            "name":app.get("name"),
+            "app_class":app.get("app_class"),
+            "source_type":app.get("source_type"),
+            "lifecycle_state":app.get("lifecycle_state"),
+            "installed_version":app.get("installed_version"),
+            "runtime":meta.get("runtime"),
+            "vp3_managed":bool(meta.get("vp3_managed")),
+            "prebuilt_app":bool(meta.get("prebuilt_app")),
+        })
+        if len(items)>=limit:
+            break
+    return {"items":items,"count":len(items)},{"count":len(items)}
+
+
+def _apps_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
+    try:
+        app=homeserver_apps.get(key)
+        runtime=homeserver_app_packages.runtime_status(key)
+        releases=homeserver_app_releases.list_releases(key)
+        permissions=homeserver_app_security.permission_status(key)
+        resources=homeserver_app_resources.resource_status(key)
+    except (
+        homeserver_apps.HomeServerAppError,
+        homeserver_app_packages.AppPackageError,
+        homeserver_app_releases.AppReleaseError,
+        homeserver_app_security.AppSecurityError,
+        homeserver_app_resources.AppResourceError,
+    ) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    meta=dict(app.get("metadata") or {})
+    result={
+        "app":{
+            "app_key":app["app_key"],"name":app["name"],"app_class":app["app_class"],
+            "source_type":app["source_type"],"lifecycle_state":app["lifecycle_state"],
+            "installed_version":app["installed_version"],"runtime":meta.get("runtime"),
+            "protected_system_app":bool(app.get("protected_system_app")),
+        },
+        "runtime":runtime,
+        "releases":{
+            "active_release_id":releases.get("active_release_id"),
+            "previous_release_id":releases.get("previous_release_id"),
+            "count":releases.get("count",0),
+        },
+        "permissions":permissions,
+        "resources":resources,
+        "secrets":{"values_exposed":False},
+    }
+    return result,{"app_key":key,"release_count":releases.get("count",0)}
+
+
+def _apps_prebuilt_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if arguments:
+        raise ToolError("apps.prebuilt.list does not accept arguments.")
+    result=homeserver_app_prebuilt.catalog()
+    packages=[{
+        "key":item.get("key"),"name":item.get("name"),"version":item.get("version"),
+        "category":item.get("category"),"description":item.get("description"),
+        "installed":bool(item.get("installed")),"current":bool(item.get("current")),
+        "update_available":bool(item.get("update_available")),"state":item.get("state"),
+    } for item in result.get("packages",[])]
+    return {"packages":packages,"count":len(packages),"app_store":False},{"count":len(packages)}
+
+
+def _apps_prebuilt_install(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
+    try:
+        result=homeserver_app_prebuilt.install(key)
+    except Exception as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return {"app_key":key,"changed":bool(result.get("changed")),"app":result.get("app"),"release":result.get("release")},{"app_key":key,"changed":bool(result.get("changed"))}
+
+
+def _apps_build_install(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
+    try:
+        result=homeserver_app_packages.install_project(key)
+    except Exception as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return {"app_key":key,"release":result},{"app_key":key,"release_id":result.get("release_id")}
+
+
+def _apps_rollback(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
+    try:
+        result=homeserver_app_releases.rollback(key)
+    except homeserver_app_releases.AppReleaseError as exc:
+        raise ToolError(str(exc),exc.status_code) from exc
+    return {"app_key":key,**result},{"app_key":key,"release_id":(result.get("release") or {}).get("release_id")}
+
+
+def _apps_recover(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
+    try:
+        result=homeserver_app_releases.recover(key)
+    except homeserver_app_releases.AppReleaseError as exc:
+        raise ToolError(str(exc),exc.status_code) from exc
+    return {"app_key":key,**result},{"app_key":key,"release_id":(result.get("release") or {}).get("release_id")}
+
+
 def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
                  granted_permissions: set[str] | None = None, *, owner: bool = False,
                  approval_request_id: str | None = None) -> dict[str, Any]:
@@ -1301,7 +1522,21 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
 
     started = time.perf_counter()
     try:
-        if tool["key"] == "contacts.search":
+        if tool["key"] == "apps.list":
+            result, result_meta = _apps_list(payload)
+        elif tool["key"] == "apps.status":
+            result, result_meta = _apps_status(payload)
+        elif tool["key"] == "apps.prebuilt.list":
+            result, result_meta = _apps_prebuilt_list(payload)
+        elif tool["key"] == "apps.prebuilt.install":
+            result, result_meta = _apps_prebuilt_install(payload)
+        elif tool["key"] == "apps.build_install":
+            result, result_meta = _apps_build_install(payload)
+        elif tool["key"] == "apps.rollback":
+            result, result_meta = _apps_rollback(payload)
+        elif tool["key"] == "apps.recover":
+            result, result_meta = _apps_recover(payload)
+        elif tool["key"] == "contacts.search":
             result, result_meta = _contacts_search(payload)
         elif tool["key"] == "contacts.create":
             result, result_meta = _contacts_create(payload, source)
