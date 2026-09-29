@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import hosting_runtime, hosting_serving
+from . import hosting_entitlements, hosting_runtime, hosting_serving
 
 CONTRACT="vp3.hosting.public-route.v1"
 _STATES={"active","inactive"}
@@ -153,6 +153,7 @@ def reconcile(
             raise PublicRoutingError("Public route revision already exists with different state.",409)
 
     if state=="active":
+        hosting_entitlements.enforce_public_route(site_id)
         if not verified:
             raise PublicRoutingError("Public route cannot activate before hostname ownership is verified.",409)
         if tls not in {"active","renewing"} or not not_after:
