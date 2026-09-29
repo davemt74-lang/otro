@@ -23,7 +23,7 @@ MAX_FILES=5000
 _ALLOWED_RUNTIMES={"static","php"}
 _ALLOWED_KEYS={
     "contract","app_key","name","version","runtime","entrypoint","sdk_version",
-    "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events",
+    "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events","sample_data",
 }
 
 
