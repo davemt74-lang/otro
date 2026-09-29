@@ -147,8 +147,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "homeserver_apps_list",
             "homeserver_contacts_search",
             "homeserver_devices_list",
-            "homeserver_file_read",
-            "homeserver_files_list",
             "homeserver_knowledge_search",
             "homeserver_memory_list",
             "homeserver_notifications_list",
