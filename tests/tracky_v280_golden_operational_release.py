@@ -165,7 +165,7 @@ assert "tracky_v280_golden_operational_release.py" in ci
 assert "tracky_v280_golden_operational_release.py" in release_workflow
 assert "feature_track = 'Tracky V2.81'" in ci
 assert "feature_section = 3" in ci
-assert "current_schema_version = 57" in ci
+assert "current_schema_version = 58" in ci
 assert "golden_operational_scenarios = 24" in ci
 assert "federated_automation_protocol = 'physical_federated_automation.v1'" in ci
 assert "federated_automation_execution_enabled = $true" in ci
