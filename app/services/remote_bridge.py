@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, hosting_cloud_control, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, hosting_cloud_control, hosting_cloud_deployment, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -465,6 +465,63 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             try:
                 payload_out=hosting_cloud_control.reconcile(body)
             except hosting_cloud_control.CloudHostingError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.deployment.begin":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_deployment.begin(
+                    str(body.get("cloud_site_id") or ""),
+                    revision=int(body.get("revision")),
+                    package_sha256=str(body.get("package_sha256") or ""),
+                    package_bytes=int(body.get("package_bytes")),
+                    request_key=str(body.get("request_key") or ""),
+                )
+            except (TypeError,ValueError,hosting_cloud_deployment.CloudDeploymentError) as exc:
+                status=int(getattr(exc,"status_code",422))
+                return {"status":status,"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.deployment.chunk":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_deployment.append_chunk(
+                    str(body.get("cloud_site_id") or ""),
+                    str(body.get("transfer_id") or ""),
+                    int(body.get("chunk_index")),
+                    str(body.get("data_b64") or ""),
+                )
+            except (TypeError,ValueError,hosting_cloud_deployment.CloudDeploymentError) as exc:
+                status=int(getattr(exc,"status_code",422))
+                return {"status":status,"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.deployment.commit":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_deployment.commit(
+                    str(body.get("cloud_site_id") or ""),
+                    str(body.get("transfer_id") or ""),
+                )
+            except hosting_cloud_deployment.CloudDeploymentError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.deployment.status":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_deployment.status(
+                    str(body.get("cloud_site_id") or ""),
+                    str(body.get("transfer_id") or "") or None,
+                )
+            except hosting_cloud_deployment.CloudDeploymentError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.deployment.rollback":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_cloud_deployment.rollback(
+                    str(body.get("cloud_site_id") or ""),
+                    request_key=str(body.get("request_key") or ""),
+                )
+            except hosting_cloud_deployment.CloudDeploymentError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "system.ping":

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_deployment, hosting_recovery, hosting_runtime, hosting_serving, hosting_sqlite
+from .services import hosting_cloud_deployment, hosting_deployment, hosting_recovery, hosting_runtime, hosting_serving, hosting_sqlite
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -31,6 +31,7 @@ def _call(fn,*args,**kwargs):
 def capability() -> dict:
     result=hosting_runtime.public_capability()
     result["sqlite_runtime"]=hosting_sqlite.public_capability()
+    result["cloud_deployment"]=hosting_cloud_deployment.public_capability()
     return result
 
 

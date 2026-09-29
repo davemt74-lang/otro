@@ -166,6 +166,10 @@ jobs:
         run: python tests/hosting_recovery_v140.py
       - name: HomeServer Hosting v1.50 per-site SQLite runtime
         run: python tests/hosting_sqlite_v150.py
+      - name: HomeServer Hosting v1.60 Cloud deployment reconciliation
+        run: python tests/hosting_cloud_deployment_v160.py
+      - name: HomeServer Hosting v1.50 per-site SQLite runtime
+        run: python tests/hosting_sqlite_v150.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
