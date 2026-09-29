@@ -10,6 +10,7 @@ on:
       - 'app/services/homeserver_app_security.py'
       - 'app/services/homeserver_app_resources.py'
       - 'app/services/homeserver_app_runtime.py'
+      - 'app/services/homeserver_app_sample_data.py'
       - 'app/main.py'
       - 'app/services/local_apps.py'
       - 'app/services/local_app_catalog.py'
@@ -63,6 +64,7 @@ jobs:
           app/services/homeserver_app_security.py
           app/services/homeserver_app_resources.py
           app/services/homeserver_app_runtime.py
+          app/services/homeserver_app_sample_data.py
           app/main.py
           app/services/local_apps.py
           sdk/homeserver-app/create_app.py
