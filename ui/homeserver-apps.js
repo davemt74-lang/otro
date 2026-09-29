@@ -122,18 +122,20 @@
     try{
       const detail=await window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}`);
       const app=detail.app, system=app.app_class==='system';
-      let permissions=null,resources=null,runtime=null,secrets=null;
+      let permissions=null,resources=null,runtime=null,secrets=null,releases=null;
       if(!system || (app.metadata||{}).prebuilt_app){
-        [permissions,resources,runtime,secrets]=await Promise.all([
+        [permissions,resources,runtime,secrets,releases]=await Promise.all([
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/permissions`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/resources`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/runtime/services`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/secrets`).catch(()=>null),
+          window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/releases`).catch(()=>null),
         ]);
       }
       const permRows=permissions?.permissions?.permissions||[];
       const r=resources?.resources;
       const rt=runtime?.runtime;
+      const releaseRows=releases?.releases||[];
       panel.innerHTML=`
         <div class="panel-head"><div><p class="eyebrow">${system?'VP3 SYSTEM APP':'USER APP'}</p><h3>${esc(app.name)}</h3><p class="muted">${esc(app.app_key)} · ${esc(statusLabel(app))}</p></div><button class="text-button" type="button" data-hs-app-detail-close>Close</button></div>
         <div class="hs-app-detail-grid">
@@ -142,7 +144,8 @@
           <section><h4>Resources</h4>${r?`<p>Files ${bytes(r.storage_used_bytes)} / ${bytes(r.storage_limit_bytes)}</p><p>SQLite ${bytes(r.sqlite_used_bytes)} / ${bytes(r.sqlite_limit_bytes)}</p>`:'<p class="muted">Managed by VP3.</p>'}</section>
           <section><h4>Secrets</h4>${secrets?`<p>${secrets.secrets.count} configured · values never displayed</p>`:'<p class="muted">Managed by VP3.</p>'}</section>
         </div>
-        ${!system?`<div class="hs-app-detail-actions"><button class="button secondary" data-hs-app-build="${esc(key)}">Build & Install</button><button class="text-button danger" data-hs-app-archive="${esc(key)}">Archive App</button></div>`:''}
+        ${!system?`<div class="hs-app-detail-actions"><button class="button secondary" data-hs-app-build="${esc(key)}">Build & Install</button>${releaseRows.some(x=>x.previous)?`<button class="button secondary" data-hs-app-rollback="${esc(key)}">Rollback</button>`:''}${['failed','degraded'].includes(app.lifecycle_state)?`<button class="button secondary" data-hs-app-recover="${esc(key)}">Recover</button>`:''}<button class="text-button danger" data-hs-app-archive="${esc(key)}">Archive App</button></div>`:''}
+        ${!system?`<div class="hs-app-history"><h4>Releases</h4>${releaseRows.slice(0,6).map(rel=>`<div><strong>v${esc(rel.version||'—')} ${rel.active?'· Active':''}</strong><span>${esc(rel.release_id)}</span>${!rel.active?`<button class="text-button" data-hs-app-promote="${esc(key)}" data-release-id="${esc(rel.release_id)}">Promote</button>`:''}</div>`).join('')||'<p class="muted">No releases yet.</p>'}</div>`:''}
         <div class="hs-app-history"><h4>Recent activity</h4>${(detail.history||[]).slice(0,8).map(e=>`<div><strong>${esc(e.event_type)}</strong><span>${esc(e.created_at||'')}</span></div>`).join('')||'<p class="muted">No activity yet.</p>'}</div>
       `;
     }catch(error){panel.innerHTML=`<div class="empty-state">${esc(error.message)}</div>`;}
@@ -155,12 +158,15 @@
   }
 
   async function act(target){
-    const key=target.dataset.hsAppStop||target.dataset.hsAppResume||target.dataset.hsAppArchive||target.dataset.hsAppBuild;
+    const key=target.dataset.hsAppStop||target.dataset.hsAppResume||target.dataset.hsAppArchive||target.dataset.hsAppBuild||target.dataset.hsAppRollback||target.dataset.hsAppRecover||target.dataset.hsAppPromote;
     if(!key) return;
     try{
       if(target.dataset.hsAppStop) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/lifecycle`,{state:'stopped',metadata:{reason:'owner_ui'}});
       if(target.dataset.hsAppResume) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/resume`);
       if(target.dataset.hsAppBuild) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/build-install`);
+      if(target.dataset.hsAppRollback) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/rollback`);
+      if(target.dataset.hsAppRecover) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/recover`);
+      if(target.dataset.hsAppPromote) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/releases/${encodeURIComponent(target.dataset.releaseId)}/promote`);
       if(target.dataset.hsAppArchive){
         if(!confirm('Archive this app? The app will stop, but its project and data will be preserved.')) return;
         await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/archive`);
@@ -198,7 +204,7 @@
         .finally(()=>{prebuilt.disabled=false;});
       return;
     }
-    const action=event.target.closest('[data-hs-app-stop],[data-hs-app-resume],[data-hs-app-archive],[data-hs-app-build]');
+    const action=event.target.closest('[data-hs-app-stop],[data-hs-app-resume],[data-hs-app-archive],[data-hs-app-build],[data-hs-app-rollback],[data-hs-app-recover],[data-hs-app-promote]');
     if(action) act(action);
   });
 
