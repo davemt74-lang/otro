@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
  initialize_database();initialize_database()
  with db() as c:
   versions=[int(x["version"]) for x in c.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
- assert versions==list(range(1,57))
+ assert versions==list(range(1,58))
  for site,label in ((HOME,"Home"),(OFFICE,"Office")):tracky_site_topology.register_site(site_id=site,label=label)
  for device,label,site in ((HDEV,"Home Node",HOME),(ODEV,"Office Node",OFFICE)):
   tracky_site_topology.register_device(device_id=device,label=label,site_id=site,hardware_profile="Node",trust_state="trusted",roles=["site_authority"],capabilities={"site_authority_eligible":True})
@@ -91,7 +91,7 @@ assert "tracky_federated_automation_v281.py" in ci
 assert "tracky_federated_automation_v281.py" in release_workflow
 assert "tracky_federated_automation_definitions" in migration and "tracky_federated_automation_events" in migration
 assert "trg_tracky_federated_automation_events_no_update" in migration and "trg_tracky_federated_automation_events_no_delete" in migration
-assert "current_schema_version = 56" in ci
+assert "current_schema_version = 57" in ci
 assert "feature_track = 'Tracky V2.81'" in ci
 assert "feature_section = 3" in ci
 assert "federated_automation_execution_enabled = $true" in ci
