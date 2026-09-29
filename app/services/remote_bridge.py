@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, hosting_cloud_control, hosting_cloud_deployment, hosting_entitlements, hosting_public, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, hosting_cloud_control, hosting_cloud_deployment, hosting_entitlements, hosting_operations, hosting_public, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -560,6 +560,24 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             try:
                 payload_out=hosting_entitlements.status()
             except hosting_entitlements.EntitlementError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.dashboard":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_operations.dashboard()
+            except hosting_operations.HostingOperationsError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "hosting.operation.execute":
+            _vp3_hosting_identity(token)
+            try:
+                payload_out=hosting_operations.execute(
+                    str(body.get("site_id") or ""),
+                    str(body.get("action") or ""),
+                    str(body.get("idempotency_key") or ""),
+                )
+            except hosting_runtime.HostingError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "system.ping":
