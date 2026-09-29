@@ -122,7 +122,7 @@ def _record(site_id:str,action:str,idempotency_key:str,result:dict[str,Any])->No
         )
 
 
-def execute(site_id:str,action:str,idempotency_key:str)->dict[str,Any]:
+def execute(site_id:str,action:str,idempotency_key:str,*,confirmed:bool=False)->dict[str,Any]:
     hosting_runtime.get_site(site_id)
     action=str(action or "").strip().lower()
     if action not in _ALLOWED_ACTIONS:
@@ -134,6 +134,14 @@ def execute(site_id:str,action:str,idempotency_key:str)->dict[str,Any]:
     replay=_event_exists(site_id,action,key)
     if replay is not None:
         return {**replay,"replayed":True}
+
+    if action in {"site.suspend","site.activate","deployment.rollback"} and not confirmed:
+        raise HostingOperationsError("This hosting operation requires explicit confirmation.",409)
+
+    if action=="site.activate":
+        binding=hosting_cloud_control.binding_for_site(site_id)
+        if binding and str(binding.get("desired_state") or "")!="active":
+            raise HostingOperationsError("Cloud desired state does not permit local activation.",409)
 
     if action=="site.suspend":
         site=hosting_runtime.set_state(site_id,"suspended")
@@ -172,5 +180,7 @@ def public_capability()->dict[str,Any]:
         "raw_filesystem_access":False,
         "raw_sql_access":False,
         "billing_mutations":False,
+        "explicit_confirmation_for_consequential_actions":True,
+        "cloud_desired_state_activation_gate":True,
         "automatic_destructive_actions":False,
     }
