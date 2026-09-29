@@ -277,7 +277,8 @@ jobs:
             }
             if (-not $healthy) { throw 'Primary HomeServer process never became healthy' }
             $secondary = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
-            Wait-Process -Id $secondary.Id -Timeout 10
+            # PyInstaller onefile children must unpack before the named-mutex check executes; Windows CI can exceed 10s under load.
+            Wait-Process -Id $secondary.Id -Timeout 30
             $secondary.Refresh()
             if (-not $secondary.HasExited) { throw 'Second HomeServer instance did not exit' }
             if ($secondary.ExitCode -ne 23) { throw "Second HomeServer instance exited with $($secondary.ExitCode), expected 23" }
