@@ -195,6 +195,8 @@ jobs:
         run: python tests/hosting_cloud_deployment_v160.py
       - name: Verify HomeServer Hosting v1.70 public routing TLS and subdomain activation
         run: python tests/hosting_public_v170.py
+      - name: Verify HomeServer Hosting v1.80 package entitlements and enforcement
+        run: python tests/hosting_entitlements_v180.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance
