@@ -39,7 +39,10 @@ ready(cb){if(document.readyState==="loading"){document.addEventListener("DOMCont
 base(){const parts=location.pathname.split("/");const i=parts.indexOf("homeserver-apps");return i>=0?parts.slice(0,i+2).join("/"):"";},
 async emit(topic,payload={}){const r=await fetch(this.base()+"/runtime/events",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic,payload})});if(!r.ok)throw new Error(await r.text());return r.json();},
 async events(){const r=await fetch(this.base()+"/runtime/events");if(!r.ok)throw new Error(await r.text());return r.json();},
-async runJob(jobId){const r=await fetch(this.base()+"/runtime/jobs/"+encodeURIComponent(jobId)+"/run",{method:"POST"});if(!r.ok)throw new Error(await r.text());return r.json();}
+async runJob(jobId){const r=await fetch(this.base()+"/runtime/jobs/"+encodeURIComponent(jobId)+"/run",{method:"POST"});if(!r.ok)throw new Error(await r.text());return r.json();},
+async writeFile(path,blob){const f=new FormData();f.append("file",blob instanceof Blob?blob:new Blob([blob]));const r=await fetch(this.base()+"/data/file?path="+encodeURIComponent(path),{method:"PUT",body:f});if(!r.ok)throw new Error(await r.text());return r.json();},
+async readFile(path){const r=await fetch(this.base()+"/data/file?path="+encodeURIComponent(path));if(!r.ok)throw new Error(await r.text());return r.arrayBuffer();},
+async deleteFile(path){const r=await fetch(this.base()+"/data/file?path="+encodeURIComponent(path),{method:"DELETE"});if(!r.ok)throw new Error(await r.text());return r.json();}
 };"""
 APP_JS="""VP3App.ready(()=>{console.log("VP3 app ready",VP3App.health());});"""
 
