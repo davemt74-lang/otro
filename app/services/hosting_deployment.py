@@ -12,7 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..database import db
-from . import hosting_runtime
+from . import hosting_runtime, hosting_sqlite
 
 MAX_PACKAGE_BYTES = 64 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
@@ -48,7 +48,24 @@ def _normalize_member(name: str) -> PurePosixPath:
     return path
 
 
-def _validate_zip(package: bytes) -> tuple[zipfile.ZipFile, dict[str, Any], str]:
+def _content_digest(archive: zipfile.ZipFile) -> str:
+    digest=hashlib.sha256()
+    entries=[]
+    for info in archive.infolist():
+        if info.is_dir():
+            continue
+        path=_normalize_member(info.filename).as_posix()
+        entries.append((path,archive.read(info)))
+    for path,data in sorted(entries,key=lambda item:item[0]):
+        path_bytes=path.encode("utf-8")
+        digest.update(len(path_bytes).to_bytes(4,"big"))
+        digest.update(path_bytes)
+        digest.update(len(data).to_bytes(8,"big"))
+        digest.update(data)
+    return digest.hexdigest()
+
+
+def _validate_zip(package: bytes) -> tuple[zipfile.ZipFile, dict[str, Any], str, str]:
     if not package:
         raise DeploymentError("Deployment package is empty.")
     if len(package) > MAX_PACKAGE_BYTES:
@@ -120,7 +137,8 @@ def _validate_zip(package: bytes) -> tuple[zipfile.ZipFile, dict[str, Any], str]
         archive.close()
         raise DeploymentError("Deployment entrypoint must live under public/.")
 
-    return archive, manifest, digest
+    content_digest=_content_digest(archive)
+    return archive, manifest, digest, content_digest
 
 
 def _record(site_id: str, event_type: str, state: str, details: dict[str, Any]) -> None:
@@ -202,7 +220,7 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
         raise DeploymentError("Idempotency key is too long.")
     if site["state"]=="suspended":
         raise DeploymentError("Suspended sites cannot receive deployments.",409)
-    archive,manifest,digest=_validate_zip(package)
+    archive,manifest,digest,content_digest=_validate_zip(package)
     runtime=str(manifest["runtime"]).lower()
     if runtime != str(site["runtime_kind"]).lower():
         archive.close()
@@ -223,7 +241,13 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
                 release_id=str(details.get("release_id") or "")
                 if release_id:
                     archive.close()
-                    if str(details.get("package_sha256") or "") != digest:
+                    prior_content=str(details.get("package_content_sha256") or "")
+                    prior_raw=str(details.get("package_sha256") or "")
+                    if prior_content:
+                        same_package=prior_content==content_digest
+                    else:
+                        same_package=prior_raw==digest
+                    if not same_package:
                         raise DeploymentError("Idempotency key was already used for a different deployment package.",409)
                     result=_release_manifest(site_id,release_id)
                     result["active"]=release_id==_read_state(site_id).get("active_release_id")
@@ -272,6 +296,13 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
         (staging/"release.json").write_text(json.dumps(release_manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
         os.replace(staging,final)
 
+        migration_result=hosting_sqlite.apply_release_migrations(
+            site_id,
+            manifest,
+            final/"content",
+            release_id=release_id,
+        )
+
         old=_read_state(site_id)
         next_state={
             "contract":"vp3.hosting.deployment-state.v1",
@@ -284,18 +315,28 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
         _record(site_id,"deployment.activated","active",{
             "release_id":release_id,
             "package_sha256":digest,
+            "package_content_sha256":content_digest,
             "request_key":request_key,
             "runtime":runtime,
             "pre_deploy_recovery_id":pre_deploy["recovery_id"],
+            "sqlite_migrations_applied":migration_result.get("applied",[]),
+            "sqlite_migration_recovery_id":migration_result.get("recovery_id"),
         })
         result=dict(release_manifest)
         result["active"]=True
         result["previous_release_id"]=next_state["previous_release_id"]
         result["pre_deploy_recovery_id"]=pre_deploy["recovery_id"]
+        result["sqlite_migrations"]=migration_result
         return result
     except Exception:
         archive.close()
         shutil.rmtree(staging,ignore_errors=True)
+        try:
+            current=_read_state(site_id).get("active_release_id")
+        except Exception:
+            current=None
+        if final.exists() and current != release_id:
+            shutil.rmtree(final,ignore_errors=True)
         raise
 
 
@@ -342,6 +383,7 @@ def public_capability() -> dict[str, Any]:
         "atomic_release_activation":True,
         "rollback":True,
         "request_idempotency":True,
+        "governed_sqlite_migrations":True,
         "max_package_bytes":MAX_PACKAGE_BYTES,
         "max_uncompressed_bytes":MAX_UNCOMPRESSED_BYTES,
         "max_files":MAX_FILES,

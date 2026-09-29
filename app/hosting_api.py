@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_deployment, hosting_recovery, hosting_runtime, hosting_serving
+from .services import hosting_deployment, hosting_recovery, hosting_runtime, hosting_serving, hosting_sqlite
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -29,7 +29,9 @@ def _call(fn,*args,**kwargs):
 
 @router.get("/capability")
 def capability() -> dict:
-    return hosting_runtime.public_capability()
+    result=hosting_runtime.public_capability()
+    result["sqlite_runtime"]=hosting_sqlite.public_capability()
+    return result
 
 
 @router.get("/sites")
@@ -54,6 +56,7 @@ def site(site_id: str) -> dict:
     item=_call(hosting_runtime.get_site,site_id)
     item["usage"]=_call(hosting_runtime.sample_usage,site_id)
     item["database_health"]=_call(hosting_runtime.database_health,site_id)
+    item["sqlite_runtime"]=_call(hosting_sqlite.schema_status,site_id)
     return item
 
 
@@ -65,6 +68,11 @@ def site_state(site_id: str,payload: StateRequest) -> dict:
 @router.post("/sites/{site_id}/backups")
 def backup(site_id: str) -> dict:
     return _call(hosting_runtime.create_backup,site_id)
+
+
+@router.get("/sites/{site_id}/sqlite")
+def sqlite_status(site_id: str) -> dict:
+    return _call(hosting_sqlite.schema_status,site_id)
 
 
 @router.get("/sites/{site_id}/deployments")
