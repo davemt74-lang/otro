@@ -154,6 +154,8 @@ jobs:
         run: python tests/tracky_distributed_action_execution_v281.py
       - name: HomeServer Hosting v1.00 runtime foundation
         run: python tests/hosting_runtime_v100.py
+      - name: HomeServer Hosting v1.10 deployment packages
+        run: python tests/hosting_deployment_v110.py
       - name: Governed HomeServer actions v2.3 regression
         run: python tests/governed_actions_v230.py
       - name: Voice and profile-safe local execution v2.3 regression
