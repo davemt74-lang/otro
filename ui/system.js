@@ -386,12 +386,13 @@ byId('hostingSites').addEventListener('click', async event => {
   if (!button) return;
   const action = button.dataset.hostingAction;
   const siteId = button.dataset.hostingSite;
-  if (['site.suspend','deployment.rollback'].includes(action) && !confirm('Run ' + action + ' for this hosted site?')) return;
+  const consequential = ['site.suspend','site.activate','deployment.rollback'].includes(action);
+  if (consequential && !confirm('Run ' + action + ' for this hosted site?')) return;
   try {
     const key = 'hosting-ui-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
     await systemApi('/api/v1/control/hosting/sites/' + encodeURIComponent(siteId) + '/operations', {
       method:'POST',
-      body:JSON.stringify({action, idempotency_key:key}),
+      body:JSON.stringify({action, idempotency_key:key, confirmed:consequential}),
     });
     await refreshHosting();
     systemFlash('Hosting action completed: ' + action + '.');
