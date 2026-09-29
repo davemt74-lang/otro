@@ -72,6 +72,38 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v130-") as data_dir:
         assert jobs[0]["job_id"]=="heartbeat"
         assert jobs[0]["action"]["type"]=="event.emit"
 
+        # Sample data ships with the SDK but remains admin-controlled and
+        # separate from production app data.
+        sample_off=client.get("/api/v1/control/homeserver-apps/runtime.demo/sample-data")
+        assert sample_off.status_code==200,sample_off.text
+        sample_payload=sample_off.json()["sample_data"]
+        assert sample_payload["available"] is True
+        assert sample_payload["enabled"] is False
+        assert sample_payload["items"]==[]
+        enabled=client.put("/api/v1/control/homeserver-apps/admin/sample-data",json={"enabled":True})
+        assert enabled.status_code==200,enabled.text
+        assert enabled.json()["sample_data"]["enabled"] is True
+        sample_on=client.get("/api/v1/control/homeserver-apps/runtime.demo/sample-data").json()["sample_data"]
+        assert sample_on["enabled"] is True
+        assert sample_on["item_count"]>=1
+        assert sample_on["items"][0]["id"]=="welcome"
+        # Admin UI must expose the global sample-data control.
+        system_html=(ROOT/"ui"/"system.html").read_text(encoding="utf-8")
+        system_js=(ROOT/"ui"/"system.js").read_text(encoding="utf-8")
+        assert 'id="appSampleDataEnabled"' in system_html
+        assert "/api/v1/control/homeserver-apps/admin/sample-data" in system_js
+        # Malformed sample data is rejected before release activation.
+        manifest_before_bad=json.loads(manifest_path.read_text(encoding="utf-8"))
+        bad_sample_path=project/"sample"/"data.json"
+        good_sample=bad_sample_path.read_text(encoding="utf-8")
+        bad_sample_path.write_text(json.dumps({"contract":"wrong.contract","items":[]}),encoding="utf-8")
+        rejected_sample=client.post("/api/v1/control/homeserver-apps/runtime.demo/build-install")
+        assert rejected_sample.status_code==400,rejected_sample.text
+        bad_sample_path.write_text(good_sample,encoding="utf-8")
+        disabled=client.put("/api/v1/control/homeserver-apps/admin/sample-data",json={"enabled":False})
+        assert disabled.status_code==200
+        assert client.get("/api/v1/control/homeserver-apps/runtime.demo/sample-data").json()["sample_data"]["items"]==[]
+
         # Event stream is durable and scoped to this app.
         emitted=client.post("/api/v1/control/homeserver-apps/runtime.demo/runtime/events",json={
             "topic":"note.created","payload":{"id":7}
