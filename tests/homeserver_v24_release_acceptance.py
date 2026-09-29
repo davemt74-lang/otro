@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v24-release-") as data_dir:
 
 assert settings.version == "2.4"
 assert caps["version"] == "2.4"
-assert versions == list(range(1, 58))
+assert versions == list(range(1, 59))
 
 hosting = caps["vp3_hosting"]
 assert hosting["contract"] == "vp3.hosting.v1"

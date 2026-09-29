@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import time
 from urllib.parse import quote
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from .services import hosting_public, hosting_serving
+from .services import hosting_diagnostics, hosting_public, hosting_serving
 
 router=APIRouter(tags=["hosting-public-ingress"])
 
@@ -58,13 +59,31 @@ async def public_ingress(
     if len(body)>hosting_serving.MAX_REQUEST_BODY_BYTES:
         raise HTTPException(status_code=413,detail="Hosted request body exceeds the runtime limit.")
 
-    return _call(
-        hosting_serving.serve,
-        route["site_id"],
-        request_path,
-        method=request.method,
-        query_string=request.url.query,
-        content_type=request.headers.get("content-type"),
-        body=body,
-        request_headers=dict(request.headers),
+    started=time.monotonic()
+    try:
+        response=_call(
+            hosting_serving.serve,
+            route["site_id"],
+            request_path,
+            method=request.method,
+            query_string=request.url.query,
+            content_type=request.headers.get("content-type"),
+            body=body,
+            request_headers=dict(request.headers),
+        )
+    except HTTPException as exc:
+        detail=str(exc.detail or "").lower()
+        hosting_diagnostics.observe_request(
+            route["site_id"],source="public",method=request.method,path=request_path,
+            status_code=int(exc.status_code),duration_ms=(time.monotonic()-started)*1000,
+            error_class="php.runtime" if "php" in detail else "http.error",
+        )
+        raise
+    status=int(getattr(response,"status_code",200))
+    size=len(getattr(response,"body",b"") or b"")
+    hosting_diagnostics.observe_request(
+        route["site_id"],source="public",method=request.method,path=request_path,
+        status_code=status,duration_ms=(time.monotonic()-started)*1000,response_bytes=size,
+        error_class="",
     )
+    return response

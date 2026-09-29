@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_cloud_deployment, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, hosting_sqlite
+from .services import hosting_cloud_deployment, hosting_deployment, hosting_diagnostics, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, hosting_sqlite
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -42,6 +44,7 @@ def capability() -> dict:
     result["entitlements"]=hosting_entitlements.public_capability()
     result["operations"]=hosting_operations.public_capability()
     result["scheduler"]=hosting_scheduler.public_capability()
+    result["diagnostics"]=hosting_diagnostics.public_capability()
     return result
 
 
@@ -137,6 +140,11 @@ def runtime_health(site_id: str) -> dict:
     return _call(hosting_serving.runtime_health,site_id)
 
 
+@router.get("/sites/{site_id}/diagnostics")
+def diagnostics(site_id: str, window_minutes: int=60, recent_limit: int=30) -> dict:
+    return _call(hosting_diagnostics.summary,site_id,window_minutes=window_minutes,recent_limit=recent_limit)
+
+
 @router.get("/sites/{site_id}/recovery")
 def recovery_points(site_id: str) -> dict:
     return {
@@ -167,13 +175,30 @@ def restore_recovery_point(site_id: str,recovery_id: str) -> dict:
 )
 async def preview(site_id: str, request_path: str, request: Request):
     body=await request.body()
-    return _call(
-        hosting_serving.serve,
-        site_id,
-        request_path,
-        method=request.method,
-        query_string=request.url.query,
-        content_type=request.headers.get("content-type"),
-        body=body,
-        request_headers=dict(request.headers),
+    started=time.monotonic()
+    try:
+        response=_call(
+            hosting_serving.serve,
+            site_id,
+            request_path,
+            method=request.method,
+            query_string=request.url.query,
+            content_type=request.headers.get("content-type"),
+            body=body,
+            request_headers=dict(request.headers),
+        )
+    except HTTPException as exc:
+        detail=str(exc.detail or "").lower()
+        hosting_diagnostics.observe_request(
+            site_id,source="preview",method=request.method,path=request_path,
+            status_code=int(exc.status_code),duration_ms=(time.monotonic()-started)*1000,
+            error_class="php.runtime" if "php" in detail else "preview.error",
+        )
+        raise
+    hosting_diagnostics.observe_request(
+        site_id,source="preview",method=request.method,path=request_path,
+        status_code=int(getattr(response,"status_code",200)),
+        duration_ms=(time.monotonic()-started)*1000,
+        response_bytes=len(getattr(response,"body",b"") or b""),
     )
+    return response
