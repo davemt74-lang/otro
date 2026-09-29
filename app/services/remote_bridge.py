@@ -476,6 +476,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     package_sha256=str(body.get("package_sha256") or ""),
                     package_bytes=int(body.get("package_bytes")),
                     request_key=str(body.get("request_key") or ""),
+                    provenance=body.get("provenance") if isinstance(body.get("provenance"),dict) else {},
                 )
             except (TypeError,ValueError,hosting_cloud_deployment.CloudDeploymentError) as exc:
                 status=int(getattr(exc,"status_code",422))
