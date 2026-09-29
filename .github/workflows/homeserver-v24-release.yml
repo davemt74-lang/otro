@@ -62,9 +62,11 @@ jobs:
           app/services/tracky_site_topology.py
           app/services/hosting_runtime.py
           app/services/hosting_deployment.py
+          app/services/hosting_serving.py
           app/hosting_api.py
           tests/hosting_runtime_v100.py
           tests/hosting_deployment_v110.py
+          tests/hosting_serving_v120.py
           app/tracky_api.py
           tests/federated_data_authority_v240.py
           tests/contacts_continuity_v241.py
@@ -174,6 +176,8 @@ jobs:
         run: python tests/hosting_runtime_v100.py
       - name: Verify HomeServer Hosting v1.10 deployment packages
         run: python tests/hosting_deployment_v110.py
+      - name: Verify HomeServer Hosting v1.20 local serving
+        run: python tests/hosting_serving_v120.py
       - name: Verify retained v2.3 execution safety
         run: python tests/homeserver_v23_release_acceptance.py
       - name: Verify v2.4 final release acceptance
