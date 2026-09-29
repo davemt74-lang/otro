@@ -63,6 +63,9 @@ with tempfile.TemporaryDirectory(prefix="hosting-v120-") as data_dir:
         css=client.get(f"/api/v1/control/hosting/sites/{site_id}/preview/app.css")
         assert css.status_code==200
         assert "font-family" in css.text
+        assert css.headers["x-content-type-options"]=="nosniff"
+        static_post=client.post(f"/api/v1/control/hosting/sites/{site_id}/preview/app.css",content=b"x")
+        assert static_post.status_code==405
 
         traversal=client.get(f"/api/v1/control/hosting/sites/{site_id}/preview/%2E%2E/manifest.json")
         assert traversal.status_code in {400,404}
