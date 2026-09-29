@@ -42,6 +42,10 @@ Non-Hosting and mixed-surface pull requests retain their existing workflow behav
 
 Automatic workflows use GitHub Actions concurrency with cancel-in-progress enabled where appropriate so a newer commit supersedes obsolete queued/running checks for the same pull request.
 
+## VP3 OS phase discipline
+
+No new VP3 OS phase starts until the current VP3 OS release workflow is green on its required exact head, merged, and validated according to the active release contract.
+
 ## Section discipline
 
 No new Hosting section starts until the current section is:
