@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -19,6 +20,7 @@ MAX_UNCOMPRESSED_BYTES = 256 * 1024 * 1024
 MAX_FILES = 5000
 MANIFEST_NAME = "vp3-hosting.json"
 DEPLOYMENT_CONTRACT = "vp3.hosting.package.v1"
+_RELEASE_ID = re.compile(r"^release_[0-9a-f]{24}$")
 
 
 class DeploymentError(hosting_runtime.HostingError):
@@ -170,6 +172,9 @@ def _write_state(site_id: str, payload: dict[str, Any]) -> None:
 
 
 def _release_manifest(site_id: str, release_id: str) -> dict[str, Any]:
+    release_id=str(release_id or "").strip()
+    if not _RELEASE_ID.fullmatch(release_id):
+        raise DeploymentError("Hosting release identifier is invalid.")
     path = releases_root(site_id) / release_id / "release.json"
     if not path.is_file():
         raise DeploymentError("Hosting release not found.",404)
@@ -197,6 +202,7 @@ def list_releases(site_id: str) -> list[dict[str, Any]]:
     state=_read_state(site_id)
     for item in items:
         item["active"]=item["release_id"]==state.get("active_release_id")
+        item["previous"]=item["release_id"]==state.get("previous_release_id")
     return items
 
 
@@ -347,7 +353,7 @@ def deploy_package(site_id: str, package: bytes, *, request_key: str | None=None
 def promote_release(site_id: str, release_id: str) -> dict[str, Any]:
     site=hosting_runtime.get_site(site_id)
     target=str(release_id or "").strip()
-    if not target.startswith("release_") or len(target)>64:
+    if not _RELEASE_ID.fullmatch(target):
         raise DeploymentError("Hosting release identifier is invalid.")
     manifest=_release_manifest(site_id,target)
     state=_read_state(site_id)
