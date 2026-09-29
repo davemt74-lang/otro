@@ -241,3 +241,13 @@ def app_sample_data_settings_update(payload:SampleDataSettingsRequest)->dict:
 @router.get("/{app_key}/sample-data")
 def app_sample_data(app_key:str)->dict:
     return {"sample_data":_call(homeserver_app_sample_data.load_app_sample_data,app_key)}
+
+
+@router.post("/{app_key}/archive")
+def archive_user_app(app_key:str)->dict:
+    return {"app":_call(homeserver_apps.archive_user_app,app_key)}
+
+
+@router.post("/{app_key}/resume")
+def resume_user_app(app_key:str)->dict:
+    return {"app":_call(homeserver_apps.resume_user_app,app_key)}
