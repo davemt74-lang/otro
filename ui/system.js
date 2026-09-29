@@ -133,6 +133,7 @@ async function refreshHardwareExperience() {
     systemApi('/api/v1/control/vp3-os/hardware-experience'),
     systemApi('/api/v1/control/vp3-os/hardware-experience/events?limit=12'),
     systemApi('/api/v1/control/hosting/dashboard'),
+    systemApi('/api/v1/control/homeserver-apps/admin/sample-data'),
   ]);
   renderHardwareExperience(experience);
   const items = events.items || [];
@@ -353,7 +354,7 @@ async function refreshHosting() {
 }
 
 async function refreshSystem() {
-  const [system, payments, rollout, fleet, experience, experienceEvents, hosting] = await Promise.all([
+  const [system, payments, rollout, fleet, experience, experienceEvents, hosting, appSampleData] = await Promise.all([
     systemApi('/api/v1/control/system'),
     systemApi('/api/v1/control/payments'),
     systemApi('/api/v1/control/vp3-os/rollout'),
@@ -369,6 +370,7 @@ async function refreshSystem() {
   renderFleet(fleet);
   renderHardwareExperience(experience);
   renderHosting(hosting);
+  byId('appSampleDataEnabled').checked = Boolean(appSampleData.sample_data?.enabled);
   const experienceEventItems = experienceEvents.items || [];
   byId('hardwareExperienceEvents').innerHTML = experienceEventItems.length
     ? experienceEventItems.map(experienceEventCard).join('')
@@ -665,6 +667,24 @@ byId('clearStripePayments').addEventListener('click', async () => {
     byId('stripeWebhookSecret').value = '';
     systemFlash('Local Stripe commerce credentials removed.');
   } catch (err) { systemFlash(err.message, true); }
+});
+
+
+byId('appSampleDataEnabled').addEventListener('change', async event => {
+  const checkbox = event.target;
+  const desired = checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    const result = await systemApi('/api/v1/control/homeserver-apps/admin/sample-data', {
+      method:'PUT',
+      body:JSON.stringify({enabled:desired}),
+    });
+    checkbox.checked = Boolean(result.sample_data.enabled);
+    systemFlash(result.sample_data.enabled ? 'App sample data enabled.' : 'App sample data disabled.');
+  } catch (err) {
+    checkbox.checked = !desired;
+    systemFlash(err.message, true);
+  } finally { checkbox.disabled = false; }
 });
 
 byId('startupEnabled').addEventListener('change', async event => {
