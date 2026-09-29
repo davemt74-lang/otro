@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .services import hosting_cloud_deployment, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, hosting_sqlite
+from .services import hosting_cloud_deployment, hosting_deployment, hosting_entitlements, hosting_observability, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, hosting_sqlite
 
 router=APIRouter(prefix="/api/v1/control/hosting",tags=["hosting"])
 
@@ -42,6 +42,7 @@ def capability() -> dict:
     result["entitlements"]=hosting_entitlements.public_capability()
     result["operations"]=hosting_operations.public_capability()
     result["scheduler"]=hosting_scheduler.public_capability()
+    result["observability"]=hosting_observability.public_capability()
     return result
 
 
@@ -71,6 +72,16 @@ def create_site(payload: CreateSiteRequest) -> dict:
         storage_limit_bytes=payload.storage_limit_bytes,
         sqlite_limit_bytes=payload.sqlite_limit_bytes,
     )
+
+
+@router.get("/sites/{site_id}/observability")
+def observability(site_id: str) -> dict:
+    return _call(hosting_observability.summary,site_id)
+
+
+@router.get("/sites/{site_id}/requests")
+def recent_requests(site_id: str,limit: int=50) -> dict:
+    return _call(hosting_observability.recent,site_id,limit)
 
 
 @router.get("/sites/{site_id}")
