@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -13,7 +15,7 @@ if str(ROOT) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="hosting-v130-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
     from app.database import initialize_database
-    from app.services import hosting_cloud_control, hosting_runtime
+    from app.services import hosting_cloud_control, hosting_deployment, hosting_runtime
 
     initialize_database()
 
@@ -40,6 +42,21 @@ with tempfile.TemporaryDirectory(prefix="hosting-v130-") as data_dir:
     assert replay["reconcile_result"]=="idempotent"
     assert replay["site_id"]==site_id
     assert len(hosting_runtime.list_sites())==1
+
+    package=io.BytesIO()
+    with zipfile.ZipFile(package,"w",zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("vp3-hosting.json",json.dumps({
+            "contract":"vp3.hosting.package.v1",
+            "version":"1.3.0",
+            "runtime":"static",
+            "entrypoint":"public/index.html",
+        }))
+        archive.writestr("public/index.html","ready")
+    hosting_deployment.deploy_package(site_id,package.getvalue(),request_key="cloud-ready-1")
+    ready=hosting_cloud_control.reconcile(dict(desired))
+    assert ready["reconcile_result"]=="idempotent"
+    assert ready["observed_state"]=="active"
+    assert ready["local_serving_ready"] is True
 
     stale=dict(desired)
     stale.update({"revision":0})
