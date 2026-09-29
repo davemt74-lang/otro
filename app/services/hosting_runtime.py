@@ -204,8 +204,8 @@ def set_state(site_id: str, state: str) -> dict[str, Any]:
     return get_site(site_id)
 
 
-def sample_usage(site_id: str) -> dict[str, int]:
-    site=get_site(site_id)
+def measure_usage(site_id: str) -> dict[str, int]:
+    get_site(site_id)
     root=site_root(site_id)
     _ensure_no_symlink(root)
     storage=0
@@ -221,6 +221,14 @@ def sample_usage(site_id: str) -> dict[str, int]:
                 pass
     db_path=site_db_path(site_id)
     sqlite_bytes=db_path.stat().st_size if db_path.exists() else 0
+    return {"storage_bytes":storage,"sqlite_bytes":sqlite_bytes}
+
+
+def sample_usage(site_id: str) -> dict[str, int]:
+    site=get_site(site_id)
+    measured=measure_usage(site_id)
+    storage=measured["storage_bytes"]
+    sqlite_bytes=measured["sqlite_bytes"]
     storage_limit=site.get("storage_limit_bytes")
     sqlite_limit=site.get("sqlite_limit_bytes")
     if storage_limit is not None and storage>int(storage_limit):
@@ -314,7 +322,7 @@ def agent_context_fragment(query: str, max_chars: int=1800) -> str:
         f"- Hosted sites: {len(sites)}",
     ]
     for site in sites[:12]:
-        usage=sample_usage(site["site_id"])
+        usage=measure_usage(site["site_id"])
         health=database_health(site["site_id"])
         hostname=site.get("requested_hostname") or "not assigned"
         lines.append(
