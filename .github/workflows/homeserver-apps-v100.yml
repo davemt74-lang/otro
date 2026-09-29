@@ -11,6 +11,8 @@ on:
       - 'app/services/homeserver_app_resources.py'
       - 'app/services/homeserver_app_runtime.py'
       - 'app/services/homeserver_app_sample_data.py'
+      - 'tests/homeserver_apps_v150.py'
+      - 'app/services/homeserver_app_prebuilt.py'
       - 'ui/app.js'
       - 'ui/index.html'
       - 'ui/homeserver-apps.css'
@@ -99,3 +101,5 @@ jobs:
         run: python tests/homeserver_apps_v130.py
       - name: Verify Installed Apps manager
         run: python tests/homeserver_apps_v140.py
+      - name: Verify VP3 prebuilt apps
+        run: python tests/homeserver_apps_v150.py
