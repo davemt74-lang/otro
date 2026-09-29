@@ -8,6 +8,7 @@ from . import (
     hosting_cloud_control,
     hosting_deployment,
     hosting_entitlements,
+    hosting_observability,
     hosting_public,
     hosting_recovery,
     hosting_runtime,
@@ -33,6 +34,7 @@ def _site_summary(site:dict[str,Any])->dict[str,Any]:
     serving=hosting_serving.runtime_health(site_id)
     usage=hosting_runtime.measure_usage(site_id)
     binding=hosting_cloud_control.binding_for_site(site_id)
+    observability=hosting_observability.summary(site_id)
     return {
         "site_id":site_id,
         "display_name":site["display_name"],
@@ -46,6 +48,7 @@ def _site_summary(site:dict[str,Any])->dict[str,Any]:
         "previous_release_id":deployment.get("previous_release_id"),
         "serving_ready":bool(serving.get("local_serving_ready")),
         "runtime_scheduler":serving.get("scheduler") or {},
+        "observability":observability,
         "sqlite_healthy":bool(sqlite.get("healthy")),
         "recovery_points":recovery.get("recovery_points"),
         "latest_recovery_verified":recovery.get("latest_verified"),
@@ -69,6 +72,8 @@ def dashboard()->dict[str,Any]:
         "sqlite_healthy":sum(1 for s in sites if s["sqlite_healthy"]),
         "runtime_inflight":sum(int((s.get("runtime_scheduler") or {}).get("inflight") or 0) for s in sites),
         "runtime_rejected":sum(int((s.get("runtime_scheduler") or {}).get("rejected") or 0) for s in sites),
+        "requests_total":sum(int((s.get("observability") or {}).get("requests_total") or 0) for s in sites),
+        "server_errors_total":sum(int((s.get("observability") or {}).get("server_error_total") or 0) for s in sites),
     }
     issues=[]
     for s in sites:

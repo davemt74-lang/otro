@@ -5,13 +5,13 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from fastapi.responses import FileResponse, Response
-from starlette.background import BackgroundTask
 
-from . import hosting_deployment, hosting_runtime, hosting_scheduler
+from . import hosting_deployment, hosting_observability, hosting_runtime, hosting_scheduler
 
 SERVING_CONTRACT = "vp3.hosting.serving.v1"
 PHP_TIMEOUT_SECONDS = 5
@@ -211,6 +211,79 @@ def _execute_php(
     return response
 
 
+
+def _record_request(
+    site_id: str,
+    *,
+    method: str,
+    request_path: str,
+    status_code: int,
+    started_at: float,
+    bytes_out: int = 0,
+    error_code: str | None = None,
+) -> None:
+    try:
+        site=hosting_runtime.get_site(site_id)
+        release_id=hosting_deployment.deployment_status(site_id).get("active_release_id")
+        hosting_observability.record(
+            site_id,
+            method=method,
+            request_path=request_path,
+            status_code=status_code,
+            duration_ms=(time.monotonic()-started_at)*1000.0,
+            bytes_out=bytes_out,
+            runtime_kind=str(site.get("runtime_kind") or ""),
+            release_id=str(release_id or "") or None,
+            error_code=error_code,
+        )
+    except Exception:
+        pass
+
+
+class _TrackedFileResponse(FileResponse):
+    def __init__(
+        self,
+        *args,
+        site_id:str,
+        method:str,
+        request_path:str,
+        started_at:float,
+        bytes_out:int,
+        **kwargs,
+    ):
+        super().__init__(*args,**kwargs)
+        self._vp3_site_id=site_id
+        self._vp3_method=method
+        self._vp3_request_path=request_path
+        self._vp3_started_at=started_at
+        self._vp3_bytes_out=bytes_out
+
+    async def __call__(self,scope,receive,send):
+        status=200
+        error_code=None
+        failed=False
+        try:
+            return await super().__call__(scope,receive,send)
+        except Exception as exc:
+            failed=True
+            status=499 if exc.__class__.__name__.lower().find("disconnect")>=0 else 500
+            error_code=exc.__class__.__name__
+            raise
+        finally:
+            try:
+                _record_request(
+                    self._vp3_site_id,
+                    method=self._vp3_method,
+                    request_path=self._vp3_request_path,
+                    status_code=status,
+                    started_at=self._vp3_started_at,
+                    bytes_out=0 if failed else self._vp3_bytes_out,
+                    error_code=error_code,
+                )
+            finally:
+                hosting_scheduler.release(self._vp3_site_id,failed)
+
+
 def serve(
     site_id: str,
     request_path: str,
@@ -221,50 +294,98 @@ def serve(
     body: bytes = b"",
     request_headers: dict[str, str] | None = None,
 ):
+    started_at=time.monotonic()
     site = hosting_runtime.get_site(site_id)
     method = str(method or "GET").upper()
-    if method not in _ALLOWED_METHODS:
-        raise ServingError("Hosted runtime method is not allowed.", 405)
-    if site["state"] != "active":
-        raise ServingError("Hosted site is not active.", 503)
-    target = _resolve_target(site_id, request_path)
+    try:
+        if method not in _ALLOWED_METHODS:
+            raise ServingError("Hosted runtime method is not allowed.", 405)
+        if site["state"] != "active":
+            raise ServingError("Hosted site is not active.", 503)
+        target = _resolve_target(site_id, request_path)
 
-    if target.suffix.lower() == ".php":
-        if str(site["runtime_kind"]).lower() != "php":
-            raise ServingError("PHP execution is not enabled for this site.", 403)
+        if target.suffix.lower() == ".php":
+            if str(site["runtime_kind"]).lower() != "php":
+                raise ServingError("PHP execution is not enabled for this site.", 403)
+            try:
+                hosting_scheduler.acquire(site_id)
+            except Exception as exc:
+                _record_request(
+                    site_id,
+                    method=method,
+                    request_path=request_path,
+                    status_code=int(getattr(exc,"status_code",503)),
+                    started_at=started_at,
+                    error_code=exc.__class__.__name__,
+                )
+                raise
+            try:
+                response=_execute_php(
+                    site_id,
+                    target,
+                    method=method,
+                    query_string=query_string,
+                    content_type=content_type,
+                    body=body,
+                    request_path=request_path,
+                    request_headers=request_headers,
+                )
+            except Exception as exc:
+                hosting_scheduler.release(site_id,failed=True)
+                status=int(getattr(exc,"status_code",500))
+                _record_request(
+                    site_id,
+                    method=method,
+                    request_path=request_path,
+                    status_code=status,
+                    started_at=started_at,
+                    error_code=exc.__class__.__name__,
+                )
+                raise
+            hosting_scheduler.release(site_id,failed=False)
+            response_body=getattr(response,"body",b"") or b""
+            _record_request(
+                site_id,
+                method=method,
+                request_path=request_path,
+                status_code=int(getattr(response,"status_code",200)),
+                started_at=started_at,
+                bytes_out=0 if method=="HEAD" else len(response_body),
+            )
+            return response
+
+        if method == "POST":
+            raise ServingError("POST requests require a PHP entrypoint.",405)
+
+        media_type, _ = mimetypes.guess_type(str(target))
         hosting_scheduler.acquire(site_id)
         try:
-            response=_execute_php(
-                site_id,
+            size=0 if method=="HEAD" else int(target.stat().st_size)
+            return _TrackedFileResponse(
                 target,
+                media_type=media_type or "application/octet-stream",
+                filename=None,
+                headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"},
+                site_id=site_id,
                 method=method,
-                query_string=query_string,
-                content_type=content_type,
-                body=body,
                 request_path=request_path,
-                request_headers=request_headers,
+                started_at=started_at,
+                bytes_out=size,
             )
         except Exception:
             hosting_scheduler.release(site_id,failed=True)
             raise
-        hosting_scheduler.release(site_id,failed=False)
-        return response
-
-    if method == "POST":
-        raise ServingError("POST requests require a PHP entrypoint.",405)
-
-    media_type, _ = mimetypes.guess_type(str(target))
-    hosting_scheduler.acquire(site_id)
-    try:
-        return FileResponse(
-            target,
-            media_type=media_type or "application/octet-stream",
-            filename=None,
-            headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"},
-            background=BackgroundTask(hosting_scheduler.release,site_id,False),
-        )
-    except Exception:
-        hosting_scheduler.release(site_id,failed=True)
+    except Exception as exc:
+        status=int(getattr(exc,"status_code",500))
+        if not (target.suffix.lower()==".php" if "target" in locals() else False):
+            _record_request(
+                site_id,
+                method=method,
+                request_path=request_path,
+                status_code=status,
+                started_at=started_at,
+                error_code=exc.__class__.__name__,
+            )
         raise
 
 
@@ -314,5 +435,6 @@ def public_capability() -> dict[str, Any]:
         "site_state_gate": True,
         "active_release_gate": True,
         "scheduler": hosting_scheduler.public_capability(),
+        "observability": hosting_observability.public_capability(),
         "public_routing": False,
     }

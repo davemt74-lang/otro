@@ -132,7 +132,6 @@ async function refreshHardwareExperience() {
   const [experience, events] = await Promise.all([
     systemApi('/api/v1/control/vp3-os/hardware-experience'),
     systemApi('/api/v1/control/vp3-os/hardware-experience/events?limit=12'),
-    systemApi('/api/v1/control/hosting/dashboard'),
   ]);
   renderHardwareExperience(experience);
   const items = events.items || [];
@@ -324,11 +323,14 @@ function hostingSiteCard(item) {
   if (item.state !== 'active') actions.push('<button class="button primary" data-hosting-action="site.activate" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Activate</button>');
   if (item.previous_release_id) actions.push('<button class="button secondary" data-hosting-action="deployment.rollback" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Rollback</button>');
   actions.push('<button class="button secondary" data-hosting-action="recovery.create" data-hosting-site="' + escSystem(item.site_id) + '" type="button">Recovery point</button>');
+  actions.push('<button class="button secondary" data-hosting-requests="' + escSystem(item.site_id) + '" type="button">Requests</button>');
   return '<article class="fleet-card"><div><strong>' + escSystem(item.display_name) + '</strong><span>' +
     escSystem(item.hostname || 'No hostname') + ' · ' + escSystem(item.runtime_kind) + ' · ' + escSystem(item.state) +
     '</span><small>Release ' + escSystem(item.active_release_id || 'none') + ' · public ' +
     escSystem(item.public_route_ready ? 'ready' : 'not ready') + ' · SQLite ' +
-    escSystem(item.sqlite_healthy ? 'healthy' : 'degraded') + ' · storage ' + escSystem(bytes(item.usage?.storage_bytes || 0)) +
+    escSystem(item.sqlite_healthy ? 'healthy' : 'degraded') + ' · requests ' + escSystem(item.observability?.requests_total || 0) +
+    ' · errors ' + escSystem((item.observability?.client_error_total || 0) + (item.observability?.server_error_total || 0)) +
+    ' · storage ' + escSystem(bytes(item.usage?.storage_bytes || 0)) +
     '</small></div><div class="runtime-actions">' + actions.join('') + '</div></article>';
 }
 
@@ -337,7 +339,7 @@ function renderHosting(data) {
   const ent = data.entitlements || {};
   byId('hostingSummary').innerHTML = [
     diagnosticCard('Hosted sites', data.healthy ? true : false, [['Sites', counts.sites || 0], ['Active', counts.active || 0], ['Issues', (data.issues || []).length]]),
-    diagnosticCard('Runtime isolation', (counts.runtime_rejected || 0) === 0, [['In flight', counts.runtime_inflight || 0], ['Rejected', counts.runtime_rejected || 0], ['Serving ready', counts.serving_ready || 0]]),
+    diagnosticCard('Traffic', (counts.server_errors_total || 0) === 0, [['Requests', counts.requests_total || 0], ['Server errors', counts.server_errors_total || 0], ['In flight', counts.runtime_inflight || 0]]),
     diagnosticCard('Package entitlement', ent.within_entitlement !== false, [['Package', ent.package_key || 'not synced'], ['Within limits', ent.within_entitlement === false ? 'no' : 'yes'], ['Overages', (ent.overages || []).join(', ') || 'none']]),
   ].join('');
   const sites = data.sites || [];
@@ -350,6 +352,19 @@ function renderHosting(data) {
 
 async function refreshHosting() {
   renderHosting(await systemApi('/api/v1/control/hosting/dashboard'));
+}
+
+async function loadHostingRequests(siteId) {
+  const data = await systemApi('/api/v1/control/hosting/sites/' + encodeURIComponent(siteId) + '/requests?limit=30');
+  const items = data.items || [];
+  byId('hostingRequests').innerHTML = items.length
+    ? items.map(item => '<article class="fleet-card"><div><strong>' +
+      escSystem(item.method + ' ' + item.path) + '</strong><span>' +
+      escSystem(String(item.status)) + ' · ' + escSystem(String(item.duration_ms)) + ' ms · ' +
+      escSystem(bytes(item.bytes_out || 0)) + '</span><small>' +
+      escSystem(item.at || '') + (item.error_code ? ' · ' + escSystem(item.error_code) : '') +
+      '</small></div></article>').join('')
+    : '<div class="muted">No recent requests for this hosted site.</div>';
 }
 
 async function refreshSystem() {
@@ -383,6 +398,14 @@ byId('refreshHosting').addEventListener('click', async () => {
 });
 
 byId('hostingSites').addEventListener('click', async event => {
+  const requestsButton = event.target.closest('[data-hosting-requests]');
+  if (requestsButton) {
+    try {
+      await loadHostingRequests(requestsButton.dataset.hostingRequests);
+      systemFlash('Recent hosting requests loaded.');
+    } catch (err) { systemFlash(err.message, true); }
+    return;
+  }
   const button = event.target.closest('[data-hosting-action]');
   if (!button) return;
   const action = button.dataset.hostingAction;
