@@ -30,6 +30,10 @@ At those checkpoints, the broad HomeServer CI, v2.3 release acceptance, v2.4 dat
 
 Sections 5 and 10 are detected from the branch suffixes `-section5` and `-section10`.
 
+## VP3 OS release workflow
+
+The **current VP3 OS release workflow** remains authoritative for its owned release surface. The Hosting V2 acceleration layer does not demote, replace, or bypass that workflow when VP3 OS files are changed.
+
 ## Non-Hosting pull requests
 
 Non-Hosting and mixed-surface pull requests retain their existing workflow behavior. The Hosting optimization must not be used to bypass validation for unrelated HomeServer, Agent, Tracky, federation, hardware, installer, or release surfaces.
