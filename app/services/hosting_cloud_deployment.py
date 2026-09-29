@@ -421,6 +421,7 @@ def status(cloud_site_id:str,transfer_id:str|None=None)->dict[str,Any]:
         "cloud_site_id":cloud_site_id,
         "site_id":site_id,
         "active_release_id":deployment.get("active_release_id"),
+        "previous_release_id":deployment.get("previous_release_id"),
         "transfers":items[:20],
         "recovery":hosting_recovery.recovery_health(site_id),
         "sqlite":hosting_sqlite.schema_status(site_id),
