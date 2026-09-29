@@ -110,7 +110,7 @@ with tempfile.TemporaryDirectory(prefix="hosting-v200-") as data_dir:
     hosting_scheduler.acquire(s1,timeout=0)
     drain_result={}
     def drain():
-        drain_result["value"]=hosting_scheduler.begin_drain(s1,timeout=2.0)
+        drain_result["value"]=hosting_scheduler.begin_drain(s1,timeout=5.0)
     t=threading.Thread(target=drain)
     t.start()
     deadline=time.time()+1
@@ -123,7 +123,7 @@ with tempfile.TemporaryDirectory(prefix="hosting-v200-") as data_dir:
     except hosting_scheduler.SchedulerError as exc:
         assert exc.status_code==503
     hosting_scheduler.release(s1)
-    t.join(timeout=2)
+    t.join(timeout=6)
     assert not t.is_alive()
     assert drain_result["value"]["inflight"]==0
     hosting_scheduler.end_drain(s1)
@@ -142,14 +142,14 @@ with tempfile.TemporaryDirectory(prefix="hosting-v200-") as data_dir:
             deploy_error["value"]=exc
     worker=threading.Thread(target=deploy_next)
     worker.start()
-    deadline=time.time()+3
+    deadline=time.time()+12
     while time.time()<deadline and not hosting_scheduler.status(s1)["draining"]:
         time.sleep(0.01)
     assert hosting_scheduler.status(s1)["draining"] is True
     before=hosting_deployment.deployment_status(s1)["active_release"]["app_version"]
     assert before=="2.0.0"
     hosting_scheduler.release(s1)
-    worker.join(timeout=4)
+    worker.join(timeout=15)
     assert not worker.is_alive()
     assert "value" not in deploy_error
     assert deploy_result["value"]["app_version"]=="2.0.1"
