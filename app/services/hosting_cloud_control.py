@@ -129,7 +129,22 @@ def _apply_desired(site_id:str,desired:dict[str,Any])->tuple[dict[str,Any],str|N
                 hosting_runtime.set_state(site_id,"configured")
             blocked_reason="deployment_required"
         else:
-            hosting_runtime.set_state(site_id,"active")
+            try:
+                hosting_runtime.sample_usage(site_id)
+            except hosting_runtime.HostingError:
+                blocked_reason="resource_limit"
+            if blocked_reason is None:
+                database_health=hosting_runtime.database_health(site_id)
+                if not database_health.get("healthy"):
+                    blocked_reason="sqlite_unhealthy"
+            if blocked_reason is None and desired["runtime_kind"]=="php":
+                from . import hosting_serving
+                if not hosting_serving.php_cgi_path():
+                    blocked_reason="php_runtime_unavailable"
+            if blocked_reason is None:
+                hosting_runtime.set_state(site_id,"active")
+            elif hosting_runtime.get_site(site_id)["state"] not in {"suspended","failed"}:
+                hosting_runtime.set_state(site_id,"configured")
     else:
         hosting_runtime.set_state(site_id,desired["desired_state"])
     return hosting_runtime.get_site(site_id),blocked_reason
