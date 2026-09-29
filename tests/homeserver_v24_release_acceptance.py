@@ -38,7 +38,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v24-release-") as data_dir:
 
 assert settings.version == "2.4"
 assert caps["version"] == "2.4"
-assert versions == list(range(1, 57))
+assert versions == list(range(1, 58))
+
+hosting = caps["vp3_hosting"]
+assert hosting["contract"] == "vp3.hosting.v1"
+assert hosting["per_site_sqlite"] is True
+assert hosting["agent_context"] is True
+assert hosting["public_routing"] is False
 
 legacy = caps["unified_execution"]
 assert legacy["version"] == "2.3"
