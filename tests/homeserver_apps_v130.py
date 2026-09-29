@@ -87,6 +87,19 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v130-") as data_dir:
         assert sample_on["enabled"] is True
         assert sample_on["item_count"]>=1
         assert sample_on["items"][0]["id"]=="welcome"
+        # Admin UI must expose the global sample-data control.
+        system_html=(ROOT/"ui"/"system.html").read_text(encoding="utf-8")
+        system_js=(ROOT/"ui"/"system.js").read_text(encoding="utf-8")
+        assert 'id="appSampleDataEnabled"' in system_html
+        assert "/api/v1/control/homeserver-apps/admin/sample-data" in system_js
+        # Malformed sample data is rejected before release activation.
+        manifest_before_bad=json.loads(manifest_path.read_text(encoding="utf-8"))
+        bad_sample_path=project/"sample"/"data.json"
+        good_sample=bad_sample_path.read_text(encoding="utf-8")
+        bad_sample_path.write_text(json.dumps({"contract":"wrong.contract","items":[]}),encoding="utf-8")
+        rejected_sample=client.post("/api/v1/control/homeserver-apps/runtime.demo/build-install")
+        assert rejected_sample.status_code==400,rejected_sample.text
+        bad_sample_path.write_text(good_sample,encoding="utf-8")
         disabled=client.put("/api/v1/control/homeserver-apps/admin/sample-data",json={"enabled":False})
         assert disabled.status_code==200
         assert client.get("/api/v1/control/homeserver-apps/runtime.demo/sample-data").json()["sample_data"]["items"]==[]
