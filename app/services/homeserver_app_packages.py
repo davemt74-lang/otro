@@ -13,7 +13,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import homeserver_app_sdk, homeserver_apps
+from . import homeserver_app_resources, homeserver_app_sdk, homeserver_app_security, homeserver_apps
 
 CONTRACT="vp3.app.package.v1"
 RUNTIME_CONTRACT="vp3.app.runtime-install.v1"
@@ -97,6 +97,10 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
         raise AppPackageError("App permissions must be a list of non-empty strings.")
     if len(set(permissions))!=len(permissions):
         raise AppPackageError("App permissions may not contain duplicates.")
+    try:
+        manifest["permissions"]=homeserver_app_security.normalize_declared_permissions(permissions)
+    except homeserver_app_security.AppSecurityError as exc:
+        raise AppPackageError(str(exc)) from exc
     sdk_version=str(manifest.get("sdk_version") or "").strip()
     if sdk_version and sdk_version!="1.0":
         raise AppPackageError("App SDK version is not supported.")
@@ -328,6 +332,8 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None)->dict
                     json.dumps({"release_id":release_id,"version":manifest["version"],"package_sha256":validation["package_sha256"]},separators=(",",":"),sort_keys=True),
                 ),
             )
+        homeserver_app_security.sync_declared_permissions(app_key,list(manifest.get("permissions") or []))
+        homeserver_app_resources.resource_status(app_key)
         result=dict(release)
         result["active"]=True
         result["previous_release_id"]=state["previous_release_id"]
