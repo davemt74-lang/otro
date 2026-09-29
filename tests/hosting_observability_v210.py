@@ -111,7 +111,9 @@ with tempfile.TemporaryDirectory(prefix="hosting-v210-") as data_dir:
     assert dashboard["counts"]["requests_total"]==2
 
     original_max=hosting_observability.MAX_LOG_BYTES
+    original_events=hosting_observability.MAX_RECENT_EVENTS
     hosting_observability.MAX_LOG_BYTES=1600
+    hosting_observability.MAX_RECENT_EVENTS=12
     try:
         for i in range(60):
             hosting_observability.record(
@@ -130,6 +132,7 @@ with tempfile.TemporaryDirectory(prefix="hosting-v210-") as data_dir:
         assert len(bounded["items"])<=hosting_observability.MAX_RECENT_EVENTS
     finally:
         hosting_observability.MAX_LOG_BYTES=original_max
+        hosting_observability.MAX_RECENT_EVENTS=original_events
 
     cap=hosting_observability.public_capability()
     assert cap["aggregate_metrics"] is True
