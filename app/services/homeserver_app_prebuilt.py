@@ -10,7 +10,7 @@ from ..database import db
 from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.09.30.7"
+CATALOG_VERSION = "2026.09.30.8"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -68,7 +68,8 @@ CATALOG = {
     "vp3.media-server": {
         "key": "vp3.media-server",
         "name": "VP3 Media Server",
-        "version": "1.1.0",
+        "version": "1.1.1",
+        "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
@@ -119,7 +120,8 @@ CATALOG = {
     "vp3.music-server": {
         "key": "vp3.music-server",
         "name": "VP3 Music Server",
-        "version": "1.0.0",
+        "version": "1.0.1",
+        "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
@@ -250,7 +252,7 @@ def _manifest(definition: dict[str, Any]) -> dict[str, Any]:
         "version": definition["version"],
         "runtime": "static",
         "entrypoint": "index.html",
-        "sdk_version": "1.0",
+        "sdk_version": str(definition.get("sdk_version") or "1.0"),
         "release_channel": definition.get("release_channel", "stable"),
         "min_homeserver_version": definition.get("min_homeserver_version", ""),
         "max_homeserver_version": definition.get("max_homeserver_version", ""),
@@ -325,7 +327,10 @@ def _package(definition: dict[str, Any]) -> bytes:
         "assets/app.css": VIDEO_EDITOR_CSS if definition["kind"]=="video_editor" else (MEDIA_SERVER_CSS if definition["kind"]=="media_server" else APP_CSS),
         "assets/app.js": MUSIC_SERVER_JS if definition["kind"]=="music_server" else (VIDEO_EDITOR_JS if definition["kind"]=="video_editor" else (MEDIA_SERVER_JS if definition["kind"]=="media_server" else COMMON_JS)),
         "settings.schema.json": json.dumps({"contract": "vp3.app.settings-schema.v1", "fields": []}, indent=2) + "\n",
-        "agent/actions.json": json.dumps({"contract": "vp3.app.agent-actions.v1", "actions": list(definition.get("agent_actions") or [])}, indent=2) + "\n",
+        "agent/actions.json": json.dumps({
+            "contract": "vp3.app.agent-actions.v2" if str(definition.get("sdk_version") or "1.0")=="1.2" else "vp3.app.agent-actions.v1",
+            "actions": list(definition.get("agent_actions") or [])
+        }, indent=2) + "\n",
         "runtime/jobs.json": json.dumps({"contract": "vp3.app.jobs.v1", "jobs": []}, indent=2) + "\n",
         "runtime/events.json": json.dumps({"contract": "vp3.app.events.v1", "subscriptions": []}, indent=2) + "\n",
         "sample-data.json": json.dumps({"contract": "vp3.app.sample-data.v1", "items": definition["sample"]}, indent=2) + "\n",
