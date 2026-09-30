@@ -326,6 +326,17 @@ def serve(
                     str(p.get("preset") or "default"),str(p.get("output_format") or ""),
                     int(p.get("priority") or 0),
                 ))
+            if rel.startswith("derivatives/") and rel.endswith("/file") and method=="GET":
+                derivative_id=rel.split("/")[1]
+                path,row=homeserver_media_processor.resolve_derivative(derivative_id)
+                mime={
+                    "mp4":"video/mp4","webm":"video/webm","mp3":"audio/mpeg",
+                    "jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png","webp":"image/webp"
+                }.get(str(row.get("format") or "").lower(),"application/octet-stream")
+                return FileResponse(
+                    path,media_type=mime,filename=None,
+                    headers={"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff","X-VP3-Derivative-Id":str(row["derivative_id"])},
+                )
             if rel=="derivatives" and method=="GET":
                 media_id=str((query.get("media_id") or [""])[0])
                 try: limit=int((query.get("limit") or ["200"])[0])
