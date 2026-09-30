@@ -124,12 +124,6 @@ def _package(definition: dict[str, Any]) -> bytes:
 def _public(definition: dict[str, Any]) -> dict[str, Any]:
     package = _package(definition)
     digest = hashlib.sha256(package).hexdigest()
-    if expected_version and str(expected_version) != str(definition["version"]):
-        raise homeserver_apps.HomeServerAppError("Requested System App version is no longer current.", 409)
-    if expected_sha256 and str(expected_sha256).lower() != digest.lower():
-        raise homeserver_apps.HomeServerAppError("Requested System App package hash does not match the HomeServer catalog.", 409)
-    if release_channel and str(release_channel).strip().lower() != str(definition.get("release_channel") or "stable"):
-        raise homeserver_apps.HomeServerAppError("Requested System App release channel does not match the HomeServer catalog.", 409)
     try:
         app = homeserver_apps.get(definition["key"])
     except homeserver_apps.HomeServerAppError:
@@ -186,6 +180,12 @@ def install(
         raise homeserver_apps.HomeServerAppError("VP3 prebuilt app not found.", 404)
     package = _package(definition)
     digest = hashlib.sha256(package).hexdigest()
+    if expected_version and str(expected_version) != str(definition["version"]):
+        raise homeserver_apps.HomeServerAppError("Requested System App version is no longer current.", 409)
+    if expected_sha256 and str(expected_sha256).lower() != digest.lower():
+        raise homeserver_apps.HomeServerAppError("Requested System App package hash does not match the HomeServer catalog.", 409)
+    if release_channel and str(release_channel).strip().lower() != str(definition.get("release_channel") or "stable"):
+        raise homeserver_apps.HomeServerAppError("Requested System App release channel does not match the HomeServer catalog.", 409)
     app = homeserver_apps.ensure_system_app(
         key,
         definition["name"],
