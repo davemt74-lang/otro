@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_server, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -79,6 +79,18 @@ class MediaMappedRootRequest(BaseModel):
     computer_name:str=Field(default="",max_length=120)
     source_hint:str=Field(default="",max_length=240)
     source_kind:str=Field(default="computer_folder",pattern="^(computer_folder|network_share|local_folder)$")
+
+
+class MediaProcessorCreateRequest(BaseModel):
+    media_id:str=Field(min_length=1,max_length=100)
+    operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
+    preset:str=Field(default="default",max_length=80)
+    output_format:str=Field(default="",max_length=20)
+    priority:int=Field(default=0,ge=-100,le=100)
+
+
+class MediaProcessorSettingsRequest(BaseModel):
+    values:dict=Field(default_factory=dict)
 
 
 class DownloadCreateRequest(BaseModel):
@@ -239,6 +251,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_download_manager.DownloadManagerError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_media_processor.MediaProcessorError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_video_editor.VideoEditorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
@@ -250,7 +264,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -380,6 +394,73 @@ def media_server_remote_disable()->dict:
 
 
 
+
+
+
+@router.get("/media-processor/capability")
+def media_processor_capability()->dict:
+    return homeserver_media_processor.capability()
+
+
+@router.get("/media-processor/tools")
+def media_processor_tools()->dict:
+    return homeserver_media_tools.public_capability()
+
+
+@router.get("/media-processor/status")
+def media_processor_status()->dict:
+    return _call(homeserver_media_processor.status)
+
+
+@router.get("/media-processor/brain-context")
+def media_processor_brain_context(limit:int=Query(default=8,ge=1,le=20))->dict:
+    return _call(homeserver_media_processor.brain_context,limit)
+
+
+@router.get("/media-processor/jobs")
+def media_processor_jobs(limit:int=Query(default=100,ge=1,le=500))->dict:
+    return _call(homeserver_media_processor.list_jobs,limit)
+
+
+@router.post("/media-processor/jobs")
+def media_processor_enqueue(payload:MediaProcessorCreateRequest)->dict:
+    return _call(
+        homeserver_media_processor.enqueue,payload.media_id,payload.operation,
+        payload.preset,payload.output_format,payload.priority
+    )
+
+
+@router.get("/media-processor/jobs/{job_id}")
+def media_processor_job(job_id:str)->dict:
+    return _call(homeserver_media_processor.get_job,job_id)
+
+
+@router.delete("/media-processor/jobs/{job_id}")
+def media_processor_cancel(job_id:str)->dict:
+    return _call(homeserver_media_processor.cancel,job_id)
+
+
+@router.post("/media-processor/jobs/{job_id}/retry")
+def media_processor_retry(job_id:str)->dict:
+    return _call(homeserver_media_processor.retry,job_id)
+
+
+@router.get("/media-processor/derivatives")
+def media_processor_derivatives(
+    media_id:str=Query(default="",max_length=100),
+    limit:int=Query(default=200,ge=1,le=500),
+)->dict:
+    return _call(homeserver_media_processor.derivatives,media_id,limit)
+
+
+@router.get("/media-processor/settings")
+def media_processor_settings()->dict:
+    return _call(homeserver_media_processor.settings)
+
+
+@router.put("/media-processor/settings")
+def media_processor_update_settings(payload:MediaProcessorSettingsRequest)->dict:
+    return _call(homeserver_media_processor.update_settings,payload.values)
 
 @router.get("/download-manager/capability")
 def download_manager_capability()->dict:
