@@ -574,7 +574,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
-        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 25
+        assert migrated_again.execute("SELECT COUNT(*) FROM tool_policies").fetchone()[0] == 31
         assert migrated_again.execute("SELECT COUNT(*) FROM agent_tool_policy").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_intelligence_settings").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM automation_context_events").fetchone()[0] == 0
