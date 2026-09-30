@@ -95,3 +95,8 @@ FFmpeg project: https://ffmpeg.org/
 The FFmpeg binaries are separate third-party executables managed by HomeServer.
 "@
 Set-Content -Encoding utf8 (Join-Path $Destination "THIRD_PARTY_NOTICE.txt") $notice
+
+$packageReadme = Get-ChildItem -Path $extract -Recurse -File -Filter "README.txt" | Select-Object -First 1
+if ($packageReadme) {
+  Copy-Item $packageReadme.FullName (Join-Path $Destination "FFMPEG_BUILD_README.txt") -Force
+}
