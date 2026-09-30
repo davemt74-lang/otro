@@ -7,7 +7,7 @@
     while(n>=1024 && i<units.length-1){ n/=1024; i++; }
     return `${n.toFixed(i===0?0:n>=10?1:2)} ${units[i]}`;
   };
-  const state={data:null,catalog:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null};
+  const state={data:null,catalog:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null,pendingDistribution:null};
 
   function ensureWorkspace(){
     if(document.getElementById('view-homeserver-apps')) return;
@@ -61,6 +61,12 @@
             <label>HTTPS repository<input id="hsAppsGitUrl" type="url" required maxlength="1000" placeholder="https://github.com/org/app.git"></label>
             <label>Branch, tag or commit<input id="hsAppsGitRef" maxlength="160" value="HEAD" placeholder="main"></label>
             <button class="button secondary" type="submit">Inspect Git</button>
+          </form>
+          <form id="hsAppsDistributionImportForm">
+            <h4>Private VP3 share</h4>
+            <label>VP3 app bundle<input id="hsAppsDistributionFile" type="file" accept=".zip,.vp3app.zip,application/zip" required></label>
+            <label>Expected package SHA-256<input id="hsAppsDistributionHash" maxlength="64" pattern="[a-fA-F0-9]{64}" placeholder="From the VP3 private-share page"></label>
+            <button class="button secondary" type="submit">Inspect Private Bundle</button>
           </form>
         </div>
         <div id="hsAppsSourcePreview" class="hs-app-source-preview hidden"></div>
@@ -179,6 +185,31 @@
     const body=new FormData(); body.append('file',file);
     const result=await window.api('/api/v1/control/homeserver-apps/sources/zip/inspect',{method:'POST',body});
     renderSourcePreview(result.source);
+  }
+
+  async function inspectDistribution(){
+    const file=document.getElementById('hsAppsDistributionFile')?.files?.[0];
+    if(!file) throw new Error('Choose a VP3 app distribution bundle.');
+    const expected=(document.getElementById('hsAppsDistributionHash')?.value||'').trim().toLowerCase();
+    if(expected && !/^[a-f0-9]{64}$/.test(expected)) throw new Error('Expected package SHA-256 must be 64 hexadecimal characters.');
+    const body=new FormData(); body.append('file',file);
+    const result=await window.api('/api/v1/control/homeserver-apps/distribution/inspect',{method:'POST',body});
+    const dist=result.distribution||{}, descriptor=dist.descriptor||{};
+    if(expected && descriptor.package_sha256!==expected) throw new Error('This bundle does not match the private-share package hash.');
+    state.pendingDistribution={file,expected,distribution:dist};
+    const node=document.getElementById('hsAppsSourcePreview');
+    node.classList.remove('hidden');
+    node.innerHTML=`
+      <div class="panel-head"><div><p class="eyebrow">PRIVATE DISTRIBUTION</p><h3>${esc(descriptor.name||descriptor.app_key||'App')}</h3><p class="muted">${esc(descriptor.app_key||'')} · v${esc(descriptor.version||'—')}</p></div><span class="hs-source-ready">Integrity verified</span></div>
+      <div class="hs-app-source-grid">
+        <div><span>Runtime</span><strong>${esc(descriptor.runtime||'—')}</strong></div>
+        <div><span>Files</span><strong>${esc(descriptor.file_count||0)}</strong></div>
+        <div><span>Package</span><strong>${bytes(descriptor.compressed_bytes||0)}</strong></div>
+        <div><span>SHA-256</span><code>${esc(descriptor.package_sha256||'')}</code></div>
+        <div class="wide"><span>Publisher fingerprint</span><code>${esc(descriptor.publisher_fingerprint||'')}</code></div>
+      </div>
+      <p class="muted">App data, secrets, and ownership are not included. Permissions remain governed after install.</p>
+      <div class="form-actions"><button class="button primary" type="button" data-hs-distribution-install>Approve & Install Private App</button></div>`;
   }
 
   async function inspectGit(){
@@ -337,6 +368,21 @@
         .finally(()=>{prebuilt.disabled=false;});
       return;
     }
+    const distributionInstall=event.target.closest('[data-hs-distribution-install]');
+    if(distributionInstall){
+      const pending=state.pendingDistribution;
+      if(!pending?.file) return;
+      if(!confirm('Install this verified private app bundle? The package hash will be checked again before activation.')) return;
+      const body=new FormData(); body.append('file',pending.file);
+      const query=new URLSearchParams({approved:'true'});
+      if(pending.expected) query.set('expected_package_sha256',pending.expected);
+      distributionInstall.disabled=true;
+      window.api('/api/v1/control/homeserver-apps/distribution/install?'+query.toString(),{method:'POST',body})
+        .then(async result=>{state.pendingDistribution=null;renderSourcePreview(null);document.getElementById('hsAppsImport')?.classList.add('hidden');await load(true);await detail(result.distribution.descriptor.app_key);window.flash('Private app installed from verified distribution bundle.');})
+        .catch(error=>window.flash(error.message||'Private app install failed.',true))
+        .finally(()=>{distributionInstall.disabled=false;});
+      return;
+    }
     const sourceInstall=event.target.closest('[data-hs-source-install]');
     if(sourceInstall){
       if(!confirm('Install this validated app source? This creates or updates the user app and activates a new release.')) return;
@@ -433,6 +479,12 @@
       event.preventDefault();
       try{await inspectGit();window.flash('Git source validated. Review before installing.');}
       catch(error){window.flash(error.message||'Git inspection failed.',true);}
+      return;
+    }
+    if(event.target.id==='hsAppsDistributionImportForm'){
+      event.preventDefault();
+      try{await inspectDistribution();window.flash('Private app bundle verified. Review before installing.');}
+      catch(error){window.flash(error.message||'Private app inspection failed.',true);}
       return;
     }
     if(event.target.id!=='hsAppsCreateForm') return;
