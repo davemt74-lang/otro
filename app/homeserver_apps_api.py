@@ -177,13 +177,24 @@ def app_distribution_export(app_key:str):
 
 
 @router.post("/distribution/inspect")
-async def app_distribution_inspect(file:UploadFile=File(...))->dict:
+async def app_distribution_inspect(
+    file:UploadFile=File(...),
+    expected_package_sha256:str=Query(default="",max_length=64),
+)->dict:
     bundle=await file.read(homeserver_app_distribution.MAX_BUNDLE_BYTES+1)
     if len(bundle)>homeserver_app_distribution.MAX_BUNDLE_BYTES:
         raise HTTPException(status_code=413,detail="Distribution bundle exceeds the size limit.")
-    inspected=_call(homeserver_app_distribution.inspect_bundle,bundle)
-    safe={k:v for k,v in inspected.items() if k!="package"}
-    return {"distribution":safe}
+    review=_call(
+        homeserver_app_distribution.preview_bundle,
+        bundle,
+        expected_package_sha256=expected_package_sha256,
+    )
+    return {"distribution":review}
+
+
+@router.get("/{app_key}/distribution/provenance")
+def app_distribution_provenance(app_key:str)->dict:
+    return {"distribution":_call(homeserver_app_distribution.installed_provenance,app_key)}
 
 
 @router.post("/distribution/install")
@@ -191,6 +202,7 @@ async def app_distribution_install(
     file:UploadFile=File(...),
     approved:bool=Query(default=False),
     expected_package_sha256:str=Query(default="",max_length=64),
+    share_public_id:str=Query(default="",max_length=64),
 )->dict:
     bundle=await file.read(homeserver_app_distribution.MAX_BUNDLE_BYTES+1)
     if len(bundle)>homeserver_app_distribution.MAX_BUNDLE_BYTES:
@@ -200,6 +212,7 @@ async def app_distribution_install(
         bundle,
         approved=approved,
         expected_package_sha256=expected_package_sha256,
+        share_public_id=share_public_id,
     )}
 
 
