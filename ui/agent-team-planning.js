@@ -187,11 +187,11 @@
     state.plans = Array.isArray(payload.items) ? payload.items : [];
   }
 
-  async function refresh() {
+  async function refresh({notifyOrchestration = true} = {}) {
     if (!ensureUi()) return;
     await Promise.all([loadWorkers(), loadPlans()]);
     render();
-    window.HomeServerAgentTeamOrchestration?.refresh?.().catch(() => null);
+    if (notifyOrchestration) window.HomeServerAgentTeamOrchestration?.refresh?.().catch(() => null);
   }
 
   async function proposePlan(event) {
