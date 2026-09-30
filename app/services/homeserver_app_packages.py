@@ -345,13 +345,13 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         entry=(content/Path(*_safe_rel(manifest["entrypoint"]).parts)).resolve()
         if not entry.is_file():
             raise AppPackageError("App entrypoint was not extracted.")
+        from . import homeserver_app_control
         try:
             homeserver_app_runtime.validate_release_contracts(app_key,content)
-        from . import homeserver_app_control
-        homeserver_app_control.validate_action_manifest(content,app_key,str(manifest.get("agent_actions") or ""))
-        homeserver_app_control.validate_settings_schema(content,app_key,str(manifest.get("settings_schema") or ""))
-        except homeserver_app_runtime.AppRuntimeError as exc:
-            raise AppPackageError(str(exc),exc.status_code) from exc
+            homeserver_app_control.validate_action_manifest(content,app_key,str(manifest.get("agent_actions") or ""))
+            homeserver_app_control.validate_settings_schema(content,app_key,str(manifest.get("settings_schema") or ""))
+        except (homeserver_app_runtime.AppRuntimeError,homeserver_app_control.AppControlError) as exc:
+            raise AppPackageError(str(exc),getattr(exc,"status_code",400)) from exc
         homeserver_apps.transition(
             app_key,transition_target,
             actor_type="system" if _system_managed else "owner",
@@ -474,12 +474,15 @@ def verify_active_release(
     if expected_sha256 and str(release.get("package_sha256") or "").lower()!=str(expected_sha256).lower():
         raise AppPackageError("Active release package hash does not match the expected update.",409)
     content=(releases_root(app_key)/active/"content").resolve()
-    homeserver_app_runtime.validate_release_contracts(app_key,content)
     from . import homeserver_app_control
     manifest_path=str((homeserver_apps.get(app_key).get("metadata") or {}).get("agent_actions") or "agent/actions.json")
     settings_path=str((homeserver_apps.get(app_key).get("metadata") or {}).get("settings_schema") or "settings.schema.json")
-    homeserver_app_control.validate_action_manifest(content,app_key,manifest_path)
-    homeserver_app_control.validate_settings_schema(content,app_key,settings_path)
+    try:
+        homeserver_app_runtime.validate_release_contracts(app_key,content)
+        homeserver_app_control.validate_action_manifest(content,app_key,manifest_path)
+        homeserver_app_control.validate_settings_schema(content,app_key,settings_path)
+    except (homeserver_app_runtime.AppRuntimeError,homeserver_app_control.AppControlError) as exc:
+        raise AppPackageError(str(exc),getattr(exc,"status_code",400)) from exc
     resources=homeserver_app_resources.resource_status(app_key)
     app=homeserver_apps.get(app_key)
     healthy=str(app.get("lifecycle_state") or "")=="running"
