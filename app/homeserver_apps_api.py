@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_music_server, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -71,6 +71,32 @@ class WorkspaceWriteRequest(BaseModel):
 class MediaRootGrantRequest(BaseModel):
     path:str=Field(min_length=1,max_length=2000)
     label:str=Field(default="",max_length=120)
+
+
+class MediaMappedRootRequest(BaseModel):
+    path:str=Field(min_length=1,max_length=2000)
+    label:str=Field(default="",max_length=120)
+    computer_name:str=Field(default="",max_length=120)
+    source_hint:str=Field(default="",max_length=240)
+    source_kind:str=Field(default="computer_folder",pattern="^(computer_folder|network_share|local_folder)$")
+
+
+class MusicPlaylistRequest(BaseModel):
+    name:str=Field(min_length=1,max_length=160)
+
+
+class MusicMediaRequest(BaseModel):
+    media_id:str=Field(min_length=1,max_length=100)
+
+
+class MusicFavoriteRequest(BaseModel):
+    enabled:bool=True
+
+
+class MusicPlaybackRequest(BaseModel):
+    command:str=Field(pattern="^(play|pause|stop)$")
+    media_id:str=Field(default="",max_length=100)
+    position_seconds:float=Field(default=0,ge=0)
 
 
 class MediaPlaybackRequest(BaseModel):
@@ -157,6 +183,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_media_server.MediaServerError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_music_server.MusicServerError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_video_editor.VideoEditorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
@@ -168,7 +196,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -205,6 +233,24 @@ def media_server_roots()->dict:
 def media_server_add_root(payload:MediaRootGrantRequest)->dict:
     return _call(homeserver_media_server.add_root,payload.path,payload.label)
 
+
+
+
+@router.post("/media-server/mapped-roots")
+def media_server_add_mapped_root(payload:MediaMappedRootRequest)->dict:
+    return _call(
+        homeserver_media_server.add_mapped_root,
+        payload.path,
+        payload.label,
+        computer_name=payload.computer_name,
+        source_hint=payload.source_hint,
+        source_kind=payload.source_kind,
+    )
+
+
+@router.post("/media-server/roots/{root_id}/check")
+def media_server_check_root(root_id:str)->dict:
+    return _call(homeserver_media_server.check_root,root_id)
 
 @router.delete("/media-server/roots/{root_id}")
 def media_server_remove_root(root_id:str)->dict:
@@ -274,6 +320,102 @@ def media_server_remote_disable()->dict:
     return _call(homeserver_media_server.disable_remote_access)
 
 
+
+
+
+@router.get("/music-server/capability")
+def music_server_capability()->dict:
+    return homeserver_music_server.public_capability()
+
+
+@router.get("/music-server/status")
+def music_server_status()->dict:
+    return _call(homeserver_music_server.status)
+
+
+@router.post("/music-server/sync")
+def music_server_sync()->dict:
+    return _call(homeserver_music_server.sync)
+
+
+@router.get("/music-server/tracks")
+def music_server_tracks(
+    q:str=Query(default="",max_length=200),
+    artist:str=Query(default="",max_length=240),
+    album:str=Query(default="",max_length=240),
+    limit:int=Query(default=200,ge=1,le=1000),
+)->dict:
+    return _call(homeserver_music_server.tracks,q,artist,album,limit)
+
+
+@router.get("/music-server/artists")
+def music_server_artists(limit:int=Query(default=500,ge=1,le=1000))->dict:
+    return _call(homeserver_music_server.artists,limit)
+
+
+@router.get("/music-server/albums")
+def music_server_albums(artist:str=Query(default="",max_length=240),limit:int=Query(default=500,ge=1,le=1000))->dict:
+    return _call(homeserver_music_server.albums,artist,limit)
+
+
+@router.get("/music-server/favorites")
+def music_server_favorites()->dict:
+    return _call(homeserver_music_server.favorites)
+
+
+@router.put("/music-server/favorites/{media_id}")
+def music_server_favorite(media_id:str,payload:MusicFavoriteRequest)->dict:
+    return _call(homeserver_music_server.favorite,media_id,payload.enabled)
+
+
+@router.get("/music-server/playlists")
+def music_server_playlists()->dict:
+    return _call(homeserver_music_server.playlists)
+
+
+@router.post("/music-server/playlists")
+def music_server_create_playlist(payload:MusicPlaylistRequest)->dict:
+    return _call(homeserver_music_server.create_playlist,payload.name)
+
+
+@router.get("/music-server/playlists/{playlist_id}")
+def music_server_playlist(playlist_id:str)->dict:
+    return _call(homeserver_music_server.playlist,playlist_id)
+
+
+@router.post("/music-server/playlists/{playlist_id}/tracks")
+def music_server_playlist_add(playlist_id:str,payload:MusicMediaRequest)->dict:
+    return _call(homeserver_music_server.playlist_add,playlist_id,payload.media_id)
+
+
+@router.delete("/music-server/playlists/{playlist_id}/tracks/{media_id}")
+def music_server_playlist_remove(playlist_id:str,media_id:str)->dict:
+    return _call(homeserver_music_server.playlist_remove,playlist_id,media_id)
+
+
+@router.delete("/music-server/playlists/{playlist_id}")
+def music_server_playlist_delete(playlist_id:str)->dict:
+    return _call(homeserver_music_server.delete_playlist,playlist_id)
+
+
+@router.get("/music-server/queue")
+def music_server_queue()->dict:
+    return _call(homeserver_music_server.queue)
+
+
+@router.post("/music-server/queue")
+def music_server_queue_add(payload:MusicMediaRequest)->dict:
+    return _call(homeserver_music_server.queue_add,payload.media_id)
+
+
+@router.delete("/music-server/queue")
+def music_server_queue_clear()->dict:
+    return _call(homeserver_music_server.queue_clear)
+
+
+@router.post("/music-server/playback")
+def music_server_playback(payload:MusicPlaybackRequest)->dict:
+    return _call(homeserver_music_server.playback,payload.command,payload.media_id,payload.position_seconds)
 
 @router.get("/video-editor/capability")
 def video_editor_capability()->dict:
