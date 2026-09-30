@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
         assert install.json()["app"]["installed_version"]=="1.0.0"
 
         # Required network/file permissions are declared and default denied.
-        perms=client.get("/api/v1/control/homeserver-apps/vp3.download-manager/permissions").json()
+        perms=client.get("/api/v1/control/homeserver-apps/vp3.download-manager/permissions").json()["permissions"]
         by_perm={row["permission"]:row for row in perms["permissions"]}
         assert by_perm["network.external"]["allowed"] is False
         assert by_perm["files.write"]["allowed"] is False
