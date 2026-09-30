@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -573,6 +573,45 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                 "query":result.get("query") or "","media_type":result.get("media_type") or "",
                 "items":items,"count":len(items),"source_media_exposed":False,
             }}
+        if op == "apps.video.status":
+            _vp3_system_apps_identity(token)
+            try:
+                state=homeserver_video_editor.status()
+            except homeserver_video_editor.VideoEditorError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":state}
+        if op == "apps.video.projects":
+            _vp3_system_apps_identity(token)
+            try:
+                state=homeserver_video_editor.list_projects(min(100,max(1,int(body.get("limit") or 50))))
+            except (homeserver_video_editor.VideoEditorError,ValueError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":state}
+        if op == "apps.video.project":
+            _vp3_system_apps_identity(token)
+            try:
+                state=homeserver_video_editor.project(str(body.get("project_id") or ""))
+            except homeserver_video_editor.VideoEditorError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":state}
+        if op == "apps.video.agent.actions":
+            _vp3_system_apps_identity(token)
+            return {"status":200,"ok":True,"payload":homeserver_video_editor.agent_actions()}
+        if op == "apps.video.agent.invoke":
+            _vp3_system_apps_identity(token)
+            action=str(body.get("action") or "")
+            arguments=body.get("arguments") if isinstance(body.get("arguments"),dict) else {}
+            confirmed=bool(body.get("confirmed"))
+            spec={row["key"]:row for row in homeserver_video_editor.agent_actions()["actions"]}.get(action)
+            if spec is None:
+                return {"status":404,"ok":False,"payload":{"detail":"Video Editor action not found."}}
+            if bool(spec.get("requires_confirmation")) and not confirmed:
+                return {"status":409,"ok":False,"payload":{"detail":"This Video Editor action requires owner confirmation.","confirmation_required":True}}
+            try:
+                result=homeserver_video_editor.invoke(action,arguments)
+            except homeserver_video_editor.VideoEditorError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":{"contract":"vp3.app-agent-invoke.v1","app_key":homeserver_video_editor.APP_KEY,"action":action,"result":result}}
         if op == "apps.manager.status":
             _vp3_system_apps_identity(token)
             state=homeserver_app_manager.inventory()
