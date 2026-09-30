@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..database import db
-from . import homeserver_app_packages, homeserver_app_runtime, homeserver_apps
+from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_runtime, homeserver_apps
 
 CONTRACT="vp3.app.release-management.v1"
 MAX_RELEASES=20
@@ -150,16 +150,40 @@ def rollback(app_key:str)->dict[str,Any]:
     if app["app_class"]=="system":
         raise AppReleaseError("VP3 system app rollback is managed by VP3.",409)
     state=homeserver_app_packages._read_state(app_key)
+    active=str(state.get("active_release_id") or "")
     previous=str(state.get("previous_release_id") or "")
     if not previous:
         raise AppReleaseError("No previous app release is available.",409)
+    active_release=_release(app_key,active) if active else {}
+    migration=dict(active_release.get("data_migration") or {})
+    if migration.get("migration_required"):
+        if not migration.get("migration_reversible"):
+            raise AppReleaseError(
+                "Rollback is blocked because the active release contains an irreversible app data migration.",
+                409,
+            )
+        if not str(migration.get("snapshot_id") or ""):
+            raise AppReleaseError(
+                "Rollback is blocked because the required app data recovery snapshot is unavailable.",
+                409,
+            )
     result=promote(app_key,previous,reason="owner_rollback")
+    try:
+        data_restore=homeserver_app_data_lifecycle.rollback_data_for_active_release(app_key,active_release)
+    except Exception as exc:
+        if active:
+            try:
+                promote(app_key,active,reason="rollback_data_restore_failed")
+            except Exception:
+                pass
+        raise AppReleaseError(f"App data rollback failed: {exc}",500) from exc
     with db() as connection:
         connection.execute(
             """INSERT INTO homeserver_app_events(app_id,event_type,actor_type,actor_key,metadata_json)
                VALUES (?, 'app.release.rolled_back','owner','local_owner',?)""",
-            (app["app_id"],json.dumps({"release_id":previous},separators=(",",":"),sort_keys=True)),
+            (app["app_id"],json.dumps({"release_id":previous,"data_restore":data_restore},separators=(",",":"),sort_keys=True)),
         )
+    result["data_restore"]=data_restore
     return result
 
 
