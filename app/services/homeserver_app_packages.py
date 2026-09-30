@@ -426,6 +426,41 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         archive.close()
 
 
+def verify_active_release(
+    app_key:str,
+    *,
+    expected_release_id:str|None=None,
+    expected_version:str|None=None,
+    expected_sha256:str|None=None,
+)->dict[str,Any]:
+    status=runtime_status(app_key)
+    active=str(status.get("active_release_id") or "")
+    release=status.get("active_release")
+    if not active or not isinstance(release,dict):
+        raise AppPackageError("App has no active release to verify.",409)
+    if expected_release_id and active!=str(expected_release_id):
+        raise AppPackageError("Active release changed before verification completed.",409)
+    if expected_version and str(release.get("version") or "")!=str(expected_version):
+        raise AppPackageError("Active release version does not match the expected update.",409)
+    if expected_sha256 and str(release.get("package_sha256") or "").lower()!=str(expected_sha256).lower():
+        raise AppPackageError("Active release package hash does not match the expected update.",409)
+    content=(releases_root(app_key)/active/"content").resolve()
+    homeserver_app_runtime.validate_release_contracts(app_key,content)
+    resources=homeserver_app_resources.resource_status(app_key)
+    app=homeserver_apps.get(app_key)
+    healthy=str(app.get("lifecycle_state") or "")=="running"
+    return {
+        "contract":"vp3.app.release-health.v1",
+        "app_key":app_key,
+        "release_id":active,
+        "version":str(release.get("version") or ""),
+        "package_sha256":str(release.get("package_sha256") or ""),
+        "healthy":healthy,
+        "lifecycle_state":str(app.get("lifecycle_state") or ""),
+        "resources":resources,
+    }
+
+
 def install_system_package(app_key:str,package:bytes)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]!="system" or not app["protected_system_app"]:
