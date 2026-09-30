@@ -229,7 +229,8 @@ def status()->dict[str,Any]:
       deriv=int(c.execute("SELECT COUNT(*) FROM processor_derivatives").fetchone()[0])
     finally:c.close()
     return {"contract":CONTRACT,"counts":counts,"active":counts.get("processing",0),"queued":counts.get("queued",0),
-      "failed":counts.get("failed",0),"completed":counts.get("completed",0),"derivatives":deriv,**capability()}
+      "failed":counts.get("failed",0),"completed":counts.get("completed",0),"derivatives":deriv,
+      "destinations":destinations()["count"],"settings":settings()["settings"],**capability()}
 
 def list_jobs(limit:int=100)->dict[str,Any]:
     c=_connect()
@@ -547,10 +548,20 @@ def authenticate_remote(value:str)->bool:
 
 def brain_context(limit:int=8)->dict[str,Any]:
     s=status(); jobs=list_jobs(limit)["jobs"]
-    return {"contract":"vp3.media-processor.brain-context.v1","summary":{"active":s["active"],"queued":s["queued"],"failed":s["failed"],"completed":s["completed"],"derivatives":s["derivatives"]},
-      "attention":[{"job_id":j["job_id"],"operation":j["operation"],"error":j["error"]} for j in jobs if j["status"]=="failed"][:8],
-      "recent":[{k:j.get(k) for k in ("job_id","media_id","operation","preset","status","progress")} for j in jobs[:8]],
-      "source_paths_exposed":False,"output_paths_exposed":False}
+    attention=[{"job_id":j["job_id"],"operation":j["operation"],"error":j["error"]} for j in jobs if j["status"]=="failed"][:8]
+    if not s["ffmpeg_available"]:
+      attention.insert(0,{"type":"runtime","issue":"managed_ffmpeg_unavailable"})
+    return {
+      "contract":"vp3.media-processor.brain-context.v1",
+      "summary":{
+        "active":s["active"],"queued":s["queued"],"failed":s["failed"],"completed":s["completed"],
+        "derivatives":s["derivatives"],"destinations":s["destinations"],
+        "managed_ffmpeg_available":s["ffmpeg_available"],"managed_ffmpeg_version":s["ffmpeg_version"],
+      },
+      "attention":attention[:8],
+      "recent":[{k:j.get(k) for k in ("job_id","media_id","operation","preset","status","progress","eta_seconds","output_ready")} for j in jobs[:8]],
+      "source_paths_exposed":False,"output_paths_exposed":False
+    }
 
 def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
     a=dict(arguments or {}); k=str(action or "")
