@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -532,6 +532,22 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             except homeserver_apps.HomeServerAppError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.user.distribution.describe":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            if not key:
+                return {"status":400,"ok":False,"payload":{"detail":"app_key is required."}}
+            try:
+                descriptor=homeserver_app_distribution.distribution_descriptor(key)["descriptor"]
+            except (homeserver_app_distribution.AppDistributionError,homeserver_apps.HomeServerAppError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":{
+                "contract":"vp3.user-app-distribution-projection.v1",
+                "descriptor":descriptor,
+                "package_content_exposed":False,
+                "app_data_exposed":False,
+                "secrets_exposed":False,
+            }}
         if op == "apps.user.workspace.status":
             _vp3_system_apps_identity(token)
             key=str(body.get("app_key") or "").strip().lower()
