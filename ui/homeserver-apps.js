@@ -248,9 +248,9 @@
     try{
       const detail=await window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}`);
       const app=detail.app, system=app.app_class==='system';
-      let permissions=null,resources=null,runtime=null,secrets=null,releases=null,source=null,workspace=null;
+      let permissions=null,resources=null,runtime=null,secrets=null,releases=null,source=null,workspace=null,distribution=null;
       if(!system || (app.metadata||{}).prebuilt_app){
-        [permissions,resources,runtime,secrets,releases,source,workspace]=await Promise.all([
+        [permissions,resources,runtime,secrets,releases,source,workspace,distribution]=await Promise.all([
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/permissions`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/resources`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/runtime/services`).catch(()=>null),
@@ -258,6 +258,7 @@
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/releases`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/source`).catch(()=>null),
           !system&&["user_created","agent_builder"].includes(app.source_type)?loadWorkspace(key).catch(()=>null):Promise.resolve(null),
+          !system?window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/distribution`).catch(()=>null):Promise.resolve(null),
         ]);
       }
       const permRows=permissions?.permissions?.permissions||[];
@@ -271,9 +272,9 @@
           <section><h4>Permissions</h4>${permRows.length?permRows.map(p=>`<label class="hs-app-permission"><input type="checkbox" data-hs-app-permission="${esc(key)}" data-permission="${esc(p.permission)}" ${p.allowed?'checked':''}> ${esc(p.permission)} <span class="muted">· ${esc(p.risk||'unknown')} risk</span></label>`).join(''):'<p class="muted">No permissions declared.</p>'}</section>
           <section><h4>Resources</h4>${r?`<p>Files ${bytes(r.storage_used_bytes)} / ${bytes(r.storage_limit_bytes)}</p><p>SQLite ${bytes(r.sqlite_used_bytes)} / ${bytes(r.sqlite_limit_bytes)}</p>`:'<p class="muted">Managed by VP3.</p>'}</section>
           <section><h4>Secrets</h4>${secrets?`<p>${secrets.secrets.count} configured · values never displayed</p>`:'<p class="muted">Managed by VP3.</p>'}</section>
-          ${!system?`<section><h4>Source</h4>${source?.source?.current?`<p><strong>${esc(source.source.current.source_type)}</strong> · ${source.source.update_available?'Update inspected':'Current'}</p><p class="muted">${esc(source.source.current.source_ref||'')}</p>${source.source.current.source_revision?`<code>${esc(source.source.current.source_revision)}</code>`:''}`:'<p class="muted">Local SDK / no attached external source.</p>'}</section>`:''}
+          ${!system?`<section><h4>Distribution</h4>${distribution?.distribution?`<p><strong>Private share ready</strong></p><p class="muted">v${esc(distribution.distribution.version||"—")} · ${bytes(distribution.distribution.compressed_bytes||0)}</p><code>${esc((distribution.distribution.package_sha256||"").slice(0,20))}…</code><p class="muted">App data and secrets are excluded.</p>`:`<p class="muted">Build or validate the app before distribution.</p>`}</section><section><h4>Source</h4>${source?.source?.current?`<p><strong>${esc(source.source.current.source_type)}</strong> · ${source.source.update_available?'Update inspected':'Current'}</p><p class="muted">${esc(source.source.current.source_ref||'')}</p>${source.source.current.source_revision?`<code>${esc(source.source.current.source_revision)}</code>`:''}`:'<p class="muted">Local SDK / no attached external source.</p>'}</section>`:''}
         </div>
-        ${!system?`<div class="hs-app-detail-actions"><button class="button secondary" data-hs-app-build="${esc(key)}">Build & Install</button>${source?.source?.current?.source_type==='git'?`<button class="button secondary" data-hs-source-refresh="${esc(key)}">Check Git Update</button>`:''}${source?.source?.current?`<button class="text-button" data-hs-source-detach="${esc(key)}">Detach Source</button>`:''}${releaseRows.some(x=>x.previous)?`<button class="button secondary" data-hs-app-rollback="${esc(key)}">Rollback</button>`:''}${['failed','degraded'].includes(app.lifecycle_state)?`<button class="button secondary" data-hs-app-recover="${esc(key)}">Recover</button>`:''}<button class="text-button danger" data-hs-app-archive="${esc(key)}">Archive App</button></div>`:''}
+        ${!system?`<div class="hs-app-detail-actions"><button class="button secondary" data-hs-app-build="${esc(key)}">Build & Install</button><a class="button secondary" href="/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/distribution/export">Export App</a>${source?.source?.current?.source_type==='git'?`<button class="button secondary" data-hs-source-refresh="${esc(key)}">Check Git Update</button>`:''}${source?.source?.current?`<button class="text-button" data-hs-source-detach="${esc(key)}">Detach Source</button>`:''}${releaseRows.some(x=>x.previous)?`<button class="button secondary" data-hs-app-rollback="${esc(key)}">Rollback</button>`:''}${['failed','degraded'].includes(app.lifecycle_state)?`<button class="button secondary" data-hs-app-recover="${esc(key)}">Recover</button>`:''}<button class="text-button danger" data-hs-app-archive="${esc(key)}">Archive App</button></div>`:''}
         ${!system?`<div class="hs-app-history"><h4>Releases</h4>${releaseRows.slice(0,6).map(rel=>`<div><strong>v${esc(rel.version||'—')} ${rel.active?'· Active':''}</strong><span>${esc(rel.release_id)}</span>${!rel.active?`<button class="text-button" data-hs-app-promote="${esc(key)}" data-release-id="${esc(rel.release_id)}">Promote</button>`:''}</div>`).join('')||'<p class="muted">No releases yet.</p>'}</div>`:''}
         ${workspace?workspacePanel(workspace,key):""}
         <div class="hs-app-history"><h4>Recent activity</h4>${(detail.history||[]).slice(0,8).map(e=>`<div><strong>${esc(e.event_type)}</strong><span>${esc(e.created_at||'')}</span></div>`).join('')||'<p class="muted">No activity yet.</p>'}</div>
