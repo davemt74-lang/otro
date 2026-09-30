@@ -262,13 +262,35 @@ def status(app_key:str)->dict[str,Any]:
             return call()
         except Exception:
             return default
+    permissions=safe(lambda:homeserver_app_security.permission_status(app_key))
+    manifest_permissions=list(((validation or {}).get("manifest") or {}).get("permissions") or [])
+    if manifest_permissions and (not isinstance(permissions,dict) or int(permissions.get("declared_count") or 0)==0):
+        rows=[]
+        for permission in manifest_permissions:
+            definition=homeserver_app_security.permission_definition(permission)
+            rows.append({**definition,"allowed":False})
+        permissions={
+            "contract":homeserver_app_security.CONTRACT,
+            "governance_contract":"vp3.app.permission-governance.v1",
+            "app_key":app_key,
+            "permissions":rows,
+            "declared_count":len(rows),
+            "allowed_count":0,
+            "denied_count":len(rows),
+            "high_risk_declared":sum(1 for row in rows if row["risk"]=="high"),
+            "high_risk_allowed":0,
+            "effective_capabilities":[],
+            "default_for_new_permissions":"denied",
+            "permission_expansion_requires_review":True,
+            "projection_source":"project_manifest_preinstall",
+        }
     return {
         "contract":CONTRACT,
         "app":app,
         "project":list_files(app_key),
         "validation":validation,
         "validation_error":validation_error,
-        "permissions":safe(lambda:homeserver_app_security.permission_status(app_key)),
+        "permissions":permissions,
         "resources":safe(lambda:homeserver_app_resources.resource_status(app_key)),
         "runtime":safe(lambda:homeserver_app_runtime.runtime_status(app_key)),
         "releases":safe(lambda:homeserver_app_releases.list_releases(app_key)),
