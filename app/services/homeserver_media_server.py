@@ -93,6 +93,15 @@ def _connect()->sqlite3.Connection:
             setting_value TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS media_mapped_sources(
+            root_id TEXT PRIMARY KEY,
+            source_kind TEXT NOT NULL DEFAULT 'local_folder',
+            computer_name TEXT NOT NULL DEFAULT '',
+            source_hint TEXT NOT NULL DEFAULT '',
+            connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)),
+            last_checked_at TEXT,
+            FOREIGN KEY(root_id) REFERENCES media_roots(root_id) ON DELETE CASCADE
+        );
         """
     )
     return connection
@@ -122,11 +131,16 @@ def _validate_root(path_value:str)->Path:
     return resolved
 
 
-def _public_root(row:sqlite3.Row|dict[str,Any])->dict[str,Any]:
+def _public_root(row:sqlite3.Row|dict[str,Any], mapping:dict[str,Any]|None=None)->dict[str,Any]:
+    mapping=dict(mapping or {})
     return {
         "root_id":str(row["root_id"]),
         "label":str(row["label"]),
         "enabled":bool(row["enabled"]),
+        "source_kind":str(mapping.get("source_kind") or "local_folder"),
+        "computer_name":str(mapping.get("computer_name") or ""),
+        "source_hint":str(mapping.get("source_hint") or ""),
+        "connected":bool(mapping.get("connected",True)),
         "absolute_path_exposed":False,
     }
 
@@ -151,6 +165,88 @@ def add_root(path_value:str,label:str="")->dict[str,Any]:
         connection.close()
     return {"contract":CONTRACT,"root":_public_root(row),"owner_granted":True}
 
+
+
+
+def add_mapped_root(
+    path_value:str,
+    label:str="",
+    *,
+    computer_name:str="",
+    source_hint:str="",
+    source_kind:str="computer_folder",
+)->dict[str,Any]:
+    if source_kind not in {"computer_folder","network_share","local_folder"}:
+        raise MediaServerError("Unsupported mapped media source kind.")
+    base=add_root(path_value,label)
+    root_id=str(base["root"]["root_id"])
+    name=" ".join(str(computer_name or "").split())[:120]
+    hint=" ".join(str(source_hint or "").split())[:240]
+    connection=_connect()
+    try:
+        connection.execute(
+            """INSERT INTO media_mapped_sources(root_id,source_kind,computer_name,source_hint,connected,last_checked_at)
+               VALUES (?,?,?,?,1,CURRENT_TIMESTAMP)
+               ON CONFLICT(root_id) DO UPDATE SET
+                 source_kind=excluded.source_kind,computer_name=excluded.computer_name,
+                 source_hint=excluded.source_hint,connected=1,last_checked_at=CURRENT_TIMESTAMP""",
+            (root_id,source_kind,name,hint),
+        )
+        connection.commit()
+        row=connection.execute("SELECT * FROM media_roots WHERE root_id=?",(root_id,)).fetchone()
+        mapped=connection.execute("SELECT * FROM media_mapped_sources WHERE root_id=?",(root_id,)).fetchone()
+    finally:
+        connection.close()
+    return {
+        "contract":CONTRACT,
+        "root":_public_root(row,dict(mapped) if mapped else None),
+        "owner_granted":True,
+        "mapped_from_computer":source_kind=="computer_folder",
+        "source_files_copied":False,
+    }
+
+
+def check_root(root_id:str)->dict[str,Any]:
+    connection=_connect()
+    try:
+        row=connection.execute("SELECT * FROM media_roots WHERE root_id=?",(root_id,)).fetchone()
+        if not row:
+            raise MediaServerError("Media root not found.",404)
+        mapped=connection.execute("SELECT * FROM media_mapped_sources WHERE root_id=?",(root_id,)).fetchone()
+        path=Path(str(row["root_path"]))
+        connected=bool(path.is_dir() and not path.is_symlink())
+        connection.execute(
+            """INSERT INTO media_mapped_sources(root_id,source_kind,computer_name,source_hint,connected,last_checked_at)
+               VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+               ON CONFLICT(root_id) DO UPDATE SET connected=excluded.connected,last_checked_at=CURRENT_TIMESTAMP""",
+            (
+                root_id,
+                str(mapped["source_kind"]) if mapped else "local_folder",
+                str(mapped["computer_name"]) if mapped else "",
+                str(mapped["source_hint"]) if mapped else "",
+                1 if connected else 0,
+            ),
+        )
+        connection.commit()
+        mapped=connection.execute("SELECT * FROM media_mapped_sources WHERE root_id=?",(root_id,)).fetchone()
+    finally:
+        connection.close()
+    return {"contract":CONTRACT,"root":_public_root(row,dict(mapped) if mapped else None)}
+
+
+def audio_source_records(limit:int=100000)->list[dict[str,Any]]:
+    connection=_connect()
+    try:
+        rows=connection.execute(
+            """SELECT mi.media_id,mi.root_id,mi.relative_path,mi.file_name,mi.title,mi.size_bytes,mi.updated_at
+               FROM media_items mi
+               WHERE mi.media_type='audio'
+               ORDER BY mi.root_id,mi.relative_path LIMIT ?""",
+            (max(1,min(int(limit),MAX_LIBRARY_FILES)),),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [dict(row) for row in rows]
 
 def remove_root(root_id:str)->dict[str,Any]:
     _ensure_app()
@@ -178,9 +274,15 @@ def roots()->dict[str,Any]:
     connection=_connect()
     try:
         rows=connection.execute("SELECT * FROM media_roots ORDER BY label,root_id").fetchall()
+        mapped={str(row["root_id"]):dict(row) for row in connection.execute("SELECT * FROM media_mapped_sources").fetchall()}
     finally:
         connection.close()
-    return {"contract":CONTRACT,"roots":[_public_root(row) for row in rows],"count":len(rows)}
+    return {
+        "contract":CONTRACT,
+        "roots":[_public_root(row,mapped.get(str(row["root_id"]))) for row in rows],
+        "count":len(rows),
+        "mapped_sources":sum(1 for row in mapped.values() if row.get("source_kind") in {"computer_folder","network_share"}),
+    }
 
 
 def _kind(path:Path)->str|None:
@@ -526,6 +628,9 @@ def public_capability()->dict[str,Any]:
         "contract":CONTRACT,
         "app_key":APP_KEY,
         "owner_granted_media_roots":True,
+        "mapped_computer_folders":True,
+        "network_share_roots":True,
+        "mapped_source_health":True,
         "opaque_media_ids":True,
         "absolute_paths_exposed":False,
         "symlinks":False,
