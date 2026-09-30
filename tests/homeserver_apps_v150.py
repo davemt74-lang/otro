@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
         preview=client.get("/api/v1/control/homeserver-apps/vp3.notes/preview/")
         assert preview.status_code==200,preview.text
         assert "VP3 Notes" in preview.text
-        assert "VP3 SYSTEM APP" in preview.text
+        assert "VP3 PREBUILT APP" in preview.text
 
         # Sample data is integrated but remains globally off until explicitly enabled.
         sample=client.get("/api/v1/control/homeserver-apps/vp3.notes/sample-data")
@@ -132,7 +132,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
 
     ui=(ROOT/"ui"/"homeserver-apps.js").read_text(encoding="utf-8")
     assert "App Manager" in ui
-    assert "VP3 System" in ui
+    assert "VP3 Apps" in ui
     assert "data-hs-prebuilt-install" in ui
     assert "/catalog/prebuilt" in ui
     assert "/api/v1/control/homeserver-apps/manager" in ui
