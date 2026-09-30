@@ -438,7 +438,7 @@ def smart_albums()->dict[str,Any]:
     try:
         favorites_count=int(connection.execute("SELECT COUNT(*) FROM photo_favorites").fetchone()[0])
         recent_count=int(connection.execute(
-            "SELECT COUNT(*) FROM photo_items WHERE source_updated_at>=datetime('now','-30 days')"
+            "SELECT COUNT(*) FROM photo_items WHERE source_created_at>=datetime('now','-30 days')"
         ).fetchone()[0])
         screenshots=int(connection.execute(
             "SELECT COUNT(*) FROM photo_items WHERE LOWER(title) LIKE '%screenshot%'"
