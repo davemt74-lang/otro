@@ -131,7 +131,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
     except homeserver_app_security.AppSecurityError as exc:
         raise AppPackageError(str(exc)) from exc
     sdk_version=str(manifest.get("sdk_version") or "").strip()
-    if sdk_version and sdk_version not in {"1.0","1.1"}:
+    if sdk_version and sdk_version not in {"1.0","1.1","1.2"}:
         raise AppPackageError("App SDK version is not supported.")
     routes=manifest.get("routes",{})
     if routes is not None:
