@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..database import db
-from . import hosting_deployment, hosting_entitlements, hosting_recovery, hosting_runtime, hosting_serving
+from . import homeserver_app_runtime, homeserver_apps, hosting_deployment, hosting_entitlements, hosting_recovery, hosting_runtime, hosting_serving
 
 CONTRACT="vp3.hosting.cloud-control.v1"
 _CLOUD_SITE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$")
@@ -60,6 +60,17 @@ def _canonical_desired(payload: dict[str,Any]) -> dict[str,Any]:
             raise CloudHostingError(f"{key} cannot be negative.")
         return parsed
 
+    target_app_key=str(payload.get("target_app_key") or "").strip().lower() or None
+    if target_app_key is not None:
+        try:
+            app=homeserver_apps.get(target_app_key)
+        except homeserver_apps.HomeServerAppError as exc:
+            raise CloudHostingError("Target HomeServer app was not found.",404) from exc
+        if app.get("app_class")!="system" or not app.get("protected_system_app"):
+            raise CloudHostingError("Public hosting target must be a protected VP3 system app.",409)
+        if not app.get("installed_version"):
+            raise CloudHostingError("Target VP3 system app is not installed.",409)
+
     return {
         "cloud_site_id":cloud_site_id,
         "revision":revision,
@@ -69,6 +80,7 @@ def _canonical_desired(payload: dict[str,Any]) -> dict[str,Any]:
         "desired_state":state,
         "storage_limit_bytes":optional_limit("storage_limit_bytes"),
         "sqlite_limit_bytes":optional_limit("sqlite_limit_bytes"),
+        "target_app_key":target_app_key,
     }
 
 
@@ -123,33 +135,39 @@ def _apply_desired(site_id:str,desired:dict[str,Any])->tuple[dict[str,Any],str|N
         )
     blocked_reason=None
     if desired["desired_state"]=="active":
-        deployment=hosting_deployment.deployment_status(site_id)
-        if not deployment.get("active_release_id"):
-            if hosting_runtime.get_site(site_id)["state"]!="configured":
-                hosting_runtime.set_state(site_id,"configured")
-            blocked_reason="deployment_required"
+        target_app_key=desired.get("target_app_key")
+        if target_app_key:
+            try:
+                app=homeserver_apps.get(str(target_app_key))
+                if app.get("lifecycle_state")!="running":
+                    blocked_reason="app_not_running"
+            except homeserver_apps.HomeServerAppError:
+                blocked_reason="app_unavailable"
         else:
+            deployment=hosting_deployment.deployment_status(site_id)
+            if not deployment.get("active_release_id"):
+                blocked_reason="deployment_required"
+        if blocked_reason is None:
             try:
                 hosting_runtime.sample_usage(site_id)
             except hosting_runtime.HostingError:
                 blocked_reason="resource_limit"
-            if blocked_reason is None:
-                database_health=hosting_runtime.database_health(site_id)
-                if not database_health.get("healthy"):
-                    blocked_reason="sqlite_unhealthy"
-            if blocked_reason is None and desired["runtime_kind"]=="php":
-                from . import hosting_serving
-                if not hosting_serving.php_cgi_path():
-                    blocked_reason="php_runtime_unavailable"
-            if blocked_reason is None:
-                try:
-                    hosting_entitlements.enforce_activation(site_id)
-                except hosting_entitlements.EntitlementError:
-                    blocked_reason="package_entitlement"
-            if blocked_reason is None:
-                hosting_runtime.set_state(site_id,"active")
-            elif hosting_runtime.get_site(site_id)["state"] not in {"suspended","failed"}:
-                hosting_runtime.set_state(site_id,"configured")
+        if blocked_reason is None and not target_app_key:
+            database_health=hosting_runtime.database_health(site_id)
+            if not database_health.get("healthy"):
+                blocked_reason="sqlite_unhealthy"
+        if blocked_reason is None and desired["runtime_kind"]=="php" and not target_app_key:
+            if not hosting_serving.php_cgi_path():
+                blocked_reason="php_runtime_unavailable"
+        if blocked_reason is None:
+            try:
+                hosting_entitlements.enforce_activation(site_id)
+            except hosting_entitlements.EntitlementError:
+                blocked_reason="package_entitlement"
+        if blocked_reason is None:
+            hosting_runtime.set_state(site_id,"active")
+        elif hosting_runtime.get_site(site_id)["state"] not in {"suspended","failed"}:
+            hosting_runtime.set_state(site_id,"configured")
     else:
         hosting_runtime.set_state(site_id,desired["desired_state"])
     return hosting_runtime.get_site(site_id),blocked_reason
@@ -171,6 +189,7 @@ def _site_projection(site:dict[str,Any],binding:dict[str,Any])->dict[str,Any]:
         "display_name":site["display_name"],
         "requested_hostname":site.get("requested_hostname"),
         "runtime_kind":site["runtime_kind"],
+        "target_app_key":binding.get("target_app_key"),
         "storage_limit_bytes":site.get("storage_limit_bytes"),
         "sqlite_limit_bytes":site.get("sqlite_limit_bytes"),
         "active_release_id":deployment.get("active_release_id"),
@@ -236,6 +255,7 @@ def reconcile(payload:dict[str,Any])->dict[str,Any]:
             "revision":desired["revision"],
             "desired_state":desired["desired_state"],
             "desired_fingerprint":fingerprint,
+            "target_app_key":desired.get("target_app_key"),
         }
         _write_binding(str(site["site_id"]),binding)
     else:
@@ -264,6 +284,7 @@ def reconcile(payload:dict[str,Any])->dict[str,Any]:
             "revision":desired["revision"],
             "desired_state":desired["desired_state"],
             "desired_fingerprint":fingerprint,
+            "target_app_key":desired.get("target_app_key"),
         }
         _write_binding(str(site["site_id"]),binding)
 
