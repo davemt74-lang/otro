@@ -625,8 +625,8 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             confirmed=bool(body.get("confirmed"))
             try:
                 spec=homeserver_app_control.action_spec(key,action)
-                if bool(spec.get("requires_confirmation")) and not confirmed:
-                    return {"status":409,"ok":False,"payload":{"detail":"This app action requires owner confirmation.","confirmation_required":True}}
+                if (str(spec.get("risk") or "")!="read" or bool(spec.get("requires_confirmation"))) and not confirmed:
+                    return {"status":409,"ok":False,"payload":{"detail":"Cloud-orchestrated app writes require owner confirmation.","confirmation_required":True}}
                 result=homeserver_app_control.invoke(key,action,arguments)
             except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
                 return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
