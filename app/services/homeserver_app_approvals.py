@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import settings
+from ..database import db
 
 CONTRACT="vp3.app.agent-approvals.v1"
 _LOCK=threading.RLock()
@@ -124,3 +125,104 @@ def public_capability()->dict[str,Any]:
         "owner_approval_flow":True,
         "database_schema_change_required":False,
     }
+
+
+def _decode(row:dict[str,Any])->dict[str,Any]:
+    item=dict(row)
+    try:
+        item["arguments"]=json.loads(item.pop("arguments_json","{}") or "{}")
+    except json.JSONDecodeError:
+        item["arguments"]={}
+    try:
+        item["arguments_meta"]=json.loads(item.pop("arguments_meta_json","{}") or "{}")
+    except json.JSONDecodeError:
+        item["arguments_meta"]={}
+    return item
+
+
+def approve(request_id:str)->dict[str,Any]:
+    from . import tools
+
+    row=get(request_id)
+    if row is None:
+        raise AppApprovalStoreError("Apps approval request not found.")
+    if row.get("status")!="pending":
+        raise AppApprovalStoreError(f"Apps approval request is already {row.get('status')}.")
+    reserved=update_if_status(request_id,"pending",status="executing",decided_at=datetime.now(timezone.utc).isoformat())
+    if reserved is None:
+        raise AppApprovalStoreError("Apps approval request is no longer pending.")
+    item=_decode(reserved)
+    try:
+        execution=tools.execute_tool(
+            str(item.get("source_app_key") or "owner"),
+            str(item.get("action_key") or ""),
+            dict(item.get("arguments") or {}),
+            set(),
+            owner=True,
+        )
+    except tools.ToolError as exc:
+        update_if_status(
+            request_id,"executing",status="failed",error=str(exc)[:1000],
+            executed_at=datetime.now(timezone.utc).isoformat(),
+        )
+        with db() as connection:
+            connection.execute(
+                "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) VALUES ('owner','control-center','action.failed','action_request',?,?)",
+                (request_id,json.dumps({"homeserver_app":True,"error":str(exc)[:240]},separators=(",",":"))),
+            )
+        raise AppApprovalStoreError(f"Approved Apps action could not execute: {exc}") from exc
+
+    updated=update_if_status(
+        request_id,"executing",status="executed",execution_tool_run_id=execution["run_id"],
+        error=None,executed_at=datetime.now(timezone.utc).isoformat(),
+    )
+    with db() as connection:
+        connection.execute(
+            "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) VALUES ('owner','control-center','action.approved','action_request',?,?)",
+            (request_id,json.dumps({"homeserver_app":True,"execution_tool_run_id":execution["run_id"]},separators=(",",":"))),
+        )
+    return _decode(updated or get(request_id) or {})
+
+
+def deny(request_id:str)->dict[str,Any]:
+    row=get(request_id)
+    if row is None:
+        raise AppApprovalStoreError("Apps approval request not found.")
+    if row.get("status")!="pending":
+        raise AppApprovalStoreError(f"Apps approval request is already {row.get('status')}.")
+    updated=update_if_status(
+        request_id,"pending",status="denied",decided_at=datetime.now(timezone.utc).isoformat(),error=None
+    )
+    if updated is None:
+        raise AppApprovalStoreError("Apps approval request is no longer pending.")
+    with db() as connection:
+        connection.execute(
+            "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) VALUES ('owner','control-center','action.denied','action_request',?,?)",
+            (request_id,json.dumps({"homeserver_app":True},separators=(",",":"))),
+        )
+    return _decode(updated)
+
+
+def cancel_pending(request_ids:list[str]|tuple[str,...],*,source_app_key:str|None=None,reason:str="Interrupted Agent turn cancelled this pending action.")->int:
+    cancelled=0
+    for raw in request_ids:
+        request_id=str(raw or "").strip()
+        if not request_id:
+            continue
+        row=get(request_id)
+        if row is None:
+            continue
+        if source_app_key and str(row.get("source_app_key") or "")!=str(source_app_key).strip():
+            continue
+        updated=update_if_status(
+            request_id,"pending",status="denied",decided_at=datetime.now(timezone.utc).isoformat(),error=reason[:1000]
+        )
+        if updated is None:
+            continue
+        cancelled+=1
+        with db() as connection:
+            connection.execute(
+                "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) VALUES ('system','agent-cancellation','action.cancelled','action_request',?,?)",
+                (request_id,json.dumps({"homeserver_app":True,"reason":reason[:240]},separators=(",",":"))),
+            )
+    return cancelled
