@@ -41,7 +41,6 @@ from .services import ambient_agent, ambient_orchestration, automation_intellige
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
-from .services.homeserver_app_agent import install as install_homeserver_app_agent_tools
 from .services.local_file_actions_approvals import install as install_local_file_action_approvals
 from .services.local_file_actions_registry import install as install_local_file_action_registry
 from .services.local_file_actions_remote import install as install_local_file_action_remote_operations
@@ -78,7 +77,6 @@ install_local_file_action_tools()
 install_local_file_action_approvals()
 install_local_file_agent_tools()
 install_local_file_action_agent_tools()
-install_homeserver_app_agent_tools()
 install_local_file_action_registry()
 
 app.include_router(agents_router)
