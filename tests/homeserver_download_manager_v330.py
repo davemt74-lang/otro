@@ -150,7 +150,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
                 seen_headers.append(dict(headers))
                 assert headers.get("Range")=="bytes=3-"
                 assert headers.get("If-Range")=="v1"
-                return FakeResponse([b"def"],206,{"Content-Length":"3","ETag":"v1"})
+                return FakeResponse([b"def"],206,{"Content-Length":"3","Content-Range":"bytes 3-5/6","ETag":"v1"})
             homeserver_download_manager._open_url=second_open
             completed=homeserver_download_manager.process_next()
             assert completed["download"]["status"]=="completed"
