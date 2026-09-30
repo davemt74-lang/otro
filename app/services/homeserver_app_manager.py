@@ -11,6 +11,8 @@ from . import (
     homeserver_app_security,
     homeserver_apps,
     homeserver_download_manager,
+    homeserver_media_processor,
+    homeserver_media_tools,
     homeserver_media_server,
     homeserver_music_server,
     homeserver_photo_library,
@@ -75,6 +77,7 @@ def inventory()->dict[str,Any]:
         music_state=_safe(homeserver_music_server.status) if key==homeserver_music_server.APP_KEY and installed else None
         photo_state=_safe(homeserver_photo_library.status) if key==homeserver_photo_library.APP_KEY and installed else None
         download_state=_safe(homeserver_download_manager.status) if key==homeserver_download_manager.APP_KEY and installed else None
+        processor_state=_safe(homeserver_media_processor.status) if key==homeserver_media_processor.APP_KEY and installed else None
         video_state=_safe(homeserver_video_editor.status) if key==homeserver_video_editor.APP_KEY and installed else None
         control_compat=_safe(lambda:homeserver_app_control.compatibility(key)) if installed else None
         control_manifest=_safe(lambda:homeserver_app_control.manifest(key)) if installed else None
@@ -104,6 +107,8 @@ def inventory()->dict[str,Any]:
             "music_server":music_state,
             "photo_library":photo_state,
             "download_manager":download_state,
+            "media_processor":processor_state,
+            "media_tools":homeserver_media_tools.public_capability() if key==homeserver_media_processor.APP_KEY else None,
             "video_editor":video_state,
             "agent_control":{
                 "complete":bool(installed and control_compat and control_compat.get("compatible")),
