@@ -49,6 +49,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-release-v200-") as da
     assert rs["integrity"]["trust"]=="embedded_vp3"
     assert rs["runtime"]["installed_version"]=="1.0.0"
     assert rs["rollback_available"] is False
+    initial_status=remote_bridge.dispatch_remote_request("apps.system.status",{"app_key":"vp3.notes"},token)
+    assert initial_status["payload"]["package"]["installed_package_sha256"]==old_digest
 
     bad_hash=remote_bridge.dispatch_remote_request(
         "apps.system.install",
@@ -94,6 +96,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-release-v200-") as da
     assert rollback["payload"]["rollback"]["release"]["release_id"]==first_release
     assert rollback["payload"]["rollback"]["release"]["version"]=="1.0.0"
     assert homeserver_apps.get("vp3.notes")["installed_version"]=="1.0.0"
+    rolled_status=remote_bridge.dispatch_remote_request("apps.system.status",{"app_key":"vp3.notes"},token)
+    assert rolled_status["payload"]["package"]["installed_package_sha256"]==old_digest
+    assert rolled_status["payload"]["package"]["package_sha256"]!=old_digest
 
     # Compatibility is enforced before activation.
     incompatible=copy.deepcopy(homeserver_app_prebuilt.CATALOG["vp3.inventory"])
