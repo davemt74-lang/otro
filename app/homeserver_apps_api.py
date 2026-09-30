@@ -15,6 +15,7 @@ class CreateUserAppRequest(BaseModel):
     runtime:str=Field(default="static",pattern="^(static|php)$")
     source_ref:str=Field(default="",max_length=500)
     metadata:dict=Field(default_factory=dict)
+    permissions:list[str]=Field(default_factory=list,max_length=64)
 
 
 class LifecycleRequest(BaseModel):
@@ -135,6 +136,7 @@ def create_user_app(payload:CreateUserAppRequest)->dict:
         runtime=payload.runtime,
         source_type=payload.source_type,
         metadata=payload.metadata,
+        permissions=homeserver_app_security.normalize_declared_permissions(payload.permissions),
     )
 
 

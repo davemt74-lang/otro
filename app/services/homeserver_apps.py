@@ -186,12 +186,12 @@ def register_user_app(
 
 
 
-def create_user_app(app_key: str, name: str, *, runtime: str="static", source_type: str="user_created", metadata: dict[str,Any]|None=None) -> dict[str,Any]:
+def create_user_app(app_key: str, name: str, *, runtime: str="static", source_type: str="user_created", metadata: dict[str,Any]|None=None, permissions:list[str]|None=None) -> dict[str,Any]:
     source=str(source_type or "user_created").strip()
     if source not in {"user_created","agent_builder"}:
         raise HomeServerAppError("Create App uses the VP3 SDK and supports user_created or agent_builder sources.")
     try:
-        scaffold=homeserver_app_sdk.scaffold(app_key,name,runtime=runtime)
+        scaffold=homeserver_app_sdk.scaffold(app_key,name,runtime=runtime,permissions=permissions)
     except homeserver_app_sdk.AppSdkError as exc:
         raise HomeServerAppError(str(exc),409 if "already exists" in str(exc).lower() else 400) from exc
     combined=dict(metadata or {})
@@ -316,7 +316,10 @@ def public_capability() -> dict[str,Any]:
         "user_apps":True,
         "legacy_local_apps_migrate_in_place":True,
         "user_app_sources":["user_created","zip","git","agent_builder"],
-        "user_app_default":"vp3_sdk_1.0",
+        "user_app_default":"vp3_sdk_1.1",
+        "starter_runtime_integration":True,
+        "starter_permissions_section8":True,
+        "starter_data_recovery_section7":True,
         "app_store":"future",
         "lifecycle_states":sorted(LIFECYCLE_STATES),
     }

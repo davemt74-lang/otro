@@ -222,12 +222,20 @@ def prepare_and_apply_migration(
     reversible = bool(manifest.get("data_migration_reversible", True))
     snapshot = None
     scripts: list[str] = []
+    execution_mode = "none"
     if required:
         snapshot = create_snapshot(app_key, reason="pre_release_data_migration", schema_version=current_schema)
         relative = str(manifest.get("database_migrations") or "").strip()
         try:
-            if relative:
-                scripts = _run_system_sql_migrations(app_key, content_root, relative)
+            if app["app_class"]=="system" and app["protected_system_app"]:
+                execution_mode = "vp3_sql"
+                if relative:
+                    scripts = _run_system_sql_migrations(app_key, content_root, relative)
+            else:
+                # User-created apps retain the recovery guarantees from Section 7
+                # without granting arbitrary package SQL execution. The app owns
+                # its schema transition at runtime; HomeServer owns snapshot and rollback.
+                execution_mode = "app_managed"
         except Exception:
             restore_snapshot(app_key, str(snapshot["snapshot_id"]), reason="migration_failed")
             raise
@@ -238,6 +246,7 @@ def prepare_and_apply_migration(
         "to_schema_version": target_schema,
         "migration_required": required,
         "migration_reversible": reversible,
+        "migration_execution": execution_mode,
         "snapshot_id": str((snapshot or {}).get("snapshot_id") or ""),
         "migration_scripts": scripts,
         "rollback_safe": (not required) or (reversible and snapshot is not None),

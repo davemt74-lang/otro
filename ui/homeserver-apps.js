@@ -7,7 +7,7 @@
     while(n>=1024 && i<units.length-1){ n/=1024; i++; }
     return `${n.toFixed(i===0?0:n>=10?1:2)} ${units[i]}`;
   };
-  const state={data:null,catalog:null,filter:'all',loading:false,pendingSource:null};
+  const state={data:null,catalog:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null};
 
   function ensureWorkspace(){
     if(document.getElementById('view-homeserver-apps')) return;
@@ -44,6 +44,7 @@
         <form id="hsAppsCreateForm">
           <div class="form-grid"><label>App name<input id="hsAppName" required maxlength="160" placeholder="Garage Inventory"></label><label>App key<input id="hsAppKey" required maxlength="80" pattern="[a-z0-9][a-z0-9._-]{1,79}" placeholder="garage.inventory"></label></div>
           <div class="form-grid"><label>Runtime<select id="hsAppRuntime"><option value="static">Static</option><option value="php">PHP</option></select></label><label>Source<select id="hsAppSource"><option value="user_created">User created</option><option value="agent_builder">Build with Agent</option></select></label></div>
+          <fieldset class="hs-app-permission-picker"><legend>Declared capabilities</legend><p class="muted">Choose only what this app needs. Every capability starts denied until you explicitly allow it after installation.</p><div id="hsAppPermissionChoices"><span class="muted">Loading permission catalog…</span></div></fieldset>
           <div class="form-actions"><button class="button secondary" type="button" data-hs-app-create-cancel>Cancel</button><button class="button primary" type="submit">Create from SDK</button></div>
         </form>
       </div>
@@ -107,6 +108,17 @@
     }).join(''):'<div class="panel empty-state">No VP3 prebuilt apps are available.</div>';
   }
 
+  function renderPermissionChoices(){
+    const node=document.getElementById('hsAppPermissionChoices');
+    if(!node) return;
+    const rows=state.permissionCatalog?.permissions||[];
+    node.innerHTML=rows.length?rows.map(p=>`
+      <label class="hs-app-permission">
+        <input type="checkbox" data-hs-create-permission value="${esc(p.permission)}">
+        <span><strong>${esc(p.permission)}</strong><small>${esc(p.risk||'unknown')} risk · ${esc(p.description||'')}</small></span>
+      </label>`).join(''):'<span class="muted">No optional capabilities are available.</span>';
+  }
+
   function render(){
     const grid=document.getElementById('hsAppsGrid');
     if(!grid||!state.data) return;
@@ -114,15 +126,20 @@
     document.getElementById('hsAppsSummary').textContent=`${state.data.counts?.system||0} system · ${state.data.counts?.user||0} user`;
     grid.innerHTML=apps.length?apps.map(card).join(''):'<div class="panel empty-state">No Apps match this filter.</div>';
     renderPrebuilt();
+    renderPermissionChoices();
   }
 
   async function load(force=false){
     if(state.loading) return;
     state.loading=true;
     try{
-      if(force||!state.data||!state.catalog){
-        const loaded=await Promise.all([window.api('/api/v1/control/homeserver-apps'),window.api('/api/v1/control/homeserver-apps/catalog/prebuilt')]);
-        state.data=loaded[0]; state.catalog=loaded[1];
+      if(force||!state.data||!state.catalog||!state.permissionCatalog){
+        const loaded=await Promise.all([
+          window.api('/api/v1/control/homeserver-apps'),
+          window.api('/api/v1/control/homeserver-apps/catalog/prebuilt'),
+          window.api('/api/v1/control/homeserver-apps/permissions/catalog')
+        ]);
+        state.data=loaded[0]; state.catalog=loaded[1]; state.permissionCatalog=loaded[2];
       }
       render();
     }catch(error){
@@ -330,7 +347,8 @@
           name:document.getElementById('hsAppName').value,
           app_key:document.getElementById('hsAppKey').value,
           runtime:document.getElementById('hsAppRuntime').value,
-          source_type:document.getElementById('hsAppSource').value
+          source_type:document.getElementById('hsAppSource').value,
+          permissions:Array.from(document.querySelectorAll('[data-hs-create-permission]:checked')).map(n=>n.value)
         })
       });
       event.target.reset();

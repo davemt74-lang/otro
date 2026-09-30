@@ -44,7 +44,7 @@
     },
     "sdk_version": {
       "type": "string",
-      "const": "1.0"
+      "enum": ["1.0", "1.1"]
     },
     "permissions": {
       "type": "array",
@@ -93,6 +93,12 @@
     "sample_data": {
       "type": "string",
       "maxLength": 240
-    }
+    },
+    "release_channel": {"enum":["stable","beta","alpha"]},
+    "release_notes": {"type":"array","items":{"type":"string","maxLength":500}},
+    "data_schema_version": {"type":"string","minLength":1,"maxLength":80},
+    "data_migration_reversible": {"type":"boolean"},
+    "min_homeserver_version": {"type":"string","maxLength":80},
+    "max_homeserver_version": {"type":"string","maxLength":80}
   }
 }
