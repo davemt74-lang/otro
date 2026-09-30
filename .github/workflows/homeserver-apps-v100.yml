@@ -125,3 +125,5 @@ jobs:
         run: python tests/homeserver_apps_v150.py
       - name: Verify App updates rollback and recovery
         run: python tests/homeserver_apps_v160.py
+      - name: Verify Apps Agent Chat and Agent Brain integration
+        run: python tests/homeserver_apps_v170.py
