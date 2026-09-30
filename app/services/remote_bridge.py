@@ -498,6 +498,31 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             except homeserver_apps.HomeServerAppError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.system.deactivate":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            try:
+                status=_system_app_status(key)
+                if not status.get("installed"):
+                    return {"status":200,"ok":True,"payload":{**status,"changed":False,"reason":"not_installed"}}
+                app=homeserver_apps.get(key)
+                current=str(app.get("lifecycle_state") or "")
+                changed=False
+                if current in {"running","degraded","installed"}:
+                    homeserver_apps.transition(
+                        key,
+                        "stopped",
+                        actor_type="system",
+                        actor_key="vp3_cloud",
+                        metadata={"reason":"ownership_revoked"},
+                    )
+                    changed=True
+                payload_out=_system_app_status(key)
+                payload_out["changed"]=changed
+                payload_out["reason"]="ownership_revoked" if changed else "already_inactive"
+            except homeserver_apps.HomeServerAppError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
         if op == "apps.system.reconcile":
             _vp3_system_apps_identity(token)
             requested=body.get("app_keys")
