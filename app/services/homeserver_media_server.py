@@ -396,7 +396,8 @@ def scan(root_id:str="")->dict[str,Any]:
         "roots_scanned":len(touched),
         "roots_unavailable":len(unavailable),
         "unavailable_root_ids":unavailable,
-        "transcoding":False,
+        "transcoding":True,
+        "processing_provider":"vp3.media-processor",
     }
 
 
@@ -499,6 +500,45 @@ def resolve_stream(media_id:str)->tuple[Path,str,dict[str,Any]]:
     if int(stat.st_size)!=int(row["size_bytes"]) or int(stat.st_mtime_ns)!=int(row["mtime_ns"]):
         raise MediaServerError("Media file changed since the last scan. Rescan the library before playback.",409)
     return target,str(row["mime_type"]),_public_item(row)
+
+
+def media_id_for_path(path_value:str|Path,*,rescan:bool=True)->str|None:
+    target=Path(path_value).resolve()
+    connection=_connect()
+    try:
+        roots=connection.execute("SELECT root_id,root_path,enabled FROM media_roots WHERE enabled=1").fetchall()
+    finally:
+        connection.close()
+    for row in roots:
+        root=Path(str(row["root_path"])).resolve()
+        if target==root or root in target.parents:
+            if rescan:
+                scan(str(row["root_id"]))
+            try:
+                rel=target.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            connection=_connect()
+            try:
+                found=connection.execute(
+                    "SELECT media_id FROM media_items WHERE root_id=? AND relative_path=?",
+                    (str(row["root_id"]),rel),
+                ).fetchone()
+            finally:
+                connection.close()
+            return str(found["media_id"]) if found else None
+    return None
+
+
+def process_media(media_id:str,operation:str,preset:str="default",output_format:str="",priority:int=0)->dict[str,Any]:
+    item(media_id)
+    try:
+        from . import homeserver_media_processor
+        return homeserver_media_processor.enqueue(media_id,operation,preset,output_format,priority)
+    except Exception as exc:
+        if exc.__class__.__name__=="MediaProcessorError":
+            raise MediaServerError(str(exc),getattr(exc,"status_code",422)) from exc
+        raise
 
 
 def update_playback(media_id:str,position_seconds:float,duration_seconds:float=0.0,completed:bool=False)->dict[str,Any]:
@@ -663,6 +703,7 @@ def public_capability()->dict[str,Any]:
         "symlinks":False,
         "incremental_index":True,
         "video":True,
+        "media_processor_handoff":True,
         "audio":True,
         "images":True,
         "byte_range_streaming":"file_response",
