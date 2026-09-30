@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v180-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
 
     from app.database import db, initialize_database  # noqa: E402
-    from app.services import agent_tools, approvals, homeserver_app_sources, homeserver_apps  # noqa: E402
+    from app.services import agent_tools, homeserver_app_approvals, homeserver_app_sources, homeserver_apps  # noqa: E402
 
     initialize_database()
 
@@ -166,7 +166,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v180-") as data_dir:
         )
         request_id=proposal["result"]["request_id"]
         assert proposal["result"]["status"]=="pending"
-        approved=approvals.approve_request(request_id)
+        approved=homeserver_app_approvals.approve(request_id)
         assert approved["status"]=="executed"
     finally:
         homeserver_app_sources._run_git=original_run_git
