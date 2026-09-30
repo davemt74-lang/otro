@@ -156,7 +156,21 @@
       if(state.filter==='system') return app.app_class==='system';
       if(state.filter==='user') return app.app_class==='user';
       if(state.filter==='shared') return !!app.distribution;
-        async function load(force=false){
+      if(state.filter==='updates') return !!app.update_available;
+      if(state.filter==='hosted') return !!app.hosting?.bound;
+      return true;
+    });
+    document.getElementById('hsAppsSummary').textContent=`${counts.installed||0} installed · ${counts.available||0} available · ${counts.updates||0} updates`;
+    const summary=document.getElementById('hsAppManagerSummary');
+    if(summary){
+      const values=[counts.installed||0,counts.available||0,counts.updates||0,counts.running||0,counts.hosted||0];
+      summary.querySelectorAll('strong').forEach((node,i)=>node.textContent=String(values[i]??0));
+    }
+    grid.innerHTML=items.length?items.map(card).join(''):'<div class="panel empty-state">No Apps match this filter.</div>';
+    renderPermissionChoices();
+  }
+
+  async function load(force=false){
     if(state.loading) return;
     state.loading=true;
     try{
@@ -166,7 +180,13 @@
           window.api('/api/v1/control/homeserver-apps/permissions/catalog')
         ]);
         state.manager=loaded[0];
-        state.data={apps:(loaded[0].items||[]).filter(x=>x.installed).map(x=>({app_key:x.app_key,name:x.name,app_class:x.app_class,lifecycle_state:x.lifecycle_state,installed_version:x.installed_version,source_type:x.source_type,metadata:x.metadata||{}})),counts:{system:loaded[0].counts?.system||0,user:loaded[0].counts?.user||0}};
+        state.data={
+          apps:(loaded[0].items||[]).filter(x=>x.installed).map(x=>({
+            app_key:x.app_key,name:x.name,app_class:x.app_class,lifecycle_state:x.lifecycle_state,
+            installed_version:x.installed_version,source_type:x.source_type,metadata:x.metadata||{}
+          })),
+          counts:{system:loaded[0].counts?.system||0,user:loaded[0].counts?.user||0}
+        };
         state.permissionCatalog=loaded[1];
       }
       render();
