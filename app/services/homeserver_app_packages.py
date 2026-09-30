@@ -349,6 +349,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             homeserver_app_runtime.validate_release_contracts(app_key,content)
         from . import homeserver_app_control
         homeserver_app_control.validate_action_manifest(content,app_key,str(manifest.get("agent_actions") or ""))
+        homeserver_app_control.validate_settings_schema(content,app_key,str(manifest.get("settings_schema") or ""))
         except homeserver_app_runtime.AppRuntimeError as exc:
             raise AppPackageError(str(exc),exc.status_code) from exc
         homeserver_apps.transition(
@@ -406,6 +407,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             "routes":dict(manifest.get("routes") or {}),
             "sdk_version":str(manifest.get("sdk_version") or ""),
             "agent_actions":str(manifest.get("agent_actions") or ""),
+            "settings_schema":str(manifest.get("settings_schema") or ""),
         })
         with db() as connection:
             connection.execute(
@@ -473,6 +475,11 @@ def verify_active_release(
         raise AppPackageError("Active release package hash does not match the expected update.",409)
     content=(releases_root(app_key)/active/"content").resolve()
     homeserver_app_runtime.validate_release_contracts(app_key,content)
+    from . import homeserver_app_control
+    manifest_path=str((homeserver_apps.get(app_key).get("metadata") or {}).get("agent_actions") or "agent/actions.json")
+    settings_path=str((homeserver_apps.get(app_key).get("metadata") or {}).get("settings_schema") or "settings.schema.json")
+    homeserver_app_control.validate_action_manifest(content,app_key,manifest_path)
+    homeserver_app_control.validate_settings_schema(content,app_key,settings_path)
     resources=homeserver_app_resources.resource_status(app_key)
     app=homeserver_apps.get(app_key)
     healthy=str(app.get("lifecycle_state") or "")=="running"
