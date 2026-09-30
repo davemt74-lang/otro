@@ -291,12 +291,9 @@ def _record_installed_provenance(app_key:str,descriptor:dict[str,Any],share_publ
 def install_bundle(bundle:bytes,*,approved:bool=False,expected_package_sha256:str="",share_public_id:str="")->dict[str,Any]:
     if approved is not True:
         raise AppDistributionError("Owner approval is required before installing a distributed app.",409)
+    review=preview_bundle(bundle,expected_package_sha256=expected_package_sha256)
     inspected=inspect_bundle(bundle)
     descriptor=inspected["descriptor"]
-    if expected_package_sha256 and not hmac.compare_digest(
-        str(expected_package_sha256).lower(),str(descriptor["package_sha256"]).lower()
-    ):
-        raise AppDistributionError("Private share grant does not match this app package.",409)
     app_key=str(descriptor["app_key"])
     try:
         app=homeserver_apps.get(app_key)
