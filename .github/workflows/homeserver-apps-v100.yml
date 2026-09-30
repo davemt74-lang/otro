@@ -20,6 +20,8 @@ on:
       - 'tests/homeserver_apps_v170.py'
       - 'tests/homeserver_apps_v190.py'
       - 'tests/homeserver_system_apps_v200.py'
+      - 'tests/homeserver_system_apps_v210.py'
+      - 'app/services/homeserver_app_data_lifecycle.py'
       - 'app/services/tools.py'
       - 'app/services/approvals.py'
       - 'app/services/agent_tools.py'
@@ -100,6 +102,8 @@ jobs:
           tests/homeserver_apps_v180.py
           tests/homeserver_apps_v190.py
           tests/homeserver_system_apps_v200.py
+          tests/homeserver_system_apps_v210.py
+          app/services/homeserver_app_data_lifecycle.py
           tests/hosting_system_app_target_v250.py
           app/services/hosting_cloud_control.py
           app/services/hosting_serving.py
@@ -160,5 +164,7 @@ jobs:
         run: python tests/homeserver_apps_v190.py
       - name: Verify protected System App release lifecycle
         run: python tests/homeserver_system_apps_v200.py
+      - name: Verify System App data migration and recovery lifecycle
+        run: python tests/homeserver_system_apps_v210.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
