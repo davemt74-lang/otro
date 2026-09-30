@@ -283,7 +283,14 @@ def install_source(source_id:str,*,approved:bool=False)->dict[str,Any]:
 
     try:
         release=homeserver_app_packages.install_package(
-            app_key,package,source_type=str(source["source_type"])
+            app_key,
+            package,
+            source_type=str(source["source_type"]),
+            source_provenance={
+                "source_id":source_id,
+                "source_ref":source["source_ref"],
+                "source_revision":source["source_revision"],
+            },
         )
     except (homeserver_app_packages.AppPackageError,homeserver_apps.HomeServerAppError) as exc:
         with db() as connection:
