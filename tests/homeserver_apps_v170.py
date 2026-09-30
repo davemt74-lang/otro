@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v170-") as data_dir:
     )
     assert listed["status"]=="completed"
     assert listed["result"]["count"]>=1
-    assert any(row["app_key"]=="agent.demo" for row in listed["result"]["apps"])
+    assert any(row["app_key"]=="agent.demo" for row in listed["result"]["items"])
 
     detail=agent_tools.execute_model_tool(
         "owner","homeserver_app_get",{"app_key":"agent.demo"},set(),owner=True
