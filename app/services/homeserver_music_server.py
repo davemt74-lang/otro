@@ -173,7 +173,7 @@ def tracks(query:str="",artist:str="",album:str="",limit:int=200)->dict[str,Any]
     clauses=[];params=[]
     q=" ".join(str(query or "").split())[:200]
     if q:
-        clauses.append("(LOWER(title) LIKE ? OR LOWER(artist) LIKE ? OR LOWER(album) LIKE ?)")
+        clauses.append("(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(artist) LIKE ? ESCAPE '\\' OR LOWER(album) LIKE ? ESCAPE '\\')")
         term="%"+q.lower().replace("%","\\%").replace("_","\\_")+"%"
         params.extend([term,term,term])
     if artist:

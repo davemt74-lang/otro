@@ -248,6 +248,22 @@ def audio_source_records(limit:int=100000)->list[dict[str,Any]]:
         connection.close()
     return [dict(row) for row in rows]
 
+
+def image_source_records(limit:int=100000)->list[dict[str,Any]]:
+    connection=_connect()
+    try:
+        rows=connection.execute(
+            """SELECT mi.media_id,mi.root_id,mi.relative_path,mi.file_name,mi.title,mi.mime_type,mi.extension,
+                      mi.size_bytes,mi.mtime_ns,mi.created_at,mi.updated_at
+               FROM media_items mi
+               WHERE mi.media_type='image'
+               ORDER BY mi.root_id,mi.relative_path LIMIT ?""",
+            (max(1,min(int(limit),MAX_LIBRARY_FILES)),),
+        ).fetchall()
+    finally:
+        connection.close()
+    return [dict(row) for row in rows]
+
 def remove_root(root_id:str)->dict[str,Any]:
     _ensure_app()
     connection=_connect()
@@ -411,7 +427,7 @@ def library(query:str="",media_type:str="",limit:int=100,offset:int=0)->dict[str
     clauses=[]
     params=[]
     if q:
-        clauses.append("(LOWER(title) LIKE ? OR LOWER(file_name) LIKE ?)")
+        clauses.append("(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(file_name) LIKE ? ESCAPE '\\')")
         term="%"+q.lower().replace("%","\\%").replace("_","\\_")+"%"
         params.extend([term,term])
     if kind:

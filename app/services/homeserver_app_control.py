@@ -210,6 +210,11 @@ def _builtin(app_key:str,provider:str,action_key:str,arguments:dict[str,Any])->A
         if app_key!=homeserver_music_server.APP_KEY:
             raise AppControlError("Builtin action provider does not match the app.",409)
         return homeserver_music_server.invoke(action_key,arguments)
+    if provider=="photo_library":
+        from . import homeserver_photo_library
+        if app_key!=homeserver_photo_library.APP_KEY:
+            raise AppControlError("Builtin action provider does not match the app.",409)
+        return homeserver_photo_library.invoke(action_key,arguments)
     if provider=="media_server":
         from . import homeserver_media_server
         if app_key!=homeserver_media_server.APP_KEY:
