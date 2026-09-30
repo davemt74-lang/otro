@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
 
     from app.runtime import app
     from app.security import OWNER_CONTROL_TOKEN
-    from app.services import homeserver_app_packages, homeserver_app_security, homeserver_apps
+    from app.services import homeserver_app_packages, homeserver_app_resources, homeserver_app_security, homeserver_apps
     from app.services.tasks import scheduler
 
     with TestClient(app) as client:
@@ -61,13 +61,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
         assert permissions["denied_count"]==2
         assert permissions["default_for_new_permissions"]=="denied"
 
-        data_path=Path(data_dir)/"app-data"/"starter.notes"/"files"/"notes"/"one.txt"
         saved=client.put(
             "/api/v1/control/homeserver-apps/starter.notes/data/file?path=notes/one.txt",
             files={"file":("one.txt",b"persistent user data","text/plain")},
         )
         assert saved.status_code==200,saved.text
-        assert data_path.read_bytes()==b"persistent user data"
+        assert client.get("/api/v1/control/homeserver-apps/starter.notes/data/file?path=notes/one.txt").content==b"persistent user data"
 
         # User app schema transitions must preserve Section 7 recovery without
         # executing package SQL. This was the pre-Section-9 integration gap.
@@ -88,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
         assert migration["migration_scripts"]==[]
         assert data_path.read_bytes()==b"persistent user data"
 
-        db_path=Path(data_dir)/"app-data"/"starter.notes"/"sqlite"/"app.db"
+        db_path=homeserver_app_resources.sqlite_path("starter.notes","app.db")
         if db_path.exists():
             import sqlite3
             with sqlite3.connect(db_path) as connection:
