@@ -379,6 +379,8 @@ def playback(command:str,media_id:str="",position_seconds:float=0)->dict[str,Any
     try:
         current=connection.execute("SELECT * FROM music_state WHERE singleton=1").fetchone()
         selected=media_id or (str(current["current_media_id"]) if current else "")
+        if cmd=="play" and not selected:
+            raise MusicServerError("Select a track before starting playback.",409)
         if selected and not connection.execute("SELECT 1 FROM music_tracks WHERE media_id=?",(selected,)).fetchone():
             raise MusicServerError("Track not found.",404)
         playing=1 if cmd=="play" else 0
