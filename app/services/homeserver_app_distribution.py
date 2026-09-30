@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Any
 
 from ..config import settings
+from ..database import db
 from ..services.owner_secret import load_or_create_owner_secret
-from . import homeserver_app_packages, homeserver_app_sdk, homeserver_apps
+from . import homeserver_app_packages, homeserver_app_sdk, homeserver_app_security, homeserver_apps
 
 CONTRACT="vp3.app.distribution.v1"
 BUNDLE_CONTRACT="vp3.app.distribution-bundle.v1"
@@ -183,7 +184,111 @@ def inspect_bundle(bundle:bytes)->dict[str,Any]:
     }
 
 
-def install_bundle(bundle:bytes,*,approved:bool=False,expected_package_sha256:str="")->dict[str,Any]:
+
+def installed_provenance(app_key:str)->dict[str,Any]:
+    app=homeserver_apps.get(app_key)
+    meta=dict(app.get("metadata") or {})
+    return {
+        "contract":"vp3.app.distribution-provenance.v1",
+        "app_key":app["app_key"],
+        "installed_from_private_distribution":bool(meta.get("installed_from_private_distribution")),
+        "publisher_fingerprint":str(meta.get("distribution_publisher_fingerprint") or ""),
+        "distribution_id":str(meta.get("distribution_id") or ""),
+        "package_sha256":str(meta.get("distribution_package_sha256") or ""),
+        "installed_version":str(app.get("installed_version") or ""),
+        "last_share_public_id":str(meta.get("distribution_share_public_id") or ""),
+        "ownership_transferred":False,
+    }
+
+
+def preview_bundle(bundle:bytes,*,expected_package_sha256:str="")->dict[str,Any]:
+    review=preview_bundle(bundle,expected_package_sha256=expected_package_sha256)
+    inspected=inspect_bundle(bundle)
+    descriptor=inspected["descriptor"]
+    app_key=str(descriptor["app_key"])
+    existing=None
+    try:
+        existing=homeserver_apps.get(app_key)
+    except homeserver_apps.HomeServerAppError as exc:
+        if exc.status_code!=404:
+            raise AppDistributionError(str(exc),exc.status_code) from exc
+    installed={}
+    if existing:
+        if existing["app_class"]!="user" or existing["protected_system_app"]:
+            raise AppDistributionError("Distributed package cannot replace a protected VP3 system app.",409)
+        installed=installed_provenance(app_key)
+        prior_publisher=str(installed.get("publisher_fingerprint") or "")
+        incoming_publisher=str(descriptor.get("publisher_fingerprint") or "")
+        if prior_publisher and incoming_publisher and not hmac.compare_digest(prior_publisher,incoming_publisher):
+            raise AppDistributionError("Shared app publisher fingerprint changed. Install is blocked.",409)
+        if not prior_publisher and str(existing.get("installed_version") or ""):
+            raise AppDistributionError("Existing local app is not trusted as this private distribution publisher. Archive or detach the local app before installing this shared build.",409)
+    candidate_permissions=list(inspected["validation"]["manifest"].get("permissions") or [])
+    permission_delta=(
+        homeserver_app_security.permission_delta(app_key,candidate_permissions)
+        if existing else {
+            "added":[homeserver_app_security.permission_definition(p) for p in candidate_permissions],
+            "removed":[],"retained":[],"requires_review":bool(candidate_permissions),
+            "high_risk_added":[homeserver_app_security.permission_definition(p) for p in candidate_permissions if homeserver_app_security.permission_definition(p)["risk"]=="high"],
+            "new_permissions_default_denied":True,
+        }
+    )
+    current_schema=str(((existing or {}).get("metadata") or {}).get("data_schema_version") or "1")
+    target_schema=str(inspected["validation"]["manifest"].get("data_schema_version") or "1")
+    return {
+        "contract":"vp3.app.distribution-update-review.v1",
+        "descriptor":descriptor,
+        "installed":installed or None,
+        "new_install":existing is None,
+        "update":bool(existing),
+        "version_change":{
+            "from":str(existing.get("installed_version") or "") if existing else "",
+            "to":str(descriptor.get("version") or ""),
+            "changed":bool(existing and str(existing.get("installed_version") or "")!=str(descriptor.get("version") or "")),
+        },
+        "package_change":{
+            "from":str(installed.get("package_sha256") or ""),
+            "to":str(descriptor.get("package_sha256") or ""),
+            "changed":bool(existing and str(installed.get("package_sha256") or "")!=str(descriptor.get("package_sha256") or "")),
+        },
+        "publisher_continuity":True,
+        "permission_delta":permission_delta,
+        "schema_change":{"from":current_schema,"to":target_schema,"changed":current_schema!=target_schema},
+        "requires_explicit_approval":True,
+        "automatic_update":False,
+    }
+
+
+def _record_installed_provenance(app_key:str,descriptor:dict[str,Any],share_public_id:str="")->None:
+    app=homeserver_apps.get(app_key)
+    meta=dict(app.get("metadata") or {})
+    meta.update({
+        "installed_from_private_distribution":True,
+        "distribution_contract":CONTRACT,
+        "distribution_id":str(descriptor.get("distribution_id") or ""),
+        "distribution_publisher_fingerprint":str(descriptor.get("publisher_fingerprint") or ""),
+        "distribution_package_sha256":str(descriptor.get("package_sha256") or ""),
+        "distribution_share_public_id":str(share_public_id or "")[:64],
+        "distribution_version":str(descriptor.get("version") or ""),
+    })
+    with db() as connection:
+        connection.execute(
+            "UPDATE homeserver_apps SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE app_id=?",
+            (json.dumps(meta,separators=(",",":"),sort_keys=True),app["app_id"]),
+        )
+        connection.execute(
+            """INSERT INTO homeserver_app_events(app_id,event_type,actor_type,actor_key,metadata_json)
+               VALUES (?,'app.private_distribution.installed','owner','local_owner',?)""",
+            (app["app_id"],json.dumps({
+                "distribution_id":str(descriptor.get("distribution_id") or ""),
+                "publisher_fingerprint":str(descriptor.get("publisher_fingerprint") or ""),
+                "package_sha256":str(descriptor.get("package_sha256") or ""),
+                "version":str(descriptor.get("version") or ""),
+                "share_public_id":str(share_public_id or "")[:64],
+            },separators=(",",":"),sort_keys=True)),
+        )
+
+def install_bundle(bundle:bytes,*,approved:bool=False,expected_package_sha256:str="",share_public_id:str="")->dict[str,Any]:
     if approved is not True:
         raise AppDistributionError("Owner approval is required before installing a distributed app.",409)
     inspected=inspect_bundle(bundle)
@@ -223,9 +328,11 @@ def install_bundle(bundle:bytes,*,approved:bool=False,expected_package_sha256:st
             "source_revision":str(descriptor["package_sha256"]),
         },
     )
+    _record_installed_provenance(app_key,descriptor,share_public_id)
     return {
         "contract":CONTRACT,
         "installed":True,
+        "review":review,
         "descriptor":descriptor,
         "release":release,
         "integrity_verified":True,
@@ -245,5 +352,10 @@ def public_capability()->dict[str,Any]:
         "explicit_install_approval":True,
         "package_hash_binding":True,
         "ownership_transfer":False,
+        "installed_share_provenance":True,
+        "publisher_continuity_enforced":True,
+        "update_review":True,
+        "automatic_updates":False,
+        "revocation_uninstalls_app":False,
         "marketplace":False,
     }
