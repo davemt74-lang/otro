@@ -468,6 +468,24 @@ def media_processor_derivatives(
     return _call(homeserver_media_processor.derivatives,media_id,limit)
 
 
+@router.get("/media-processor/derivatives/{derivative_id}/file")
+def media_processor_derivative_file(derivative_id:str):
+    path,row=_call(homeserver_media_processor.resolve_derivative,derivative_id)
+    from fastapi.responses import FileResponse
+    mime={
+        "mp4":"video/mp4","webm":"video/webm","mp3":"audio/mpeg",
+        "jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png","webp":"image/webp"
+    }.get(str(row.get("format") or "").lower(),"application/octet-stream")
+    return FileResponse(
+        path,media_type=mime,filename=None,
+        headers={
+            "Cache-Control":"private, no-store",
+            "X-Content-Type-Options":"nosniff",
+            "X-VP3-Derivative-Id":str(row["derivative_id"]),
+        },
+    )
+
+
 @router.get("/media-processor/settings")
 def media_processor_settings()->dict:
     return _call(homeserver_media_processor.settings)
