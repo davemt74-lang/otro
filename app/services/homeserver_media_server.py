@@ -139,7 +139,7 @@ def _public_root(row:sqlite3.Row|dict[str,Any], mapping:dict[str,Any]|None=None)
         "enabled":bool(row["enabled"]),
         "source_kind":str(mapping.get("source_kind") or "local_folder"),
         "computer_name":str(mapping.get("computer_name") or ""),
-        "source_hint":str(mapping.get("source_hint") or ""),
+        "source_hint_configured":bool(str(mapping.get("source_hint") or "")),
         "connected":bool(mapping.get("connected",True)),
         "absolute_path_exposed":False,
     }
