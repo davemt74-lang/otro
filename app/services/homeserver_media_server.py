@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
+import time
 import mimetypes
 import os
 import secrets
@@ -446,6 +448,42 @@ def remote_status()->dict[str,Any]:
     }
 
 
+def stream_ticket(media_id:str,ttl_seconds:int=300)->dict[str,Any]:
+    _ensure_app()
+    item(media_id)
+    secret=_setting("remote_access_token_sha256","")
+    if _setting("remote_access_enabled","0")!="1" or not secret:
+        raise MediaServerError("Remote Media Server access is disabled.",403)
+    ttl=max(30,min(int(ttl_seconds),900))
+    expires=int(time.time())+ttl
+    signature=hmac.new(secret.encode(),f"{media_id}|{expires}".encode(),hashlib.sha256).hexdigest()
+    return {
+        "contract":CONTRACT,
+        "media_id":media_id,
+        "expires_at":expires,
+        "ticket":f"{expires}.{signature}",
+        "stream_url":f"/__vp3_media__/stream/{media_id}?ticket={expires}.{signature}",
+    }
+
+
+def authenticate_stream_ticket(media_id:str,ticket:str)->bool:
+    secret=_setting("remote_access_token_sha256","")
+    if _setting("remote_access_enabled","0")!="1" or not secret:
+        return False
+    raw=str(ticket or "")
+    if "." not in raw:
+        return False
+    exp_raw,signature=raw.split(".",1)
+    try:
+        expires=int(exp_raw)
+    except ValueError:
+        return False
+    if expires<int(time.time()) or expires>int(time.time())+900:
+        return False
+    expected=hmac.new(secret.encode(),f"{media_id}|{expires}".encode(),hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected,signature)
+
+
 def authenticate_remote(token:str)->bool:
     if _setting("remote_access_enabled","0")!="1":
         return False
@@ -499,6 +537,7 @@ def public_capability()->dict[str,Any]:
         "playback_resume":True,
         "recently_played":True,
         "remote_access_key":True,
+        "short_lived_stream_tickets":True,
         "public_without_key":False,
         "hosting_subdomain":True,
         "custom_domain":True,
