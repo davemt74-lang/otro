@@ -210,7 +210,8 @@ def capability()->dict[str,Any]:
       "source_media_owned":False,"source_media_deleted":False,"homeserver_execution_authority":True,
       "private_hosted_access_key":True,
       "resource_limits":True,"atomic_derivatives":True,"restart_recovery":True,
-      "progress_eta":True,"active_cancellation":True,"derivative_file_access":True}
+      "progress_eta":True,"active_cancellation":True,"derivative_file_access":True,
+      "owner_granted_output_destinations":True,"app_owned_default_destination":True}
 
 def _public(row)->dict[str,Any]:
     d=dict(row); d["progress"]=float(d.get("progress") or 0); d["priority"]=int(d.get("priority") or 0)
@@ -240,7 +241,7 @@ def resolve_derivative(derivative_id:str)->tuple[Path,dict[str,Any]]:
     finally:c.close()
     if not row:
         raise MediaProcessorError("Derivative not found.",404)
-    root=homeserver_app_resources.files_root(APP_KEY).resolve()
+    root,_kind=_destination_path(str(row["destination_id"] or "app-storage"))
     rel=Path(str(row["relative_path"]))
     target=(root/rel).resolve()
     if root not in target.parents or not target.is_file() or target.is_symlink():
@@ -367,15 +368,16 @@ def _spec(operation:str,preset:str,fmt:str,source_type:str)->tuple[list[str],str
       return (vf,fmt or "webp","image")
     raise MediaProcessorError("Unsupported processing operation.")
 
-def enqueue(media_id:str,operation:str,preset:str="default",output_format:str="",priority:int=0)->dict[str,Any]:
+def enqueue(media_id:str,operation:str,preset:str="default",output_format:str="",priority:int=0,destination_id:str="app-storage")->dict[str,Any]:
     item=homeserver_media_server.item(str(media_id or ""))["item"]
     if not capability()["ffmpeg_available"]: raise MediaProcessorError("The HomeServer managed FFmpeg runtime is unavailable or unhealthy.",409)
     _spec(operation,preset,output_format,str(item["media_type"]))
+    _destination_path(str(destination_id or "app-storage"))
     jid="proc_"+uuid.uuid4().hex
     c=_connect()
     try:
-      c.execute("INSERT INTO processor_jobs(job_id,media_id,operation,preset,output_format,status,priority) VALUES (?,?,?,?,?,'queued',?)",
-        (jid,media_id,operation,preset,output_format,max(-100,min(100,int(priority)))))
+      c.execute("INSERT INTO processor_jobs(job_id,media_id,operation,preset,output_format,destination_id,status,priority) VALUES (?,?,?,?,?,?,'queued',?)",
+        (jid,media_id,operation,preset,output_format,str(destination_id or "app-storage"),max(-100,min(100,int(priority)))))
       c.commit()
     finally:c.close()
     homeserver_app_runtime.publish_event(APP_KEY,"processor.queued",{"job_id":jid,"media_id":media_id,"operation":operation},source="media-processor")
@@ -419,7 +421,7 @@ def _run(job_id:str)->None:
     try:
       src,mime,item=homeserver_media_server.resolve_stream(job["media_id"])
       args,fmt,kind=_spec(job["operation"],job["preset"],job["output_format"],item["media_type"])
-      root=homeserver_app_resources.files_root(APP_KEY)/"derivatives"; root.mkdir(parents=True,exist_ok=True)
+      root,destination_kind=_destination_path(str(job.get("destination_id") or "app-storage"))
       name=f"{job_id}.{fmt}"; tmp=root/f".{job_id}.tmp.{fmt}"; final=root/name
       tools=homeserver_media_tools.require()
       limits=settings()["settings"]
@@ -432,16 +434,17 @@ def _run(job_id:str)->None:
       size=tmp.stat().st_size
       if size>int(limits["max_output_bytes"]):
         raise MediaProcessorError("Generated derivative exceeds the configured maximum output size.",413)
-      resource=homeserver_app_resources.resource_status(APP_KEY)
-      used=max(0,int(resource["storage_used_bytes"])-size)
-      if used+size>int(resource["storage_limit_bytes"]):
-        raise MediaProcessorError("Media Processor app storage quota would be exceeded.",413)
+      if destination_kind=="app_storage":
+        resource=homeserver_app_resources.resource_status(APP_KEY)
+        used=max(0,int(resource["storage_used_bytes"])-size)
+        if used+size>int(resource["storage_limit_bytes"]):
+          raise MediaProcessorError("Media Processor app storage quota would be exceeded.",413)
       os.replace(tmp,final)
       did="deriv_"+uuid.uuid4().hex
       c=_connect()
       try:
-        c.execute("INSERT INTO processor_derivatives(derivative_id,job_id,media_id,kind,preset,format,relative_path,size_bytes) VALUES (?,?,?,?,?,?,?,?)",
-          (did,job_id,job["media_id"],kind,job["preset"],fmt,f"derivatives/{name}",final.stat().st_size))
+        c.execute("INSERT INTO processor_derivatives(derivative_id,job_id,media_id,kind,preset,format,destination_id,relative_path,size_bytes) VALUES (?,?,?,?,?,?,?,?,?)",
+          (did,job_id,job["media_id"],kind,job["preset"],fmt,str(job.get("destination_id") or "app-storage"),name,final.stat().st_size))
         c.execute("UPDATE processor_jobs SET status='completed',progress=1,eta_seconds=0,output_rel=?,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(f"derivatives/{name}",job_id))
         c.commit()
       finally:c.close()
@@ -551,11 +554,19 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
     if k=="processor.status": return status()
     if k=="processor.jobs": return list_jobs(int(a.get("limit",100)))
     if k=="processor.job.get": return get_job(str(a.get("job_id") or ""))
-    if k=="processor.enqueue": return enqueue(str(a.get("media_id") or ""),str(a.get("operation") or ""),str(a.get("preset") or "default"),str(a.get("output_format") or ""),int(a.get("priority",0)))
+    if k=="processor.enqueue": return enqueue(
+        str(a.get("media_id") or ""),str(a.get("operation") or ""),str(a.get("preset") or "default"),
+        str(a.get("output_format") or ""),int(a.get("priority",0)),str(a.get("destination_id") or "app-storage")
+    )
     if k=="processor.cancel": return cancel(str(a.get("job_id") or ""))
     if k=="processor.retry": return retry(str(a.get("job_id") or ""))
     if k=="processor.derivatives": return derivatives(str(a.get("media_id") or ""),int(a.get("limit",200)))
     if k=="processor.brain-context": return brain_context(int(a.get("limit",8)))
+    if k=="processor.destinations": return destinations()
+    if k=="processor.destination.add": return add_destination(
+        str(a.get("path") or ""),str(a.get("label") or ""),str(a.get("destination_kind") or "mapped_folder")
+    )
+    if k=="processor.destination.remove": return remove_destination(str(a.get("destination_id") or ""))
     if k=="processor.settings": return settings()
     if k=="processor.settings.update": return update_settings(dict(a.get("values") or {}))
     raise MediaProcessorError("Unsupported Media Processor action.",404)
