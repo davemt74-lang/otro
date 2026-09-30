@@ -233,10 +233,14 @@ def preview_bundle(bundle:bytes,*,expected_package_sha256:str="")->dict[str,Any]
         if existing else {
             "added":[homeserver_app_security.permission_definition(p) for p in candidate_permissions],
             "removed":[],"retained":[],"requires_review":bool(candidate_permissions),
-            "high_risk_added":[homeserver_app_security.permission_definition(p) for p in candidate_permissions if homeserver_app_security.permission_definition(p)["risk"]=="high"],
+            "high_risk_added":any(homeserver_app_security.permission_definition(p)["risk"]=="high" for p in candidate_permissions),
             "new_permissions_default_denied":True,
         }
     )
+    permission_delta["high_risk_added_details"]=[
+        row for row in permission_delta.get("added",[])
+        if isinstance(row,dict) and row.get("risk")=="high"
+    ]
     current_schema=str(((existing or {}).get("metadata") or {}).get("data_schema_version") or "1")
     target_schema=str(inspected["validation"]["manifest"].get("data_schema_version") or "1")
     return {
