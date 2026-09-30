@@ -21,6 +21,6 @@ stage = (ROOT_DIR / "scripts" / "stage_ffmpeg_windows.ps1").read_text(encoding="
 assert 'ffmpeg.exe' in stage and 'ffprobe.exe' in stage
 assert 'manifest.json' in stage
 assert 'Get-FileHash' in stage
-assert '7.1.1' in stage
+assert '9.0.2' in stage
 
 print("HomeServer installer upgrade contract test passed")
