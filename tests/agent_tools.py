@@ -78,8 +78,12 @@ try:
             "homeserver_tasks_list",
             "homeserver_apps_list",
             "homeserver_app_actions",
+            "homeserver_app_compatibility",
             "homeserver_app_get",
+            "homeserver_app_hosting_status",
+            "homeserver_app_invoke_read",
             "homeserver_app_releases",
+            "homeserver_app_settings",
             "homeserver_app_source_status",
         }
 
@@ -130,8 +134,12 @@ try:
             "homeserver_tasks_list",
             "homeserver_apps_list",
             "homeserver_app_actions",
+            "homeserver_app_compatibility",
             "homeserver_app_get",
+            "homeserver_app_hosting_status",
+            "homeserver_app_invoke_read",
             "homeserver_app_releases",
+            "homeserver_app_settings",
             "homeserver_app_source_status",
         }
         assert "homeserver_memory_write_request" not in offered
