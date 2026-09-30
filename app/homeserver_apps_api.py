@@ -81,6 +81,13 @@ class MediaMappedRootRequest(BaseModel):
     source_kind:str=Field(default="computer_folder",pattern="^(computer_folder|network_share|local_folder)$")
 
 
+class MediaProcessRequest(BaseModel):
+    operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
+    preset:str=Field(default="default",max_length=80)
+    output_format:str=Field(default="",max_length=20)
+    priority:int=Field(default=0,ge=-100,le=100)
+
+
 class MediaProcessorCreateRequest(BaseModel):
     media_id:str=Field(min_length=1,max_length=100)
     operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
@@ -345,6 +352,14 @@ def media_server_item(media_id:str)->dict:
     return _call(homeserver_media_server.item,media_id)
 
 
+@router.post("/media-server/item/{media_id}/process")
+def media_server_process(media_id:str,payload:MediaProcessRequest)->dict:
+    return _call(
+        homeserver_media_server.process_media,media_id,payload.operation,
+        payload.preset,payload.output_format,payload.priority
+    )
+
+
 @router.get("/media-server/stream/{media_id}")
 def media_server_stream(media_id:str):
     path,mime,item=_call(homeserver_media_server.resolve_stream,media_id)
@@ -504,6 +519,14 @@ def download_manager_enqueue(payload:DownloadCreateRequest)->dict:
         destination_id=payload.destination_id,filename=payload.filename,priority=payload.priority,
         checksum_algorithm=payload.checksum_algorithm,checksum_expected=payload.checksum_expected,
         max_retries=payload.max_retries,scheduled_at=payload.scheduled_at,
+    )
+
+
+@router.post("/download-manager/downloads/{download_id}/process")
+def download_manager_process(download_id:str,payload:MediaProcessRequest)->dict:
+    return _call(
+        homeserver_download_manager.handoff_to_processor,download_id,payload.operation,
+        payload.preset,payload.output_format,payload.priority
     )
 
 
@@ -833,6 +856,11 @@ def video_editor_update_clip(project_id:str,clip_id:str,payload:VideoClipUpdateR
 @router.delete("/video-editor/projects/{project_id}/clips/{clip_id}")
 def video_editor_remove_clip(project_id:str,clip_id:str)->dict:
     return _call(homeserver_video_editor.remove_clip,project_id,clip_id)
+
+
+@router.post("/video-editor/projects/{project_id}/clips/{clip_id}/proxy")
+def video_editor_clip_proxy(project_id:str,clip_id:str)->dict:
+    return _call(homeserver_video_editor.queue_clip_proxy,project_id,clip_id)
 
 
 @router.post("/video-editor/projects/{project_id}/render")
