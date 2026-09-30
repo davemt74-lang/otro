@@ -202,9 +202,12 @@ def installed_provenance(app_key:str)->dict[str,Any]:
 
 
 def preview_bundle(bundle:bytes,*,expected_package_sha256:str="")->dict[str,Any]:
-    review=preview_bundle(bundle,expected_package_sha256=expected_package_sha256)
     inspected=inspect_bundle(bundle)
     descriptor=inspected["descriptor"]
+    if expected_package_sha256 and not hmac.compare_digest(
+        str(expected_package_sha256).lower(),str(descriptor["package_sha256"]).lower()
+    ):
+        raise AppDistributionError("Private share grant does not match this app package.",409)
     app_key=str(descriptor["app_key"])
     existing=None
     try:
