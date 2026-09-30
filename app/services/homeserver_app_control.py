@@ -66,6 +66,23 @@ def validate_action_manifest(content_root:Path,app_key:str,manifest_path:str)->d
             raise AppControlError(f"Agent action {key} input_schema requires an undefined property.")
         if schema.get("additionalProperties",False) not in {True,False}:
             raise AppControlError(f"Agent action {key} additionalProperties must be boolean.")
+        allowed_types={"string","integer","number","boolean","object","array","null"}
+        for prop_name,prop in properties.items():
+            if not isinstance(prop,dict):
+                raise AppControlError(f"Agent action {key} property {prop_name} schema is invalid.")
+            declared=prop.get("type")
+            declared_types=list(declared) if isinstance(declared,list) else [declared] if declared else []
+            if any(t not in allowed_types for t in declared_types):
+                raise AppControlError(f"Agent action {key} property {prop_name} type is unsupported.")
+            enum=prop.get("enum")
+            if enum is not None and not isinstance(enum,list):
+                raise AppControlError(f"Agent action {key} property {prop_name} enum is invalid.")
+            pattern=str(prop.get("pattern") or "")
+            if pattern:
+                try:
+                    re.compile(pattern)
+                except re.error as exc:
+                    raise AppControlError(f"Agent action {key} property {prop_name} pattern is invalid.") from exc
         executor=row.get("executor")
         if executor is not None:
             if not isinstance(executor,dict):
@@ -256,7 +273,7 @@ def validate_settings_schema(content_root:Path,app_key:str,schema_path:str)->dic
         enum=row.get("enum")
         if enum is not None and (not isinstance(enum,list) or len(enum)>100):
             raise AppControlError(f"App setting {key} enum is invalid.")
-        normalized.append({
+        normalized_field={
             "key":key,
             "type":kind,
             "label":str(row.get("label") or key)[:160],
@@ -267,7 +284,12 @@ def validate_settings_schema(content_root:Path,app_key:str,schema_path:str)->dic
             "enum":enum,
             "minimum":row.get("minimum"),
             "maximum":row.get("maximum"),
-        })
+        }
+        if normalized_field["secret"] and normalized_field["default"] not in {None,""}:
+            raise AppControlError(f"Secret setting {key} may not declare a package default.")
+        if not normalized_field["secret"] and normalized_field["default"] is not None:
+            _coerce_setting(normalized_field,normalized_field["default"])
+        normalized.append(normalized_field)
     return {"contract":"vp3.app.settings-schema.v1","app_key":app_key,"fields":normalized}
 
 
