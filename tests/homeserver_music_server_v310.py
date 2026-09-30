@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-music-v310-") as data_dir, t
 
     from app.runtime import app
     from app.security import OWNER_CONTROL_TOKEN
-    from app.services import homeserver_app_control, homeserver_app_manager, homeserver_media_server, homeserver_music_server
+    from app.services import homeserver_app_control, homeserver_app_manager, homeserver_media_server, homeserver_music_server, hosting_cloud_control, hosting_serving
     from app.services.tasks import scheduler
 
     with TestClient(app) as client:
@@ -148,6 +148,44 @@ with tempfile.TemporaryDirectory(prefix="homeserver-music-v310-") as data_dir, t
         assert playing.status_code==200,playing.text
         assert playing.json()["playing"] is True
         assert playing.json()["current_media_id"]==first
+
+        # Hosted Music uses the governed Media Server remote-access key and
+        # short-lived tickets; anonymous access remains denied.
+        remote=client.post("/api/v1/control/homeserver-apps/media-server/remote/enable")
+        assert remote.status_code==200,remote.text
+        access_key=remote.json()["access_key"]
+        original_get_site=hosting_serving.hosting_runtime.get_site
+        original_binding=hosting_cloud_control.binding_for_site
+        try:
+            hosting_serving.hosting_runtime.get_site=lambda _site_id: {"state":"active","runtime_kind":"static"}
+            hosting_cloud_control.binding_for_site=lambda _site_id: {"target_app_key":"vp3.music-server"}
+            try:
+                hosting_serving.serve("site_music","__vp3_music__/status",request_headers={})
+                raise AssertionError("Hosted Music Server allowed anonymous access")
+            except hosting_serving.ServingError as exc:
+                assert exc.status_code==401
+            hosted_status=hosting_serving.serve(
+                "site_music","__vp3_music__/status",
+                request_headers={"Authorization":"Bearer "+access_key},
+            )
+            assert hosted_status.status_code==200
+            hosted_ticket=hosting_serving.serve(
+                "site_music",f"__vp3_music__/stream-ticket/{first}",
+                request_headers={"Authorization":"Bearer "+access_key},
+            )
+            import json as _json
+            ticket_payload=_json.loads(hosted_ticket.body.decode("utf-8"))
+            assert ticket_payload["stream_url"].startswith("/__vp3_music__/stream/")
+            ticket=ticket_payload["ticket"]
+            hosted_stream=hosting_serving.serve(
+                "site_music",f"__vp3_music__/stream/{first}",
+                query_string="ticket="+ticket,
+                request_headers={},
+            )
+            assert hosted_stream.status_code==200
+        finally:
+            hosting_serving.hosting_runtime.get_site=original_get_site
+            hosting_cloud_control.binding_for_site=original_binding
 
         # Playing without any current/selected track fails closed.
         stopped=client.post("/api/v1/control/homeserver-apps/music-server/playback",json={"command":"stop"})
