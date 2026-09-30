@@ -201,6 +201,21 @@ def update_settings(values:dict[str,Any])->dict[str,Any]:
     return settings()
 
 
+def _safe_public_url(value:str)->str:
+    try:
+        parsed=urllib.parse.urlsplit(str(value or ""))
+        host=parsed.hostname or ""
+        port=f":{parsed.port}" if parsed.port else ""
+        return f"{parsed.scheme.lower()}://{host}{port}{parsed.path or '/'}"
+    except Exception:
+        return "download source"
+
+
+def _safe_error(exc:Exception)->str:
+    message=str(exc)[:1000]
+    return re.sub(r"https?://[^\s]+",lambda m:_safe_public_url(m.group(0)),message)[:1000]
+
+
 def _safe_filename(value:str,fallback:str="download.bin")->str:
     raw=Path(str(value or "")).name.strip()
     raw=_FILENAME_RE.sub("_",raw).strip(" .")
@@ -474,7 +489,7 @@ def enqueue(
     if algorithm=="sha512" and len(expected)!=128:
         raise DownloadManagerError("SHA-512 checksum must be 128 hexadecimal characters.")
     when=None if scheduled_at is None else int(scheduled_at)
-    display=f"{parsed.scheme.lower()}://{parsed.hostname}{parsed.path or '/'}"
+    display=_safe_public_url(url)
     download_id="dl_"+uuid.uuid4().hex
     connection=_connect()
     try:
@@ -680,12 +695,17 @@ def _process(download_id:str)->dict[str,Any]:
     started=time.monotonic()
     settings_value=_settings()
     max_bytes=min(int(settings_value["max_file_bytes"]),MAX_DOWNLOAD_BYTES)
+    response=None
     try:
         response=_open_for_job(item,resume_at)
         code=int(getattr(response,"status",response.getcode()))
         if resume_at>0 and code!=206:
             resume_at=0
             temp.unlink(missing_ok=True)
+        elif resume_at>0 and code==206:
+            content_range=str(response.headers.get("Content-Range") or "")
+            if not re.match(rf"^bytes\s+{resume_at}-\d+/(?:\d+|\*)$",content_range,re.I):
+                raise DownloadManagerError("Download resume response did not match the requested byte range.",502)
         content_length=response.headers.get("Content-Length")
         remaining=int(content_length) if content_length and str(content_length).isdigit() else None
         total=(resume_at+remaining) if remaining is not None else None
@@ -711,9 +731,22 @@ def _process(download_id:str)->dict[str,Any]:
                 state=_status(download_id)
                 if state=="paused":
                     _update_progress(download_id,downloaded,total,0,etag,modified)
+                    try: response.close()
+                    except Exception: pass
                     return get_download(download_id)
                 if state=="cancelled":
                     _update_progress(download_id,downloaded,total,0,etag,modified)
+                    try: response.close()
+                    except Exception: pass
+                    return get_download(download_id)
+                try:
+                    app_state=str(homeserver_apps.get(APP_KEY).get("lifecycle_state") or "")
+                except Exception:
+                    app_state="stopped"
+                if app_state!="running":
+                    pause(download_id)
+                    try: response.close()
+                    except Exception: pass
                     return get_download(download_id)
                 chunk=response.read(CHUNK_BYTES)
                 if not chunk:
@@ -739,6 +772,8 @@ def _process(download_id:str)->dict[str,Any]:
                         time.sleep(min(delay,1.0))
             handle.flush()
             os.fsync(handle.fileno())
+        try: response.close()
+        except Exception: pass
         if total is not None and downloaded!=total:
             raise DownloadManagerError("Download ended before the expected content length was received.",502)
         actual=digest.hexdigest().lower() if digest else ""
@@ -763,6 +798,10 @@ def _process(download_id:str)->dict[str,Any]:
         _event("downloads.completed",{"download_id":download_id,"filename":result["download"].get("final_filename",""),"bytes":downloaded})
         return result
     except Exception as exc:
+        try:
+            if response is not None: response.close()
+        except Exception:
+            pass
         connection=_connect()
         try:
             current=connection.execute(
@@ -778,7 +817,7 @@ def _process(download_id:str)->dict[str,Any]:
                        scheduled_at=CASE WHEN ?='queued' THEN ? ELSE scheduled_at END,
                        completed_at=CASE WHEN ?='failed' THEN CURRENT_TIMESTAMP ELSE NULL END,
                        updated_at=CURRENT_TIMESTAMP WHERE download_id=?""",
-                    (next_state,retries,str(exc)[:1000],next_state,retry_at,next_state,download_id),
+                    (next_state,retries,_safe_error(exc),next_state,retry_at,next_state,download_id),
                 )
                 connection.commit()
         finally:
@@ -806,6 +845,11 @@ def process_next()->dict[str,Any]|None:
 def _worker_loop()->None:
     while not _STOP.wait(0.5):
         try:
+            try:
+                if str(homeserver_apps.get(APP_KEY).get("lifecycle_state") or "")!="running":
+                    continue
+            except Exception:
+                continue
             settings_value=_settings()
             connection=_connect()
             try:
@@ -982,6 +1026,10 @@ def public_capability()->dict[str,Any]:
         "private_network_downloads_blocked":True,
         "connected_peer_ip_verified":True,
         "resume_range_requests":True,
+        "resume_content_range_verified":True,
+        "network_responses_closed":True,
+        "lifecycle_aware_dispatch":True,
+        "public_errors_strip_url_queries":True,
         "atomic_finalization":True,
         "checksum_sha256_sha512":True,
         "pause_resume_cancel_retry":True,
