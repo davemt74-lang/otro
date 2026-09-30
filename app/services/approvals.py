@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, homeserver_app_agent, knowledge as knowledge_service, memory_continuity, room_device_automation, task_calendar_continuity as continuity, tools
+from . import contacts, homeserver_app_agent, homeserver_app_approvals, knowledge as knowledge_service, memory_continuity, room_device_automation, task_calendar_continuity as continuity, tools
 
 
 LOCAL_OWNER_ONLY_ACTIONS = {"devices.command"}
@@ -615,7 +615,59 @@ def create_app_action_request(
     except homeserver_app_agent.AppAgentError as exc:
         run_id=_record_failed_proposal(source,actor_type,action_key,[],raw_meta,str(exc))
         raise ApprovalError(f"{exc} Run {run_id} was recorded.",exc.status_code) from exc
-    return _create_action_request(source,actor_type,action_key,normalized,raw_meta,[])
+
+    request_id=uuid.uuid4().hex
+    expires_at=(_now()+timedelta(hours=24)).isoformat()
+    request_tool_key=f"{action_key}.request"
+    with db() as connection:
+        cursor=connection.execute(
+            """
+            INSERT INTO tool_runs(
+                tool_key,source_app_key,actor_type,status,required_permissions_json,
+                arguments_meta_json,result_meta_json,completed_at
+            ) VALUES (?,?,?,'completed','[]',?,?,CURRENT_TIMESTAMP)
+            """,
+            (
+                request_tool_key,source,actor_type,
+                json.dumps(raw_meta,separators=(",",":")),
+                json.dumps({"request_id":request_id,"status":"pending"},separators=(",",":")),
+            ),
+        )
+        run_id=int(cursor.lastrowid)
+        connection.execute(
+            "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) VALUES (?,?, 'action.requested','action_request',?,?)",
+            (actor_type,source,request_id,json.dumps({"action":action_key,"tool_run_id":run_id,"homeserver_app":True},separators=(",",":"))),
+        )
+
+    homeserver_app_approvals.create({
+        "id":request_id,
+        "action_key":action_key,
+        "source_app_key":source,
+        "actor_type":actor_type,
+        "status":"pending",
+        "arguments_json":json.dumps(normalized,ensure_ascii=False,separators=(",",":")),
+        "arguments_meta_json":json.dumps(raw_meta,separators=(",",":")),
+        "request_tool_run_id":run_id,
+        "execution_tool_run_id":None,
+        "error":None,
+        "created_at":_now().isoformat(),
+        "expires_at":expires_at,
+        "decided_at":None,
+        "executed_at":None,
+    })
+    return {
+        "tool":request_tool_key,
+        "run_id":run_id,
+        "status":"completed",
+        "result":{
+            "request_id":request_id,
+            "status":"pending",
+            "action":action_key,
+            "owner_approval_required":True,
+            "expires_at":expires_at,
+        },
+    }
+
 
 def _decode_row(row, *, include_arguments: bool) -> dict[str, Any]:
     item = dict(row)
@@ -640,59 +692,78 @@ def _expire_pending() -> None:
             "UPDATE action_requests SET status='expired', decided_at=CURRENT_TIMESTAMP, error='Approval request expired.' WHERE status='pending' AND expires_at <= ?",
             (now_iso,),
         )
+    homeserver_app_approvals.expire_pending(now_iso)
 
 
 def list_requests(status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     _expire_pending()
-    safe_limit = max(1, min(500, int(limit)))
-    params: list[Any] = []
-    where = ""
+    safe_limit=max(1,min(500,int(limit)))
+    params:list[Any]=[]
+    where=""
     if status:
-        if status not in {"pending", "executing", "executed", "denied", "failed", "expired"}:
+        if status not in {"pending","executing","executed","denied","failed","expired"}:
             raise ApprovalError("Invalid action request status.")
-        where = "WHERE status=?"
+        where="WHERE status=?"
         params.append(status)
     params.append(safe_limit)
     with db() as connection:
-        rows = connection.execute(
+        rows=connection.execute(
             f"""
-            SELECT id, action_key, source_app_key, actor_type, status, arguments_json,
-                   arguments_meta_json, request_tool_run_id, execution_tool_run_id,
-                   error, created_at, expires_at, decided_at, executed_at
+            SELECT id,action_key,source_app_key,actor_type,status,arguments_json,
+                   arguments_meta_json,request_tool_run_id,execution_tool_run_id,
+                   error,created_at,expires_at,decided_at,executed_at
             FROM action_requests {where}
             ORDER BY created_at DESC LIMIT ?
             """,
             params,
         ).fetchall()
-    return [_decode_row(row, include_arguments=True) for row in rows]
+    combined=[_decode_row(row,include_arguments=True) for row in rows]
+    combined.extend(_decode_row(row,include_arguments=True) for row in homeserver_app_approvals.list_rows(status,safe_limit))
+    combined.sort(key=lambda row:str(row.get("created_at") or ""),reverse=True)
+    return combined[:safe_limit]
 
 
 def get_request_for_source(request_id: str, source_app_key: str) -> dict[str, Any] | None:
     _expire_pending()
+    request_id=request_id.strip()
+    source=source_app_key.strip()
     with db() as connection:
-        row = connection.execute(
+        row=connection.execute(
             """
-            SELECT id, action_key, source_app_key, actor_type, status, arguments_json,
-                   arguments_meta_json, request_tool_run_id, execution_tool_run_id,
-                   error, created_at, expires_at, decided_at, executed_at
+            SELECT id,action_key,source_app_key,actor_type,status,arguments_json,
+                   arguments_meta_json,request_tool_run_id,execution_tool_run_id,
+                   error,created_at,expires_at,decided_at,executed_at
             FROM action_requests WHERE id=? AND source_app_key=? LIMIT 1
             """,
-            (request_id.strip(), source_app_key.strip()),
+            (request_id,source),
         ).fetchone()
-    if row is None:
+    if row is not None:
+        item=_decode_row(row,include_arguments=False)
+        item.pop("arguments_meta",None)
+        return item
+    stored=homeserver_app_approvals.get(request_id)
+    if stored is None or str(stored.get("source_app_key") or "")!=source:
         return None
-    item = _decode_row(row, include_arguments=False)
-    item.pop("arguments_meta", None)
+    item=_decode_row(stored,include_arguments=False)
+    item.pop("arguments_meta",None)
     return item
 
 
 def _request_for_owner(request_id: str) -> dict[str, Any]:
     _expire_pending()
+    request_id=request_id.strip()
     with db() as connection:
-        row = connection.execute("SELECT * FROM action_requests WHERE id=? LIMIT 1", (request_id.strip(),)).fetchone()
-    if row is None:
-        raise ApprovalError("Action request not found.", 404)
-    return _decode_row(row, include_arguments=True)
+        row=connection.execute("SELECT * FROM action_requests WHERE id=? LIMIT 1",(request_id,)).fetchone()
+    if row is not None:
+        item=_decode_row(row,include_arguments=True)
+        item["_apps_store"]=False
+        return item
+    stored=homeserver_app_approvals.get(request_id)
+    if stored is None:
+        raise ApprovalError("Action request not found.",404)
+    item=_decode_row(stored,include_arguments=True)
+    item["_apps_store"]=True
+    return item
 
 
 def _extract_run_id(message: str) -> int | None:
