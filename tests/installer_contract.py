@@ -15,5 +15,12 @@ assert 'ValueName: "HomeServer"' in text
 assert '{userstartup}' not in text
 assert re.search(r'\[UninstallRun\][\s\S]*reg delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', text)
 assert 'HomeServer\\Data' not in text, "Installer must never package or delete the user's private data directory"
+assert 'dist\\tools\\ffmpeg\\*' in text
+assert '{app}\\tools\\ffmpeg' in text
+stage = (ROOT_DIR / "scripts" / "stage_ffmpeg_windows.ps1").read_text(encoding="utf-8")
+assert 'ffmpeg.exe' in stage and 'ffprobe.exe' in stage
+assert 'manifest.json' in stage
+assert 'Get-FileHash' in stage
+assert '7.1.1' in stage
 
 print("HomeServer installer upgrade contract test passed")
