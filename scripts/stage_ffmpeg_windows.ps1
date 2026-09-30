@@ -1,6 +1,6 @@
 param(
-  [string]$Version = "7.1.1",
-  [string]$Url = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-7.1.1-essentials_build.zip",
+  [string]$Version = "9.0.2",
+  [string]$Url = "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip",
   [string]$Destination = "dist/tools/ffmpeg"
 )
 
