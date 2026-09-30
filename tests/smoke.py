@@ -160,9 +160,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         assert [item["key"] for item in owner_tools.json()["items"]] == [
             "apps.build_install",
             "apps.git.inspect",
+            "apps.actions",
+            "apps.invoke",
             "apps.list",
             "apps.prebuilt.install",
             "apps.prebuilt.list",
+            "apps.permission.set",
             "apps.recover",
             "apps.releases",
             "apps.rollback",
