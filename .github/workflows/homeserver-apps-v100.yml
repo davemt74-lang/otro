@@ -71,6 +71,16 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app/services/homeserver_app_control.py'
+      - 'app/services/homeserver_app_agent.py'
+      - 'app/services/tools.py'
+      - 'app/services/agent_tools.py'
+      - 'app/services/approvals.py'
+      - 'app/services/homeserver_app_packages.py'
+      - 'app/services/homeserver_app_sdk.py'
+      - 'app/services/homeserver_app_runtime.py'
+      - 'tests/homeserver_app_control_v300.py'
+      - 'tests/homeserver_video_editor_v290.py'
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_apps.py'
       - 'app/services/homeserver_app_sources.py'
