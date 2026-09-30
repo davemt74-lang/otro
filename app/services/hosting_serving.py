@@ -293,6 +293,111 @@ def serve(
             raise
         except homeserver_media_server.MediaServerError as exc:
             raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
+    if target_app_key=="vp3.music-server" and str(request_path or "").lstrip("/").startswith("__vp3_music__/"):
+        try:
+            import json as _json
+            from . import homeserver_media_server, homeserver_music_server
+            rel=str(request_path or "").lstrip("/")[len("__vp3_music__/"):]
+            headers={str(k).lower():str(v) for k,v in (request_headers or {}).items()}
+            auth=headers.get("authorization","")
+            bearer=auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+            query=parse_qs(str(query_string or ""),keep_blank_values=True)
+            if rel.startswith("stream/"):
+                media_id=rel.split("/",1)[1]
+                ticket=str((query.get("ticket") or [""])[0])
+                if not homeserver_media_server.authenticate_stream_ticket(media_id,ticket):
+                    raise ServingError("Music Server stream ticket is invalid or expired.",401)
+                path,mime,item=homeserver_media_server.resolve_stream(media_id)
+                if str(item.get("media_type") or "")!="audio":
+                    raise ServingError("Music Server can stream audio items only.",415)
+                return FileResponse(
+                    path,media_type=mime,filename=None,
+                    headers={
+                        "Accept-Ranges":"bytes","Cache-Control":"private, no-store",
+                        "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer",
+                        "X-VP3-Media-Id":str(item["media_id"]),
+                    },
+                )
+            if not homeserver_media_server.authenticate_remote(bearer):
+                raise ServingError("Music Server access key is required.",401)
+            def _payload()->dict[str,Any]:
+                if not body:
+                    return {}
+                try:
+                    value=_json.loads(body.decode("utf-8") or "{}")
+                except Exception as exc:
+                    raise ServingError("Music Server request payload is invalid.",400) from exc
+                if not isinstance(value,dict):
+                    raise ServingError("Music Server request payload must be an object.",400)
+                return value
+            def _response(value:Any)->Response:
+                return Response(content=_json.dumps(value),media_type="application/json",headers={"Cache-Control":"no-store"})
+            if rel=="status" and method=="GET":
+                return _response(homeserver_music_server.status())
+            if rel=="sync" and method=="POST":
+                return _response(homeserver_music_server.sync())
+            if rel=="tracks" and method=="GET":
+                q=str((query.get("q") or [""])[0])
+                artist=str((query.get("artist") or [""])[0])
+                album=str((query.get("album") or [""])[0])
+                try: limit=int((query.get("limit") or ["200"])[0])
+                except ValueError: limit=200
+                return _response(homeserver_music_server.tracks(q,artist,album,limit))
+            if rel=="artists" and method=="GET":
+                try: limit=int((query.get("limit") or ["500"])[0])
+                except ValueError: limit=500
+                return _response(homeserver_music_server.artists(limit))
+            if rel=="albums" and method=="GET":
+                artist=str((query.get("artist") or [""])[0])
+                try: limit=int((query.get("limit") or ["500"])[0])
+                except ValueError: limit=500
+                return _response(homeserver_music_server.albums(artist,limit))
+            if rel=="favorites" and method=="GET":
+                return _response(homeserver_music_server.favorites())
+            if rel.startswith("favorites/") and method in {"PUT","POST"}:
+                media_id=rel.split("/",1)[1]
+                payload=_payload()
+                return _response(homeserver_music_server.favorite(media_id,bool(payload.get("enabled",True))))
+            if rel=="playlists" and method=="GET":
+                return _response(homeserver_music_server.playlists())
+            if rel=="playlists" and method=="POST":
+                return _response(homeserver_music_server.create_playlist(str(_payload().get("name") or "")))
+            if rel.startswith("playlists/"):
+                parts=rel.split("/")
+                playlist_id=parts[1] if len(parts)>1 else ""
+                if len(parts)==2 and method=="GET":
+                    return _response(homeserver_music_server.playlist(playlist_id))
+                if len(parts)==2 and method=="DELETE":
+                    return _response(homeserver_music_server.delete_playlist(playlist_id))
+                if len(parts)==3 and parts[2]=="tracks" and method=="POST":
+                    return _response(homeserver_music_server.playlist_add(playlist_id,str(_payload().get("media_id") or "")))
+                if len(parts)==4 and parts[2]=="tracks" and method=="DELETE":
+                    return _response(homeserver_music_server.playlist_remove(playlist_id,parts[3]))
+            if rel=="queue" and method=="GET":
+                return _response(homeserver_music_server.queue())
+            if rel=="queue" and method=="POST":
+                return _response(homeserver_music_server.queue_add(str(_payload().get("media_id") or "")))
+            if rel=="queue" and method=="DELETE":
+                return _response(homeserver_music_server.queue_clear())
+            if rel=="playback" and method=="POST":
+                payload=_payload()
+                return _response(homeserver_music_server.playback(
+                    str(payload.get("command") or ""),
+                    str(payload.get("media_id") or ""),
+                    float(payload.get("position_seconds") or 0),
+                ))
+            if rel.startswith("stream-ticket/") and method=="GET":
+                media_id=rel.split("/",1)[1]
+                ticket=homeserver_media_server.stream_ticket(media_id)
+                return _response({
+                    **ticket,
+                    "stream_url":f"/__vp3_music__/stream/{media_id}?ticket={ticket['ticket']}",
+                })
+            raise ServingError("Music Server hosted route not found.",404)
+        except ServingError:
+            raise
+        except (homeserver_music_server.MusicServerError,homeserver_media_server.MediaServerError) as exc:
+            raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
     if target_app_key:
         try:
             return homeserver_app_runtime.serve(

@@ -139,7 +139,7 @@ def _public_root(row:sqlite3.Row|dict[str,Any], mapping:dict[str,Any]|None=None)
         "enabled":bool(row["enabled"]),
         "source_kind":str(mapping.get("source_kind") or "local_folder"),
         "computer_name":str(mapping.get("computer_name") or ""),
-        "source_hint":str(mapping.get("source_hint") or ""),
+        "source_hint_configured":bool(str(mapping.get("source_hint") or "")),
         "connected":bool(mapping.get("connected",True)),
         "absolute_path_exposed":False,
     }
@@ -312,11 +312,20 @@ def scan(root_id:str="")->dict[str,Any]:
         skipped=0
         by_type={"video":0,"audio":0,"image":0}
         touched=[]
+        unavailable=[]
         for root_row in rows:
-            root=Path(str(root_row["root_path"])).resolve()
-            if not root.is_dir() or root.is_symlink():
-                continue
             rid=str(root_row["root_id"])
+            root=Path(str(root_row["root_path"])).resolve()
+            connected=bool(root.is_dir() and not root.is_symlink())
+            connection.execute(
+                """INSERT INTO media_mapped_sources(root_id,source_kind,computer_name,source_hint,connected,last_checked_at)
+                   VALUES (?, 'local_folder','','',?,CURRENT_TIMESTAMP)
+                   ON CONFLICT(root_id) DO UPDATE SET connected=excluded.connected,last_checked_at=CURRENT_TIMESTAMP""",
+                (rid,1 if connected else 0),
+            )
+            if not connected:
+                unavailable.append(rid)
+                continue
             touched.append(rid)
             for base,dirs,files in os.walk(root,followlinks=False):
                 base_path=Path(base)
@@ -369,6 +378,8 @@ def scan(root_id:str="")->dict[str,Any]:
         "library_count":total,
         "types":by_type,
         "roots_scanned":len(touched),
+        "roots_unavailable":len(unavailable),
+        "unavailable_root_ids":unavailable,
         "transcoding":False,
     }
 
