@@ -98,7 +98,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
     unknown=set(manifest)-_ALLOWED_KEYS
     if unknown:
         raise AppPackageError("App manifest contains unsupported fields: "+", ".join(sorted(unknown))+".")
-    required={"contract","app_key","name","version","runtime","entrypoint","permissions"}
+    required={"contract","app_key","name","version","runtime","entrypoint","permissions","agent_actions"}
     missing=sorted(key for key in required if key not in manifest)
     if missing:
         raise AppPackageError("App manifest is missing required fields: "+", ".join(missing)+".")
@@ -347,6 +347,8 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             raise AppPackageError("App entrypoint was not extracted.")
         try:
             homeserver_app_runtime.validate_release_contracts(app_key,content)
+        from . import homeserver_app_control
+        homeserver_app_control.validate_action_manifest(content,app_key,str(manifest.get("agent_actions") or ""))
         except homeserver_app_runtime.AppRuntimeError as exc:
             raise AppPackageError(str(exc),exc.status_code) from exc
         homeserver_apps.transition(
@@ -403,6 +405,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             "permissions":list(manifest.get("permissions") or []),
             "routes":dict(manifest.get("routes") or {}),
             "sdk_version":str(manifest.get("sdk_version") or ""),
+            "agent_actions":str(manifest.get("agent_actions") or ""),
         })
         with db() as connection:
             connection.execute(
