@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_server, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -79,6 +79,31 @@ class MediaMappedRootRequest(BaseModel):
     computer_name:str=Field(default="",max_length=120)
     source_hint:str=Field(default="",max_length=240)
     source_kind:str=Field(default="computer_folder",pattern="^(computer_folder|network_share|local_folder)$")
+
+
+class DownloadCreateRequest(BaseModel):
+    url:str=Field(min_length=1,max_length=4096)
+    destination_id:str=Field(default="app-storage",max_length=80)
+    filename:str=Field(default="",max_length=240)
+    priority:int=Field(default=0,ge=-100,le=100)
+    checksum_algorithm:str=Field(default="",pattern="^(|sha256|sha512)$")
+    checksum_expected:str=Field(default="",max_length=128)
+    max_retries:int=Field(default=3,ge=0,le=10)
+    scheduled_at:int|None=None
+
+
+class DownloadPriorityRequest(BaseModel):
+    priority:int=Field(ge=-100,le=100)
+
+
+class DownloadDestinationRequest(BaseModel):
+    path:str=Field(min_length=1,max_length=2000)
+    label:str=Field(default="",max_length=120)
+    destination_kind:str=Field(default="mapped_folder",pattern="^(mapped_folder|network_share|local_folder)$")
+
+
+class DownloadSettingsRequest(BaseModel):
+    values:dict=Field(default_factory=dict)
 
 
 class PhotoAlbumRequest(BaseModel):
@@ -212,6 +237,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_photo_library.PhotoLibraryError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_download_manager.DownloadManagerError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_video_editor.VideoEditorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
@@ -223,7 +250,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -351,6 +378,112 @@ def media_server_remote_disable()->dict:
 
 
 
+
+
+
+@router.get("/download-manager/capability")
+def download_manager_capability()->dict:
+    return homeserver_download_manager.public_capability()
+
+
+@router.get("/download-manager/status")
+def download_manager_status()->dict:
+    return _call(homeserver_download_manager.status)
+
+
+@router.get("/download-manager/brain-context")
+def download_manager_brain_context(limit:int=Query(default=8,ge=1,le=20))->dict:
+    return _call(homeserver_download_manager.brain_context,limit)
+
+
+@router.get("/download-manager/downloads")
+def download_manager_list(status:str=Query(default="",max_length=40),limit:int=Query(default=200,ge=1,le=1000))->dict:
+    return _call(homeserver_download_manager.list_downloads,status,limit)
+
+
+@router.post("/download-manager/downloads")
+def download_manager_enqueue(payload:DownloadCreateRequest)->dict:
+    return _call(
+        homeserver_download_manager.enqueue,payload.url,
+        destination_id=payload.destination_id,filename=payload.filename,priority=payload.priority,
+        checksum_algorithm=payload.checksum_algorithm,checksum_expected=payload.checksum_expected,
+        max_retries=payload.max_retries,scheduled_at=payload.scheduled_at,
+    )
+
+
+@router.get("/download-manager/downloads/{download_id}")
+def download_manager_get(download_id:str)->dict:
+    return _call(homeserver_download_manager.get_download,download_id)
+
+
+@router.post("/download-manager/downloads/{download_id}/pause")
+def download_manager_pause(download_id:str)->dict:
+    return _call(homeserver_download_manager.pause,download_id)
+
+
+@router.post("/download-manager/downloads/{download_id}/resume")
+def download_manager_resume(download_id:str)->dict:
+    return _call(homeserver_download_manager.resume,download_id)
+
+
+@router.post("/download-manager/downloads/{download_id}/retry")
+def download_manager_retry(download_id:str)->dict:
+    return _call(homeserver_download_manager.retry,download_id)
+
+
+@router.put("/download-manager/downloads/{download_id}/priority")
+def download_manager_priority(download_id:str,payload:DownloadPriorityRequest)->dict:
+    return _call(homeserver_download_manager.set_priority,download_id,payload.priority)
+
+
+@router.delete("/download-manager/downloads/{download_id}")
+def download_manager_cancel(download_id:str)->dict:
+    return _call(homeserver_download_manager.cancel,download_id)
+
+
+@router.delete("/download-manager/history")
+def download_manager_clear_history()->dict:
+    return _call(homeserver_download_manager.clear_history)
+
+
+@router.get("/download-manager/destinations")
+def download_manager_destinations()->dict:
+    return _call(homeserver_download_manager.destinations)
+
+
+@router.post("/download-manager/destinations")
+def download_manager_add_destination(payload:DownloadDestinationRequest)->dict:
+    return _call(homeserver_download_manager.add_destination,payload.path,payload.label,payload.destination_kind)
+
+
+@router.delete("/download-manager/destinations/{destination_id}")
+def download_manager_remove_destination(destination_id:str)->dict:
+    return _call(homeserver_download_manager.remove_destination,destination_id)
+
+
+@router.get("/download-manager/settings")
+def download_manager_settings()->dict:
+    return _call(homeserver_download_manager.settings)
+
+
+@router.put("/download-manager/settings")
+def download_manager_update_settings(payload:DownloadSettingsRequest)->dict:
+    return _call(homeserver_download_manager.update_settings,payload.values)
+
+
+@router.get("/download-manager/remote")
+def download_manager_remote_status()->dict:
+    return _call(homeserver_download_manager.remote_status)
+
+
+@router.post("/download-manager/remote/enable")
+def download_manager_remote_enable()->dict:
+    return _call(homeserver_download_manager.enable_remote)
+
+
+@router.post("/download-manager/remote/disable")
+def download_manager_remote_disable()->dict:
+    return _call(homeserver_download_manager.disable_remote)
 
 @router.get("/photo-library/capability")
 def photo_library_capability()->dict:

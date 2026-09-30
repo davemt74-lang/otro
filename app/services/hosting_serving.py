@@ -293,6 +293,60 @@ def serve(
             raise
         except homeserver_media_server.MediaServerError as exc:
             raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
+    if target_app_key=="vp3.download-manager" and str(request_path or "").lstrip("/").startswith("__vp3_downloads__/"):
+        try:
+            import json as _json
+            from . import homeserver_download_manager
+            rel=str(request_path or "").lstrip("/")[len("__vp3_downloads__/"):]
+            headers={str(k).lower():str(v) for k,v in (request_headers or {}).items()}
+            auth=headers.get("authorization","")
+            bearer=auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+            if not homeserver_download_manager.authenticate_remote(bearer):
+                raise ServingError("Download Manager access key is required.",401)
+            query=parse_qs(str(query_string or ""),keep_blank_values=True)
+            def _payload()->dict[str,Any]:
+                if not body: return {}
+                try: value=_json.loads(body.decode("utf-8") or "{}")
+                except Exception as exc: raise ServingError("Download Manager request payload is invalid.",400) from exc
+                if not isinstance(value,dict): raise ServingError("Download Manager request payload must be an object.",400)
+                return value
+            def _response(value:Any)->Response:
+                return Response(content=_json.dumps(value),media_type="application/json",headers={"Cache-Control":"no-store"})
+            if rel=="status" and method=="GET": return _response(homeserver_download_manager.status())
+            if rel=="brain-context" and method=="GET": return _response(homeserver_download_manager.brain_context())
+            if rel=="destinations" and method=="GET": return _response(homeserver_download_manager.destinations())
+            if rel=="settings" and method=="GET": return _response(homeserver_download_manager.settings())
+            if rel=="downloads" and method=="GET":
+                status=str((query.get("status") or [""])[0])
+                try: limit=int((query.get("limit") or ["200"])[0])
+                except ValueError: limit=200
+                return _response(homeserver_download_manager.list_downloads(status,limit))
+            if rel=="downloads" and method=="POST":
+                p=_payload()
+                return _response(homeserver_download_manager.enqueue(
+                    str(p.get("url") or ""),destination_id=str(p.get("destination_id") or "app-storage"),
+                    filename=str(p.get("filename") or ""),priority=int(p.get("priority") or 0),
+                    checksum_algorithm=str(p.get("checksum_algorithm") or ""),
+                    checksum_expected=str(p.get("checksum_expected") or ""),
+                    max_retries=int(p.get("max_retries") if p.get("max_retries") is not None else 3),
+                    scheduled_at=p.get("scheduled_at"),
+                ))
+            if rel=="history" and method=="DELETE": return _response(homeserver_download_manager.clear_history())
+            if rel.startswith("downloads/"):
+                parts=rel.split("/")
+                download_id=parts[1] if len(parts)>1 else ""
+                if len(parts)==2 and method=="GET": return _response(homeserver_download_manager.get_download(download_id))
+                if len(parts)==2 and method=="DELETE": return _response(homeserver_download_manager.cancel(download_id))
+                if len(parts)==3 and parts[2]=="pause" and method=="POST": return _response(homeserver_download_manager.pause(download_id))
+                if len(parts)==3 and parts[2]=="resume" and method=="POST": return _response(homeserver_download_manager.resume(download_id))
+                if len(parts)==3 and parts[2]=="retry" and method=="POST": return _response(homeserver_download_manager.retry(download_id))
+                if len(parts)==3 and parts[2]=="priority" and method=="PUT":
+                    return _response(homeserver_download_manager.set_priority(download_id,int(_payload().get("priority") or 0)))
+            raise ServingError("Download Manager hosted route not found.",404)
+        except ServingError:
+            raise
+        except homeserver_download_manager.DownloadManagerError as exc:
+            raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
     if target_app_key=="vp3.photo-library" and str(request_path or "").lstrip("/").startswith("__vp3_photos__/"):
         try:
             import json as _json

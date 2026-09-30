@@ -316,7 +316,7 @@ def public_capability() -> dict[str,Any]:
         "user_apps":True,
         "legacy_local_apps_migrate_in_place":True,
         "user_app_sources":["user_created","zip","git","agent_builder"],
-        "user_app_default":"vp3_sdk_1.1",
+        "user_app_default":"vp3_sdk_1.2",
         "starter_runtime_integration":True,
         "starter_permissions_section8":True,
         "starter_data_recovery_section7":True,
