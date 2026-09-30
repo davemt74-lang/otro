@@ -40,10 +40,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
         })
         assert created.status_code==200,created.text
         payload=created.json()
-        assert payload["sdk"]["sdk_version"]=="1.1"
+        assert payload["sdk"]["sdk_version"]=="1.2"
         project=Path(data_dir)/"apps"/"starter.notes"
         manifest=json.loads((project/"vp3-app.json").read_text(encoding="utf-8"))
-        assert manifest["sdk_version"]=="1.1"
+        assert manifest["sdk_version"]=="1.2"
         assert manifest["release_channel"]=="stable"
         assert manifest["data_schema_version"]=="1"
         assert manifest["data_migration_reversible"] is True
@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
         assert app_state["metadata"]["data_schema_version"]=="1"
 
         runtime_js=(project/"assets"/"vp3-sdk.js").read_text(encoding="utf-8")
-        assert 'version:"1.1"' in runtime_js
+        assert 'version:"1.2"' in runtime_js
         assert "async permissions()" in runtime_js
         assert "async resources()" in runtime_js
         assert "async runtime()" in runtime_js
@@ -123,7 +123,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
     )
     cli_project=Path(proc.stdout.strip())
     cli_manifest=json.loads((cli_project/"vp3-app.json").read_text(encoding="utf-8"))
-    assert cli_manifest["sdk_version"]=="1.1"
+    assert cli_manifest["sdk_version"]=="1.2"
     assert cli_manifest["permissions"]==["notifications.write"]
     assert cli_manifest["data_schema_version"]=="1"
     assert cli_manifest["release_channel"]=="stable"

@@ -10,8 +10,10 @@ on:
       - 'app/services/homeserver_app_platform.py'
       - 'tests/homeserver_media_server_v280.py'
       - 'tests/homeserver_video_editor_v290.py'
+      - 'tests/homeserver_app_control_v300.py'
       - 'app/services/homeserver_media_server.py'
       - 'app/services/homeserver_video_editor.py'
+      - 'app/services/homeserver_app_control.py'
       - 'app/services/hosting_cloud_control.py'
       - 'app/services/hosting_serving.py'
       - 'tests/hosting_system_app_target_v250.py'
@@ -69,6 +71,16 @@ on:
   push:
     branches: [main]
     paths:
+      - 'app/services/homeserver_app_control.py'
+      - 'app/services/homeserver_app_agent.py'
+      - 'app/services/tools.py'
+      - 'app/services/agent_tools.py'
+      - 'app/services/approvals.py'
+      - 'app/services/homeserver_app_packages.py'
+      - 'app/services/homeserver_app_sdk.py'
+      - 'app/services/homeserver_app_runtime.py'
+      - 'tests/homeserver_app_control_v300.py'
+      - 'tests/homeserver_video_editor_v290.py'
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_apps.py'
       - 'app/services/homeserver_app_sources.py'
@@ -128,8 +140,10 @@ jobs:
           app/services/homeserver_app_platform.py
           tests/homeserver_media_server_v280.py
           tests/homeserver_video_editor_v290.py
+          tests/homeserver_app_control_v300.py
           app/services/homeserver_media_server.py
           app/services/homeserver_video_editor.py
+          app/services/homeserver_app_control.py
           tests/homeserver_apps_v170.py
           tests/homeserver_apps_v180.py
           tests/homeserver_apps_v190.py
@@ -220,5 +234,7 @@ jobs:
         run: python tests/homeserver_media_server_v280.py
       - name: Verify VP3 Video Editor and complete Agent app control
         run: python tests/homeserver_video_editor_v290.py
+      - name: Verify Universal App Control Contract
+        run: python tests/homeserver_app_control_v300.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py

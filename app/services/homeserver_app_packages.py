@@ -131,8 +131,12 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
     except homeserver_app_security.AppSecurityError as exc:
         raise AppPackageError(str(exc)) from exc
     sdk_version=str(manifest.get("sdk_version") or "").strip()
-    if sdk_version and sdk_version not in {"1.0","1.1"}:
+    if sdk_version and sdk_version not in {"1.0","1.1","1.2"}:
         raise AppPackageError("App SDK version is not supported.")
+    if sdk_version=="1.2":
+        missing_control=[field for field in ("agent_actions","settings_schema") if not str(manifest.get(field) or "").strip()]
+        if missing_control:
+            raise AppPackageError("SDK 1.2 app manifest is missing required control fields: "+", ".join(missing_control)+".")
     routes=manifest.get("routes",{})
     if routes is not None:
         if not isinstance(routes,dict) or any(k not in {"local","private_remote","public"} for k in routes):
@@ -345,10 +349,17 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         entry=(content/Path(*_safe_rel(manifest["entrypoint"]).parts)).resolve()
         if not entry.is_file():
             raise AppPackageError("App entrypoint was not extracted.")
+        from . import homeserver_app_control
         try:
             homeserver_app_runtime.validate_release_contracts(app_key,content)
-        except homeserver_app_runtime.AppRuntimeError as exc:
-            raise AppPackageError(str(exc),exc.status_code) from exc
+            agent_actions_path=str(manifest.get("agent_actions") or "").strip()
+            settings_schema_path=str(manifest.get("settings_schema") or "").strip()
+            if agent_actions_path:
+                homeserver_app_control.validate_action_manifest(content,app_key,agent_actions_path)
+            if settings_schema_path:
+                homeserver_app_control.validate_settings_schema(content,app_key,settings_schema_path)
+        except (homeserver_app_runtime.AppRuntimeError,homeserver_app_control.AppControlError) as exc:
+            raise AppPackageError(str(exc),getattr(exc,"status_code",400)) from exc
         homeserver_apps.transition(
             app_key,transition_target,
             actor_type="system" if _system_managed else "owner",
@@ -403,6 +414,8 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             "permissions":list(manifest.get("permissions") or []),
             "routes":dict(manifest.get("routes") or {}),
             "sdk_version":str(manifest.get("sdk_version") or ""),
+            "agent_actions":str(manifest.get("agent_actions") or ""),
+            "settings_schema":str(manifest.get("settings_schema") or ""),
         })
         with db() as connection:
             connection.execute(
@@ -469,7 +482,18 @@ def verify_active_release(
     if expected_sha256 and str(release.get("package_sha256") or "").lower()!=str(expected_sha256).lower():
         raise AppPackageError("Active release package hash does not match the expected update.",409)
     content=(releases_root(app_key)/active/"content").resolve()
-    homeserver_app_runtime.validate_release_contracts(app_key,content)
+    from . import homeserver_app_control
+    try:
+        homeserver_app_runtime.validate_release_contracts(app_key,content)
+        metadata=dict(homeserver_apps.get(app_key).get("metadata") or {})
+        manifest_path=str(metadata.get("agent_actions") or "").strip()
+        settings_path=str(metadata.get("settings_schema") or "").strip()
+        if manifest_path:
+            homeserver_app_control.validate_action_manifest(content,app_key,manifest_path)
+        if settings_path:
+            homeserver_app_control.validate_settings_schema(content,app_key,settings_path)
+    except (homeserver_app_runtime.AppRuntimeError,homeserver_app_control.AppControlError) as exc:
+        raise AppPackageError(str(exc),getattr(exc,"status_code",400)) from exc
     resources=homeserver_app_resources.resource_status(app_key)
     app=homeserver_apps.get(app_key)
     healthy=str(app.get("lifecycle_state") or "")=="running"

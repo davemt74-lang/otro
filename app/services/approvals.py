@@ -783,8 +783,14 @@ def approve_request(request_id: str) -> dict[str, Any]:
         "calendar.create", "calendar.update", "calendar.delete",
         "apps.prebuilt.install", "apps.build_install", "apps.rollback", "apps.recover", "apps.start", "apps.stop",
         "apps.git.inspect", "apps.source.install", "apps.source.detach",
+        "apps.permission.set", "apps.settings.set", "apps.invoke",
     }:
         raise ApprovalError("Action type is not approved for local execution.", 403)
+    if request.get("_apps_store"):
+        try:
+            return homeserver_app_approvals.approve(request["id"])
+        except homeserver_app_approvals.AppApprovalStoreError as exc:
+            raise ApprovalError(str(exc),409) from exc
     with db() as connection:
         reserved = connection.execute(
             "UPDATE action_requests SET status='executing', decided_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
@@ -896,6 +902,11 @@ def deny_request(request_id: str) -> dict[str, Any]:
     request = _request_for_owner(request_id)
     if request["status"] != "pending":
         raise ApprovalError(f"Action request is already {request['status']}.", 409)
+    if request.get("_apps_store"):
+        try:
+            return homeserver_app_approvals.deny(request["id"])
+        except homeserver_app_approvals.AppApprovalStoreError as exc:
+            raise ApprovalError(str(exc),409) from exc
     with db() as connection:
         updated = connection.execute(
             "UPDATE action_requests SET status='denied', decided_at=CURRENT_TIMESTAMP, error=NULL WHERE id=? AND status='pending'",

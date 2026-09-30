@@ -10,7 +10,7 @@ from pathlib import Path
 from ..config import settings
 
 CONTRACT="vp3.app.sdk.v1"
-SDK_VERSION="1.1"
+SDK_VERSION="1.2"
 _KEY_RE=re.compile(r"^[a-z0-9][a-z0-9._-]{1,79}$")
 
 INDEX_HTML="""<!doctype html>
@@ -33,8 +33,8 @@ INDEX_HTML="""<!doctype html>
 """
 APP_CSS="""*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f6f8;color:#15171a}.vp3-app-shell{max-width:1100px;margin:0 auto;padding:32px}.vp3-kicker{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#667085}.vp3-card{background:#fff;border:1px solid #e4e7ec;border-radius:16px;padding:24px;box-shadow:0 8px 30px rgba(16,24,40,.05)}"""
 SDK_JS="""window.VP3App={
-version:"1.1",
-health:()=>({ok:true,sdk:"1.1"}),
+version:"1.2",
+health:()=>({ok:true,sdk:"1.2"}),
 ready(cb){if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",cb,{once:true});}else{cb();}},
 base(){const parts=location.pathname.split("/");const i=parts.indexOf("homeserver-apps");return i>=0?parts.slice(0,i+2).join("/"):"";},
 async emit(topic,payload={}){const r=await fetch(this.base()+"/runtime/events",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic,payload})});if(!r.ok)throw new Error(await r.text());return r.json();},
@@ -130,7 +130,7 @@ def scaffold(app_key:str,name:str,*,runtime:str="static",permissions:list[str]|N
         (staging/"assets"/"app.css").write_text(APP_CSS+"\n",encoding="utf-8")
         (staging/"assets"/"app.js").write_text(APP_JS+"\n",encoding="utf-8")
         (staging/"settings.schema.json").write_text(json.dumps({"contract":"vp3.app.settings-schema.v1","fields":[]},indent=2)+"\n",encoding="utf-8")
-        (staging/"agent"/"actions.json").write_text(json.dumps({"contract":"vp3.app.agent-actions.v1","actions":[]},indent=2)+"\n",encoding="utf-8")
+        (staging/"agent"/"actions.json").write_text(json.dumps({"contract":"vp3.app.agent-actions.v2","actions":[]},indent=2)+"\n",encoding="utf-8")
         (staging/"runtime"/"jobs.json").write_text(json.dumps({"contract":"vp3.app.jobs.v1","jobs":[]},indent=2)+"\n",encoding="utf-8")
         (staging/"runtime"/"events.json").write_text(json.dumps({"contract":"vp3.app.events.v1","subscriptions":[]},indent=2)+"\n",encoding="utf-8")
         (staging/"sample"/"data.json").write_text(json.dumps({"contract":"vp3.app.sample-data.v1","items":[{"id":"welcome","title":"Sample item","description":"Replace this with app-specific demo data."}]},indent=2)+"\n",encoding="utf-8")

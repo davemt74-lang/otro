@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import (
+    homeserver_app_control,
     homeserver_app_distribution,
     homeserver_app_prebuilt,
     homeserver_app_releases,
@@ -49,7 +50,7 @@ def inventory()->dict[str,Any]:
             installed_by_key[key]=row
     keys=sorted(set(installed_by_key)|set(catalog_by_key))
     items=[]
-    counts={"installed":0,"available":0,"system":0,"user":0,"updates":0,"shared":0,"running":0,"hosted":0}
+    counts={"installed":0,"available":0,"system":0,"user":0,"updates":0,"shared":0,"running":0,"hosted":0,"agent_compatible":0}
     for key in keys:
         app=installed_by_key.get(key)
         package=catalog_by_key.get(key)
@@ -69,6 +70,8 @@ def inventory()->dict[str,Any]:
         lifecycle=str((app or {}).get("lifecycle_state") or ("available" if available else "unknown"))
         media_state=_safe(homeserver_media_server.status) if key==homeserver_media_server.APP_KEY and installed else None
         video_state=_safe(homeserver_video_editor.status) if key==homeserver_video_editor.APP_KEY and installed else None
+        control_compat=_safe(lambda:homeserver_app_control.compatibility(key)) if installed else None
+        control_manifest=_safe(lambda:homeserver_app_control.manifest(key)) if installed else None
         item={
             "app_key":key,
             "name":str((app or {}).get("name") or (package or {}).get("name") or key),
@@ -94,11 +97,15 @@ def inventory()->dict[str,Any]:
             "media_server":media_state,
             "video_editor":video_state,
             "agent_control":{
-                "complete":bool(installed),
-                "manifest":homeserver_video_editor.agent_actions() if key==homeserver_video_editor.APP_KEY and installed else None,
+                "complete":bool(installed and control_compat and control_compat.get("compatible")),
+                "compatible":bool(control_compat and control_compat.get("compatible")),
+                "compatibility":control_compat,
+                "manifest":control_manifest,
                 "lifecycle":bool(installed),
                 "permissions":bool(app),
+                "settings":bool(installed),
                 "hosting":bool(installed),
+                "releases":bool(installed),
             },
             "deployment_modes":list((package or {}).get("deployment_modes") or ["local","private_remote","hosted_subdomain","custom_domain"]),
             "hosting":{
@@ -127,6 +134,7 @@ def inventory()->dict[str,Any]:
         if shared: counts["shared"]+=1
         if lifecycle=="running": counts["running"]+=1
         if bound: counts["hosted"]+=1
+        if control_compat and control_compat.get("compatible"): counts["agent_compatible"]+=1
     return {
         "contract":CONTRACT,
         "items":items,
@@ -144,6 +152,9 @@ def inventory()->dict[str,Any]:
         "canonical_distribution_engine":True,
         "homeserver_agent_complete_control":True,
         "agent_manifest_actions":True,
+        "universal_control_contract":"vp3.app.agent-control.v3",
+        "compatibility_status":True,
+        "generic_settings_control":True,
     }
 
 
@@ -170,5 +181,8 @@ def public_capability()->dict[str,Any]:
         "hosting_bindings":True,
         "homeserver_agent_complete_control":True,
         "agent_manifest_actions":True,
+        "universal_control_contract":"vp3.app.agent-control.v3",
+        "compatibility_status":True,
+        "generic_settings_control":True,
         "app_store":False,
     }

@@ -55,6 +55,78 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "additionalProperties": False
         },
     },
+    "apps.compatibility": {
+        "key": "apps.compatibility",
+        "name": "Read App Control Compatibility",
+        "description": "Check whether an installed app supports the universal HomeServer Agent control contract and which manifest version it uses.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.settings.get": {
+        "key": "apps.settings.get",
+        "name": "Read App Settings",
+        "description": "Read one app's declared non-secret settings and secret configuration status without exposing secret values.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.settings.set": {
+        "key": "apps.settings.set",
+        "name": "Update App Settings",
+        "description": "Update declared app settings through the canonical control contract. Secret values are written to the HomeServer app vault and are never returned.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "app_key": {"type": "string", "maxLength": 80},
+                "values": {"type": "object"}
+            },
+            "required": ["app_key","values"],
+            "additionalProperties": False
+        },
+    },
+    "apps.hosting.status": {
+        "key": "apps.hosting.status",
+        "name": "Read App Hosting Bindings",
+        "description": "Read hosted site and subdomain bindings for an installed app through the canonical Hosting runtime.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.invoke.read": {
+        "key": "apps.invoke.read",
+        "name": "Invoke Read-Only App Action",
+        "description": "Invoke an app-declared read action through the universal app control manifest without creating an approval request.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "app_key": {"type": "string", "maxLength": 80},
+                "action": {"type": "string", "maxLength": 120},
+                "arguments": {"type": "object"}
+            },
+            "required": ["app_key","action"],
+            "additionalProperties": False
+        },
+    },
     "apps.permission.set": {
         "key": "apps.permission.set",
         "name": "Set App Permission",
@@ -1763,6 +1835,47 @@ def _apps_actions(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
     return result,{"app_key":result.get("app_key"),"count":len(result.get("actions") or [])}
 
 
+
+
+def _apps_compatibility(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result=homeserver_app_agent.compatibility(arguments)
+    except (homeserver_app_agent.AppAgentError,homeserver_apps.HomeServerAppError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return result,{"app_key":result.get("app_key"),"compatible":bool(result.get("compatible"))}
+
+
+def _apps_settings_get(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result=homeserver_app_agent.settings_get(arguments)
+    except (homeserver_app_agent.AppAgentError,homeserver_apps.HomeServerAppError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return result,{"app_key":result.get("app_key"),"field_count":len((result.get("schema") or {}).get("fields") or [])}
+
+
+def _apps_settings_set(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result=homeserver_app_agent.execute_action("apps.settings.set",arguments)
+    except (homeserver_app_agent.AppAgentError,RuntimeError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return result,{"app_key":arguments.get("app_key"),"changed_count":len(dict(arguments.get("values") or {}))}
+
+
+def _apps_hosting_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result=homeserver_app_agent.hosting_status(arguments)
+    except (homeserver_app_agent.AppAgentError,homeserver_apps.HomeServerAppError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return result,{"app_key":result.get("app_key"),"count":int(result.get("count") or 0)}
+
+
+def _apps_invoke_read(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result=homeserver_app_agent.invoke_read(arguments)
+    except homeserver_app_agent.AppAgentError as exc:
+        raise ToolError(str(exc),exc.status_code) from exc
+    return result,{"app_key":arguments.get("app_key"),"action":arguments.get("action")}
+
 def _apps_permission_set(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         result=homeserver_app_agent.execute_action("apps.permission.set",arguments)
@@ -1813,6 +1926,16 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _apps_status(payload)
         elif tool["key"] == "apps.actions":
             result, result_meta = _apps_actions(payload)
+        elif tool["key"] == "apps.compatibility":
+            result, result_meta = _apps_compatibility(payload)
+        elif tool["key"] == "apps.settings.get":
+            result, result_meta = _apps_settings_get(payload)
+        elif tool["key"] == "apps.settings.set":
+            result, result_meta = _apps_settings_set(payload)
+        elif tool["key"] == "apps.hosting.status":
+            result, result_meta = _apps_hosting_status(payload)
+        elif tool["key"] == "apps.invoke.read":
+            result, result_meta = _apps_invoke_read(payload)
         elif tool["key"] == "apps.permission.set":
             result, result_meta = _apps_permission_set(payload)
         elif tool["key"] == "apps.invoke":
