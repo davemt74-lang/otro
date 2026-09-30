@@ -42,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-music-v310-") as data_dir, t
         assert media_install.status_code==200,media_install.text
         music_install=client.post("/api/v1/control/homeserver-apps/catalog/prebuilt/vp3.music-server/install")
         assert music_install.status_code==200,music_install.text
-        assert media_install.json()["app"]["installed_version"]=="1.1.1"
+        assert media_install.json()["app"]["installed_version"]=="1.2.0"
         assert music_install.json()["app"]["installed_version"]=="1.0.1"
         assert homeserver_app_control.manifest("vp3.media-server")["manifest_contract"]=="vp3.app.agent-actions.v2"
         assert homeserver_app_control.manifest("vp3.music-server")["manifest_contract"]=="vp3.app.agent-actions.v2"
