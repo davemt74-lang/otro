@@ -22,6 +22,7 @@ on:
       - 'tests/homeserver_system_apps_v200.py'
       - 'tests/homeserver_system_apps_v210.py'
       - 'tests/homeserver_system_apps_v220.py'
+      - 'tests/homeserver_system_apps_v230.py'
       - 'app/services/homeserver_app_data_lifecycle.py'
       - 'app/services/tools.py'
       - 'app/services/approvals.py'
@@ -105,6 +106,7 @@ jobs:
           tests/homeserver_system_apps_v200.py
           tests/homeserver_system_apps_v210.py
           tests/homeserver_system_apps_v220.py
+          tests/homeserver_system_apps_v230.py
           app/services/homeserver_app_data_lifecycle.py
           tests/hosting_system_app_target_v250.py
           app/services/hosting_cloud_control.py
@@ -170,5 +172,7 @@ jobs:
         run: python tests/homeserver_system_apps_v210.py
       - name: Verify System App permission capability governance
         run: python tests/homeserver_system_apps_v220.py
+      - name: Verify User App SDK starter runtime integration
+        run: python tests/homeserver_system_apps_v230.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
