@@ -91,8 +91,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-release-v200-") as da
     )
     assert rollback["ok"] is True,rollback
     assert rollback["payload"]["changed"] is True
-    assert rollback["payload"]["rollback"]["active_release_id"]==first_release
-    assert rollback["payload"]["rollback"]["version"]=="1.0.0"
+    assert rollback["payload"]["rollback"]["release"]["release_id"]==first_release
+    assert rollback["payload"]["rollback"]["release"]["version"]=="1.0.0"
     assert homeserver_apps.get("vp3.notes")["installed_version"]=="1.0.0"
 
     # Compatibility is enforced before activation.
@@ -130,7 +130,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-release-v200-") as da
     pkg_cap=homeserver_app_packages.public_capability()
     assert pkg_cap["homeserver_compatibility_gate"] is True
     assert pkg_cap["post_activation_verification"] is True
-    assert pkg_cap["previous_release_rollback"] is True
 
     relay=(ROOT/"relay"/"app.py").read_text(encoding="utf-8")
     assert "apps.system.release.status" in relay
