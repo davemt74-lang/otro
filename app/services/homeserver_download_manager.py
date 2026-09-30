@@ -27,6 +27,7 @@ _FILENAME_RE=re.compile(r"[^A-Za-z0-9._ ()\[\]-]+")
 _WORKER_LOCK=threading.RLock()
 _WORKER:threading.Thread|None=None
 _STOP=threading.Event()
+_RECOVERED=False
 
 
 class DownloadManagerError(RuntimeError):
@@ -753,11 +754,29 @@ def _worker_loop()->None:
             continue
 
 
+def recover_interrupted()->dict[str,Any]:
+    connection=_connect()
+    try:
+        cursor=connection.execute(
+            """UPDATE download_jobs SET status='queued',speed_bps=0,
+               error='Recovered after HomeServer interruption.',updated_at=CURRENT_TIMESTAMP
+               WHERE status='downloading'"""
+        )
+        recovered=int(cursor.rowcount)
+        connection.commit()
+    finally:
+        connection.close()
+    return {"contract":CONTRACT,"recovered":recovered}
+
+
 def _ensure_worker()->None:
-    global _WORKER
+    global _WORKER,_RECOVERED
     with _WORKER_LOCK:
         if _WORKER and _WORKER.is_alive():
             return
+        if not _RECOVERED:
+            recover_interrupted()
+            _RECOVERED=True
         _STOP.clear()
         _WORKER=threading.Thread(target=_worker_loop,name="vp3-download-manager",daemon=True)
         _WORKER.start()
@@ -895,6 +914,7 @@ def public_capability()->dict[str,Any]:
         "atomic_finalization":True,
         "checksum_sha256_sha512":True,
         "pause_resume_cancel_retry":True,
+        "restart_recovery":True,
         "priority_queue":True,
         "scheduled_downloads":True,
         "bandwidth_limit":True,
