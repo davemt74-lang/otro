@@ -298,7 +298,13 @@ def _validate_url(url:str)->urllib.parse.SplitResult:
 class _SafeRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self,req,fp,code,msg,headers,newurl):  # noqa: ANN001
         _validate_url(newurl)
-        return super().redirect_request(req,fp,code,msg,headers,newurl)
+        redirected=super().redirect_request(req,fp,code,msg,headers,newurl)
+        if redirected is not None:
+            old_host=(urllib.parse.urlsplit(req.full_url).hostname or "").lower()
+            new_host=(urllib.parse.urlsplit(newurl).hostname or "").lower()
+            if old_host!=new_host:
+                redirected.remove_header("Authorization")
+        return redirected
 
 
 def _open_url(url:str,headers:dict[str,str],timeout:int=30):
@@ -528,6 +534,15 @@ def set_priority(download_id:str,priority:int)->dict[str,Any]:
 def clear_history()->dict[str,Any]:
     connection=_connect()
     try:
+        rows=connection.execute(
+            "SELECT download_id,destination_id,status FROM download_jobs WHERE status IN ('completed','failed','cancelled')"
+        ).fetchall()
+        for row in rows:
+            try:
+                root,_kind=_destination_path(str(row["destination_id"]))
+                _temp_path(root,str(row["download_id"])).unlink(missing_ok=True)
+            except Exception:
+                pass
         cursor=connection.execute(
             "DELETE FROM download_jobs WHERE status IN ('completed','failed','cancelled')"
         )
@@ -535,7 +550,7 @@ def clear_history()->dict[str,Any]:
         connection.commit()
     finally:
         connection.close()
-    return {"contract":CONTRACT,"removed":removed,"files_deleted":False}
+    return {"contract":CONTRACT,"removed":removed,"files_deleted":False,"temporary_files_removed":True}
 
 
 def _temp_path(root:Path,download_id:str)->Path:
@@ -590,10 +605,13 @@ def _process(download_id:str)->dict[str,Any]:
         item=dict(row)
         if item["status"]!="queued":
             return get_download(download_id)
-        connection.execute(
+        claimed=connection.execute(
             """UPDATE download_jobs SET status='downloading',started_at=COALESCE(started_at,CURRENT_TIMESTAMP),
-               error='',updated_at=CURRENT_TIMESTAMP WHERE download_id=?""",(download_id,)
+               error='',updated_at=CURRENT_TIMESTAMP WHERE download_id=? AND status='queued'""",(download_id,)
         )
+        if claimed.rowcount!=1:
+            connection.rollback()
+            return get_download(download_id)
         connection.commit()
     finally:
         connection.close()
