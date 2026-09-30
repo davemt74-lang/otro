@@ -293,6 +293,56 @@ def serve(
             raise
         except homeserver_media_server.MediaServerError as exc:
             raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
+    if target_app_key=="vp3.media-processor" and str(request_path or "").lstrip("/").startswith("__vp3_processor__/"):
+        try:
+            import json as _json
+            from . import homeserver_media_processor
+            rel=str(request_path or "").lstrip("/")[len("__vp3_processor__/"):]
+            headers={str(k).lower():str(v) for k,v in (request_headers or {}).items()}
+            auth=headers.get("authorization","")
+            bearer=auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+            if not homeserver_media_processor.authenticate_remote(bearer):
+                raise ServingError("Media Processor access key is required.",401)
+            query=parse_qs(str(query_string or ""),keep_blank_values=True)
+            def _payload()->dict[str,Any]:
+                if not body: return {}
+                try: value=_json.loads(body.decode("utf-8") or "{}")
+                except Exception as exc: raise ServingError("Media Processor request payload is invalid.",400) from exc
+                if not isinstance(value,dict): raise ServingError("Media Processor request payload must be an object.",400)
+                return value
+            def _response(value:Any)->Response:
+                return Response(content=_json.dumps(value),media_type="application/json",headers={"Cache-Control":"no-store"})
+            if rel=="status" and method=="GET": return _response(homeserver_media_processor.status())
+            if rel=="brain-context" and method=="GET": return _response(homeserver_media_processor.brain_context())
+            if rel=="tools" and method=="GET": return _response(homeserver_media_processor.capability())
+            if rel=="jobs" and method=="GET":
+                try: limit=int((query.get("limit") or ["100"])[0])
+                except ValueError: limit=100
+                return _response(homeserver_media_processor.list_jobs(limit))
+            if rel=="jobs" and method=="POST":
+                p=_payload()
+                return _response(homeserver_media_processor.enqueue(
+                    str(p.get("media_id") or ""),str(p.get("operation") or ""),
+                    str(p.get("preset") or "default"),str(p.get("output_format") or ""),
+                    int(p.get("priority") or 0),
+                ))
+            if rel=="derivatives" and method=="GET":
+                media_id=str((query.get("media_id") or [""])[0])
+                try: limit=int((query.get("limit") or ["200"])[0])
+                except ValueError: limit=200
+                return _response(homeserver_media_processor.derivatives(media_id,limit))
+            if rel=="settings" and method=="GET": return _response(homeserver_media_processor.settings())
+            if rel.startswith("jobs/"):
+                parts=rel.split("/")
+                job_id=parts[1] if len(parts)>1 else ""
+                if len(parts)==2 and method=="GET": return _response(homeserver_media_processor.get_job(job_id))
+                if len(parts)==2 and method=="DELETE": return _response(homeserver_media_processor.cancel(job_id))
+                if len(parts)==3 and parts[2]=="retry" and method=="POST": return _response(homeserver_media_processor.retry(job_id))
+            raise ServingError("Media Processor hosted route not found.",404)
+        except ServingError:
+            raise
+        except homeserver_media_processor.MediaProcessorError as exc:
+            raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
     if target_app_key=="vp3.download-manager" and str(request_path or "").lstrip("/").startswith("__vp3_downloads__/"):
         try:
             import json as _json
