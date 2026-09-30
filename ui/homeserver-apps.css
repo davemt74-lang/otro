@@ -18,3 +18,20 @@
 .hs-app-source-permissions>strong{margin-right:4px;font-size:12px}
 .hs-app-source-permissions>span{padding:4px 8px;border-radius:999px;background:#f1f3f5;font-size:11px}
 @media(max-width:900px){.hs-app-import-grid,.hs-app-source-grid{grid-template-columns:1fr}.hs-app-source-grid .wide{grid-column:auto}.hs-app-intro-actions{width:100%}}
+
+.hs-dev-workspace{margin-top:24px;border-top:1px solid var(--border,#d9dde5);padding-top:20px}
+.hs-workspace-status{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}
+.hs-workspace-status span,.hs-workspace-status code{font-size:12px;padding:5px 8px;border-radius:999px;background:rgba(127,127,127,.09)}
+.hs-workspace-status .ok{font-weight:700}.hs-workspace-status .warn{font-weight:700}
+.hs-workspace-layout{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);gap:16px;min-height:430px}
+.hs-workspace-files{border:1px solid var(--border,#d9dde5);border-radius:14px;padding:10px;overflow:auto;max-height:620px}
+.hs-workspace-files-head{display:flex;align-items:center;justify-content:space-between;padding:4px 4px 10px}
+.hs-workspace-file{width:100%;border:0;background:transparent;text-align:left;padding:8px;border-radius:8px;display:flex;justify-content:space-between;gap:8px;cursor:pointer}
+.hs-workspace-file:hover{background:rgba(127,127,127,.08)}.hs-workspace-file.disabled{opacity:.5;cursor:default}
+.hs-workspace-file span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hs-workspace-file small{white-space:nowrap}
+.hs-workspace-editor{border:1px solid var(--border,#d9dde5);border-radius:14px;min-width:0;overflow:hidden}
+.hs-workspace-editor-empty{padding:36px}
+.hs-workspace-editor-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border,#d9dde5)}
+.hs-workspace-textarea{display:block;width:100%;min-height:360px;border:0;border-radius:0;padding:16px;resize:vertical;font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:transparent;color:inherit}
+.hs-workspace-editor .form-actions{padding:10px 12px;border-top:1px solid var(--border,#d9dde5)}
+@media(max-width:800px){.hs-workspace-layout{grid-template-columns:1fr}.hs-workspace-files{max-height:240px}}

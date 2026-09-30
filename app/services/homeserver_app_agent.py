@@ -5,10 +5,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ..database import db
-from . import homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_sources, homeserver_apps
+from . import homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_sources, homeserver_app_workspace, homeserver_apps
 
 CONTRACT="vp3.app.agent-integration.v1"
-READ_ACTIONS={"apps.list","apps.get","apps.releases","apps.source.status"}
+READ_ACTIONS={"apps.list","apps.get","apps.releases","apps.source.status","apps.workspace.status","apps.workspace.file.read"}
 WRITE_ACTIONS={
     "apps.prebuilt.install",
     "apps.build_install",
@@ -19,6 +19,7 @@ WRITE_ACTIONS={
     "apps.git.inspect",
     "apps.source.install",
     "apps.source.detach",
+    "apps.workspace.file.write",
 }
 
 
@@ -200,6 +201,44 @@ def source_status(arguments:dict[str,Any]|None=None)->dict[str,Any]:
     }
 
 
+def workspace_status(arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    args=dict(arguments or {})
+    if set(args)-{"app_key"}:
+        raise AppAgentError("apps.workspace.status accepts only app_key.")
+    key=str(args.get("app_key") or "").strip().lower()
+    if not key:
+        raise AppAgentError("apps.workspace.status requires app_key.")
+    try:
+        state=homeserver_app_workspace.status(key)
+    except homeserver_app_workspace.AppWorkspaceError as exc:
+        raise AppAgentError(str(exc),exc.status_code) from exc
+    return {
+        "contract":CONTRACT,
+        "app_key":key,
+        "validation":state.get("validation"),
+        "validation_error":state.get("validation_error"),
+        "project":{"count":state.get("project",{}).get("count",0),"files":state.get("project",{}).get("files",[])},
+        "permissions":state.get("permissions"),
+        "runtime":state.get("runtime"),
+        "releases":state.get("releases"),
+        "source":state.get("source"),
+    }
+
+
+def workspace_file_read(arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    args=dict(arguments or {})
+    if set(args)-{"app_key","path"}:
+        raise AppAgentError("apps.workspace.file.read accepts app_key and path.")
+    key=str(args.get("app_key") or "").strip().lower()
+    path=str(args.get("path") or "").strip()
+    if not key or not path:
+        raise AppAgentError("apps.workspace.file.read requires app_key and path.")
+    try:
+        return homeserver_app_workspace.read_file(key,path)
+    except homeserver_app_workspace.AppWorkspaceError as exc:
+        raise AppAgentError(str(exc),exc.status_code) from exc
+
+
 def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]:
     action=str(action_key or "").strip()
     if action not in WRITE_ACTIONS:
@@ -216,6 +255,24 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
         except homeserver_app_sources.AppSourceError as exc:
             raise AppAgentError(str(exc),exc.status_code) from exc
         return {"repo_url":repo_url,"ref":ref}
+
+    if action=="apps.workspace.file.write":
+        unknown=set(args)-{"app_key","path","content"}
+        if unknown:
+            raise AppAgentError(f"Unsupported {action} argument: {sorted(unknown)[0]}")
+        key=str(args.get("app_key") or "").strip().lower()
+        path=str(args.get("path") or "").strip()
+        content=str(args.get("content") or "")
+        if not key or not path:
+            raise AppAgentError("apps.workspace.file.write requires app_key and path.")
+        try:
+            homeserver_app_workspace._app(key)
+            homeserver_app_workspace._rel(path,allow_missing=True)
+        except homeserver_app_workspace.AppWorkspaceError as exc:
+            raise AppAgentError(str(exc),exc.status_code) from exc
+        if len(content.encode("utf-8"))>homeserver_app_workspace.MAX_TEXT_BYTES:
+            raise AppAgentError("Workspace file exceeds the editor size limit.",413)
+        return {"app_key":key,"path":path,"content":content}
 
     if action=="apps.source.install":
         unknown=set(args)-{"source_id"}
@@ -270,6 +327,8 @@ def safe_action_meta(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
         "app_key":str(args.get("app_key") or "")[:80],
         "source_id":str(args.get("source_id") or "")[:80],
         "repo_host":urlsplit(str(args.get("repo_url") or "")).hostname or "",
+        "path":str(args.get("path") or "")[:240],
+        "content_bytes":len(str(args.get("content") or "").encode("utf-8")) if "content" in args else 0,
         "argument_count":len(args),
         "owner_confirmation_required":True,
     }
@@ -282,6 +341,8 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
             return {"source":homeserver_app_sources.inspect_git(args["repo_url"],args["ref"])}
         if action_key=="apps.source.install":
             return homeserver_app_sources.install_source(args["source_id"],approved=True)
+        if action_key=="apps.workspace.file.write":
+            return {"workspace":homeserver_app_workspace.write_file(args["app_key"],args["path"],args["content"])}
         key=args["app_key"]
         if action_key=="apps.prebuilt.install":
             return homeserver_app_prebuilt.install(key)

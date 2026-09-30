@@ -23,6 +23,7 @@ on:
       - 'tests/homeserver_system_apps_v210.py'
       - 'tests/homeserver_system_apps_v220.py'
       - 'tests/homeserver_system_apps_v230.py'
+      - 'tests/homeserver_system_apps_v240.py'
       - 'app/services/homeserver_app_data_lifecycle.py'
       - 'app/services/tools.py'
       - 'app/services/approvals.py'
@@ -174,5 +175,7 @@ jobs:
         run: python tests/homeserver_system_apps_v220.py
       - name: Verify User App SDK starter runtime integration
         run: python tests/homeserver_system_apps_v230.py
+      - name: Verify User App Development Workspace
+        run: python tests/homeserver_system_apps_v240.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
