@@ -192,6 +192,55 @@
     renderSourcePreview(result.source);
   }
 
+  function workspaceTree(files,key){
+    const rows=(files||[]).filter(item=>item.type==='file');
+    if(!rows.length) return '<p class="muted">No editable project files.</p>';
+    return rows.map(item=>`<button class="hs-workspace-file ${item.editable?'':'disabled'}" type="button" data-hs-workspace-open="${esc(key)}" data-path="${esc(item.path)}" ${item.editable?'':'disabled'}><span>${esc(item.path)}</span><small>${item.protected?'protected · ':''}${bytes(item.bytes||0)}</small></button>`).join('');
+  }
+
+  function workspacePanel(workspace,key){
+    const validation=workspace?.validation;
+    const releases=workspace?.releases?.releases||[];
+    const permissions=workspace?.permissions;
+    return `
+      <section class="hs-dev-workspace" data-hs-workspace="${esc(key)}">
+        <div class="panel-head"><div><p class="eyebrow">DEVELOPMENT WORKSPACE</p><h3>Build ${esc(workspace?.app?.name||key)}</h3><p class="muted">Edit source, validate, preview, build, and release from the canonical HomeServer app project.</p></div><div class="hs-app-intro-actions"><button class="button secondary" type="button" data-hs-workspace-validate="${esc(key)}">Validate</button><a class="button secondary" href="${esc(workspace?.preview_url||'#')}" target="_blank" rel="noreferrer">Preview</a><button class="button primary" type="button" data-hs-app-build="${esc(key)}">Build & Install</button></div></div>
+        <div class="hs-workspace-status">
+          <span class="${validation?'ok':'warn'}">${validation?'Project valid':'Needs attention'}</span>
+          <span>Releases ${releases.length}</span>
+          <span>Permissions ${permissions?.allowed_count||0}/${permissions?.declared_count||0}</span>
+          ${validation?.package?.sha256?`<code>${esc(validation.package.sha256.slice(0,16))}…</code>`:''}
+        </div>
+        ${workspace?.validation_error?`<div class="system-app-error">${esc(workspace.validation_error)}</div>`:''}
+        <div class="hs-workspace-layout">
+          <aside class="hs-workspace-files"><div class="hs-workspace-files-head"><strong>Project files</strong><button class="text-button" type="button" data-hs-workspace-new="${esc(key)}">+ File</button></div>${workspaceTree(workspace?.project?.files,key)}</aside>
+          <section class="hs-workspace-editor">
+            <div class="hs-workspace-editor-empty"><strong>Select a source file</strong><p class="muted">Persistent app data is intentionally separate and never appears in this editor.</p></div>
+            <div class="hs-workspace-editor-active hidden">
+              <div class="hs-workspace-editor-head"><code data-hs-workspace-current></code><div><button class="text-button" type="button" data-hs-workspace-rename="${esc(key)}">Rename</button><button class="text-button danger" type="button" data-hs-workspace-delete="${esc(key)}">Delete</button></div></div>
+              <textarea class="hs-workspace-textarea" spellcheck="false"></textarea>
+              <div class="form-actions"><span class="muted" data-hs-workspace-save-status></span><button class="button primary" type="button" data-hs-workspace-save="${esc(key)}">Save & Validate</button></div>
+            </div>
+          </section>
+        </div>
+      </section>`;
+  }
+
+  async function loadWorkspace(key){
+    return window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/workspace`);
+  }
+
+  async function openWorkspaceFile(key,path){
+    const panel=document.querySelector(`[data-hs-workspace="${CSS.escape(key)}"]`);
+    if(!panel) return;
+    const result=await window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/workspace/file?path=${encodeURIComponent(path)}`);
+    panel.querySelector('.hs-workspace-editor-empty')?.classList.add('hidden');
+    panel.querySelector('.hs-workspace-editor-active')?.classList.remove('hidden');
+    panel.querySelector('[data-hs-workspace-current]').textContent=result.path;
+    panel.querySelector('.hs-workspace-textarea').value=result.content||'';
+    panel.querySelector('[data-hs-workspace-save-status]').textContent=result.protected?'App identity is protected on save.':'';
+  }
+
   async function detail(key){
     const panel=document.getElementById('hsAppDetail');
     panel.classList.remove('hidden');
@@ -199,15 +248,16 @@
     try{
       const detail=await window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}`);
       const app=detail.app, system=app.app_class==='system';
-      let permissions=null,resources=null,runtime=null,secrets=null,releases=null,source=null;
+      let permissions=null,resources=null,runtime=null,secrets=null,releases=null,source=null,workspace=null;
       if(!system || (app.metadata||{}).prebuilt_app){
-        [permissions,resources,runtime,secrets,releases,source]=await Promise.all([
+        [permissions,resources,runtime,secrets,releases,source,workspace]=await Promise.all([
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/permissions`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/resources`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/runtime/services`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/secrets`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/releases`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/source`).catch(()=>null),
+          !system&&["user_created","agent_builder"].includes(app.source_type)?loadWorkspace(key).catch(()=>null):Promise.resolve(null),
         ]);
       }
       const permRows=permissions?.permissions?.permissions||[];
@@ -225,6 +275,7 @@
         </div>
         ${!system?`<div class="hs-app-detail-actions"><button class="button secondary" data-hs-app-build="${esc(key)}">Build & Install</button>${source?.source?.current?.source_type==='git'?`<button class="button secondary" data-hs-source-refresh="${esc(key)}">Check Git Update</button>`:''}${source?.source?.current?`<button class="text-button" data-hs-source-detach="${esc(key)}">Detach Source</button>`:''}${releaseRows.some(x=>x.previous)?`<button class="button secondary" data-hs-app-rollback="${esc(key)}">Rollback</button>`:''}${['failed','degraded'].includes(app.lifecycle_state)?`<button class="button secondary" data-hs-app-recover="${esc(key)}">Recover</button>`:''}<button class="text-button danger" data-hs-app-archive="${esc(key)}">Archive App</button></div>`:''}
         ${!system?`<div class="hs-app-history"><h4>Releases</h4>${releaseRows.slice(0,6).map(rel=>`<div><strong>v${esc(rel.version||'—')} ${rel.active?'· Active':''}</strong><span>${esc(rel.release_id)}</span>${!rel.active?`<button class="text-button" data-hs-app-promote="${esc(key)}" data-release-id="${esc(rel.release_id)}">Promote</button>`:''}</div>`).join('')||'<p class="muted">No releases yet.</p>'}</div>`:''}
+        ${workspace?workspacePanel(workspace,key):""}
         <div class="hs-app-history"><h4>Recent activity</h4>${(detail.history||[]).slice(0,8).map(e=>`<div><strong>${esc(e.event_type)}</strong><span>${esc(e.created_at||'')}</span></div>`).join('')||'<p class="muted">No activity yet.</p>'}</div>
       `;
     }catch(error){panel.innerHTML=`<div class="empty-state">${esc(error.message)}</div>`;}
@@ -309,6 +360,51 @@
         .then(async()=>{await load(true);await detail(sourceDetach.dataset.hsSourceDetach);window.flash('Source detached.');})
         .catch(error=>window.flash(error.message||'Source detach failed.',true));
       return;
+    }
+    const wsOpen=event.target.closest('[data-hs-workspace-open]');
+    if(wsOpen){openWorkspaceFile(wsOpen.dataset.hsWorkspaceOpen,wsOpen.dataset.path).catch(error=>window.flash(error.message,true));return;}
+    const wsValidate=event.target.closest('[data-hs-workspace-validate]');
+    if(wsValidate){
+      post('/api/v1/control/homeserver-apps/'+encodeURIComponent(wsValidate.dataset.hsWorkspaceValidate)+'/workspace/validate')
+        .then(async()=>{await detail(wsValidate.dataset.hsWorkspaceValidate);window.flash('Project validation passed.');})
+        .catch(error=>window.flash(error.message||'Project validation failed.',true));return;
+    }
+    const wsSave=event.target.closest('[data-hs-workspace-save]');
+    if(wsSave){
+      const key=wsSave.dataset.hsWorkspaceSave;
+      const panel=event.target.closest('[data-hs-workspace]');
+      const path=panel?.querySelector('[data-hs-workspace-current]')?.textContent||'';
+      const content=panel?.querySelector('.hs-workspace-textarea')?.value||'';
+      window.api('/api/v1/control/homeserver-apps/'+encodeURIComponent(key)+'/workspace/file',{method:'PUT',body:JSON.stringify({path,content})})
+        .then(async()=>{await detail(key);await openWorkspaceFile(key,path);window.flash('Source saved and package validated.');})
+        .catch(error=>window.flash(error.message||'Source save failed.',true));return;
+    }
+    const wsNew=event.target.closest('[data-hs-workspace-new]');
+    if(wsNew){
+      const path=prompt('New project file path (for example pages/about.html)');
+      if(!path)return;
+      window.api('/api/v1/control/homeserver-apps/'+encodeURIComponent(wsNew.dataset.hsWorkspaceNew)+'/workspace/file',{method:'PUT',body:JSON.stringify({path,content:''})})
+        .then(async()=>{await detail(wsNew.dataset.hsWorkspaceNew);await openWorkspaceFile(wsNew.dataset.hsWorkspaceNew,path);window.flash('Project file created.');})
+        .catch(error=>window.flash(error.message||'File creation failed.',true));return;
+    }
+    const wsRename=event.target.closest('[data-hs-workspace-rename]');
+    if(wsRename){
+      const key=wsRename.dataset.hsWorkspaceRename,panel=event.target.closest('[data-hs-workspace]');
+      const path=panel?.querySelector('[data-hs-workspace-current]')?.textContent||'';
+      const next=prompt('Rename project file',path);
+      if(!next||next===path)return;
+      post('/api/v1/control/homeserver-apps/'+encodeURIComponent(key)+'/workspace/rename',{path,new_path:next})
+        .then(async()=>{await detail(key);await openWorkspaceFile(key,next);window.flash('Project file renamed.');})
+        .catch(error=>window.flash(error.message||'Rename failed.',true));return;
+    }
+    const wsDelete=event.target.closest('[data-hs-workspace-delete]');
+    if(wsDelete){
+      const key=wsDelete.dataset.hsWorkspaceDelete,panel=event.target.closest('[data-hs-workspace]');
+      const path=panel?.querySelector('[data-hs-workspace-current]')?.textContent||'';
+      if(!path||!confirm('Delete '+path+'?'))return;
+      window.api('/api/v1/control/homeserver-apps/'+encodeURIComponent(key)+'/workspace/file?path='+encodeURIComponent(path),{method:'DELETE'})
+        .then(async()=>{await detail(key);window.flash('Project file deleted.');})
+        .catch(error=>window.flash(error.message||'Delete failed.',true));return;
     }
     const action=event.target.closest('[data-hs-app-stop],[data-hs-app-resume],[data-hs-app-archive],[data-hs-app-build],[data-hs-app-rollback],[data-hs-app-recover],[data-hs-app-promote]');
     if(action) act(action);
