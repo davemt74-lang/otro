@@ -322,10 +322,29 @@ def _validate_url(url:str)->urllib.parse.SplitResult:
     return parsed
 
 
+def _assert_public_peer(response:Any)->None:
+    candidates=[]
+    try: candidates.append(response.fp.raw._sock)
+    except Exception: pass
+    try: candidates.append(response.fp._sock)
+    except Exception: pass
+    sock=next((value for value in candidates if value is not None),None)
+    if sock is None:
+        raise DownloadManagerError("Download peer address could not be verified.",502)
+    try:
+        peer=str(sock.getpeername()[0]).split("%",1)[0]
+        ip=ipaddress.ip_address(peer)
+    except Exception as exc:
+        raise DownloadManagerError("Download peer address could not be verified.",502) from exc
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified or ip.is_reserved:
+        raise DownloadManagerError("Download connection reached a local or private network address.",403)
+
+
 class _SafeRedirect(urllib.request.HTTPRedirectHandler):
     max_redirections=5
     max_repeats=2
     def redirect_request(self,req,fp,code,msg,headers,newurl):  # noqa: ANN001
+        _assert_public_peer(fp)
         _validate_url(newurl)
         redirected=super().redirect_request(req,fp,code,msg,headers,newurl)
         if redirected is not None:
@@ -341,7 +360,9 @@ def _open_url(url:str,headers:dict[str,str],timeout:int=30):
     _validate_url(url)
     opener=urllib.request.build_opener(_SafeRedirect())
     request=urllib.request.Request(url,headers=headers,method="GET")
-    return opener.open(request,timeout=timeout)
+    response=opener.open(request,timeout=timeout)
+    _assert_public_peer(response)
+    return response
 
 
 def _content_filename(headers:Any,url:str,requested:str)->str:
@@ -959,6 +980,7 @@ def public_capability()->dict[str,Any]:
         "contract":CONTRACT,
         "http_https_only":True,
         "private_network_downloads_blocked":True,
+        "connected_peer_ip_verified":True,
         "resume_range_requests":True,
         "atomic_finalization":True,
         "checksum_sha256_sha512":True,
