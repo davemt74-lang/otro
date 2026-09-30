@@ -25,9 +25,15 @@ def _connect()->sqlite3.Connection:
     c=sqlite3.connect(homeserver_app_resources.sqlite_path(APP_KEY,"media-processor.db"),timeout=20,check_same_thread=False)
     c.row_factory=sqlite3.Row; c.execute("PRAGMA journal_mode=WAL")
     c.executescript("""
+    CREATE TABLE IF NOT EXISTS processor_destinations(
+      destination_id TEXT PRIMARY KEY, label TEXT NOT NULL, root_path TEXT NOT NULL,
+      destination_kind TEXT NOT NULL DEFAULT 'app_storage', enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS processor_jobs(
       job_id TEXT PRIMARY KEY, media_id TEXT NOT NULL, operation TEXT NOT NULL, preset TEXT NOT NULL,
-      output_format TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', progress REAL NOT NULL DEFAULT 0,
+      output_format TEXT NOT NULL, destination_id TEXT NOT NULL DEFAULT 'app-storage',
+      status TEXT NOT NULL DEFAULT 'queued', progress REAL NOT NULL DEFAULT 0,
       eta_seconds INTEGER, duration_seconds REAL,
       output_rel TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', priority INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, started_at TEXT, completed_at TEXT,
@@ -36,7 +42,8 @@ def _connect()->sqlite3.Connection:
     CREATE INDEX IF NOT EXISTS idx_processor_jobs ON processor_jobs(status,priority DESC,created_at);
     CREATE TABLE IF NOT EXISTS processor_derivatives(
       derivative_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, media_id TEXT NOT NULL, kind TEXT NOT NULL,
-      preset TEXT NOT NULL, format TEXT NOT NULL, relative_path TEXT NOT NULL, size_bytes INTEGER NOT NULL DEFAULT 0,
+      preset TEXT NOT NULL, format TEXT NOT NULL, destination_id TEXT NOT NULL DEFAULT 'app-storage',
+      relative_path TEXT NOT NULL, size_bytes INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS processor_settings(
@@ -48,7 +55,18 @@ def _connect()->sqlite3.Connection:
     );
     INSERT OR IGNORE INTO processor_settings(singleton) VALUES (1);
     """)
+    default_root=(homeserver_app_resources.files_root(APP_KEY)/"derivatives").resolve()
+    default_root.mkdir(parents=True,exist_ok=True)
+    c.execute(
+      "INSERT OR IGNORE INTO processor_destinations(destination_id,label,root_path,destination_kind,enabled) VALUES ('app-storage','Processor Derivatives',?,'app_storage',1)",
+      (str(default_root),),
+    )
+    derivative_columns={str(row["name"]) for row in c.execute("PRAGMA table_info(processor_derivatives)").fetchall()}
+    if "destination_id" not in derivative_columns:
+        c.execute("ALTER TABLE processor_derivatives ADD COLUMN destination_id TEXT NOT NULL DEFAULT 'app-storage'")
     job_columns={str(row["name"]) for row in c.execute("PRAGMA table_info(processor_jobs)").fetchall()}
+    if "destination_id" not in job_columns:
+        c.execute("ALTER TABLE processor_jobs ADD COLUMN destination_id TEXT NOT NULL DEFAULT 'app-storage'")
     if "eta_seconds" not in job_columns:
         c.execute("ALTER TABLE processor_jobs ADD COLUMN eta_seconds INTEGER")
     if "duration_seconds" not in job_columns:
