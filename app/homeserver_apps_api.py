@@ -55,7 +55,7 @@ class SourceInstallRequest(BaseModel):
 
 
 class SourceRefreshRequest(BaseModel):
-    ref:str=Field(default="HEAD",min_length=1,max_length=160)
+    ref:str=Field(default="",max_length=160)
 
 
 class SourceDetachRequest(BaseModel):
