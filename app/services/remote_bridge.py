@@ -605,6 +605,10 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     data_state=homeserver_app_data_lifecycle.status(key)
                 except Exception:
                     data_state=None
+                try:
+                    distribution_state=homeserver_app_distribution.installed_provenance(key)
+                except Exception:
+                    distribution_state=None
                 items.append({
                     "app_key":key,
                     "name":str(app_row.get("name") or key),
@@ -616,6 +620,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     "permissions":permission_state,
                     "release":release_state,
                     "data":data_state,
+                    "distribution":distribution_state,
                 })
             if op=="apps.user.status":
                 if not requested:
