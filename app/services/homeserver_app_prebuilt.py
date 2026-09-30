@@ -7,10 +7,10 @@ import zipfile
 from typing import Any
 
 from ..database import db
-from . import homeserver_app_packages, homeserver_apps
+from . import homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.09.29.1"
+CATALOG_VERSION = "2026.09.30.2"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -20,7 +20,10 @@ CATALOG = {
     "vp3.notes": {
         "key": "vp3.notes",
         "name": "VP3 Notes",
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "release_channel": "stable",
+        "min_homeserver_version": "2.4",
+        "release_notes": ["Adds release lifecycle metadata.", "Supports verified updates and rollback."],
         "category": "Productivity",
         "kind": "notes",
         "description": "Private lightweight notes stored in isolated HomeServer app data.",
@@ -29,7 +32,10 @@ CATALOG = {
     "vp3.inventory": {
         "key": "vp3.inventory",
         "name": "VP3 Inventory",
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "release_channel": "stable",
+        "min_homeserver_version": "2.4",
+        "release_notes": ["Adds release lifecycle metadata.", "Supports verified updates and rollback."],
         "category": "Operations",
         "kind": "inventory",
         "description": "Track local inventory counts and supplies without a separate server.",
@@ -38,7 +44,10 @@ CATALOG = {
     "vp3.checklists": {
         "key": "vp3.checklists",
         "name": "VP3 Checklists",
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "release_channel": "stable",
+        "min_homeserver_version": "2.4",
+        "release_notes": ["Adds release lifecycle metadata.", "Supports verified updates and rollback."],
         "category": "Productivity",
         "kind": "checklist",
         "description": "Create local operational and personal checklists.",
@@ -56,6 +65,10 @@ def _manifest(definition: dict[str, Any]) -> dict[str, Any]:
         "runtime": "static",
         "entrypoint": "index.html",
         "sdk_version": "1.0",
+        "release_channel": definition.get("release_channel", "stable"),
+        "min_homeserver_version": definition.get("min_homeserver_version", ""),
+        "max_homeserver_version": definition.get("max_homeserver_version", ""),
+        "release_notes": list(definition.get("release_notes") or []),
         "permissions": [],
         "settings_schema": "settings.schema.json",
         "database_migrations": "database/migrations",
@@ -128,6 +141,13 @@ def _public(definition: dict[str, Any]) -> dict[str, Any]:
         "version": definition["version"],
         "category": definition["category"],
         "description": definition["description"],
+        "release_channel": definition.get("release_channel", "stable"),
+        "release_notes": list(definition.get("release_notes") or []),
+        "compatibility": {
+            "min_homeserver_version": definition.get("min_homeserver_version") or None,
+            "max_homeserver_version": definition.get("max_homeserver_version") or None,
+        },
+        "integrity": {"algorithm": "sha256", "package_sha256": digest, "trust": "embedded_vp3"},
         "package_sha256": digest,
         "package_bytes": len(package),
         "installed": installed,
@@ -147,13 +167,25 @@ def catalog() -> dict[str, Any]:
     }
 
 
-def install(catalog_key: str) -> dict[str, Any]:
+def install(
+    catalog_key: str,
+    *,
+    expected_version: str | None = None,
+    expected_sha256: str | None = None,
+    release_channel: str | None = None,
+) -> dict[str, Any]:
     key = str(catalog_key or "").strip().lower()
     definition = CATALOG.get(key)
     if definition is None:
         raise homeserver_apps.HomeServerAppError("VP3 prebuilt app not found.", 404)
     package = _package(definition)
     digest = hashlib.sha256(package).hexdigest()
+    if expected_version and str(expected_version) != str(definition["version"]):
+        raise homeserver_apps.HomeServerAppError("Requested System App version is no longer current.", 409)
+    if expected_sha256 and str(expected_sha256).lower() != digest.lower():
+        raise homeserver_apps.HomeServerAppError("Requested System App package hash does not match the HomeServer catalog.", 409)
+    if release_channel and str(release_channel).strip().lower() != str(definition.get("release_channel") or "stable"):
+        raise homeserver_apps.HomeServerAppError("Requested System App release channel does not match the HomeServer catalog.", 409)
     app = homeserver_apps.ensure_system_app(
         key,
         definition["name"],
@@ -171,7 +203,34 @@ def install(catalog_key: str) -> dict[str, Any]:
         and app["lifecycle_state"] == "running"
     ):
         return {"changed": False, "reason": "already_current", "package": _public(definition), "app": app}
+    prior_status = homeserver_app_packages.runtime_status(key)
     release = homeserver_app_packages.install_system_package(key, package)
+    try:
+        verification = homeserver_app_packages.verify_active_release(
+            key,
+            expected_release_id=str(release.get("release_id") or ""),
+            expected_version=str(definition["version"]),
+            expected_sha256=digest,
+        )
+    except Exception as exc:
+        previous_release_id = str(prior_status.get("active_release_id") or "")
+        if previous_release_id:
+            rollback = homeserver_app_releases.promote(
+                key,
+                previous_release_id,
+                reason="post_update_verification_failed",
+                system_managed=True,
+            )
+            return {
+                "changed": False,
+                "rolled_back": True,
+                "reason": "verification_failed_rolled_back",
+                "error": str(exc)[:500],
+                "rollback": rollback,
+                "package": _public(definition),
+                "app": homeserver_apps.get(key),
+            }
+        raise
     with db() as connection:
         row = connection.execute("SELECT app_id,metadata_json FROM homeserver_apps WHERE app_key=?", (key,)).fetchone()
         metadata = json.loads(row["metadata_json"] or "{}")
@@ -205,7 +264,69 @@ def install(catalog_key: str) -> dict[str, Any]:
                 ),
             ),
         )
-    return {"changed": True, "release": release, "package": _public(definition), "app": homeserver_apps.get(key)}
+    return {
+        "changed": True,
+        "release": release,
+        "verification": verification,
+        "package": _public(definition),
+        "app": homeserver_apps.get(key),
+    }
+
+
+
+
+
+def release_status(catalog_key: str) -> dict[str, Any]:
+    key = str(catalog_key or "").strip().lower()
+    definition = CATALOG.get(key)
+    if definition is None:
+        raise homeserver_apps.HomeServerAppError("VP3 prebuilt app not found.", 404)
+    package = _public(definition)
+    try:
+        runtime = homeserver_app_packages.runtime_status(key)
+    except homeserver_apps.HomeServerAppError:
+        runtime = {
+            "contract": homeserver_app_packages.RUNTIME_CONTRACT,
+            "app_key": key,
+            "lifecycle_state": "available",
+            "installed_version": None,
+            "active_release_id": None,
+            "previous_release_id": None,
+            "active_release": None,
+        }
+    return {
+        "contract": "vp3.system-app-release-status.v1",
+        "catalog_version": CATALOG_VERSION,
+        "app_key": key,
+        "release_channel": definition.get("release_channel", "stable"),
+        "available_version": definition["version"],
+        "release_notes": list(definition.get("release_notes") or []),
+        "compatibility": package["compatibility"],
+        "package_sha256": package["package_sha256"],
+        "integrity": package["integrity"],
+        "runtime": runtime,
+        "rollback_available": bool(runtime.get("previous_release_id")),
+    }
+
+
+def rollback(catalog_key: str, *, expected_active_release_id: str | None = None, reason: str = "owner_requested") -> dict[str, Any]:
+    key = str(catalog_key or "").strip().lower()
+    if key not in CATALOG:
+        raise homeserver_apps.HomeServerAppError("VP3 prebuilt app not found.", 404)
+    releases = homeserver_app_releases.list_releases(key)
+    active = str(releases.get("active_release_id") or "")
+    previous = str(releases.get("previous_release_id") or "")
+    if expected_active_release_id and active != expected_active_release_id:
+        raise homeserver_apps.HomeServerAppError("Active System App release changed before rollback.",409)
+    if not previous:
+        raise homeserver_apps.HomeServerAppError("No previous System App release is available for rollback.",409)
+    result = homeserver_app_releases.promote(
+        key,
+        previous,
+        reason=reason,
+        system_managed=True,
+    )
+    return {"changed": bool(result.get("changed")), "rollback": result, "status": release_status(key)}
 
 
 def public_capability() -> dict[str, Any]:
@@ -218,5 +339,12 @@ def public_capability() -> dict[str, Any]:
         "app_store": False,
         "protected_system_apps": True,
         "canonical_package_runtime": True,
+        "release_channel": "stable",
+        "release_metadata": True,
+        "compatibility_gates": True,
+        "sha256_integrity": True,
+        "embedded_trust": True,
+        "post_update_verification": True,
+        "rollback": True,
         "package_count": len(CATALOG),
     }

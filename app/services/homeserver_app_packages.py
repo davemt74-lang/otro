@@ -24,6 +24,7 @@ _ALLOWED_RUNTIMES={"static","php"}
 _ALLOWED_KEYS={
     "contract","app_key","name","version","runtime","entrypoint","sdk_version",
     "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events","sample_data",
+    "release_channel","min_homeserver_version","max_homeserver_version","release_notes",
 }
 
 
@@ -31,6 +32,33 @@ class AppPackageError(RuntimeError):
     def __init__(self,message:str,status_code:int=400):
         super().__init__(message)
         self.status_code=status_code
+
+
+def _version_tuple(value:str)->tuple[int,...]:
+    raw=str(value or "").strip()
+    parts=[]
+    for token in raw.split("."):
+        digits="".join(ch for ch in token if ch.isdigit())
+        if digits=="":
+            break
+        parts.append(int(digits))
+    return tuple(parts or [0])
+
+
+def _compatible_with_homeserver(manifest:dict[str,Any])->None:
+    current=_version_tuple(settings.version)
+    minimum=str(manifest.get("min_homeserver_version") or "").strip()
+    maximum=str(manifest.get("max_homeserver_version") or "").strip()
+    if minimum and current<_version_tuple(minimum):
+        raise AppPackageError(
+            f"App requires HomeServer {minimum} or newer; this HomeServer is {settings.version}.",
+            409,
+        )
+    if maximum and current>_version_tuple(maximum):
+        raise AppPackageError(
+            f"App supports HomeServer through {maximum}; this HomeServer is {settings.version}.",
+            409,
+        )
 
 
 def _safe_rel(value:str)->PurePosixPath:
@@ -113,10 +141,19 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
     for field in ("settings_schema","database_migrations","agent_actions","jobs","events","sample_data"):
         if manifest.get(field):
             _safe_rel(str(manifest[field]))
+    channel=str(manifest.get("release_channel") or "stable").strip().lower()
+    if channel not in {"stable","beta","alpha"}:
+        raise AppPackageError("App release_channel must be stable, beta, or alpha.")
+    notes=manifest.get("release_notes",[])
+    if notes is not None and (not isinstance(notes,list) or any(not isinstance(x,str) or len(x)>500 for x in notes)):
+        raise AppPackageError("App release_notes must be a list of short strings.")
+    manifest["release_channel"]=channel
+    manifest["release_notes"]=list(notes or [])
     manifest["app_key"]=key
     manifest["runtime"]=runtime
     manifest["entrypoint"]=entry.as_posix()
     manifest["version"]=version
+    _compatible_with_homeserver(manifest)
     return manifest
 
 
@@ -324,6 +361,10 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             "source_ref":str((source_provenance or {}).get("source_ref") or ""),
             "source_revision":str((source_provenance or {}).get("source_revision") or ""),
             "sdk_version":str(manifest.get("sdk_version") or ""),
+            "release_channel":str(manifest.get("release_channel") or "stable"),
+            "min_homeserver_version":str(manifest.get("min_homeserver_version") or ""),
+            "max_homeserver_version":str(manifest.get("max_homeserver_version") or ""),
+            "release_notes":list(manifest.get("release_notes") or []),
         }
         (staging/"release.json").write_text(json.dumps(release,indent=2,sort_keys=True)+"\n",encoding="utf-8")
         os.replace(staging,final)
@@ -385,6 +426,41 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         archive.close()
 
 
+def verify_active_release(
+    app_key:str,
+    *,
+    expected_release_id:str|None=None,
+    expected_version:str|None=None,
+    expected_sha256:str|None=None,
+)->dict[str,Any]:
+    status=runtime_status(app_key)
+    active=str(status.get("active_release_id") or "")
+    release=status.get("active_release")
+    if not active or not isinstance(release,dict):
+        raise AppPackageError("App has no active release to verify.",409)
+    if expected_release_id and active!=str(expected_release_id):
+        raise AppPackageError("Active release changed before verification completed.",409)
+    if expected_version and str(release.get("version") or "")!=str(expected_version):
+        raise AppPackageError("Active release version does not match the expected update.",409)
+    if expected_sha256 and str(release.get("package_sha256") or "").lower()!=str(expected_sha256).lower():
+        raise AppPackageError("Active release package hash does not match the expected update.",409)
+    content=(releases_root(app_key)/active/"content").resolve()
+    homeserver_app_runtime.validate_release_contracts(app_key,content)
+    resources=homeserver_app_resources.resource_status(app_key)
+    app=homeserver_apps.get(app_key)
+    healthy=str(app.get("lifecycle_state") or "")=="running"
+    return {
+        "contract":"vp3.app.release-health.v1",
+        "app_key":app_key,
+        "release_id":active,
+        "version":str(release.get("version") or ""),
+        "package_sha256":str(release.get("package_sha256") or ""),
+        "healthy":healthy,
+        "lifecycle_state":str(app.get("lifecycle_state") or ""),
+        "resources":resources,
+    }
+
+
 def install_system_package(app_key:str,package:bytes)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]!="system" or not app["protected_system_app"]:
@@ -433,6 +509,10 @@ def public_capability()->dict[str,Any]:
         "identity_binding":True,
         "atomic_release_activation":True,
         "package_sha256":True,
+        "homeserver_compatibility_gate":True,
+        "release_channels":True,
+        "release_notes":True,
+        "post_activation_verification":True,
         "path_traversal_protection":True,
         "symbolic_links":False,
         "encrypted_zip":False,

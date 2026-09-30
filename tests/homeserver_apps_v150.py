@@ -52,7 +52,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
         assert notes["source_type"]=="vp3_system"
         assert notes["protected_system_app"] is True
         assert notes["lifecycle_state"]=="running"
-        assert notes["installed_version"]=="1.0.0"
+        assert notes["installed_version"]==notes_def["version"]
         assert notes["metadata"]["prebuilt_app"] is True
         assert notes["metadata"]["vp3_managed"] is True
         assert notes["metadata"]["prebuilt_catalog_key"]=="vp3.notes"
@@ -95,12 +95,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
         old_version=notes_def["version"]
         try:
             first_release=result["release"]["release_id"]
-            notes_def["version"]="1.0.1"
+            notes_def["version"]="1.1.1"
             upgraded=client.post("/api/v1/control/homeserver-apps/catalog/prebuilt/vp3.notes/install")
             assert upgraded.status_code==200,upgraded.text
             upgrade=upgraded.json()
             assert upgrade["changed"] is True
-            assert upgrade["release"]["version"]=="1.0.1"
+            assert upgrade["release"]["version"]=="1.1.1"
             assert upgrade["release"]["previous_release_id"]==first_release
         finally:
             notes_def["version"]=old_version
