@@ -54,10 +54,18 @@ def validate_action_manifest(content_root:Path,app_key:str,manifest_path:str)->d
         risk=str(row.get("risk") or "write").strip().lower()
         if risk not in RISK_LEVELS:
             raise AppControlError(f"Agent action {key} has an unsupported risk class.")
-        confirmation=bool(row.get("requires_confirmation",risk in {"destructive","consequential","admin"}))
+        confirmation=True if risk in {"destructive","consequential","admin"} else bool(row.get("requires_confirmation",False))
         schema=row.get("input_schema",{"type":"object","properties":{},"additionalProperties":False})
         if not isinstance(schema,dict) or schema.get("type")!="object":
             raise AppControlError(f"Agent action {key} input_schema must be an object schema.")
+        properties=schema.get("properties",{})
+        required=schema.get("required",[])
+        if not isinstance(properties,dict) or not isinstance(required,list) or any(not isinstance(x,str) for x in required):
+            raise AppControlError(f"Agent action {key} input_schema properties/required are invalid.")
+        if any(name not in properties for name in required):
+            raise AppControlError(f"Agent action {key} input_schema requires an undefined property.")
+        if schema.get("additionalProperties",False) not in {True,False}:
+            raise AppControlError(f"Agent action {key} additionalProperties must be boolean.")
         executor=row.get("executor")
         if executor is not None:
             if not isinstance(executor,dict):
@@ -77,6 +85,8 @@ def validate_action_manifest(content_root:Path,app_key:str,manifest_path:str)->d
                 provider=str(executor.get("provider") or "").strip()
                 if not provider:
                     raise AppControlError(f"Agent action {key} builtin provider is required.")
+            if risk=="read" and kind in {"event.emit","job.run"}:
+                raise AppControlError(f"Read action {key} may not use a mutating executor.")
         actions.append({
             "key":key,
             "name":str(row.get("name") or key)[:160],
@@ -117,6 +127,57 @@ def action_spec(app_key:str,action_key:str)->dict[str,Any]:
     raise AppControlError("App action not found.",404)
 
 
+
+def _validate_arguments(spec:dict[str,Any],arguments:dict[str,Any])->dict[str,Any]:
+    schema=dict(spec.get("input_schema") or {})
+    properties=dict(schema.get("properties") or {})
+    required=list(schema.get("required") or [])
+    for name in required:
+        if name not in arguments:
+            raise AppControlError(f"App action argument is required: {name}.")
+    if not bool(schema.get("additionalProperties",False)):
+        unknown=set(arguments)-set(properties)
+        if unknown:
+            raise AppControlError(f"Unsupported app action argument: {sorted(unknown)[0]}.")
+    for name,value in arguments.items():
+        definition=properties.get(name)
+        if not isinstance(definition,dict):
+            continue
+        expected=definition.get("type")
+        allowed=list(expected) if isinstance(expected,list) else [expected] if expected else []
+        valid=False
+        for kind in allowed:
+            if kind=="null" and value is None: valid=True
+            elif kind=="string" and isinstance(value,str): valid=True
+            elif kind=="boolean" and isinstance(value,bool): valid=True
+            elif kind=="integer" and isinstance(value,int) and not isinstance(value,bool): valid=True
+            elif kind=="number" and isinstance(value,(int,float)) and not isinstance(value,bool): valid=True
+            elif kind=="object" and isinstance(value,dict): valid=True
+            elif kind=="array" and isinstance(value,list): valid=True
+        if allowed and not valid:
+            raise AppControlError(f"App action argument {name} has the wrong type.")
+        if "enum" in definition and value not in list(definition.get("enum") or []):
+            raise AppControlError(f"App action argument {name} is not an allowed value.")
+        if isinstance(value,str):
+            if "minLength" in definition and len(value)<int(definition["minLength"]):
+                raise AppControlError(f"App action argument {name} is too short.")
+            if "maxLength" in definition and len(value)>int(definition["maxLength"]):
+                raise AppControlError(f"App action argument {name} is too long.")
+            pattern=str(definition.get("pattern") or "")
+            if pattern:
+                try:
+                    if re.fullmatch(pattern,value) is None:
+                        raise AppControlError(f"App action argument {name} does not match its pattern.")
+                except re.error as exc:
+                    raise AppControlError(f"App action argument {name} has an invalid schema pattern.") from exc
+        if isinstance(value,(int,float)) and not isinstance(value,bool):
+            if "minimum" in definition and value<float(definition["minimum"]):
+                raise AppControlError(f"App action argument {name} is below its minimum.")
+            if "maximum" in definition and value>float(definition["maximum"]):
+                raise AppControlError(f"App action argument {name} is above its maximum.")
+    return dict(arguments)
+
+
 def _builtin(app_key:str,provider:str,action_key:str,arguments:dict[str,Any])->Any:
     if provider=="video_editor":
         from . import homeserver_video_editor
@@ -134,7 +195,7 @@ def invoke(app_key:str,action_key:str,arguments:dict[str,Any]|None=None)->dict[s
     executor=spec.get("executor")
     if not isinstance(executor,dict):
         raise AppControlError("App action has no executable handler.",409)
-    args=dict(arguments or {})
+    args=_validate_arguments(spec,dict(arguments or {}))
     kind=str(executor.get("type") or "")
     if kind=="runtime.status":
         if args:
