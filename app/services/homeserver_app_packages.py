@@ -392,6 +392,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             "previous_release_id":previous.get("active_release_id"),
         }
         _write_state(app_key,state)
+        app=homeserver_apps.get(app_key)
         metadata=dict(app.get("metadata") or {})
         metadata.update({
             "runtime":manifest["runtime"],
