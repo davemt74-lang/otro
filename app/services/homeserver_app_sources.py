@@ -148,7 +148,7 @@ def _run_git(args:list[str],cwd:Path)->str:
     })
     try:
         completed=subprocess.run(
-            ["git",*args],cwd=str(cwd),env=env,
+            ["git","-c","http.followRedirects=false","-c","credential.helper=",*args],cwd=str(cwd),env=env,
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
             timeout=GIT_TIMEOUT_SECONDS,check=False,
         )
@@ -180,6 +180,7 @@ def inspect_git(repo_url:str,ref:str="HEAD")->dict[str,Any]:
         package=archive.read_bytes()
         try:
             validation=homeserver_app_packages.validate_package(package)
+            validation["git_requested_ref"]=clean_ref
         except homeserver_app_packages.AppPackageError as exc:
             raise AppSourceError(str(exc),exc.status_code) from exc
         return _persist(
@@ -216,7 +217,7 @@ def source_history(app_key:str,limit:int=50)->dict[str,Any]:
 def source_status(app_key:str)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     history=source_history(app["app_key"],20)
-    current=history["sources"][0] if history["sources"] else None
+    current=next((item for item in history["sources"] if item.get("status")!="detached"),None)
     installed_hash=str((app.get("metadata") or {}).get("package_sha256") or "")
     return {
         "contract":CONTRACT,
@@ -319,7 +320,8 @@ def refresh_git(app_key:str)->dict[str,Any]:
     current=status.get("current")
     if not current or current.get("source_type")!="git":
         raise AppSourceError("This app does not have a Git source to refresh.",409)
-    return inspect_git(str(current["source_ref"]),str(current["source_revision"] or "HEAD"))
+    requested=str((current.get("validation") or {}).get("git_requested_ref") or "HEAD")
+    return inspect_git(str(current["source_ref"]),requested)
 
 
 def refresh_git_ref(app_key:str,ref:str="HEAD")->dict[str,Any]:
