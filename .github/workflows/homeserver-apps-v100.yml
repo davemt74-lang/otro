@@ -107,6 +107,13 @@ jobs:
         run: node --check ui/system.js
       - name: Validate Apps manager JavaScript
         run: node --check ui/homeserver-apps.js
+      - name: Validate HomeServer UI performance hotfix JavaScript
+        run: >-
+          node --check ui/app.js &&
+          node --check ui/ambient-agent.js &&
+          node --check ui/federation-agent-health-v280.js &&
+          node --check ui/agent-team-planning.js &&
+          node --check ui/agent-team-orchestration.js
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify existing Local Apps compatibility
