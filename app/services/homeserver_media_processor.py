@@ -243,16 +243,23 @@ def _spec(operation:str,preset:str,fmt:str,source_type:str)->tuple[list[str],str
       return (["-frames:v","1","-vf","scale='min(1280,iw)':-2"],fmt or "jpg","thumbnail")
     if op=="proxy":
       if source_type!="video": raise MediaProcessorError("Proxy generation requires video media.",409)
-      return (["-c:v","libx264","-preset","veryfast","-crf","28","-vf","scale='min(1280,iw)':-2","-c:a","aac","-b:a","128k"],fmt or "mp4","proxy")
+      scale={"editor":"1280","720p":"1280","1080p":"1920"}.get(preset,"1280")
+      return (["-c:v","libx264","-preset","veryfast","-crf","28","-vf",f"scale='min({scale},iw)':-2","-c:a","aac","-b:a","128k"],fmt or "mp4","proxy")
     if op=="video.convert":
       if source_type!="video": raise MediaProcessorError("Video conversion requires video media.",409)
-      return (["-c:v","libx264","-preset","medium","-crf","23","-c:a","aac"],fmt or "mp4","video")
+      scale={"720p":"1280","1080p":"1920","4k":"3840"}.get(preset)
+      vf=["-vf",f"scale='min({scale},iw)':-2"] if scale else []
+      quality={"small":"28","balanced":"23","high":"18"}.get(preset,"23")
+      return (["-c:v","libx264","-preset","medium","-crf",quality,*vf,"-c:a","aac"],fmt or "mp4","video")
     if op=="audio.convert":
       if source_type not in {"audio","video"}: raise MediaProcessorError("Audio conversion requires audio or video media.",409)
-      return (["-vn","-c:a","libmp3lame","-q:a","2"],fmt or "mp3","audio")
+      quality={"small":"6","balanced":"2","high":"0"}.get(preset,"2")
+      return (["-vn","-c:a","libmp3lame","-q:a",quality],fmt or "mp3","audio")
     if op=="image.convert":
       if source_type!="image": raise MediaProcessorError("Image conversion requires image media.",409)
-      return ([],fmt or "webp","image")
+      scale={"small":"1280","medium":"2560","large":"4096"}.get(preset)
+      vf=["-vf",f"scale='min({scale},iw)':-2"] if scale else []
+      return (vf,fmt or "webp","image")
     raise MediaProcessorError("Unsupported processing operation.")
 
 def enqueue(media_id:str,operation:str,preset:str="default",output_format:str="",priority:int=0)->dict[str,Any]:
@@ -337,11 +344,26 @@ def _run(job_id:str)->None:
     except Exception as exc:
       try: tmp.unlink(missing_ok=True)
       except Exception: pass
+      current=_job_state(job_id)
       c=_connect()
       try:
-        c.execute("UPDATE processor_jobs SET status='failed',error=?,updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(str(exc)[:1200],job_id)); c.commit()
+        if current=="cancelled":
+          c.execute("UPDATE processor_jobs SET progress=0,eta_seconds=NULL,error='',updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(job_id,))
+          event="processor.cancelled"
+        else:
+          try:
+            running=str(homeserver_apps.get(APP_KEY).get("lifecycle_state") or "")=="running"
+          except Exception:
+            running=False
+          if not running:
+            c.execute("UPDATE processor_jobs SET status='queued',progress=0,eta_seconds=NULL,error='Paused because Media Processor stopped.',updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(job_id,))
+            event="processor.requeued"
+          else:
+            c.execute("UPDATE processor_jobs SET status='failed',progress=0,eta_seconds=NULL,error=?,updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(str(exc)[:1200],job_id))
+            event="processor.failed"
+        c.commit()
       finally:c.close()
-      homeserver_app_runtime.publish_event(APP_KEY,"processor.failed",{"job_id":job_id,"error":str(exc)[:500]},source="media-processor")
+      homeserver_app_runtime.publish_event(APP_KEY,event,{"job_id":job_id,"error":str(exc)[:500]},source="media-processor")
 
 def process_next()->dict[str,Any]|None:
     c=_connect()
