@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_apps
+from .services import homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_apps
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -45,6 +45,23 @@ class AppEventRequest(BaseModel):
     payload:dict=Field(default_factory=dict)
 
 
+class GitSourceInspectRequest(BaseModel):
+    repo_url:str=Field(min_length=8,max_length=1000)
+    ref:str=Field(default="HEAD",min_length=1,max_length=160)
+
+
+class SourceInstallRequest(BaseModel):
+    approved:bool=False
+
+
+class SourceRefreshRequest(BaseModel):
+    ref:str=Field(default="HEAD",min_length=1,max_length=160)
+
+
+class SourceDetachRequest(BaseModel):
+    confirmed:bool=False
+
+
 def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
     try:
         return operation(*args,**kwargs)
@@ -62,6 +79,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_releases.AppReleaseError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_sources.AppSourceError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("")
@@ -71,7 +90,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability()}
+    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability()}
 
 
 @router.get("/catalog/prebuilt")
@@ -84,6 +103,24 @@ def install_prebuilt_app(catalog_key:str)->dict:
     return _call(homeserver_app_prebuilt.install,catalog_key)
 
 
+@router.post("/sources/zip/inspect")
+async def inspect_zip_source(file:UploadFile=File(...))->dict:
+    package=await file.read(homeserver_app_packages.MAX_PACKAGE_BYTES+1)
+    if len(package)>homeserver_app_packages.MAX_PACKAGE_BYTES:
+        raise HTTPException(status_code=413,detail="App package exceeds the compressed size limit.")
+    return {"source":_call(homeserver_app_sources.inspect_zip,package,file.filename or "package.zip")}
+
+
+@router.post("/sources/git/inspect")
+def inspect_git_source(payload:GitSourceInspectRequest)->dict:
+    return {"source":_call(homeserver_app_sources.inspect_git,payload.repo_url,payload.ref)}
+
+
+@router.post("/sources/{source_id}/install")
+def install_inspected_source(source_id:str,payload:SourceInstallRequest)->dict:
+    return _call(homeserver_app_sources.install_source,source_id,approved=payload.approved)
+
+
 @router.post("")
 def create_user_app(payload:CreateUserAppRequest)->dict:
     return _call(
@@ -94,6 +131,26 @@ def create_user_app(payload:CreateUserAppRequest)->dict:
         source_type=payload.source_type,
         metadata=payload.metadata,
     )
+
+
+@router.get("/{app_key}/source")
+def app_source_status(app_key:str)->dict:
+    return {"source":_call(homeserver_app_sources.source_status,app_key)}
+
+
+@router.get("/{app_key}/source/history")
+def app_source_history(app_key:str,limit:int=Query(default=50,ge=1,le=200))->dict:
+    return _call(homeserver_app_sources.source_history,app_key,limit)
+
+
+@router.post("/{app_key}/source/refresh")
+def app_source_refresh(app_key:str,payload:SourceRefreshRequest)->dict:
+    return {"source":_call(homeserver_app_sources.refresh_git_ref,app_key,payload.ref)}
+
+
+@router.post("/{app_key}/source/detach")
+def app_source_detach(app_key:str,payload:SourceDetachRequest)->dict:
+    return {"source":_call(homeserver_app_sources.detach,app_key,confirmed=payload.confirmed)}
 
 
 @router.get("/{app_key}")
