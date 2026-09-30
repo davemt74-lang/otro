@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-server-v280-") as data
 
     from app.runtime import app
     from app.security import OWNER_CONTROL_TOKEN
-    from app.services import homeserver_media_server
+    from app.services import homeserver_media_server, hosting_cloud_control, hosting_serving
     from app.services.tasks import scheduler
 
     with TestClient(app) as client:
@@ -112,6 +112,34 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-server-v280-") as data
         ticket=homeserver_media_server.stream_ticket(ids["video"],ttl_seconds=60)
         assert homeserver_media_server.authenticate_stream_ticket(ids["video"],ticket["ticket"]) is True
         assert access_key not in ticket["stream_url"]
+
+        # Existing Hosting target-app serving path exposes Media Server only after
+        # the app-specific access policy succeeds.
+        original_get_site=hosting_serving.hosting_runtime.get_site
+        original_binding=hosting_cloud_control.binding_for_site
+        try:
+            hosting_serving.hosting_runtime.get_site=lambda _site_id: {"state":"active","runtime_kind":"static"}
+            hosting_cloud_control.binding_for_site=lambda _site_id: {"target_app_key":"vp3.media-server"}
+            try:
+                hosting_serving.serve("site_media","__vp3_media__/status",request_headers={})
+                raise AssertionError("Hosted Media Server allowed anonymous status access")
+            except hosting_serving.ServingError as exc:
+                assert exc.status_code==401
+            hosted_status=hosting_serving.serve(
+                "site_media","__vp3_media__/status",
+                request_headers={"Authorization":"Bearer "+access_key},
+            )
+            assert hosted_status.status_code==200
+            hosted_stream=hosting_serving.serve(
+                "site_media",
+                f"__vp3_media__/stream/{ids['video']}",
+                query_string="ticket="+ticket["ticket"],
+                request_headers={},
+            )
+            assert hosted_stream.status_code==200
+        finally:
+            hosting_serving.hosting_runtime.get_site=original_get_site
+            hosting_cloud_control.binding_for_site=original_binding
 
         # File changed after scan: stale index blocks playback until owner rescans.
         time.sleep(0.001)
