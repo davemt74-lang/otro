@@ -9,6 +9,7 @@ from . import (
     agent_routing,
     app_scopes,
     approvals,
+    homeserver_app_approvals,
     brain,
     canonical_context,
     context_engine,
@@ -235,8 +236,14 @@ def chat(
 
     def cancel_turn(reason: str) -> None:
         duration_ms = int((time.perf_counter() - started) * 1000)
-        cancelled_requests = approvals.cancel_pending_requests(
-            list(tool_state.get("action_request_ids") or []),
+        request_ids=list(tool_state.get("action_request_ids") or [])
+        cancelled_requests=approvals.cancel_pending_requests(
+            request_ids,
+            source_app_key=source_app_key,
+            reason=f"Interrupted Agent turn: {reason[:180]}",
+        )
+        cancelled_requests+=homeserver_app_approvals.cancel_pending(
+            request_ids,
             source_app_key=source_app_key,
             reason=f"Interrupted Agent turn: {reason[:180]}",
         )
