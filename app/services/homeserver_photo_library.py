@@ -50,6 +50,7 @@ def _connect()->sqlite3.Connection:
             mtime_ns INTEGER NOT NULL DEFAULT 0,
             source_created_at TEXT NOT NULL DEFAULT '',
             source_updated_at TEXT NOT NULL DEFAULT '',
+            source_file_date TEXT NOT NULL DEFAULT '',
             folder_album TEXT NOT NULL DEFAULT '',
             sync_generation INTEGER NOT NULL DEFAULT 0,
             indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -97,7 +98,18 @@ def _connect()->sqlite3.Connection:
         );
         """
     )
+    columns={str(row["name"]) for row in connection.execute("PRAGMA table_info(photo_items)").fetchall()}
+    if "source_file_date" not in columns:
+        connection.execute("ALTER TABLE photo_items ADD COLUMN source_file_date TEXT NOT NULL DEFAULT ''")
+        connection.commit()
     return connection
+
+
+def _source_file_date(mtime_ns:int)->str:
+    try:
+        return datetime.fromtimestamp(max(0,int(mtime_ns))/1_000_000_000,tz=timezone.utc).date().isoformat()
+    except (OSError,OverflowError,ValueError):
+        return ""
 
 
 def _folder_album(relative_path:str)->str:
@@ -121,19 +133,20 @@ def sync()->dict[str,Any]:
             connection.execute(
                 """INSERT INTO photo_items(
                     media_id,title,root_id,relative_path,mime_type,extension,size_bytes,mtime_ns,
-                    source_created_at,source_updated_at,folder_album,sync_generation
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    source_created_at,source_updated_at,source_file_date,folder_album,sync_generation
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(media_id) DO UPDATE SET
                     title=excluded.title,root_id=excluded.root_id,relative_path=excluded.relative_path,
                     mime_type=excluded.mime_type,extension=excluded.extension,size_bytes=excluded.size_bytes,
                     mtime_ns=excluded.mtime_ns,source_created_at=excluded.source_created_at,
-                    source_updated_at=excluded.source_updated_at,folder_album=excluded.folder_album,
-                    sync_generation=excluded.sync_generation,indexed_at=CURRENT_TIMESTAMP""",
+                    source_updated_at=excluded.source_updated_at,source_file_date=excluded.source_file_date,
+                    folder_album=excluded.folder_album,sync_generation=excluded.sync_generation,indexed_at=CURRENT_TIMESTAMP""",
                 (
                     media_id,str(row.get("title") or "")[:300],str(row.get("root_id") or ""),
                     str(row.get("relative_path") or ""),str(row.get("mime_type") or ""),
                     str(row.get("extension") or ""),int(row.get("size_bytes") or 0),int(row.get("mtime_ns") or 0),
                     str(row.get("created_at") or ""),str(row.get("updated_at") or ""),
+                    _source_file_date(int(row.get("mtime_ns") or 0)),
                     _folder_album(str(row.get("relative_path") or "")),generation,
                 ),
             )
@@ -162,6 +175,7 @@ def _public_photo(row:sqlite3.Row|dict[str,Any], *, favorite:bool=False, tags:li
         "size_bytes":int(row["size_bytes"]),
         "source_created_at":str(row["source_created_at"]),
         "source_updated_at":str(row["source_updated_at"]),
+        "source_file_date":str(row["source_file_date"]),
         "file_modified_at":modified_at,
         "favorite":bool(favorite),
         "tags":list(tags or []),
