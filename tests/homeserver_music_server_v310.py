@@ -42,6 +42,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-music-v310-") as data_dir, t
         assert media_install.status_code==200,media_install.text
         music_install=client.post("/api/v1/control/homeserver-apps/catalog/prebuilt/vp3.music-server/install")
         assert music_install.status_code==200,music_install.text
+        assert media_install.json()["app"]["installed_version"]=="1.1.1"
+        assert music_install.json()["app"]["installed_version"]=="1.0.1"
+        assert homeserver_app_control.manifest("vp3.media-server")["manifest_contract"]=="vp3.app.agent-actions.v2"
+        assert homeserver_app_control.manifest("vp3.music-server")["manifest_contract"]=="vp3.app.agent-actions.v2"
 
         grant_perm=client.put("/api/v1/control/homeserver-apps/vp3.media-server/permissions",json={
             "permission":"files.read","allowed":True
@@ -59,7 +63,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-music-v310-") as data_dir, t
         root=mapped.json()["root"]
         assert root["source_kind"]=="computer_folder"
         assert root["computer_name"]=="Studio-PC"
-        assert root["source_hint"]=="D:\\Music"
+        assert root["source_hint_configured"] is True
+        assert "source_hint" not in root
+        assert "D:\\Music" not in mapped.text
         assert root["connected"] is True
         assert mapped.json()["mapped_from_computer"] is True
         assert mapped.json()["source_files_copied"] is False
@@ -77,6 +83,23 @@ with tempfile.TemporaryDirectory(prefix="homeserver-music-v310-") as data_dir, t
         scanned=client.post("/api/v1/control/homeserver-apps/media-server/scan")
         assert scanned.status_code==200,scanned.text
         assert scanned.json()["types"]["audio"]==2
+        assert scanned.json()["roots_unavailable"]==0
+
+        # A temporarily disconnected mapped source updates health without erasing
+        # the existing index. Reconnect restores normal scan behavior.
+        offline=source.with_name(source.name+"-offline")
+        source.rename(offline)
+        disconnected=client.post("/api/v1/control/homeserver-apps/media-server/scan",params={"root_id":root["root_id"]})
+        assert disconnected.status_code==200,disconnected.text
+        assert disconnected.json()["roots_unavailable"]==1
+        assert disconnected.json()["library_count"]==2
+        health=client.get("/api/v1/control/homeserver-apps/media-server/roots").json()["roots"][0]
+        assert health["connected"] is False
+        offline.rename(source)
+        reconnected=client.post("/api/v1/control/homeserver-apps/media-server/scan",params={"root_id":root["root_id"]})
+        assert reconnected.status_code==200,reconnected.text
+        assert reconnected.json()["roots_unavailable"]==0
+        assert client.get("/api/v1/control/homeserver-apps/media-server/roots").json()["roots"][0]["connected"] is True
 
         synced=client.post("/api/v1/control/homeserver-apps/music-server/sync")
         assert synced.status_code==200,synced.text
@@ -125,6 +148,55 @@ with tempfile.TemporaryDirectory(prefix="homeserver-music-v310-") as data_dir, t
         assert playing.status_code==200,playing.text
         assert playing.json()["playing"] is True
         assert playing.json()["current_media_id"]==first
+
+        # Playing without any current/selected track fails closed.
+        stopped=client.post("/api/v1/control/homeserver-apps/music-server/playback",json={"command":"stop"})
+        assert stopped.status_code==200,stopped.text
+        connection=homeserver_music_server._connect()
+        try:
+            connection.execute("UPDATE music_state SET current_media_id='' WHERE singleton=1")
+            connection.commit()
+        finally:
+            connection.close()
+        empty_play=client.post("/api/v1/control/homeserver-apps/music-server/playback",json={"command":"play"})
+        assert empty_play.status_code==409,empty_play.text
+
+        # Generation reconciliation must scale beyond SQLite's historic bind-variable
+        # limits and clear stale playback state when source tracks disappear.
+        original_audio_source_records=homeserver_media_server.audio_source_records
+        try:
+            homeserver_media_server.audio_source_records=lambda limit=100000: [
+                {
+                    "media_id":f"media_bulk_{i}",
+                    "root_id":root["root_id"],
+                    "relative_path":f"Bulk Artist/Bulk Album/{i:04d} Track.mp3",
+                    "file_name":f"{i:04d} Track.mp3",
+                    "title":f"{i:04d} Track",
+                    "size_bytes":10,
+                    "updated_at":"2026-09-30 00:00:00",
+                }
+                for i in range(1500)
+            ]
+            bulk=homeserver_music_server.sync()
+            assert bulk["tracks"]==1500
+            connection=homeserver_music_server._connect()
+            try:
+                connection.execute(
+                    "UPDATE music_state SET current_media_id='media_bulk_1499',playing=1,position_seconds=12 WHERE singleton=1"
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            homeserver_media_server.audio_source_records=lambda limit=100000: []
+            emptied=homeserver_music_server.sync()
+            assert emptied["tracks"]==0
+            state_after=homeserver_music_server.queue()
+            assert state_after["current_media_id"]==""
+            assert state_after["playing"] is False
+            assert state_after["position_seconds"]==0
+        finally:
+            homeserver_media_server.audio_source_records=original_audio_source_records
+            homeserver_music_server.sync()
 
         # Universal Section 16 control path is the canonical Agent control path.
         compatibility=homeserver_app_control.compatibility("vp3.music-server")
