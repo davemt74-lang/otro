@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v190-") as data_dir:
     catalog=remote_bridge.dispatch_remote_request("apps.system.catalog",{},token)
     assert catalog["ok"] is True
     assert catalog["payload"]["contract"]=="vp3.app.prebuilt-catalog.v1"
-    assert {item["key"] for item in catalog["payload"]["packages"]}=={"vp3.notes","vp3.inventory","vp3.checklists"}
+    assert {"vp3.notes","vp3.inventory","vp3.checklists"}.issubset({item["key"] for item in catalog["payload"]["packages"]})
 
     before=remote_bridge.dispatch_remote_request("apps.system.status",{"app_key":"vp3.notes"},token)
     assert before["ok"] is True

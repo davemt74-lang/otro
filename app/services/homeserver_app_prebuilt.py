@@ -10,7 +10,7 @@ from ..database import db
 from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.09.30.3"
+CATALOG_VERSION = "2026.09.30.4"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -164,6 +164,9 @@ def _public(definition: dict[str, Any]) -> dict[str, Any]:
         "current": current,
         "update_available": bool(installed and not current),
         "state": app["lifecycle_state"] if app else "available",
+        "product_type": "vp3_optional_app",
+        "deployment_modes": ["local","private_remote","hosted_subdomain","custom_domain"],
+        "core_homeserver_feature": False,
     }
 
 
@@ -364,6 +367,9 @@ def public_capability() -> dict[str, Any]:
         "catalog_version": CATALOG_VERSION,
         "embedded": True,
         "first_party_only": True,
+        "optional_vp3_apps": True,
+        "core_homeserver_features_in_catalog": False,
+        "deployment_modes": ["local","private_remote","hosted_subdomain","custom_domain"],
         "external_downloads": False,
         "app_store": False,
         "protected_system_apps": True,

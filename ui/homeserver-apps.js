@@ -7,7 +7,7 @@
     while(n>=1024 && i<units.length-1){ n/=1024; i++; }
     return `${n.toFixed(i===0?0:n>=10?1:2)} ${units[i]}`;
   };
-  const state={data:null,catalog:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null,pendingDistribution:null};
+  const state={data:null,manager:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null,pendingDistribution:null};
 
   function ensureWorkspace(){
     if(document.getElementById('view-homeserver-apps')) return;
@@ -26,17 +26,24 @@
     section.id='view-homeserver-apps';
     section.innerHTML=`
       <div class="section-intro split hs-apps-intro">
-        <div><p class="eyebrow">HOMESERVER APPS</p><h2>Installed Apps</h2><p>Manage VP3 system apps and the apps you build from the VP3 SDK.</p></div>
+        <div><p class="eyebrow">HOMESERVER APPS</p><h2>App Manager</h2><p>Installed Apps, available VP3 Apps, shared apps, hosted apps, and user-created apps are managed from one place.</p></div>
         <div class="hs-app-intro-actions"><button class="button secondary" type="button" data-hs-app-import>Import App</button><button class="button primary" type="button" data-hs-app-create>Create App</button></div>
       </div>
-      <section class="hs-prebuilt-section">
-        <div class="panel-head"><div><p class="eyebrow">VP3 PREBUILT</p><h3>VP3 Apps</h3><p class="muted">First-party apps bundled and maintained by VP3. App Store packages are not included here.</p></div></div>
-        <div id="hsPrebuiltGrid" class="hs-prebuilt-grid"><div class="panel empty-state">Loading VP3 Apps…</div></div>
+      <section class="hs-app-manager-summary" id="hsAppManagerSummary">
+        <div class="panel hs-app-kpi"><span>Installed</span><strong>—</strong></div>
+        <div class="panel hs-app-kpi"><span>Available</span><strong>—</strong></div>
+        <div class="panel hs-app-kpi"><span>Updates</span><strong>—</strong></div>
+        <div class="panel hs-app-kpi"><span>Running</span><strong>—</strong></div>
+        <div class="panel hs-app-kpi"><span>Hosted</span><strong>—</strong></div>
       </section>
       <div class="hs-apps-toolbar">
         <button class="button secondary active" type="button" data-hs-app-filter="all">All</button>
-        <button class="button secondary" type="button" data-hs-app-filter="system">VP3 System</button>
+        <button class="button secondary" type="button" data-hs-app-filter="available">Available</button>
+        <button class="button secondary" type="button" data-hs-app-filter="system">VP3 Apps</button>
         <button class="button secondary" type="button" data-hs-app-filter="user">My Apps</button>
+        <button class="button secondary" type="button" data-hs-app-filter="shared">Shared</button>
+        <button class="button secondary" type="button" data-hs-app-filter="updates">Updates</button>
+        <button class="button secondary" type="button" data-hs-app-filter="hosted">Hosted</button>
         <span class="muted" id="hsAppsSummary">Loading…</span>
       </div>
       <div id="hsAppsCreate" class="panel hs-app-create hidden">
@@ -86,33 +93,46 @@
   function card(app){
     const meta=app.metadata||{};
     const system=app.app_class==='system';
-    const canOpen=app.lifecycle_state==='running' && meta.active_release_id && (!system || meta.prebuilt_app);
+    const installed=!!app.installed;
+    const canOpen=app.actions?.open;
+    const permissionCount=app.permissions?.declared_count||0;
+    const allowedCount=app.permissions?.allowed_count||0;
+    const storage=app.resources?.storage_used_bytes||0;
+    const hosted=app.hosting?.bound;
+    const shared=!!app.distribution;
+    const status=installed?(app.lifecycle_state||'installed'):'available';
+    const primary=!installed
+      ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}">Install</button>`
+      : app.update_available
+        ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}">Update</button>`
+        : canOpen
+          ? `<a class="button primary" href="/api/v1/control/homeserver-apps/${encodeURIComponent(app.app_key)}/preview/" target="_blank" rel="noreferrer">Open</a>`
+          : '';
     return `
-      <article class="panel hs-app-card" data-hs-app-card="${esc(app.app_key)}">
+      <article class="panel hs-app-card ${installed?'is-installed':'is-available'}" data-hs-app-card="${esc(app.app_key)}">
         <div class="hs-app-card-head">
           <div class="hs-app-icon">${system?'VP3':'APP'}</div>
-          <div><div class="hs-app-status-row"><span class="hs-app-status ${esc(app.lifecycle_state)}"></span><span>${esc(statusLabel(app))}</span></div><h3>${esc(app.name)}</h3><p>${esc(app.app_key)}</p></div>
+          <div><div class="hs-app-status-row"><span class="hs-app-status ${esc(status)}"></span><span>${esc(statusLabel({lifecycle_state:status}))}</span></div><h3>${esc(app.name)}</h3><p>${esc(app.description||app.app_key)}</p></div>
         </div>
-        <div class="hs-app-tags"><span>${system?'System App':'User App'}</span><span>${esc(app.source_type)}</span>${meta.runtime?`<span>${esc(meta.runtime)}</span>`:''}</div>
-        <dl class="hs-app-meta"><div><dt>Version</dt><dd>${esc(app.installed_version||'—')}</dd></div><div><dt>SDK</dt><dd>${esc(meta.sdk_version|| (system?'VP3':'—'))}</dd></div></dl>
+        <div class="hs-app-tags">
+          <span>${system?'VP3 Apps':'User App'}</span>
+          <span>${esc(app.category||'App')}</span>
+          ${shared?'<span>Private Share</span>':''}
+          ${hosted?'<span>Hosted</span>':''}
+          ${app.update_available?'<span>Update Available</span>':''}
+        </div>
+        <dl class="hs-app-meta">
+          <div><dt>Installed</dt><dd>${esc(app.installed_version||'—')}</dd></div>
+          <div><dt>Available</dt><dd>${esc(app.available_version||app.installed_version||'—')}</dd></div>
+          <div><dt>Permissions</dt><dd>${permissionCount?`${allowedCount}/${permissionCount}`:'—'}</dd></div>
+          <div><dt>Storage</dt><dd>${installed?bytes(storage):'—'}</dd></div>
+        </dl>
         <div class="hs-app-actions">
-          ${canOpen?`<a class="button primary" href="/api/v1/control/homeserver-apps/${encodeURIComponent(app.app_key)}/preview/" target="_blank" rel="noreferrer">Open</a>`:''}
-          <button class="button secondary" type="button" data-hs-app-details="${esc(app.app_key)}">Manage</button>
-          ${!system && app.lifecycle_state==='running'? `<button class="text-button" data-hs-app-stop="${esc(app.app_key)}">Stop</button>`:''}
-          ${!system && ['stopped','installed','archived'].includes(app.lifecycle_state)? `<button class="text-button" data-hs-app-resume="${esc(app.app_key)}">${app.lifecycle_state==='archived'?'Restore':'Start'}</button>`:''}
+          ${primary}
+          ${installed?`<button class="button secondary" type="button" data-hs-app-details="${esc(app.app_key)}">Manage</button>`:''}
+          ${app.actions?.rollback?`<button class="text-button" type="button" data-hs-app-rollback="${esc(app.app_key)}">Rollback</button>`:''}
         </div>
       </article>`;
-  }
-
-  function renderPrebuilt(){
-    const grid=document.getElementById('hsPrebuiltGrid');
-    if(!grid||!state.catalog) return;
-    const packages=state.catalog.packages||[];
-    grid.innerHTML=packages.length?packages.map(item=>{
-      const label=item.current?'Installed':item.update_available?'Update':'Install';
-      const disabled=item.current?'disabled':'';
-      return '<article class="panel hs-prebuilt-card"><div><div class="hs-app-status-row"><span class="hs-app-status '+(item.current?'running':'stopped')+'"></span><span>'+esc(item.category)+'</span></div><h3>'+esc(item.name)+'</h3><p>'+esc(item.description)+'</p><div class="hs-app-tags"><span>VP3</span><span>v'+esc(item.version)+'</span><span>Embedded</span></div></div><button class="button '+(item.current?'secondary':'primary')+'" type="button" data-hs-prebuilt-install="'+esc(item.key)+'" '+disabled+'>'+label+'</button></article>';
-    }).join(''):'<div class="panel empty-state">No VP3 prebuilt apps are available.</div>';
   }
 
   function renderPermissionChoices(){
@@ -128,11 +148,25 @@
 
   function render(){
     const grid=document.getElementById('hsAppsGrid');
-    if(!grid||!state.data) return;
-    const apps=(state.data.apps||[]).filter(app=>state.filter==='all'||app.app_class===state.filter);
-    document.getElementById('hsAppsSummary').textContent=`${state.data.counts?.system||0} system · ${state.data.counts?.user||0} user`;
-    grid.innerHTML=apps.length?apps.map(card).join(''):'<div class="panel empty-state">No Apps match this filter.</div>';
-    renderPrebuilt();
+    if(!grid||!state.manager) return;
+    const counts=state.manager.counts||{};
+    const items=(state.manager.items||[]).filter(app=>{
+      if(state.filter==='all') return true;
+      if(state.filter==='available') return !app.installed&&app.available;
+      if(state.filter==='system') return app.app_class==='system';
+      if(state.filter==='user') return app.app_class==='user';
+      if(state.filter==='shared') return !!app.distribution;
+      if(state.filter==='updates') return !!app.update_available;
+      if(state.filter==='hosted') return !!app.hosting?.bound;
+      return true;
+    });
+    document.getElementById('hsAppsSummary').textContent=`${counts.installed||0} installed · ${counts.available||0} available · ${counts.updates||0} updates`;
+    const summary=document.getElementById('hsAppManagerSummary');
+    if(summary){
+      const values=[counts.installed||0,counts.available||0,counts.updates||0,counts.running||0,counts.hosted||0];
+      summary.querySelectorAll('strong').forEach((node,i)=>node.textContent=String(values[i]??0));
+    }
+    grid.innerHTML=items.length?items.map(card).join(''):'<div class="panel empty-state">No Apps match this filter.</div>';
     renderPermissionChoices();
   }
 
@@ -140,13 +174,20 @@
     if(state.loading) return;
     state.loading=true;
     try{
-      if(force||!state.data||!state.catalog||!state.permissionCatalog){
+      if(force||!state.manager||!state.permissionCatalog){
         const loaded=await Promise.all([
-          window.api('/api/v1/control/homeserver-apps'),
-          window.api('/api/v1/control/homeserver-apps/catalog/prebuilt'),
+          window.api('/api/v1/control/homeserver-apps/manager'),
           window.api('/api/v1/control/homeserver-apps/permissions/catalog')
         ]);
-        state.data=loaded[0]; state.catalog=loaded[1]; state.permissionCatalog=loaded[2];
+        state.manager=loaded[0];
+        state.data={
+          apps:(loaded[0].items||[]).filter(x=>x.installed).map(x=>({
+            app_key:x.app_key,name:x.name,app_class:x.app_class,lifecycle_state:x.lifecycle_state,
+            installed_version:x.installed_version,source_type:x.source_type,metadata:x.metadata||{}
+          })),
+          counts:{system:loaded[0].counts?.system||0,user:loaded[0].counts?.user||0}
+        };
+        state.permissionCatalog=loaded[1];
       }
       render();
     }catch(error){
@@ -307,7 +348,7 @@
       const rt=runtime?.runtime;
       const releaseRows=releases?.releases||[];
       panel.innerHTML=`
-        <div class="panel-head"><div><p class="eyebrow">${system?'VP3 SYSTEM APP':'USER APP'}</p><h3>${esc(app.name)}</h3><p class="muted">${esc(app.app_key)} · ${esc(statusLabel(app))}</p></div><button class="text-button" type="button" data-hs-app-detail-close>Close</button></div>
+        <div class="panel-head"><div><p class="eyebrow">${system?'VP3 APP':'USER APP'}</p><h3>${esc(app.name)}</h3><p class="muted">${esc(app.app_key)} · ${esc(statusLabel(app))}</p></div><button class="text-button" type="button" data-hs-app-detail-close>Close</button></div>
         <div class="hs-app-detail-grid">
           <section><h4>Runtime</h4><p>Version <strong>${esc(app.installed_version||'—')}</strong></p><p>Source <strong>${esc(app.source_type)}</strong></p>${rt?`<p>Jobs <strong>${rt.jobs?.length||0}</strong> · Events <strong>${rt.event_count||0}</strong></p>`:''}</section>
           <section><h4>Permissions</h4>${permRows.length?permRows.map(p=>`<label class="hs-app-permission"><input type="checkbox" data-hs-app-permission="${esc(key)}" data-permission="${esc(p.permission)}" ${p.allowed?'checked':''}> ${esc(p.permission)} <span class="muted">· ${esc(p.risk||'unknown')} risk</span></label>`).join(''):'<p class="muted">No permissions declared.</p>'}</section>

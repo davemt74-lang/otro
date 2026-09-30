@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -532,6 +532,41 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             except homeserver_apps.HomeServerAppError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.manager.status":
+            _vp3_system_apps_identity(token)
+            state=homeserver_app_manager.inventory()
+            items=[]
+            for row in state.get("items",[])[:100]:
+                items.append({
+                    "app_key":row.get("app_key"),
+                    "name":row.get("name"),
+                    "app_class":row.get("app_class"),
+                    "installed":bool(row.get("installed")),
+                    "available":bool(row.get("available")),
+                    "lifecycle_state":row.get("lifecycle_state"),
+                    "installed_version":row.get("installed_version"),
+                    "available_version":row.get("available_version"),
+                    "update_available":bool(row.get("update_available")),
+                    "category":row.get("category"),
+                    "shared":bool(row.get("distribution")),
+                    "hosted":bool((row.get("hosting") or {}).get("bound")),
+                    "public":bool((row.get("hosting") or {}).get("public")),
+                    "permission_counts":{
+                        "declared":int(((row.get("permissions") or {}).get("declared_count") or 0)),
+                        "allowed":int(((row.get("permissions") or {}).get("allowed_count") or 0)),
+                    },
+                    "storage_used_bytes":int(((row.get("resources") or {}).get("storage_used_bytes") or 0)),
+                })
+            return {"status":200,"ok":True,"payload":{
+                "contract":"vp3.app-manager-projection.v1",
+                "counts":state.get("counts") or {},
+                "catalog_version":state.get("catalog_version"),
+                "items":items,
+                "count":len(items),
+                "homeserver_authority":True,
+                "source_content_exposed":False,
+                "package_content_exposed":False,
+            }}
         if op == "apps.user.distribution.describe":
             _vp3_system_apps_identity(token)
             key=str(body.get("app_key") or "").strip().lower()
