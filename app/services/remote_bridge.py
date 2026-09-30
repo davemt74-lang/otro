@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, homeserver_app_agent, homeserver_app_control, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -573,6 +573,75 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                 "query":result.get("query") or "","media_type":result.get("media_type") or "",
                 "items":items,"count":len(items),"source_media_exposed":False,
             }}
+        if op == "apps.control.status":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            if not key:
+                return {"status":400,"ok":False,"payload":{"detail":"app_key is required."}}
+            try:
+                payload_out={
+                    "contract":"vp3.app-control-projection.v1",
+                    "app_key":key,
+                    "compatibility":homeserver_app_control.compatibility(key),
+                    "manifest":homeserver_app_control.manifest(key),
+                    "settings":homeserver_app_control.settings(key),
+                    "hosting":homeserver_app_agent.hosting_status({"app_key":key}),
+                    "homeserver_execution_authority":True,
+                    "cloud_execution_authority":False,
+                    "secret_values_exposed":False,
+                }
+            except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError,homeserver_app_agent.AppAgentError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.control.actions":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            try:
+                payload_out=homeserver_app_control.manifest(key)
+            except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.control.settings":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            try:
+                payload_out=homeserver_app_control.settings(key)
+            except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.control.hosting":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            try:
+                payload_out=homeserver_app_agent.hosting_status({"app_key":key})
+            except (homeserver_apps.HomeServerAppError,homeserver_app_agent.AppAgentError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.control.invoke":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            action=str(body.get("action") or "").strip()
+            arguments=body.get("arguments") if isinstance(body.get("arguments"),dict) else {}
+            confirmed=bool(body.get("confirmed"))
+            try:
+                spec=homeserver_app_control.action_spec(key,action)
+                if bool(spec.get("requires_confirmation")) and not confirmed:
+                    return {"status":409,"ok":False,"payload":{"detail":"This app action requires owner confirmation.","confirmation_required":True}}
+                result=homeserver_app_control.invoke(key,action,arguments)
+            except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":result}
+        if op == "apps.control.settings.set":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            values=body.get("values") if isinstance(body.get("values"),dict) else None
+            if not bool(body.get("confirmed")):
+                return {"status":409,"ok":False,"payload":{"detail":"App settings changes require owner confirmation.","confirmation_required":True}}
+            try:
+                result=homeserver_app_control.update_settings(key,values or {})
+            except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":result}
         if op == "apps.video.status":
             _vp3_system_apps_identity(token)
             try:
