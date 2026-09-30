@@ -45,6 +45,7 @@ def _connect()->sqlite3.Connection:
             track_no INTEGER NOT NULL DEFAULT 0,
             root_id TEXT NOT NULL,
             source_updated_at TEXT NOT NULL DEFAULT '',
+            sync_generation INTEGER NOT NULL DEFAULT 0,
             indexed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_music_track_artist_album ON music_tracks(artist,album,title);
@@ -82,6 +83,10 @@ def _connect()->sqlite3.Connection:
         INSERT OR IGNORE INTO music_state(singleton) VALUES (1);
         """
     )
+    columns={str(row["name"]) for row in connection.execute("PRAGMA table_info(music_tracks)").fetchall()}
+    if "sync_generation" not in columns:
+        connection.execute("ALTER TABLE music_tracks ADD COLUMN sync_generation INTEGER NOT NULL DEFAULT 0")
+        connection.commit()
     return connection
 
 
@@ -117,27 +122,31 @@ def sync()->dict[str,Any]:
         raise MusicServerError("Media Server is unavailable. Install, map a media folder, and scan it first.",409) from exc
     connection=_connect()
     try:
-        seen=[]
+        generation=int(connection.execute("SELECT COALESCE(MAX(sync_generation),0)+1 FROM music_tracks").fetchone()[0])
         for row in records:
             media_id=str(row["media_id"])
             title,artist,album,track_no=_metadata(str(row.get("relative_path") or ""),str(row.get("title") or ""))
             connection.execute(
-                """INSERT INTO music_tracks(media_id,title,artist,album,track_no,root_id,source_updated_at)
-                   VALUES (?,?,?,?,?,?,?)
+                """INSERT INTO music_tracks(media_id,title,artist,album,track_no,root_id,source_updated_at,sync_generation)
+                   VALUES (?,?,?,?,?,?,?,?)
                    ON CONFLICT(media_id) DO UPDATE SET
                      title=excluded.title,artist=excluded.artist,album=excluded.album,track_no=excluded.track_no,
-                     root_id=excluded.root_id,source_updated_at=excluded.source_updated_at,indexed_at=CURRENT_TIMESTAMP""",
-                (media_id,title,artist,album,track_no,str(row.get("root_id") or ""),str(row.get("updated_at") or "")),
+                     root_id=excluded.root_id,source_updated_at=excluded.source_updated_at,
+                     sync_generation=excluded.sync_generation,indexed_at=CURRENT_TIMESTAMP""",
+                (
+                    media_id,title,artist,album,track_no,str(row.get("root_id") or ""),
+                    str(row.get("updated_at") or ""),generation,
+                ),
             )
-            seen.append(media_id)
-        if seen:
-            placeholders=",".join("?" for _ in seen)
-            connection.execute(f"DELETE FROM music_tracks WHERE media_id NOT IN ({placeholders})",tuple(seen))
-        else:
-            connection.execute("DELETE FROM music_tracks")
+        connection.execute("DELETE FROM music_tracks WHERE sync_generation<>?",(generation,))
         connection.execute("DELETE FROM music_favorites WHERE media_id NOT IN (SELECT media_id FROM music_tracks)")
         connection.execute("DELETE FROM music_playlist_items WHERE media_id NOT IN (SELECT media_id FROM music_tracks)")
         connection.execute("DELETE FROM music_queue WHERE media_id NOT IN (SELECT media_id FROM music_tracks)")
+        connection.execute(
+            """UPDATE music_state
+               SET current_media_id='',playing=0,position_seconds=0,updated_at=CURRENT_TIMESTAMP
+               WHERE singleton=1 AND current_media_id<>'' AND current_media_id NOT IN (SELECT media_id FROM music_tracks)"""
+        )
         connection.commit()
         total=int(connection.execute("SELECT COUNT(*) FROM music_tracks").fetchone()[0])
         artists=int(connection.execute("SELECT COUNT(DISTINCT artist) FROM music_tracks").fetchone()[0])
