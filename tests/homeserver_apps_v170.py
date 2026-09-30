@@ -16,6 +16,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v170-") as data_dir:
     from app.services import agent_tools, approvals, homeserver_app_agent, homeserver_apps  # noqa: E402
 
     initialize_database()
+    policy=agent_tools.save_policy(True,3,True)
+    assert policy["enabled"] is True
+    assert policy["allow_write_proposals"] is True
 
     created=homeserver_apps.create_user_app("agent.demo","Agent Demo",runtime="static")
     assert created["app"]["lifecycle_state"]=="draft"
