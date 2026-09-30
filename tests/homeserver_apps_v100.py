@@ -101,6 +101,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v100-") as data_dir, te
 
     with __import__("sqlite3").connect(Path(data_dir)/"homeserver.db") as connection:
         version=connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
-        assert version==59
+        assert version==60
 
 print("HomeServer Apps V1 Section 1 registry lifecycle and SDK foundation passed")
