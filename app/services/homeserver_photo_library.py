@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from datetime import datetime, timezone
 from collections import defaultdict
 from pathlib import PurePosixPath
 from typing import Any
@@ -150,6 +151,8 @@ def sync()->dict[str,Any]:
 
 
 def _public_photo(row:sqlite3.Row|dict[str,Any], *, favorite:bool=False, tags:list[str]|None=None)->dict[str,Any]:
+    mtime_ns=int(row["mtime_ns"])
+    modified_at=datetime.fromtimestamp(mtime_ns/1_000_000_000,tz=timezone.utc).isoformat() if mtime_ns>0 else None
     return {
         "media_id":str(row["media_id"]),
         "title":str(row["title"]),
@@ -159,6 +162,7 @@ def _public_photo(row:sqlite3.Row|dict[str,Any], *, favorite:bool=False, tags:li
         "size_bytes":int(row["size_bytes"]),
         "source_created_at":str(row["source_created_at"]),
         "source_updated_at":str(row["source_updated_at"]),
+        "file_modified_at":modified_at,
         "favorite":bool(favorite),
         "tags":list(tags or []),
         "view_url":f"/api/v1/control/homeserver-apps/media-server/stream/{row['media_id']}",
@@ -220,8 +224,8 @@ def timeline(limit:int=500)->dict[str,Any]:
     connection=_connect()
     try:
         rows=connection.execute(
-            """SELECT substr(COALESCE(NULLIF(source_created_at,''),indexed_at),1,10) day,COUNT(*) photos
-               FROM photo_items GROUP BY day ORDER BY day DESC LIMIT ?""",
+            """SELECT date(mtime_ns / 1000000000, 'unixepoch') day,COUNT(*) photos
+               FROM photo_items WHERE mtime_ns>0 GROUP BY day ORDER BY day DESC LIMIT ?""",
             (max(1,min(int(limit),2000)),),
         ).fetchall()
     finally:
