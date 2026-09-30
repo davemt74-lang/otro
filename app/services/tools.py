@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, contacts, homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
+from . import app_scopes, contacts, homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -54,6 +54,61 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
                 "app_key": {"type": "string", "maxLength": 80},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20}
             },
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.source.status": {
+        "key": "apps.source.status",
+        "name": "Read HomeServer App Source",
+        "description": "Compare one installed user app with its inspected ZIP or Git source provenance without exposing credentials.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.git.inspect": {
+        "key": "apps.git.inspect",
+        "name": "Inspect Git App Source",
+        "description": "Fetch and validate a public HTTPS Git app source and record exact commit provenance after owner approval. Does not install the app.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "repo_url": {"type": "string", "maxLength": 1000},
+                "ref": {"type": "string", "maxLength": 160}
+            },
+            "required": ["repo_url"],
+            "additionalProperties": False
+        },
+    },
+    "apps.source.install": {
+        "key": "apps.source.install",
+        "name": "Install Inspected App Source",
+        "description": "Install a previously inspected ZIP or Git source after owner approval and checksum revalidation.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"source_id": {"type": "string", "maxLength": 80}},
+            "required": ["source_id"],
+            "additionalProperties": False
+        },
+    },
+    "apps.source.detach": {
+        "key": "apps.source.detach",
+        "name": "Detach App Source",
+        "description": "Detach external source provenance from a user app while preserving its active release, after owner approval.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
             "required": ["app_key"],
             "additionalProperties": False
         },
@@ -1488,6 +1543,69 @@ def _apps_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     return result,{"app_key":key,"release_count":releases.get("count",0)}
 
 
+def _apps_source_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
+    try:
+        result=homeserver_app_sources.source_status(key)
+    except (homeserver_apps.HomeServerAppError,homeserver_app_sources.AppSourceError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    current=result.get("current")
+    safe={
+        "app_key":key,
+        "source_type":result.get("source_type"),
+        "source_ref":result.get("source_ref"),
+        "installed_package_sha256":result.get("installed_package_sha256"),
+        "update_available":bool(result.get("update_available")),
+        "current":{
+            "source_id":current.get("source_id"),
+            "source_type":current.get("source_type"),
+            "source_ref":current.get("source_ref"),
+            "source_revision":current.get("source_revision"),
+            "package_sha256":current.get("package_sha256"),
+            "status":current.get("status"),
+            "version":(current.get("manifest") or {}).get("version"),
+        } if current else None,
+    }
+    return safe,{"app_key":key,"update_available":safe["update_available"]}
+
+
+def _apps_git_inspect(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown=set(arguments)-{"repo_url","ref"}
+    if unknown:
+        raise ToolError(f"Unsupported apps.git.inspect argument: {sorted(unknown)[0]}")
+    try:
+        result=homeserver_app_sources.inspect_git(
+            str(arguments.get("repo_url") or ""),
+            str(arguments.get("ref") or "HEAD"),
+        )
+    except homeserver_app_sources.AppSourceError as exc:
+        raise ToolError(str(exc),exc.status_code) from exc
+    return {"source":result},{"source_id":result.get("source_id"),"app_key":result.get("app_key")}
+
+
+def _apps_source_install(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown=set(arguments)-{"source_id"}
+    if unknown:
+        raise ToolError(f"Unsupported apps.source.install argument: {sorted(unknown)[0]}")
+    source_id=str(arguments.get("source_id") or "").strip()
+    if not source_id:
+        raise ToolError("apps.source.install requires source_id.")
+    try:
+        result=homeserver_app_sources.install_source(source_id,approved=True)
+    except homeserver_app_sources.AppSourceError as exc:
+        raise ToolError(str(exc),exc.status_code) from exc
+    return result,{"source_id":source_id,"app_key":(result.get("app") or {}).get("app_key"),"release_id":(result.get("release") or {}).get("release_id")}
+
+
+def _apps_source_detach(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
+    try:
+        result=homeserver_app_sources.detach(key,confirmed=True)
+    except (homeserver_apps.HomeServerAppError,homeserver_app_sources.AppSourceError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return {"source":result},{"app_key":key,"detached":True}
+
+
 def _apps_prebuilt_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     if arguments:
         raise ToolError("apps.prebuilt.list does not accept arguments.")
@@ -1644,6 +1762,14 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _apps_status(payload)
         elif tool["key"] == "apps.releases":
             result, result_meta = _apps_releases(payload)
+        elif tool["key"] == "apps.source.status":
+            result, result_meta = _apps_source_status(payload)
+        elif tool["key"] == "apps.git.inspect":
+            result, result_meta = _apps_git_inspect(payload)
+        elif tool["key"] == "apps.source.install":
+            result, result_meta = _apps_source_install(payload)
+        elif tool["key"] == "apps.source.detach":
+            result, result_meta = _apps_source_detach(payload)
         elif tool["key"] == "apps.prebuilt.list":
             result, result_meta = _apps_prebuilt_list(payload)
         elif tool["key"] == "apps.prebuilt.install":
