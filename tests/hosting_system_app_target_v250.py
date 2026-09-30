@@ -18,8 +18,9 @@ with tempfile.TemporaryDirectory(prefix="hosting-app-target-v1-") as data_dir:
     hosting_entitlements.reconcile({
         "contract":"vp3.hosting.entitlements.v1",
         "revision":1,
-        "access":True,
+        "package_key":"test-hosting",
         "max_sites":5,
+        "max_active_sites":5,
         "max_public_routes":5,
         "allowed_runtimes":["static","php"],
         "max_storage_bytes_per_site":50_000_000,
