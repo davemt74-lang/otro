@@ -532,6 +532,48 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             except homeserver_apps.HomeServerAppError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
+        if op in {"apps.user.list","apps.user.status"}:
+            _vp3_system_apps_identity(token)
+            requested=str(body.get("app_key") or "").strip().lower()
+            items=[]
+            for app_row in homeserver_apps.list_apps().get("apps",[]):
+                if not isinstance(app_row,dict) or app_row.get("app_class")!="user":
+                    continue
+                key=str(app_row.get("app_key") or "")
+                if requested and key!=requested:
+                    continue
+                meta=dict(app_row.get("metadata") or {})
+                try:
+                    permission_state=homeserver_app_security.permission_status(key)
+                except Exception:
+                    permission_state=None
+                try:
+                    release_state=homeserver_app_packages.runtime_status(key)
+                except Exception:
+                    release_state=None
+                try:
+                    data_state=homeserver_app_data_lifecycle.status(key)
+                except Exception:
+                    data_state=None
+                items.append({
+                    "app_key":key,
+                    "name":str(app_row.get("name") or key),
+                    "source_type":str(app_row.get("source_type") or ""),
+                    "lifecycle_state":str(app_row.get("lifecycle_state") or ""),
+                    "installed_version":app_row.get("installed_version"),
+                    "runtime":str(meta.get("runtime") or ""),
+                    "sdk_version":str(meta.get("sdk_version") or ""),
+                    "permissions":permission_state,
+                    "release":release_state,
+                    "data":data_state,
+                })
+            if op=="apps.user.status":
+                if not requested:
+                    return {"status":400,"ok":False,"payload":{"detail":"app_key is required."}}
+                if not items:
+                    return {"status":404,"ok":False,"payload":{"detail":"User app was not found."}}
+                return {"status":200,"ok":True,"payload":{"contract":"vp3.user-app-status.v1","app":items[0]}}
+            return {"status":200,"ok":True,"payload":{"contract":"vp3.user-app-list.v1","items":items,"count":len(items)}}
         if op == "apps.system.permissions.status":
             _vp3_system_apps_identity(token)
             key=str(body.get("app_key") or "").strip().lower()
