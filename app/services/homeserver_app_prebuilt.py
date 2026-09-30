@@ -377,7 +377,7 @@ def _package(definition: dict[str, Any]) -> bytes:
     files = {
         "vp3-app.json": json.dumps(_manifest(definition), indent=2, sort_keys=True) + "\n",
         "index.html": _html(definition),
-        "assets/app.css": VIDEO_EDITOR_CSS if definition["kind"]=="video_editor" else (MEDIA_SERVER_CSS if definition["kind"]=="media_server" else APP_CSS),
+        "assets/app.css": (APP_CSS + ".photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-top:14px}.photo-card{display:block;text-align:left;border:1px solid #2b3139;border-radius:10px;background:#171b20;color:#f4f6f8;padding:8px;cursor:pointer}.photo-thumb{aspect-ratio:1/1;background:#090b0e center/cover no-repeat;border-radius:7px;margin-bottom:8px}dialog{max-width:min(92vw,1100px);background:#11151a;color:#fff;border:1px solid #303640;border-radius:12px;padding:14px}dialog::backdrop{background:rgba(0,0,0,.8)}#viewerImage{display:block;max-width:86vw;max-height:78vh;margin:12px auto;object-fit:contain}") if definition["kind"]=="photo_library" else (VIDEO_EDITOR_CSS if definition["kind"]=="video_editor" else (MEDIA_SERVER_CSS if definition["kind"]=="media_server" else APP_CSS)),
         "assets/app.js": PHOTO_LIBRARY_JS if definition["kind"]=="photo_library" else (MUSIC_SERVER_JS if definition["kind"]=="music_server" else (VIDEO_EDITOR_JS if definition["kind"]=="video_editor" else (MEDIA_SERVER_JS if definition["kind"]=="media_server" else COMMON_JS))),
         "settings.schema.json": json.dumps({"contract": "vp3.app.settings-schema.v1", "fields": []}, indent=2) + "\n",
         "agent/actions.json": json.dumps({
