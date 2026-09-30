@@ -675,6 +675,11 @@ def status()->dict[str,Any]:
         ).fetchall()]
     finally:
         connection.close()
+    try:
+        from . import homeserver_media_processor
+        processing_available=bool(homeserver_media_processor.capability().get("ffmpeg_available"))
+    except Exception:
+        processing_available=False
     return {
         "contract":CONTRACT,
         "app_key":APP_KEY,
@@ -685,7 +690,8 @@ def status()->dict[str,Any]:
         "types":{"video":counts.get("video",0),"audio":counts.get("audio",0),"image":counts.get("image",0)},
         "recently_played":recent,
         "remote":remote_status(),
-        "transcoding":False,
+        "transcoding":processing_available,
+        "processing_provider":"vp3.media-processor",
         "source_media_owned_by_app":False,
     }
 
