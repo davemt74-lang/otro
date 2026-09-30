@@ -7,6 +7,7 @@ on:
       - 'app/services/homeserver_app_*.py'
       - 'app/services/homeserver_app_distribution.py'
       - 'app/services/homeserver_app_manager.py'
+      - 'app/services/homeserver_app_platform.py'
       - 'app/services/hosting_cloud_control.py'
       - 'app/services/hosting_serving.py'
       - 'tests/hosting_system_app_target_v250.py'
@@ -120,6 +121,7 @@ jobs:
           app/services/homeserver_app_sources.py
           app/services/homeserver_app_distribution.py
           app/services/homeserver_app_manager.py
+          app/services/homeserver_app_platform.py
           tests/homeserver_apps_v170.py
           tests/homeserver_apps_v180.py
           tests/homeserver_apps_v190.py
