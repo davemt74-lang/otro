@@ -254,6 +254,20 @@ def serve(
                 )
             if not homeserver_media_server.authenticate_remote(bearer):
                 raise ServingError("Media Server access key is required.",401)
+            if rel.startswith("playback/") and method=="POST":
+                import json as _json
+                media_id=rel.split("/",1)[1]
+                try:
+                    payload=_json.loads(body.decode("utf-8") or "{}")
+                except Exception as exc:
+                    raise ServingError("Media Server playback payload is invalid.",400) from exc
+                result=homeserver_media_server.update_playback(
+                    media_id,
+                    float(payload.get("position_seconds") or 0),
+                    float(payload.get("duration_seconds") or 0),
+                    bool(payload.get("completed")),
+                )
+                return Response(content=_json.dumps(result),media_type="application/json",headers={"Cache-Control":"no-store"})
             if rel=="status":
                 import json as _json
                 return Response(content=_json.dumps(homeserver_media_server.status()),media_type="application/json",headers={"Cache-Control":"no-store"})
