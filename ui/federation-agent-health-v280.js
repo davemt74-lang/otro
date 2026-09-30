@@ -51,16 +51,22 @@
     $('fahSites').innerHTML=(report.sites||[]).length?(report.sites||[]).map(site).join(''):'<div class="empty-state">No federation sites are registered.</div>';
     $('fahHistory').innerHTML=(historyRows||[]).length?(historyRows||[]).slice(0,40).map(history).join(''):'<div class="empty-state">No federation health events yet.</div>';
   }
+  let loadPromise=null;
+  function federationViewActive(){const view=document.getElementById('view-federation');return Boolean(view&&view.classList.contains('active')&&document.visibilityState==='visible');}
   async function load(){
+    if(loadPromise)return loadPromise;
+    loadPromise=(async()=>{
     const status=$('fahLoading');if(status)status.textContent='Refreshing…';
     const response=await fetch('/api/v1/control/federation-agent-health',{headers:{'Accept':'application/json'}});
     let data={};try{data=await response.json();}catch(_){}
     if(!response.ok)throw new Error(data.detail||'Federation Agent health unavailable.');
     render(data.health||{},data.history||[]);
     if(status)status.textContent='Agent Brain live health';
+    })();
+    try{return await loadPromise;}finally{loadPromise=null;}
   }
   window.loadFederationAgentHealth=load;
   document.addEventListener('click',event=>{if(event.target?.id==='refreshFederationAgentHealth')load().catch(err=>{const node=$('fahLoading');if(node)node.textContent=err.message;});});
-  load().catch(()=>{});
-  window.setInterval(()=>load().catch(()=>{}),30000);
+  if(federationViewActive())load().catch(()=>{});
+  window.setInterval(()=>{if(federationViewActive())load().catch(()=>{});},60000);
 })();
