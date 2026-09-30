@@ -8,7 +8,7 @@ from ..database import db
 from . import homeserver_app_control, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps
 
 CONTRACT="vp3.app.agent-integration.v1"
-READ_ACTIONS={"apps.list","apps.get","apps.releases","apps.source.status","apps.workspace.status","apps.workspace.file.read","apps.actions","apps.invoke.read"}
+READ_ACTIONS={"apps.list","apps.get","apps.releases","apps.source.status","apps.workspace.status","apps.workspace.file.read","apps.actions","apps.invoke.read","apps.compatibility","apps.settings.get","apps.hosting.status"}
 WRITE_ACTIONS={
     "apps.prebuilt.install",
     "apps.build_install",
@@ -21,6 +21,7 @@ WRITE_ACTIONS={
     "apps.source.detach",
     "apps.workspace.file.write",
     "apps.permission.set",
+    "apps.settings.set",
     "apps.invoke",
 }
 
@@ -242,6 +243,56 @@ def workspace_file_read(arguments:dict[str,Any]|None=None)->dict[str,Any]:
 
 
 
+def compatibility(arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    args=dict(arguments or {})
+    if set(args)-{"app_key"}:
+        raise AppAgentError("apps.compatibility accepts only app_key.")
+    key=str(args.get("app_key") or "").strip().lower()
+    if not key:
+        raise AppAgentError("apps.compatibility requires app_key.")
+    homeserver_apps.get(key)
+    return homeserver_app_control.compatibility(key)
+
+
+def settings_get(arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    args=dict(arguments or {})
+    if set(args)-{"app_key"}:
+        raise AppAgentError("apps.settings.get accepts only app_key.")
+    key=str(args.get("app_key") or "").strip().lower()
+    if not key:
+        raise AppAgentError("apps.settings.get requires app_key.")
+    try:
+        return homeserver_app_control.settings(key)
+    except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
+        raise AppAgentError(str(exc),getattr(exc,"status_code",400)) from exc
+
+
+def hosting_status(arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    args=dict(arguments or {})
+    if set(args)-{"app_key"}:
+        raise AppAgentError("apps.hosting.status accepts only app_key.")
+    key=str(args.get("app_key") or "").strip().lower()
+    if not key:
+        raise AppAgentError("apps.hosting.status requires app_key.")
+    homeserver_apps.get(key)
+    try:
+        from . import hosting_cloud_control
+        sites=[
+            row for row in hosting_cloud_control.list_bound_sites()
+            if str(row.get("target_app_key") or "").strip().lower()==key
+        ]
+    except Exception as exc:
+        raise AppAgentError("App hosting status is unavailable.",503) from exc
+    return {
+        "contract":"vp3.app.hosting-control.v1",
+        "app_key":key,
+        "sites":sites,
+        "count":len(sites),
+        "homeserver_runtime_authority":True,
+        "cloud_identity_authority":True,
+    }
+
+
 def app_actions(arguments:dict[str,Any]|None=None)->dict[str,Any]:
     args=dict(arguments or {})
     if set(args)-{"app_key"}:
@@ -295,6 +346,20 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
     if action not in WRITE_ACTIONS:
         raise AppAgentError("Unsupported Apps Agent action.")
     args=dict(arguments or {})
+
+    if action=="apps.settings.set":
+        unknown=set(args)-{"app_key","values"}
+        if unknown:
+            raise AppAgentError(f"Unsupported {action} argument: {sorted(unknown)[0]}")
+        key=str(args.get("app_key") or "").strip().lower()
+        values=args.get("values")
+        if not key or not isinstance(values,dict):
+            raise AppAgentError("apps.settings.set requires app_key and values.")
+        try:
+            homeserver_app_control.settings(key)
+        except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
+            raise AppAgentError(str(exc),getattr(exc,"status_code",400)) from exc
+        return {"app_key":key,"values":values}
 
     if action=="apps.permission.set":
         unknown=set(args)-{"app_key","permission","allowed"}
@@ -423,6 +488,8 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
             return homeserver_app_sources.install_source(args["source_id"],approved=True)
         if action_key=="apps.workspace.file.write":
             return {"workspace":homeserver_app_workspace.write_file(args["app_key"],args["path"],args["content"])}
+        if action_key=="apps.settings.set":
+            return {"settings":homeserver_app_control.update_settings(args["app_key"],args["values"])}
         if action_key=="apps.permission.set":
             return {"permissions":homeserver_app_security.set_permission(
                 args["app_key"],args["permission"],args["allowed"],
@@ -490,6 +557,8 @@ def public_capability()->dict[str,Any]:
         "compatibility_negotiation":True,
         "system_app_lifecycle_control":True,
         "permission_control":True,
+        "settings_control":True,
+        "hosting_status_control":True,
         "paired_app_admin_tools":False,
         "system_app_protection":True,
     }
