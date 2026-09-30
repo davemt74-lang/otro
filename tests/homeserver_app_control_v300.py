@@ -140,6 +140,45 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-control-v300-") as data_
         bad=client.put("/api/v1/control/homeserver-apps/control.demo/settings",json={"values":{"max_items":101}})
         assert bad.status_code==400
 
+        # Action schemas fail closed before app code/runtime execution.
+        wrong_type=client.post("/api/v1/control/homeserver-apps/control.demo/control/invoke",json={
+            "action":"demo.refresh","arguments":{"reason":7}
+        })
+        assert wrong_type.status_code==400,wrong_type.text
+        unknown_arg=client.post("/api/v1/control/homeserver-apps/control.demo/control/invoke",json={
+            "action":"demo.refresh","arguments":{"reason":"ok","extra":True}
+        })
+        assert unknown_arg.status_code==400,unknown_arg.text
+
+        # Manifest validation prevents risk laundering: read actions cannot mutate,
+        # and high-risk actions require confirmation even when a manifest says otherwise.
+        import copy
+        bad_actions=copy.deepcopy(actions)
+        bad_actions["actions"][0]["executor"]={"type":"event.emit","topic":"demo.bad-read"}
+        try:
+            homeserver_app_control.validate_action_manifest(project,"control.demo","agent/actions.json")
+        except Exception:
+            raise AssertionError("baseline manifest unexpectedly invalid")
+        bad_path=project/"agent"/"actions-bad.json"
+        bad_path.write_text(json.dumps(bad_actions,indent=2)+"\n",encoding="utf-8")
+        try:
+            homeserver_app_control.validate_action_manifest(project,"control.demo","agent/actions-bad.json")
+            raise AssertionError("mutating read action was accepted")
+        except homeserver_app_control.AppControlError:
+            pass
+        high_risk=copy.deepcopy(actions)
+        high_risk["actions"]=[{
+            "key":"demo.admin",
+            "risk":"admin",
+            "requires_confirmation":False,
+            "input_schema":{"type":"object","properties":{},"additionalProperties":False},
+            "executor":{"type":"event.emit","topic":"demo.admin"},
+        }]
+        high_path=project/"agent"/"actions-high.json"
+        high_path.write_text(json.dumps(high_risk,indent=2)+"\n",encoding="utf-8")
+        validated_high=homeserver_app_control.validate_action_manifest(project,"control.demo","agent/actions-high.json")
+        assert validated_high["actions"][0]["requires_confirmation"] is True
+
         # Read actions use genuinely read-only generic executors.
         read=client.post("/api/v1/control/homeserver-apps/control.demo/control/invoke",json={
             "action":"demo.status","arguments":{}
