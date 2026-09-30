@@ -63,6 +63,8 @@ ALLOWED_OPERATIONS = {
     "apps.system.catalog",
     "apps.system.status",
     "apps.system.install",
+    "apps.system.release.status",
+    "apps.system.rollback",
     "apps.system.deactivate",
     "apps.system.reconcile",
 }
