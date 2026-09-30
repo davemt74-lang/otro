@@ -43,19 +43,19 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-manager-v270-") as data_
         by_key={row["app_key"]:row for row in state["items"]}
         
         # Install a system app through the canonical prebuilt/package runtime.
-        install=client.post("/api/v1/control/homeserver-apps/catalog/prebuilt/vp3.tasks/install")
+        install=client.post("/api/v1/control/homeserver-apps/catalog/prebuilt/vp3.notes/install")
         assert install.status_code==200,install.text
 
         manager=client.get("/api/v1/control/homeserver-apps/manager").json()
         by_key={row["app_key"]:row for row in manager["items"]}
-        tasks=by_key["vp3.tasks"]
-        assert tasks["installed"] is True
-        assert tasks["lifecycle_state"]=="running"
-        assert tasks["actions"]["open"] is True
-        assert tasks["permissions"]["declared_count"]==1
-        assert tasks["permissions"]["allowed_count"]==0
-        assert tasks["resources"]["storage_used_bytes"]>=0
-        assert tasks["releases"]["active_release_id"]
+        notes=by_key["vp3.notes"]
+        assert notes["installed"] is True
+        assert notes["lifecycle_state"]=="running"
+        assert notes["actions"]["open"] is True
+        assert notes["permissions"]["declared_count"]==0
+        assert notes["permissions"]["allowed_count"]==0
+        assert notes["resources"]["storage_used_bytes"]>=0
+        assert notes["releases"]["active_release_id"]
         assert manager["counts"]["installed"]>=1
         assert manager["counts"]["running"]>=1
 
@@ -71,9 +71,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-manager-v270-") as data_
         assert by_key["my.dashboard"]["available"] is False
         assert manager["counts"]["user"]>=1
 
-        item=client.get("/api/v1/control/homeserver-apps/manager/vp3.tasks")
+        item=client.get("/api/v1/control/homeserver-apps/manager/vp3.notes")
         assert item.status_code==200,item.text
-        assert item.json()["app"]["app_key"]=="vp3.tasks"
+        assert item.json()["app"]["app_key"]=="vp3.notes"
 
         cap=client.get("/api/v1/control/homeserver-apps/capability").json()
         assert cap["manager"]["unified_inventory"] is True
@@ -96,4 +96,4 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-manager-v270-") as data_
         assert direct["canonical_hosting_engine"] is True
         assert direct["canonical_distribution_engine"] is True
 
-print("HomeServer System Apps Section 13 Unified App Manager and System Apps Library: PASS")
+print("HomeServer Section 13 Unified App Manager and VP3 App Platform: PASS")
