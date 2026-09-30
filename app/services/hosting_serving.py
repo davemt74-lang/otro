@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path, PurePosixPath
+from urllib.parse import parse_qs
 from typing import Any
 
 from fastapi.responses import FileResponse, Response
@@ -233,6 +234,51 @@ def serve(
     except Exception:
         binding=None
     target_app_key=str((binding or {}).get("target_app_key") or "").strip().lower()
+    if target_app_key=="vp3.media-server" and str(request_path or "").lstrip("/").startswith("__vp3_media__/"):
+        try:
+            from . import homeserver_media_server
+            rel=str(request_path or "").lstrip("/")[len("__vp3_media__/"):]
+            headers={str(k).lower():str(v) for k,v in (request_headers or {}).items()}
+            auth=headers.get("authorization","")
+            bearer=auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+            query=parse_qs(str(query_string or ""),keep_blank_values=True)
+            if rel.startswith("stream/"):
+                media_id=rel.split("/",1)[1]
+                ticket=str((query.get("ticket") or [""])[0])
+                if not homeserver_media_server.authenticate_stream_ticket(media_id,ticket):
+                    raise ServingError("Media Server stream ticket is invalid or expired.",401)
+                path,mime,item=homeserver_media_server.resolve_stream(media_id)
+                return FileResponse(
+                    path,media_type=mime,filename=None,
+                    headers={"Accept-Ranges":"bytes","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer","X-VP3-Media-Id":str(item["media_id"])},
+                )
+            if not homeserver_media_server.authenticate_remote(bearer):
+                raise ServingError("Media Server access key is required.",401)
+            if rel=="status":
+                import json as _json
+                return Response(content=_json.dumps(homeserver_media_server.status()),media_type="application/json",headers={"Cache-Control":"no-store"})
+            if rel=="library":
+                import json as _json
+                q=str((query.get("q") or [""])[0])
+                media_type=str((query.get("media_type") or [""])[0])
+                try: limit=int((query.get("limit") or ["100"])[0])
+                except ValueError: limit=100
+                try: offset=int((query.get("offset") or ["0"])[0])
+                except ValueError: offset=0
+                return Response(content=_json.dumps(homeserver_media_server.library(q,media_type,limit,offset)),media_type="application/json",headers={"Cache-Control":"no-store"})
+            if rel.startswith("item/"):
+                import json as _json
+                media_id=rel.split("/",1)[1]
+                return Response(content=_json.dumps(homeserver_media_server.item(media_id)),media_type="application/json",headers={"Cache-Control":"no-store"})
+            if rel.startswith("stream-ticket/"):
+                import json as _json
+                media_id=rel.split("/",1)[1]
+                return Response(content=_json.dumps(homeserver_media_server.stream_ticket(media_id)),media_type="application/json",headers={"Cache-Control":"no-store"})
+            raise ServingError("Media Server hosted route not found.",404)
+        except ServingError:
+            raise
+        except homeserver_media_server.MediaServerError as exc:
+            raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
     if target_app_key:
         try:
             return homeserver_app_runtime.serve(
