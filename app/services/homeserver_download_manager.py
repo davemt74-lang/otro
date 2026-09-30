@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 import re
+import secrets
 import shutil
 import socket
 import sqlite3
@@ -839,6 +840,34 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
     raise DownloadManagerError("Unsupported Download Manager action.",404)
 
 
+
+
+def enable_remote()->dict[str,Any]:
+    key=secrets.token_urlsafe(32)
+    homeserver_app_security.set_secret(APP_KEY,"REMOTE_ACCESS_KEY",key)
+    return {
+        "contract":CONTRACT,
+        "remote_enabled":True,
+        "access_key":key,
+        "access_key_returned_once":True,
+    }
+
+
+def disable_remote()->dict[str,Any]:
+    homeserver_app_security.remove_secret(APP_KEY,"REMOTE_ACCESS_KEY")
+    return {"contract":CONTRACT,"remote_enabled":False}
+
+
+def remote_status()->dict[str,Any]:
+    configured="REMOTE_ACCESS_KEY" in set(homeserver_app_security.secret_status(APP_KEY).get("configured_keys") or [])
+    return {"contract":CONTRACT,"remote_enabled":configured,"access_key_exposed":False}
+
+
+def authenticate_remote(value:str)->bool:
+    expected=homeserver_app_security.get_secret(APP_KEY,"REMOTE_ACCESS_KEY")
+    return bool(expected and secrets.compare_digest(str(value or ""),expected))
+
+
 def public_capability()->dict[str,Any]:
     return {
         "contract":CONTRACT,
@@ -855,6 +884,7 @@ def public_capability()->dict[str,Any]:
         "owner_granted_destinations":True,
         "app_owned_default_destination":True,
         "authenticated_downloads_via_secret":True,
+        "private_hosted_access_key":True,
         "source_urls_exposed":False,
         "filesystem_paths_exposed":False,
         "agent_brain_context":True,
