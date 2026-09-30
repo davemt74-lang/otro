@@ -169,6 +169,37 @@ def releases(arguments:dict[str,Any]|None=None)->dict[str,Any]:
     }
 
 
+def source_status(arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    args=dict(arguments or {})
+    if set(args)-{"app_key"}:
+        raise AppAgentError("apps.source.status accepts only app_key.")
+    key=str(args.get("app_key") or "").strip().lower()
+    if not key:
+        raise AppAgentError("apps.source.status requires app_key.")
+    try:
+        status=homeserver_app_sources.source_status(key)
+    except (homeserver_apps.HomeServerAppError,homeserver_app_sources.AppSourceError) as exc:
+        raise AppAgentError(str(exc),getattr(exc,"status_code",400)) from exc
+    current=status.get("current")
+    return {
+        "contract":CONTRACT,
+        "app_key":key,
+        "source_type":status.get("source_type"),
+        "source_ref":status.get("source_ref"),
+        "installed_package_sha256":status.get("installed_package_sha256"),
+        "update_available":bool(status.get("update_available")),
+        "current":{
+            "source_id":current.get("source_id"),
+            "source_type":current.get("source_type"),
+            "source_ref":current.get("source_ref"),
+            "source_revision":current.get("source_revision"),
+            "package_sha256":current.get("package_sha256"),
+            "status":current.get("status"),
+            "version":(current.get("manifest") or {}).get("version"),
+        } if current else None,
+    }
+
+
 def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]:
     action=str(action_key or "").strip()
     if action not in WRITE_ACTIONS:
@@ -246,8 +277,12 @@ def safe_action_meta(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
 
 def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
     args=normalize_action(action_key,arguments)
-    key=args["app_key"]
     try:
+        if action_key=="apps.git.inspect":
+            return {"source":homeserver_app_sources.inspect_git(args["repo_url"],args["ref"])}
+        if action_key=="apps.source.install":
+            return homeserver_app_sources.install_source(args["source_id"],approved=True)
+        key=args["app_key"]
         if action_key=="apps.prebuilt.install":
             return homeserver_app_prebuilt.install(key)
         if action_key=="apps.build_install":
@@ -269,12 +304,7 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
             ),"changed":True}
         if action_key=="apps.source.detach":
             return {"source":homeserver_app_sources.detach(key,confirmed=True)}
-        if action_key=="apps.git.inspect":
-            source=homeserver_app_sources.inspect_git(args["repo_url"],args["ref"])
-            return {"source":source}
-        if action_key=="apps.source.install":
-            return homeserver_app_sources.install_source(args["source_id"],approved=True)
-    except (homeserver_apps.HomeServerAppError,homeserver_app_releases.AppReleaseError) as exc:
+    except (homeserver_apps.HomeServerAppError,homeserver_app_releases.AppReleaseError,homeserver_app_sources.AppSourceError) as exc:
         raise AppAgentError(str(exc),getattr(exc,"status_code",400)) from exc
     raise AppAgentError("Unsupported Apps Agent action.")
 
