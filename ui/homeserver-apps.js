@@ -7,7 +7,7 @@
     while(n>=1024 && i<units.length-1){ n/=1024; i++; }
     return `${n.toFixed(i===0?0:n>=10?1:2)} ${units[i]}`;
   };
-  const state={data:null,catalog:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null};
+  const state={data:null,catalog:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null,pendingDistribution:null};
 
   function ensureWorkspace(){
     if(document.getElementById('view-homeserver-apps')) return;
@@ -61,6 +61,12 @@
             <label>HTTPS repository<input id="hsAppsGitUrl" type="url" required maxlength="1000" placeholder="https://github.com/org/app.git"></label>
             <label>Branch, tag or commit<input id="hsAppsGitRef" maxlength="160" value="HEAD" placeholder="main"></label>
             <button class="button secondary" type="submit">Inspect Git</button>
+          </form>
+          <form id="hsAppsDistributionImportForm">
+            <h4>Private VP3 share</h4>
+            <label>VP3 app bundle<input id="hsAppsDistributionFile" type="file" accept=".zip,.vp3app.zip,application/zip" required></label>
+            <label>Expected package SHA-256<input id="hsAppsDistributionHash" maxlength="64" pattern="[a-fA-F0-9]{64}" placeholder="From the VP3 private-share page"></label>
+            <button class="button secondary" type="submit">Inspect Private Bundle</button>
           </form>
         </div>
         <div id="hsAppsSourcePreview" class="hs-app-source-preview hidden"></div>
@@ -181,6 +187,31 @@
     renderSourcePreview(result.source);
   }
 
+  async function inspectDistribution(){
+    const file=document.getElementById('hsAppsDistributionFile')?.files?.[0];
+    if(!file) throw new Error('Choose a VP3 app distribution bundle.');
+    const expected=(document.getElementById('hsAppsDistributionHash')?.value||'').trim().toLowerCase();
+    if(expected && !/^[a-f0-9]{64}$/.test(expected)) throw new Error('Expected package SHA-256 must be 64 hexadecimal characters.');
+    const body=new FormData(); body.append('file',file);
+    const result=await window.api('/api/v1/control/homeserver-apps/distribution/inspect',{method:'POST',body});
+    const dist=result.distribution||{}, descriptor=dist.descriptor||{};
+    if(expected && descriptor.package_sha256!==expected) throw new Error('This bundle does not match the private-share package hash.');
+    state.pendingDistribution={file,expected,distribution:dist};
+    const node=document.getElementById('hsAppsSourcePreview');
+    node.classList.remove('hidden');
+    node.innerHTML=`
+      <div class="panel-head"><div><p class="eyebrow">PRIVATE DISTRIBUTION</p><h3>${esc(descriptor.name||descriptor.app_key||'App')}</h3><p class="muted">${esc(descriptor.app_key||'')} · v${esc(descriptor.version||'—')}</p></div><span class="hs-source-ready">Integrity verified</span></div>
+      <div class="hs-app-source-grid">
+        <div><span>Runtime</span><strong>${esc(descriptor.runtime||'—')}</strong></div>
+        <div><span>Files</span><strong>${esc(descriptor.file_count||0)}</strong></div>
+        <div><span>Package</span><strong>${bytes(descriptor.compressed_bytes||0)}</strong></div>
+        <div><span>SHA-256</span><code>${esc(descriptor.package_sha256||'')}</code></div>
+        <div class="wide"><span>Publisher fingerprint</span><code>${esc(descriptor.publisher_fingerprint||'')}</code></div>
+      </div>
+      <p class="muted">App data, secrets, and ownership are not included. Permissions remain governed after install.</p>
+      <div class="form-actions"><button class="button primary" type="button" data-hs-distribution-install>Approve & Install Private App</button></div>`;
+  }
+
   async function inspectGit(){
     const result=await window.api('/api/v1/control/homeserver-apps/sources/git/inspect',{
       method:'POST',
@@ -248,9 +279,9 @@
     try{
       const detail=await window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}`);
       const app=detail.app, system=app.app_class==='system';
-      let permissions=null,resources=null,runtime=null,secrets=null,releases=null,source=null,workspace=null;
+      let permissions=null,resources=null,runtime=null,secrets=null,releases=null,source=null,workspace=null,distribution=null;
       if(!system || (app.metadata||{}).prebuilt_app){
-        [permissions,resources,runtime,secrets,releases,source,workspace]=await Promise.all([
+        [permissions,resources,runtime,secrets,releases,source,workspace,distribution]=await Promise.all([
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/permissions`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/resources`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/runtime/services`).catch(()=>null),
@@ -258,6 +289,7 @@
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/releases`).catch(()=>null),
           window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/source`).catch(()=>null),
           !system&&["user_created","agent_builder"].includes(app.source_type)?loadWorkspace(key).catch(()=>null):Promise.resolve(null),
+          !system?window.api(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/distribution`).catch(()=>null):Promise.resolve(null),
         ]);
       }
       const permRows=permissions?.permissions?.permissions||[];
@@ -271,9 +303,9 @@
           <section><h4>Permissions</h4>${permRows.length?permRows.map(p=>`<label class="hs-app-permission"><input type="checkbox" data-hs-app-permission="${esc(key)}" data-permission="${esc(p.permission)}" ${p.allowed?'checked':''}> ${esc(p.permission)} <span class="muted">· ${esc(p.risk||'unknown')} risk</span></label>`).join(''):'<p class="muted">No permissions declared.</p>'}</section>
           <section><h4>Resources</h4>${r?`<p>Files ${bytes(r.storage_used_bytes)} / ${bytes(r.storage_limit_bytes)}</p><p>SQLite ${bytes(r.sqlite_used_bytes)} / ${bytes(r.sqlite_limit_bytes)}</p>`:'<p class="muted">Managed by VP3.</p>'}</section>
           <section><h4>Secrets</h4>${secrets?`<p>${secrets.secrets.count} configured · values never displayed</p>`:'<p class="muted">Managed by VP3.</p>'}</section>
-          ${!system?`<section><h4>Source</h4>${source?.source?.current?`<p><strong>${esc(source.source.current.source_type)}</strong> · ${source.source.update_available?'Update inspected':'Current'}</p><p class="muted">${esc(source.source.current.source_ref||'')}</p>${source.source.current.source_revision?`<code>${esc(source.source.current.source_revision)}</code>`:''}`:'<p class="muted">Local SDK / no attached external source.</p>'}</section>`:''}
+          ${!system?`<section><h4>Distribution</h4>${distribution?.distribution?`<p><strong>Private share ready</strong></p><p class="muted">v${esc(distribution.distribution.version||"—")} · ${bytes(distribution.distribution.compressed_bytes||0)}</p><code>${esc((distribution.distribution.package_sha256||"").slice(0,20))}…</code><p class="muted">App data and secrets are excluded.</p>`:`<p class="muted">Build or validate the app before distribution.</p>`}</section><section><h4>Source</h4>${source?.source?.current?`<p><strong>${esc(source.source.current.source_type)}</strong> · ${source.source.update_available?'Update inspected':'Current'}</p><p class="muted">${esc(source.source.current.source_ref||'')}</p>${source.source.current.source_revision?`<code>${esc(source.source.current.source_revision)}</code>`:''}`:'<p class="muted">Local SDK / no attached external source.</p>'}</section>`:''}
         </div>
-        ${!system?`<div class="hs-app-detail-actions"><button class="button secondary" data-hs-app-build="${esc(key)}">Build & Install</button>${source?.source?.current?.source_type==='git'?`<button class="button secondary" data-hs-source-refresh="${esc(key)}">Check Git Update</button>`:''}${source?.source?.current?`<button class="text-button" data-hs-source-detach="${esc(key)}">Detach Source</button>`:''}${releaseRows.some(x=>x.previous)?`<button class="button secondary" data-hs-app-rollback="${esc(key)}">Rollback</button>`:''}${['failed','degraded'].includes(app.lifecycle_state)?`<button class="button secondary" data-hs-app-recover="${esc(key)}">Recover</button>`:''}<button class="text-button danger" data-hs-app-archive="${esc(key)}">Archive App</button></div>`:''}
+        ${!system?`<div class="hs-app-detail-actions"><button class="button secondary" data-hs-app-build="${esc(key)}">Build & Install</button><a class="button secondary" href="/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/distribution/export">Export App</a>${source?.source?.current?.source_type==='git'?`<button class="button secondary" data-hs-source-refresh="${esc(key)}">Check Git Update</button>`:''}${source?.source?.current?`<button class="text-button" data-hs-source-detach="${esc(key)}">Detach Source</button>`:''}${releaseRows.some(x=>x.previous)?`<button class="button secondary" data-hs-app-rollback="${esc(key)}">Rollback</button>`:''}${['failed','degraded'].includes(app.lifecycle_state)?`<button class="button secondary" data-hs-app-recover="${esc(key)}">Recover</button>`:''}<button class="text-button danger" data-hs-app-archive="${esc(key)}">Archive App</button></div>`:''}
         ${!system?`<div class="hs-app-history"><h4>Releases</h4>${releaseRows.slice(0,6).map(rel=>`<div><strong>v${esc(rel.version||'—')} ${rel.active?'· Active':''}</strong><span>${esc(rel.release_id)}</span>${!rel.active?`<button class="text-button" data-hs-app-promote="${esc(key)}" data-release-id="${esc(rel.release_id)}">Promote</button>`:''}</div>`).join('')||'<p class="muted">No releases yet.</p>'}</div>`:''}
         ${workspace?workspacePanel(workspace,key):""}
         <div class="hs-app-history"><h4>Recent activity</h4>${(detail.history||[]).slice(0,8).map(e=>`<div><strong>${esc(e.event_type)}</strong><span>${esc(e.created_at||'')}</span></div>`).join('')||'<p class="muted">No activity yet.</p>'}</div>
@@ -334,6 +366,21 @@
         .then(async()=>{await load(true);window.flash('VP3 app installed.');})
         .catch(error=>window.flash(error.message||'VP3 app install failed.',true))
         .finally(()=>{prebuilt.disabled=false;});
+      return;
+    }
+    const distributionInstall=event.target.closest('[data-hs-distribution-install]');
+    if(distributionInstall){
+      const pending=state.pendingDistribution;
+      if(!pending?.file) return;
+      if(!confirm('Install this verified private app bundle? The package hash will be checked again before activation.')) return;
+      const body=new FormData(); body.append('file',pending.file);
+      const query=new URLSearchParams({approved:'true'});
+      if(pending.expected) query.set('expected_package_sha256',pending.expected);
+      distributionInstall.disabled=true;
+      window.api('/api/v1/control/homeserver-apps/distribution/install?'+query.toString(),{method:'POST',body})
+        .then(async result=>{state.pendingDistribution=null;renderSourcePreview(null);document.getElementById('hsAppsImport')?.classList.add('hidden');await load(true);await detail(result.distribution.descriptor.app_key);window.flash('Private app installed from verified distribution bundle.');})
+        .catch(error=>window.flash(error.message||'Private app install failed.',true))
+        .finally(()=>{distributionInstall.disabled=false;});
       return;
     }
     const sourceInstall=event.target.closest('[data-hs-source-install]');
@@ -432,6 +479,12 @@
       event.preventDefault();
       try{await inspectGit();window.flash('Git source validated. Review before installing.');}
       catch(error){window.flash(error.message||'Git inspection failed.',true);}
+      return;
+    }
+    if(event.target.id==='hsAppsDistributionImportForm'){
+      event.preventDefault();
+      try{await inspectDistribution();window.flash('Private app bundle verified. Review before installing.');}
+      catch(error){window.flash(error.message||'Private app inspection failed.',true);}
       return;
     }
     if(event.target.id!=='hsAppsCreateForm') return;
