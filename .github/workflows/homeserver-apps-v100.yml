@@ -5,6 +5,7 @@ on:
     paths:
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_app_*.py'
+      - 'app/services/homeserver_app_distribution.py'
       - 'app/services/hosting_cloud_control.py'
       - 'app/services/hosting_serving.py'
       - 'tests/hosting_system_app_target_v250.py'
@@ -69,6 +70,11 @@ on:
       - 'tests/homeserver_apps_v100.py'
       - 'tests/homeserver_apps_v180.py'
       - '.github/workflows/homeserver-apps-v100.yml'
+      - 'app/services/homeserver_app_distribution.py'
+      - 'app/services/remote_bridge.py'
+      - 'ui/homeserver-apps.js'
+      - 'ui/homeserver-apps.css'
+      - 'tests/homeserver_system_apps_v250.py'
   workflow_dispatch:
 
 permissions:
@@ -102,6 +108,7 @@ jobs:
           app/services/homeserver_app_runtime.py
           app/services/homeserver_app_sample_data.py
           app/services/homeserver_app_sources.py
+          app/services/homeserver_app_distribution.py
           tests/homeserver_apps_v170.py
           tests/homeserver_apps_v180.py
           tests/homeserver_apps_v190.py
@@ -109,6 +116,8 @@ jobs:
           tests/homeserver_system_apps_v210.py
           tests/homeserver_system_apps_v220.py
           tests/homeserver_system_apps_v230.py
+          tests/homeserver_system_apps_v240.py
+          tests/homeserver_system_apps_v250.py
           app/services/homeserver_app_data_lifecycle.py
           tests/hosting_system_app_target_v250.py
           app/services/hosting_cloud_control.py
