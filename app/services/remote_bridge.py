@@ -467,6 +467,13 @@ def _system_app_status(app_key: str) -> dict[str, Any]:
     package["installed_package_sha256"]=installed_package_sha256 or None
     package["active_release_id"]=active_release_id or None
     package["previous_release_id"]=previous_release_id or None
+    data_status=None
+    if bool(package.get("installed")):
+        try:
+            from . import homeserver_app_data_lifecycle
+            data_status=homeserver_app_data_lifecycle.status(key)
+        except Exception:
+            data_status=None
     return {
         "contract":"vp3.system-app-installation.v1",
         "catalog_version":catalog.get("catalog_version"),
@@ -475,6 +482,7 @@ def _system_app_status(app_key: str) -> dict[str, Any]:
         "current":bool(package.get("current")),
         "update_available":bool(package.get("update_available")),
         "state":str(package.get("state") or "available"),
+        "data":data_status,
     }
 
 
@@ -538,7 +546,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     expected_active_release_id=str(body.get("expected_active_release_id") or "") or None,
                     reason=str(body.get("reason") or "owner_requested"),
                 )
-            except (homeserver_apps.HomeServerAppError, homeserver_app_releases.AppReleaseError) as exc:
+            except (homeserver_apps.HomeServerAppError, homeserver_app_releases.AppReleaseError, RuntimeError) as exc:
                 return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "apps.system.deactivate":
