@@ -87,6 +87,10 @@ CATALOG = {
         "sample": [],
         "permissions": ["files.read"],
         "routes": {"local": True, "private_remote": True, "public": False},
+        "settings_fields": [
+            {"key":"authorization_host","type":"string","label":"Authenticated host","description":"Exact hostname allowed to receive the stored Authorization header.","required":False,"secret":False,"default":""},
+            {"key":"authorization_header","type":"string","label":"Authorization header","description":"Stored securely and sent only to the configured authenticated host.","required":False,"secret":True}
+        ],
         "agent_actions": [
             {
                 "key":"media.roots.list","risk":"read","requires_confirmation":False,
@@ -428,7 +432,7 @@ def _package(definition: dict[str, Any]) -> bytes:
         "index.html": _html(definition),
         "assets/app.css": (APP_CSS + ".photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-top:14px}.photo-card{display:block;text-align:left;border:1px solid #2b3139;border-radius:10px;background:#171b20;color:#f4f6f8;padding:8px;cursor:pointer}.photo-thumb{aspect-ratio:1/1;background:#090b0e center/cover no-repeat;border-radius:7px;margin-bottom:8px}dialog{max-width:min(92vw,1100px);background:#11151a;color:#fff;border:1px solid #303640;border-radius:12px;padding:14px}dialog::backdrop{background:rgba(0,0,0,.8)}#viewerImage{display:block;max-width:86vw;max-height:78vh;margin:12px auto;object-fit:contain}") if definition["kind"]=="photo_library" else (VIDEO_EDITOR_CSS if definition["kind"]=="video_editor" else (MEDIA_SERVER_CSS if definition["kind"]=="media_server" else APP_CSS)),
         "assets/app.js": DOWNLOAD_MANAGER_JS if definition["kind"]=="download_manager" else (PHOTO_LIBRARY_JS if definition["kind"]=="photo_library" else (MUSIC_SERVER_JS if definition["kind"]=="music_server" else (VIDEO_EDITOR_JS if definition["kind"]=="video_editor" else (MEDIA_SERVER_JS if definition["kind"]=="media_server" else COMMON_JS)))),
-        "settings.schema.json": json.dumps({"contract": "vp3.app.settings-schema.v1", "fields": []}, indent=2) + "\n",
+        "settings.schema.json": json.dumps({"contract": "vp3.app.settings-schema.v1", "fields": list(definition.get("settings_fields") or [])}, indent=2) + "\n",
         "agent/actions.json": json.dumps({
             "contract": "vp3.app.agent-actions.v2" if str(definition.get("sdk_version") or "1.0")=="1.2" else "vp3.app.agent-actions.v1",
             "actions": list(definition.get("agent_actions") or [])
