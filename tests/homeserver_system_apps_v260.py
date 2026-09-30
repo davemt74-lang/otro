@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-share-lifecycle-v260-") as d
         assert review["schema_change"]=={"from":"1","to":"2","changed":True}
         added={row["permission"] for row in review["permission_delta"]["added"]}
         assert "network.external" in added
-        assert any(row["permission"]=="network.external" for row in review["permission_delta"]["high_risk_added"])
+        assert any(row["permission"]=="network.external" for row in review["permission_delta"]["high_risk_added_details"])
 
         # No approval = no update.
         try:
