@@ -501,7 +501,6 @@ def rollback_release(app_key:str,*,expected_active_release_id:str|None=None,reas
         "previous_release_id":active or None,
     }
     _write_state(app_key,new_state)
-    manifest=_manifest_from_archive(zipfile.ZipFile(io.BytesIO(b"PK\x05\x06"+b"\x00"*18),"r")) if False else None
     manifest_path=content/"vp3-app.json"
     try:
         manifest_value=json.loads(manifest_path.read_text(encoding="utf-8"))
