@@ -71,9 +71,9 @@ CATALOG = {
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Adds mapped computer folders and network-share source health.",
-            "Adds governed Agent controls for mapping, checking, rescanning, and removing media roots.",
-            "Preserves direct indexing with no source-file copying or deletion.",
+            "Hardens mapped-source privacy so original path hints remain private.",
+            "Refreshes source health automatically during scans and preserves indexed media through temporary disconnects.",
+            "Ships on SDK 1.2 / Agent Actions v2 with governed mapping, checking, rescanning, and removal.",
         ],
         "category": "Media",
         "kind": "media_server",
@@ -123,9 +123,9 @@ CATALOG = {
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Adds local artist, album and track library views sourced from VP3 Media Server.",
-            "Adds playlists, favorites, queue and playback control with complete HomeServer Agent control.",
-            "Uses owner-mapped computer folders through the canonical Media Server source layer."
+            "Adds real local and private-hosted audio playback backed by Media Server stream tickets.",
+            "Hardens large-library sync with generation reconciliation and stale-playback cleanup.",
+            "Ships on SDK 1.2 / Agent Actions v2 while preserving canonical Media Server ownership."
         ],
         "category": "Media",
         "kind": "music_server",
