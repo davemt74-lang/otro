@@ -60,6 +60,10 @@ ALLOWED_OPERATIONS = {
     "action.list",
     "action.approve",
     "action.deny",
+    "apps.system.catalog",
+    "apps.system.status",
+    "apps.system.install",
+    "apps.system.reconcile",
 }
 
 
