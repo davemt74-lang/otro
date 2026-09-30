@@ -42,6 +42,22 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "additionalProperties": False
         },
     },
+    "apps.releases": {
+        "key": "apps.releases",
+        "name": "List HomeServer App Releases",
+        "description": "List bounded release history for one HomeServer app with active/previous lineage.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "app_key": {"type": "string", "maxLength": 80},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 20}
+            },
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
     "apps.prebuilt.list": {
         "key": "apps.prebuilt.list",
         "name": "List VP3 Prebuilt Apps",
@@ -93,6 +109,32 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "key": "apps.recover",
         "name": "Recover User App",
         "description": "Recover a failed or degraded user-created app using its canonical release history after explicit owner approval.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.start": {
+        "key": "apps.start",
+        "name": "Start User App",
+        "description": "Start or resume a user-created HomeServer app after explicit owner approval.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.stop": {
+        "key": "apps.stop",
+        "name": "Stop User App",
+        "description": "Stop a running user-created HomeServer app after explicit owner approval.",
         "mode": "write",
         "required_permissions": ["apps.manage"],
         "input_schema": {
@@ -1496,28 +1538,76 @@ def _apps_recover(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
 
 
 
-def _apps_read(tool_key:str,arguments:dict[str,Any])->tuple[dict[str,Any],dict[str,Any]]:
+
+def _apps_releases(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown=set(arguments)-{"app_key","limit"}
+    if unknown:
+        raise ToolError(f"Unsupported apps.releases argument: {sorted(unknown)[0]}")
+    key=str(arguments.get("app_key") or "").strip().lower()
+    if not homeserver_apps._KEY_RE.fullmatch(key):
+        raise ToolError("A valid app_key is required.")
+    limit=_bounded_int(arguments.get("limit"),10,1,20,"limit")
     try:
-        if tool_key=="apps.list":
-            result=homeserver_app_agent.list_apps(arguments)
-        elif tool_key=="apps.get":
-            result=homeserver_app_agent.get_app(arguments)
-        elif tool_key=="apps.releases":
-            result=homeserver_app_agent.releases(arguments)
+        status=homeserver_app_releases.list_releases(key)
+    except (homeserver_apps.HomeServerAppError, homeserver_app_releases.AppReleaseError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    rows=[]
+    for release in list(status.get("releases") or [])[:limit]:
+        rows.append({
+            "release_id":release.get("release_id"),
+            "version":release.get("version"),
+            "runtime":release.get("runtime"),
+            "source_type":release.get("source_type"),
+            "sdk_version":release.get("sdk_version"),
+            "created_at":release.get("created_at"),
+            "active":release.get("release_id")==status.get("active_release_id"),
+        })
+    result={
+        "app_key":key,
+        "active_release_id":status.get("active_release_id"),
+        "previous_release_id":status.get("previous_release_id"),
+        "releases":rows,
+        "count":len(rows),
+    }
+    return result,{"app_key":key,"count":len(rows)}
+
+
+def _apps_start(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
+    try:
+        app=homeserver_apps.get(key)
+        if app["app_class"]!="user":
+            raise ToolError("VP3 system app lifecycle is managed by VP3.",409)
+        before=str(app["lifecycle_state"])
+        if before=="running":
+            result=app
+            changed=False
         else:
-            raise ToolError("Unsupported Apps read tool.")
-    except homeserver_app_agent.AppAgentError as exc:
+            result=homeserver_apps.resume_user_app(key)
+            changed=True
+    except homeserver_apps.HomeServerAppError as exc:
         raise ToolError(str(exc),exc.status_code) from exc
-    homeserver_app_agent.record_context_read(tool_key,result)
-    return result, {"count":int(result.get("count",1)),"contract":homeserver_app_agent.CONTRACT}
+    return {"app":result,"changed":changed},{"app_key":key,"changed":changed}
 
 
-def _apps_write(tool_key:str,arguments:dict[str,Any])->tuple[dict[str,Any],dict[str,Any]]:
+def _apps_stop(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    key=_apps_key(arguments)
     try:
-        result=homeserver_app_agent.execute_action(tool_key,arguments)
-    except homeserver_app_agent.AppAgentError as exc:
+        app=homeserver_apps.get(key)
+        if app["app_class"]!="user":
+            raise ToolError("VP3 system app lifecycle is managed by VP3.",409)
+        if app["lifecycle_state"]=="stopped":
+            result=app
+            changed=False
+        else:
+            result=homeserver_apps.transition(
+                key,"stopped",actor_type="owner",actor_key="agent-approved",
+                metadata={"reason":"approved_agent_action"},
+            )
+            changed=True
+    except homeserver_apps.HomeServerAppError as exc:
         raise ToolError(str(exc),exc.status_code) from exc
-    return result, {"app_key":str(arguments.get("app_key") or "")[:80],"contract":homeserver_app_agent.CONTRACT}
+    return {"app":result,"changed":changed},{"app_key":key,"changed":changed}
 
 def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
                  granted_permissions: set[str] | None = None, *, owner: bool = False,
@@ -1552,6 +1642,8 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _apps_list(payload)
         elif tool["key"] == "apps.status":
             result, result_meta = _apps_status(payload)
+        elif tool["key"] == "apps.releases":
+            result, result_meta = _apps_releases(payload)
         elif tool["key"] == "apps.prebuilt.list":
             result, result_meta = _apps_prebuilt_list(payload)
         elif tool["key"] == "apps.prebuilt.install":
@@ -1562,6 +1654,10 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _apps_rollback(payload)
         elif tool["key"] == "apps.recover":
             result, result_meta = _apps_recover(payload)
+        elif tool["key"] == "apps.start":
+            result, result_meta = _apps_start(payload)
+        elif tool["key"] == "apps.stop":
+            result, result_meta = _apps_stop(payload)
         elif tool["key"] == "contacts.search":
             result, result_meta = _contacts_search(payload)
         elif tool["key"] == "contacts.create":
