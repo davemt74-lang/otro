@@ -2,7 +2,7 @@ from __future__ import annotations
 import json, os, shutil, sqlite3, subprocess, threading, time, uuid
 from pathlib import Path
 from typing import Any
-from . import homeserver_app_resources, homeserver_app_runtime, homeserver_apps, homeserver_media_server
+from . import homeserver_app_resources, homeserver_app_runtime, homeserver_apps, homeserver_media_server, homeserver_media_tools
 
 APP_KEY="vp3.media-processor"
 CONTRACT="vp3.media-processor.v1"
@@ -49,10 +49,12 @@ def _connect()->sqlite3.Connection:
     return c
 
 def capability()->dict[str,Any]:
-    ffmpeg=shutil.which("ffmpeg"); ffprobe=shutil.which("ffprobe")
-    return {"contract":CONTRACT,"ffmpeg_available":bool(ffmpeg),"ffprobe_available":bool(ffprobe),
-      "video_transcode":bool(ffmpeg),"audio_convert":bool(ffmpeg),"image_convert":bool(ffmpeg),
-      "thumbnail_generation":bool(ffmpeg),"proxy_generation":bool(ffmpeg),
+    tools=homeserver_media_tools.public_capability()
+    available=bool(tools["healthy"])
+    return {"contract":CONTRACT,"ffmpeg_available":available,"ffprobe_available":bool(tools["ffprobe_available"]),
+      "ffmpeg_managed_by_homeserver":True,"ffmpeg_version":tools["ffmpeg_version"],
+      "video_transcode":available,"audio_convert":available,"image_convert":available,
+      "thumbnail_generation":available,"proxy_generation":available,
       "source_media_owned":False,"source_media_deleted":False,"homeserver_execution_authority":True}
 
 def _public(row)->dict[str,Any]:
@@ -105,7 +107,7 @@ def _spec(operation:str,preset:str,fmt:str,source_type:str)->tuple[list[str],str
 
 def enqueue(media_id:str,operation:str,preset:str="default",output_format:str="",priority:int=0)->dict[str,Any]:
     item=homeserver_media_server.item(str(media_id or ""))["item"]
-    if not capability()["ffmpeg_available"]: raise MediaProcessorError("FFmpeg is not available on this HomeServer.",409)
+    if not capability()["ffmpeg_available"]: raise MediaProcessorError("The HomeServer managed FFmpeg runtime is unavailable or unhealthy.",409)
     _spec(operation,preset,output_format,str(item["media_type"]))
     jid="proc_"+uuid.uuid4().hex
     c=_connect()
@@ -157,7 +159,8 @@ def _run(job_id:str)->None:
       args,fmt,kind=_spec(job["operation"],job["preset"],job["output_format"],item["media_type"])
       root=homeserver_app_resources.files_root(APP_KEY)/"derivatives"; root.mkdir(parents=True,exist_ok=True)
       name=f"{job_id}.{fmt}"; tmp=root/(name+".tmp"); final=root/name
-      cmd=[shutil.which("ffmpeg") or "ffmpeg","-y","-i",str(src),*args,str(tmp)]
+      tools=homeserver_media_tools.require()
+      cmd=[str(tools["ffmpeg"]),"-y","-i",str(src),*args,str(tmp)]
       result=subprocess.run(cmd,capture_output=True,text=True,timeout=7200)
       if result.returncode!=0: raise MediaProcessorError((result.stderr or "FFmpeg failed.")[-1200:],422)
       os.replace(tmp,final)
