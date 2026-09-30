@@ -10,7 +10,7 @@ from ..database import db
 from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.09.30.11"
+CATALOG_VERSION = "2026.09.30.12"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -74,14 +74,14 @@ CATALOG = {
     "vp3.media-server": {
         "key": "vp3.media-server",
         "name": "VP3 Media Server",
-        "version": "1.1.1",
+        "version": "1.2.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Hardens mapped-source privacy so original path hints remain private.",
-            "Refreshes source health automatically during scans and preserves indexed media through temporary disconnects.",
-            "Ships on SDK 1.2 / Agent Actions v2 with governed mapping, checking, rescanning, and removal.",
+            "Adds governed Media Processor handoff for conversion, thumbnails, proxies, and derived media.",
+            "Retains mapped-source privacy, health checks, and in-place source ownership.",
+            "Ships on SDK 1.2 / Agent Actions v2.",
         ],
         "category": "Media",
         "kind": "media_server",
@@ -214,7 +214,7 @@ CATALOG = {
     "vp3.download-manager": {
         "key": "vp3.download-manager",
         "name": "VP3 Download Manager",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
@@ -290,12 +290,14 @@ CATALOG = {
     "vp3.video-editor": {
         "key": "vp3.video-editor",
         "name": "VP3 Video Editor",
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Adds local non-destructive multi-track video editing backed by Media Server source IDs.",
-            "Adds HomeServer Agent complete-control actions for projects, timeline edits, and governed render jobs.",
+            "Adds governed Media Processor proxy generation for timeline clips.",
+            "Retains local non-destructive multi-track editing backed by Media Server source IDs.",
+            "Ships on SDK 1.2 / Agent Actions v2.",
         ],
         "category": "Media",
         "kind": "video_editor",
