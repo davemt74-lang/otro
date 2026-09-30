@@ -39,6 +39,7 @@ def validate_action_manifest(content_root:Path,app_key:str,manifest_path:str)->d
         raise AppControlError("Agent action manifest is invalid JSON.") from exc
     if not isinstance(payload,dict) or payload.get("contract") not in MANIFEST_CONTRACTS:
         raise AppControlError("Agent action manifest contract is unsupported.")
+    manifest_contract=str(payload.get("contract") or "")
     raw=payload.get("actions",[])
     if not isinstance(raw,list) or len(raw)>128:
         raise AppControlError("Agent action manifest actions are invalid.")
@@ -84,6 +85,8 @@ def validate_action_manifest(content_root:Path,app_key:str,manifest_path:str)->d
                 except re.error as exc:
                     raise AppControlError(f"Agent action {key} property {prop_name} pattern is invalid.") from exc
         executor=row.get("executor")
+        if executor is None and manifest_contract=="vp3.app.agent-actions.v2":
+            raise AppControlError(f"Agent action {key} requires an executor in v2 manifests.")
         if executor is not None:
             if not isinstance(executor,dict):
                 raise AppControlError(f"Agent action {key} executor must be an object.")
@@ -112,14 +115,15 @@ def validate_action_manifest(content_root:Path,app_key:str,manifest_path:str)->d
             "requires_confirmation":confirmation,
             "input_schema":schema,
             "executor":executor,
+            "executable":executor is not None,
         })
     return {
         "contract":CONTRACT,
-        "manifest_contract":payload["contract"],
+        "manifest_contract":manifest_contract,
         "app_key":app_key,
         "actions":actions,
         "count":len(actions),
-        "compatible":True,
+        "compatible":all(bool(row.get("executable")) for row in actions),
     }
 
 
@@ -413,7 +417,7 @@ def compatibility(app_key:str)->dict[str,Any]:
         return {
             "contract":CONTRACT,
             "app_key":app_key,
-            "compatible":True,
+            "compatible":bool(data.get("compatible")),
             "manifest_contract":data["manifest_contract"],
             "action_count":data["count"],
             "supported_manifest_contracts":sorted(MANIFEST_CONTRACTS),
