@@ -36,8 +36,15 @@ def inventory()->dict[str,Any]:
     registry=homeserver_apps.list_apps()
     catalog=homeserver_app_prebuilt.catalog()
     hosting=_hosting_by_app()
-    installed_by_key={str(row["app_key"]):row for row in registry.get("apps",[]) if row}
     catalog_by_key={str(row["key"]):row for row in catalog.get("packages",[]) if row}
+    installed_by_key={}
+    for row in registry.get("apps",[]):
+        if not row:
+            continue
+        key=str(row["app_key"])
+        meta=dict(row.get("metadata") or {})
+        if row.get("app_class")=="user" or key in catalog_by_key or meta.get("prebuilt_app"):
+            installed_by_key[key]=row
     keys=sorted(set(installed_by_key)|set(catalog_by_key))
     items=[]
     counts={"installed":0,"available":0,"system":0,"user":0,"updates":0,"shared":0,"running":0,"hosted":0}
@@ -62,6 +69,8 @@ def inventory()->dict[str,Any]:
             "app_key":key,
             "name":str((app or {}).get("name") or (package or {}).get("name") or key),
             "app_class":str((app or {}).get("app_class") or ("system" if package else "user")),
+            "product_type":"vp3_optional_app" if package else ("private_shared_app" if shared else "user_app"),
+            "core_homeserver_feature":False,
             "protected_system_app":bool((app or {}).get("protected_system_app") or package),
             "installed":installed,
             "available":available,
@@ -78,6 +87,7 @@ def inventory()->dict[str,Any]:
             "resources":resources,
             "releases":releases,
             "distribution":shared,
+            "deployment_modes":list((package or {}).get("deployment_modes") or ["local","private_remote","hosted_subdomain","custom_domain"]),
             "hosting":{
                 "bound":bool(bound),
                 "count":len(bound),
@@ -91,7 +101,7 @@ def inventory()->dict[str,Any]:
                 "manage":bool(app),
                 "rollback":bool(releases and releases.get("previous_release_id")),
                 "recover":bool(app and lifecycle in {"failed","degraded"}),
-                "host":bool(system and installed),
+                "host":bool(installed),
                 "export":bool(app and app.get("app_class")=="user"),
             },
         }
@@ -110,6 +120,9 @@ def inventory()->dict[str,Any]:
         "counts":counts,
         "catalog_version":catalog.get("catalog_version"),
         "first_party_library":True,
+        "vp3_optional_apps":True,
+        "core_homeserver_features_excluded":True,
+        "deployment_modes":["local","private_remote","hosted_subdomain","custom_domain"],
         "app_store":False,
         "canonical_registry":True,
         "canonical_release_engine":True,
@@ -131,7 +144,9 @@ def public_capability()->dict[str,Any]:
     return {
         "contract":CONTRACT,
         "unified_inventory":True,
-        "vp3_system_library":True,
+        "vp3_apps_library":True,
+        "core_homeserver_features_excluded":True,
+        "deployment_modes":["local","private_remote","hosted_subdomain","custom_domain"],
         "installed_user_apps":True,
         "private_share_provenance":True,
         "permissions":True,
