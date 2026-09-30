@@ -66,6 +66,7 @@
             <h4>Private VP3 share</h4>
             <label>VP3 app bundle<input id="hsAppsDistributionFile" type="file" accept=".zip,.vp3app.zip,application/zip" required></label>
             <label>Expected package SHA-256<input id="hsAppsDistributionHash" maxlength="64" pattern="[a-fA-F0-9]{64}" placeholder="From the VP3 private-share page"></label>
+            <label>Private share ID<input id="hsAppsDistributionShareId" maxlength="64" placeholder="Optional share ID from VP3 Cloud"></label>
             <button class="button secondary" type="submit">Inspect Private Bundle</button>
           </form>
         </div>
@@ -192,24 +193,33 @@
     if(!file) throw new Error('Choose a VP3 app distribution bundle.');
     const expected=(document.getElementById('hsAppsDistributionHash')?.value||'').trim().toLowerCase();
     if(expected && !/^[a-f0-9]{64}$/.test(expected)) throw new Error('Expected package SHA-256 must be 64 hexadecimal characters.');
+    const shareId=(document.getElementById('hsAppsDistributionShareId')?.value||'').trim();
     const body=new FormData(); body.append('file',file);
-    const result=await window.api('/api/v1/control/homeserver-apps/distribution/inspect',{method:'POST',body});
-    const dist=result.distribution||{}, descriptor=dist.descriptor||{};
+    const query=new URLSearchParams(); if(expected)query.set('expected_package_sha256',expected);
+    const result=await window.api('/api/v1/control/homeserver-apps/distribution/inspect?'+query.toString(),{method:'POST',body});
+    const review=result.distribution||{}, descriptor=review.descriptor||{};
     if(expected && descriptor.package_sha256!==expected) throw new Error('This bundle does not match the private-share package hash.');
-    state.pendingDistribution={file,expected,distribution:dist};
+    state.pendingDistribution={file,expected,shareId,distribution:review};
     const node=document.getElementById('hsAppsSourcePreview');
     node.classList.remove('hidden');
+    const pd=review.permission_delta||{}, sc=review.schema_change||{}, vc=review.version_change||{};
     node.innerHTML=`
-      <div class="panel-head"><div><p class="eyebrow">PRIVATE DISTRIBUTION</p><h3>${esc(descriptor.name||descriptor.app_key||'App')}</h3><p class="muted">${esc(descriptor.app_key||'')} · v${esc(descriptor.version||'—')}</p></div><span class="hs-source-ready">Integrity verified</span></div>
+      <div class="panel-head"><div><p class="eyebrow">${review.update?'PRIVATE UPDATE':'PRIVATE DISTRIBUTION'}</p><h3>${esc(descriptor.name||descriptor.app_key||'App')}</h3><p class="muted">${esc(descriptor.app_key||'')} · ${review.update?esc(vc.from||'—')+' → ':''}v${esc(descriptor.version||'—')}</p></div><span class="hs-source-ready">Integrity verified</span></div>
       <div class="hs-app-source-grid">
         <div><span>Runtime</span><strong>${esc(descriptor.runtime||'—')}</strong></div>
         <div><span>Files</span><strong>${esc(descriptor.file_count||0)}</strong></div>
         <div><span>Package</span><strong>${bytes(descriptor.compressed_bytes||0)}</strong></div>
         <div><span>SHA-256</span><code>${esc(descriptor.package_sha256||'')}</code></div>
         <div class="wide"><span>Publisher fingerprint</span><code>${esc(descriptor.publisher_fingerprint||'')}</code></div>
+        <div><span>New permissions</span><strong>${esc((pd.added||[]).length)}</strong></div>
+        <div><span>High-risk additions</span><strong>${esc((pd.high_risk_added||[]).length)}</strong></div>
+        <div><span>Data schema</span><strong>${esc(sc.from||'1')} → ${esc(sc.to||'1')}</strong></div>
+        <div><span>Automatic update</span><strong>No</strong></div>
       </div>
-      <p class="muted">App data, secrets, and ownership are not included. Permissions remain governed after install.</p>
-      <div class="form-actions"><button class="button primary" type="button" data-hs-distribution-install>Approve & Install Private App</button></div>`;
+      ${(pd.added||[]).length?`<div class="system-app-warning"><strong>Permission review required.</strong> New permissions default denied after install: ${(pd.added||[]).map(x=>esc(x.permission||x)).join(', ')}</div>`:''}
+      ${sc.changed?`<div class="system-app-warning"><strong>Data schema change.</strong> HomeServer will use the existing snapshot/recovery lifecycle before activation.</div>`:''}
+      <p class="muted">Publisher continuity is verified. App data, secrets, and ownership are not transferred. Existing hosting bindings remain attached to the same app identity.</p>
+      <div class="form-actions"><button class="button primary" type="button" data-hs-distribution-install>Approve & ${review.update?'Update':'Install'} Private App</button></div>`;
   }
 
   async function inspectGit(){
@@ -376,6 +386,7 @@
       const body=new FormData(); body.append('file',pending.file);
       const query=new URLSearchParams({approved:'true'});
       if(pending.expected) query.set('expected_package_sha256',pending.expected);
+      if(pending.shareId) query.set('share_public_id',pending.shareId);
       distributionInstall.disabled=true;
       window.api('/api/v1/control/homeserver-apps/distribution/install?'+query.toString(),{method:'POST',body})
         .then(async result=>{state.pendingDistribution=null;renderSourcePreview(null);document.getElementById('hsAppsImport')?.classList.add('hidden');await load(true);await detail(result.distribution.descriptor.app_key);window.flash('Private app installed from verified distribution bundle.');})
