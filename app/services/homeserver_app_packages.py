@@ -321,6 +321,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         raise AppPackageError("App is busy with another lifecycle operation.",409)
     transition_target="updating" if current_state in {"installed","running","degraded","stopped"} else "installing"
     transitioned=False
+    data_migration_result=None
     root=releases_root(app_key)
     release_id="apprel_"+uuid.uuid4().hex[:24]
     staging=Path(tempfile.mkdtemp(prefix=".staging-",dir=root))
@@ -377,9 +378,10 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             "data_schema_version":str(manifest.get("data_schema_version") or "1"),
             "data_migration_reversible":bool(manifest.get("data_migration_reversible",True)),
         }
-        release["data_migration"]=homeserver_app_data_lifecycle.prepare_and_apply_migration(
+        data_migration_result=homeserver_app_data_lifecycle.prepare_and_apply_migration(
             app_key,manifest,content,release_id=release_id
         )
+        release["data_migration"]=data_migration_result
         (staging/"release.json").write_text(json.dumps(release,indent=2,sort_keys=True)+"\n",encoding="utf-8")
         os.replace(staging,final)
         previous=_read_state(app_key)
@@ -430,6 +432,13 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         return result
     except Exception as exc:
         shutil.rmtree(staging,ignore_errors=True)
+        if isinstance(data_migration_result,dict) and data_migration_result.get("migration_required") and data_migration_result.get("snapshot_id"):
+            try:
+                homeserver_app_data_lifecycle.restore_snapshot(
+                    app_key,str(data_migration_result["snapshot_id"]),reason="release_activation_failed"
+                )
+            except Exception:
+                pass
         if transitioned:
             try:
                 homeserver_apps.transition(app_key,"failed",metadata={"reason":str(exc)[:500]})
