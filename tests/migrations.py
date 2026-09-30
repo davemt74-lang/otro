@@ -271,6 +271,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         assert migrated.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0] == 0
         policies = migrated.execute("SELECT tool_key, enabled FROM tool_policies ORDER BY tool_key").fetchall()
         assert [(row["tool_key"], row["enabled"]) for row in policies] == [
+            ("apps.build_install", 1),
+            ("apps.prebuilt.install", 1),
+            ("apps.recover", 1),
+            ("apps.rollback", 1),
+            ("apps.start", 1),
+            ("apps.stop", 1),
             ("calendar.create", 1),
             ("calendar.delete", 1),
             ("calendar.list", 1),
