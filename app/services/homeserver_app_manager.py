@@ -142,6 +142,8 @@ def inventory()->dict[str,Any]:
         "canonical_permission_engine":True,
         "canonical_hosting_engine":True,
         "canonical_distribution_engine":True,
+        "homeserver_agent_complete_control":True,
+        "agent_manifest_actions":True,
     }
 
 
