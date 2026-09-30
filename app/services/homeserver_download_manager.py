@@ -460,6 +460,58 @@ def get_download(download_id:str)->dict[str,Any]:
     return {"contract":CONTRACT,"download":_public_job(row)}
 
 
+def completed_path(download_id:str)->Path:
+    connection=_connect()
+    try:
+        row=connection.execute(
+            "SELECT destination_id,final_filename,status FROM download_jobs WHERE download_id=?",(download_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+    if not row:
+        raise DownloadManagerError("Download not found.",404)
+    if str(row["status"])!="completed" or not str(row["final_filename"] or ""):
+        raise DownloadManagerError("Download is not complete.",409)
+    root,_kind=_destination_path(str(row["destination_id"]))
+    target=(root/str(row["final_filename"])).resolve()
+    if target.parent!=root or not target.is_file() or target.is_symlink():
+        raise DownloadManagerError("Completed download file is unavailable.",404)
+    return target
+
+
+def handoff_to_processor(
+    download_id:str,
+    operation:str,
+    preset:str="default",
+    output_format:str="",
+    priority:int=0,
+)->dict[str,Any]:
+    target=completed_path(download_id)
+    try:
+        from . import homeserver_media_processor, homeserver_media_server
+        media_id=homeserver_media_server.media_id_for_path(target,rescan=True)
+        if not media_id:
+            raise DownloadManagerError(
+                "Completed file is not inside an enabled Media Server root. Map its destination in Media Server first.",
+                409,
+            )
+        result=homeserver_media_processor.enqueue(media_id,operation,preset,output_format,priority)
+        _event("downloads.processor.handoff",{
+            "download_id":download_id,"media_id":media_id,"operation":operation,
+            "job_id":result["job"]["job_id"],
+        })
+        return {
+            "contract":CONTRACT,
+            "download_id":download_id,
+            "media_id":media_id,
+            "processor_job":result["job"],
+        }
+    except DownloadManagerError:
+        raise
+    except Exception as exc:
+        raise DownloadManagerError(str(exc),getattr(exc,"status_code",422)) from exc
+
+
 def enqueue(
     url:str,
     *,
@@ -988,6 +1040,11 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
     if key=="downloads.settings": return settings()
     if key=="downloads.settings.update": return update_settings(dict(args.get("values") or {}))
     if key=="downloads.brain-context": return brain_context(int(args.get("limit",8)))
+    if key=="downloads.processor.handoff": return handoff_to_processor(
+        str(args.get("download_id") or ""),str(args.get("operation") or ""),
+        str(args.get("preset") or "default"),str(args.get("output_format") or ""),
+        int(args.get("priority",0))
+    )
     raise DownloadManagerError("Unsupported Download Manager action.",404)
 
 
@@ -1049,6 +1106,7 @@ def public_capability()->dict[str,Any]:
         "filesystem_paths_exposed":False,
         "agent_brain_context":True,
         "runtime_events":True,
+        "media_processor_handoff":True,
         "universal_agent_control":True,
         "homeserver_execution_authority":True,
     }
