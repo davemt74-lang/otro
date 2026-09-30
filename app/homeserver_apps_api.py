@@ -441,7 +441,7 @@ def media_processor_jobs(limit:int=Query(default=100,ge=1,le=500))->dict:
 def media_processor_enqueue(payload:MediaProcessorCreateRequest)->dict:
     return _call(
         homeserver_media_processor.enqueue,payload.media_id,payload.operation,
-        payload.preset,payload.output_format,payload.priority
+        payload.preset,payload.output_format,payload.priority,payload.destination_id
     )
 
 
@@ -484,6 +484,21 @@ def media_processor_derivative_file(derivative_id:str):
             "X-VP3-Derivative-Id":str(row["derivative_id"]),
         },
     )
+
+
+@router.get("/media-processor/destinations")
+def media_processor_destinations()->dict:
+    return _call(homeserver_media_processor.destinations)
+
+
+@router.post("/media-processor/destinations")
+def media_processor_add_destination(payload:MediaProcessorDestinationRequest)->dict:
+    return _call(homeserver_media_processor.add_destination,payload.path,payload.label,payload.destination_kind)
+
+
+@router.delete("/media-processor/destinations/{destination_id}")
+def media_processor_remove_destination(destination_id:str)->dict:
+    return _call(homeserver_media_processor.remove_destination,destination_id)
 
 
 @router.get("/media-processor/settings")
