@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-workspace-v240-") as data_di
         validate=client.post("/api/v1/control/homeserver-apps/workspace.demo/workspace/validate")
         assert validate.status_code==200,validate.text
         assert validate.json()["valid"] is True
-        assert validate.json()["permission_delta"]["requires_review"] is False
+        assert validate.json()["permission_delta"]["requires_review"] is True\n        assert validate.json()["permission_delta"]["added"][0]["permission"]=="notifications.write"
 
         build=client.post("/api/v1/control/homeserver-apps/workspace.demo/build-install")
         assert build.status_code==200,build.text
