@@ -5,6 +5,8 @@ on:
     paths:
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_app_*.py'
+      - 'app/services/remote_bridge.py'
+      - 'relay/app.py'
       - 'app/services/homeserver_apps.py'
       - 'app/services/homeserver_app_sdk.py'
       - 'app/services/homeserver_app_packages.py'
@@ -13,6 +15,7 @@ on:
       - 'app/services/homeserver_app_runtime.py'
       - 'app/services/homeserver_app_sample_data.py'
       - 'tests/homeserver_apps_v170.py'
+      - 'tests/homeserver_apps_v190.py'
       - 'app/services/tools.py'
       - 'app/services/approvals.py'
       - 'app/services/agent_tools.py'
@@ -91,6 +94,9 @@ jobs:
           app/services/homeserver_app_sources.py
           tests/homeserver_apps_v170.py
           tests/homeserver_apps_v180.py
+          tests/homeserver_apps_v190.py
+          app/services/remote_bridge.py
+          relay/app.py
           app/services/tools.py
           app/services/approvals.py
           app/services/agent_tools.py
@@ -142,3 +148,5 @@ jobs:
         run: python tests/homeserver_apps_v170.py
       - name: Verify ZIP Git import and source management
         run: python tests/homeserver_apps_v180.py
+      - name: Verify Cloud ownership install bridge
+        run: python tests/homeserver_apps_v190.py
