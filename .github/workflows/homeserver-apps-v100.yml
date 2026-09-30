@@ -142,3 +142,11 @@ jobs:
         run: python tests/homeserver_apps_v170.py
       - name: Verify ZIP Git import and source management
         run: python tests/homeserver_apps_v180.py
+      - name: Verify core smoke contract
+        run: python tests/smoke.py
+      - name: Verify tool security contract
+        run: python tests/tools_security.py
+      - name: Verify Agent tool contract
+        run: python tests/agent_tools.py
+      - name: Verify action approval contract
+        run: python tests/action_approvals.py
