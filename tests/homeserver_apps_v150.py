@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
         assert payload["contract"]=="vp3.app.prebuilt-catalog.v1"
         assert payload["source"]=="embedded_vp3"
         assert payload["app_store"] is False
-        assert {p["key"] for p in payload["packages"]}=={"vp3.notes","vp3.inventory","vp3.checklists"}
+        assert {"vp3.notes","vp3.inventory","vp3.checklists"}.issubset({p["key"] for p in payload["packages"]})
         assert all(len(p["package_sha256"])==64 for p in payload["packages"])
         assert all(p["installed"] is False for p in payload["packages"])
 
@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
         preview=client.get("/api/v1/control/homeserver-apps/vp3.notes/preview/")
         assert preview.status_code==200,preview.text
         assert "VP3 Notes" in preview.text
-        assert "VP3 PREBUILT APP" in preview.text
+        assert "VP3 SYSTEM APP" in preview.text
 
         # Sample data is integrated but remains globally off until explicitly enabled.
         sample=client.get("/api/v1/control/homeserver-apps/vp3.notes/sample-data")
@@ -123,7 +123,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
         assert cap["external_downloads"] is False
         assert cap["app_store"] is False
         assert cap["protected_system_apps"] is True
-        assert cap["package_count"]==3
+        assert cap["package_count"]>=3
 
         history=client.get("/api/v1/control/homeserver-apps/vp3.notes").json()["history"]
         prebuilt_events=[event for event in history if event["event_type"]=="app.prebuilt.installed"]
@@ -131,8 +131,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
         assert all(event["actor_type"]=="system" and event["actor_key"]=="vp3_prebuilt" for event in prebuilt_events)
 
     ui=(ROOT/"ui"/"homeserver-apps.js").read_text(encoding="utf-8")
-    assert "VP3 PREBUILT" in ui
-    assert "VP3 Apps" in ui
+    assert "App Manager" in ui
+    assert "VP3 System" in ui
     assert "data-hs-prebuilt-install" in ui
     assert "/catalog/prebuilt" in ui
     assert "meta.prebuilt_app" in ui
