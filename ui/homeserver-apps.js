@@ -280,7 +280,7 @@
     }
     const sourceRefresh=event.target.closest('[data-hs-source-refresh]');
     if(sourceRefresh){
-      post('/api/v1/control/homeserver-apps/'+encodeURIComponent(sourceRefresh.dataset.hsSourceRefresh)+'/source/refresh',{ref:'HEAD'})
+      post('/api/v1/control/homeserver-apps/'+encodeURIComponent(sourceRefresh.dataset.hsSourceRefresh)+'/source/refresh',{ref:''})
         .then(result=>{renderSourcePreview(result.source);document.getElementById('hsAppsImport')?.classList.remove('hidden');window.flash('Git source inspected. Review before installing.');})
         .catch(error=>window.flash(error.message||'Git refresh failed.',true));
       return;
