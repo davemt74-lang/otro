@@ -218,6 +218,15 @@ def _builtin(app_key:str,provider:str,action_key:str,arguments:dict[str,Any])->A
         if action=="media.roots.list": return homeserver_media_server.roots()
         if action=="media.scan": return homeserver_media_server.scan(str(arguments.get("root_id") or ""))
         if action=="media.root.check": return homeserver_media_server.check_root(str(arguments.get("root_id") or ""))
+        if action=="media.root.map":
+            return homeserver_media_server.add_mapped_root(
+                str(arguments.get("path") or ""),
+                str(arguments.get("label") or ""),
+                computer_name=str(arguments.get("computer_name") or ""),
+                source_hint=str(arguments.get("source_hint") or ""),
+                source_kind=str(arguments.get("source_kind") or "computer_folder"),
+            )
+        if action=="media.root.remove": return homeserver_media_server.remove_root(str(arguments.get("root_id") or ""))
         raise AppControlError("Unsupported Media Server builtin action.",404)
     raise AppControlError("Builtin app action provider is unavailable.",501)
 
