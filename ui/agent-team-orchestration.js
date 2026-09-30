@@ -5,7 +5,7 @@
   const API = '/api/v1/control/agent-workflows';
   const byId = id => document.getElementById(id);
   const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const state = {items: [], busy: null, bootAttempts: 0};
+  const state = {items: [], busy: null, bootAttempts: 0, refreshing: false};
 
   function routing() { return window.HomeServerAgentRouting || null; }
   function activeConversationId() { return routing()?.getActiveConversationId?.() || null; }
@@ -135,9 +135,15 @@
   }
 
   async function refresh({refreshPlanning = false} = {}) {
-    if (refreshPlanning) await window.HomeServerAgentTeamPlanning?.refresh?.();
-    await load();
-    render();
+    if (state.refreshing) return;
+    state.refreshing = true;
+    try {
+      if (refreshPlanning) await window.HomeServerAgentTeamPlanning?.refresh?.({notifyOrchestration:false});
+      await load();
+      render();
+    } finally {
+      state.refreshing = false;
+    }
   }
 
   async function perform(planId, suffix, successMessage) {
@@ -148,7 +154,7 @@
       const item = await requestJson(`${API}/team-plans/${encodeURIComponent(planId)}/${suffix}`, {method: 'POST'});
       state.items = [item, ...state.items.filter(row => Number(row.plan_id) !== Number(item.plan_id))];
       await window.HomeServerAgentTeamRuns?.refresh?.();
-      await window.HomeServerAgentTeamPlanning?.refresh?.();
+      await window.HomeServerAgentTeamPlanning?.refresh?.({notifyOrchestration:false});
       await load();
       render();
       flash(successMessage(item));
@@ -216,10 +222,11 @@
   window.addEventListener('homeserver:chat-agent-changed', () => refresh().catch(() => null));
 
   const messageObserver = new MutationObserver(() => {
+    if (state.refreshing) return;
     clearTimeout(messageObserver._orchestrationRefresh);
     messageObserver._orchestrationRefresh = setTimeout(() => {
-      if (activeConversationId()) refresh({refreshPlanning: true}).catch(() => null);
-    }, 220);
+      if (!state.refreshing && activeConversationId() && document.visibilityState === 'visible') refresh({refreshPlanning: true}).catch(() => null);
+    }, 500);
   });
 
   function boot() {
