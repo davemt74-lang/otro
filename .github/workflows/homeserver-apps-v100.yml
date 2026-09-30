@@ -13,6 +13,8 @@ on:
       - 'tests/homeserver_app_control_v300.py'
       - 'tests/homeserver_music_server_v310.py'
       - 'tests/homeserver_photo_library_v320.py'
+      - 'tests/homeserver_download_manager_v330.py'
+      - 'app/services/homeserver_download_manager.py'
       - 'app/services/homeserver_media_server.py'
       - 'app/services/homeserver_photo_library.py'
       - 'app/services/homeserver_music_server.py'
@@ -112,6 +114,8 @@ on:
       - 'tests/homeserver_photo_library_v320.py'
       - 'app/services/homeserver_photo_library.py'
       - 'app/services/hosting_serving.py'
+      - 'tests/homeserver_download_manager_v330.py'
+      - 'app/services/homeserver_download_manager.py'
   workflow_dispatch:
 
 permissions:
@@ -153,6 +157,8 @@ jobs:
           tests/homeserver_app_control_v300.py
           tests/homeserver_music_server_v310.py
           tests/homeserver_photo_library_v320.py
+          tests/homeserver_download_manager_v330.py
+          app/services/homeserver_download_manager.py
           app/services/homeserver_media_server.py
           app/services/homeserver_photo_library.py
           app/services/homeserver_music_server.py
@@ -254,5 +260,7 @@ jobs:
         run: python tests/homeserver_music_server_v310.py
       - name: Verify Photo Library
         run: python tests/homeserver_photo_library_v320.py
+      - name: Verify Download Manager
+        run: python tests/homeserver_download_manager_v330.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
