@@ -23,6 +23,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
         homeserver_app_control,
         homeserver_app_manager,
         homeserver_app_resources,
+        homeserver_app_runtime,
         homeserver_download_manager,
         hosting_cloud_control,
         hosting_serving,
@@ -69,6 +70,17 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
             })
             assert grant.status_code==200,grant.text
 
+        app_settings=client.get("/api/v1/control/homeserver-apps/vp3.download-manager/settings")
+        assert app_settings.status_code==200,app_settings.text
+        fields={row["key"]:row for row in app_settings.json()["schema"]["fields"]}
+        assert fields["authorization_host"]["secret"] is False
+        assert fields["authorization_header"]["secret"] is True
+        scoped=client.put("/api/v1/control/homeserver-apps/vp3.download-manager/settings",json={
+            "values":{"authorization_host":"secure.example.com","authorization_header":"Bearer top-secret"}
+        })
+        assert scoped.status_code==200,scoped.text
+        assert "top-secret" not in scoped.text
+
         # Private/local-network SSRF targets fail closed before any request.
         blocked=client.post("/api/v1/control/homeserver-apps/download-manager/downloads",json={
             "url":"http://127.0.0.1/private"
@@ -87,9 +99,18 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
         original_ensure=homeserver_download_manager._ensure_worker
         original_open=homeserver_download_manager._open_url
         original_validate=homeserver_download_manager._validate_url
+        original_open_for_job=homeserver_download_manager._open_for_job
         homeserver_download_manager._ensure_worker=lambda:None
         homeserver_download_manager._validate_url=lambda url: __import__("urllib.parse").parse.urlsplit(url)
         try:
+            # Auth headers are host-scoped; another download host never receives them.
+            captured=[]
+            homeserver_download_manager._open_url=lambda url,headers,timeout=30: captured.append((url,dict(headers))) or FakeResponse([b""],200,{"Content-Length":"0"})
+            homeserver_download_manager._open_for_job({"url":"https://other.example.com/file","etag":"","last_modified":""},0)
+            assert "Authorization" not in captured[-1][1]
+            homeserver_download_manager._open_for_job({"url":"https://secure.example.com/file","etag":"","last_modified":""},0)
+            assert captured[-1][1].get("Authorization")=="Bearer top-secret"
+
             payload=b"abcdef"
             digest=hashlib.sha256(payload).hexdigest()
 
@@ -137,6 +158,43 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
             assert completed["download"]["bytes_downloaded"]==6
             final_root=homeserver_app_resources.files_root("vp3.download-manager")/"downloads"
             assert (final_root/"file.bin").read_bytes()==payload
+
+            # File-type safety rules are configurable and enforced before finalization.
+            updated_settings=client.put("/api/v1/control/homeserver-apps/download-manager/settings",json={
+                "values":{"blocked_extensions":["exe","ps1"]}
+            })
+            assert updated_settings.status_code==200,updated_settings.text
+            blocked_job=homeserver_download_manager.enqueue(
+                "https://downloads.example.com/tool.exe",filename="tool.exe",max_retries=0
+            )
+            homeserver_download_manager._open_url=lambda *_args,**_kwargs:FakeResponse(
+                [b"binary"],200,{"Content-Length":"6"}
+            )
+            blocked_result=homeserver_download_manager.process_next()
+            assert blocked_result["download"]["status"]=="failed"
+            assert "blocked" in blocked_result["download"]["error"].lower()
+            client.put("/api/v1/control/homeserver-apps/download-manager/settings",json={"values":{"blocked_extensions":[]}})
+
+            # Truncated responses never finalize; retries use bounded backoff.
+            short_job=homeserver_download_manager.enqueue(
+                "https://downloads.example.com/short.bin",filename="short.bin",max_retries=1
+            )
+            short_id=short_job["download"]["download_id"]
+            homeserver_download_manager._open_url=lambda *_args,**_kwargs:FakeResponse(
+                [b"abc"],200,{"Content-Length":"6"}
+            )
+            short_result=homeserver_download_manager.process_next()
+            assert short_result["download"]["status"]=="queued"
+            assert "expected content length" in short_result["download"]["error"].lower()
+            conn=homeserver_download_manager._connect()
+            try:
+                row=conn.execute("SELECT scheduled_at,retry_count FROM download_jobs WHERE download_id=?",(short_id,)).fetchone()
+                assert int(row["retry_count"])==1
+                assert int(row["scheduled_at"])>0
+                conn.execute("UPDATE download_jobs SET status='cancelled' WHERE download_id=?",(short_id,))
+                conn.commit()
+            finally:
+                conn.close()
 
             # Filename conflicts never overwrite prior downloads.
             second=homeserver_download_manager.enqueue(
@@ -204,6 +262,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
             assert brain.json()["filesystem_paths_exposed"] is False
             assert mapped_dir not in brain.text
 
+            events=homeserver_app_runtime.list_events("vp3.download-manager",limit=100)
+            topics={row["topic"] for row in events}
+            assert "downloads.queued" in topics
+            assert "downloads.completed" in topics
+
             # Universal Agent control advertises governed write/read actions.
             compatibility=homeserver_app_control.compatibility("vp3.download-manager")
             assert compatibility["compatible"] is True
@@ -258,6 +321,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
             assert cap["universal_agent_control"] is True
         finally:
             homeserver_download_manager._open_url=original_open
+            homeserver_download_manager._open_for_job=original_open_for_job
             homeserver_download_manager._validate_url=original_validate
             homeserver_download_manager._ensure_worker=original_ensure
             homeserver_download_manager.stop_worker()
