@@ -37,7 +37,7 @@ def package(app_key:str,name:str,version:str="1.0.0",extra:dict[str,bytes]|None=
 with tempfile.TemporaryDirectory(prefix="homeserver-apps-v180-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
 
-    from app.database import initialize_database  # noqa: E402
+    from app.database import db, initialize_database  # noqa: E402
     from app.services import agent_tools, approvals, homeserver_app_sources, homeserver_apps  # noqa: E402
 
     initialize_database()
@@ -78,9 +78,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v180-") as data_dir:
 
     # Cached source bytes are re-hashed at install time.
     tampered=homeserver_app_sources.inspect_zip(package("tamper.demo","Tamper Demo"),"tamper.zip")
-    with __import__("sqlite3").connect(str(Path(data_dir)/"homeserver.db")) as raw:
-        row=raw.execute("SELECT cache_path FROM homeserver_app_sources WHERE source_id=?",(tampered["source_id"],)).fetchone()
-    Path(row[0]).write_bytes(b"changed after inspection")
+    with db() as connection:
+        row=connection.execute("SELECT cache_path FROM homeserver_app_sources WHERE source_id=?",(tampered["source_id"],)).fetchone()
+    Path(row["cache_path"]).write_bytes(b"changed after inspection")
     try:
         homeserver_app_sources.install_source(tampered["source_id"],approved=True)
         raise AssertionError("Tampered source cache installed")
