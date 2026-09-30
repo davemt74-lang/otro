@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, homeserver_app_prebuilt, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -434,6 +434,34 @@ def _vp3_hosting_identity(token: str) -> dict:
     return identity
 
 
+def _vp3_system_apps_identity(token: str) -> dict:
+    # System-app distribution is restricted to the canonical paired VP3 Cloud
+    # identity. No generic paired app can install or inspect protected VP3 apps.
+    # We intentionally do not introduce a new coarse permission here so existing
+    # paired VP3 accounts do not require a permission-upgrade/re-pair cycle.
+    identity=_direct_identity(token)
+    if str(identity.get("app_key") or "")!="vp3":
+        raise RemoteBridgeError("System Apps control is restricted to the paired VP3 Cloud app.")
+    return identity
+
+
+def _system_app_status(app_key: str) -> dict[str, Any]:
+    key=str(app_key or "").strip().lower()
+    catalog=homeserver_app_prebuilt.catalog()
+    package=next((item for item in catalog.get("packages",[]) if str(item.get("key") or "")==key),None)
+    if package is None:
+        raise homeserver_apps.HomeServerAppError("VP3 system app not found.",404)
+    return {
+        "contract":"vp3.system-app-installation.v1",
+        "catalog_version":catalog.get("catalog_version"),
+        "package":package,
+        "installed":bool(package.get("installed")),
+        "current":bool(package.get("current")),
+        "update_available":bool(package.get("update_available")),
+        "state":str(package.get("state") or "available"),
+    }
+
+
 def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: str | None = None) -> dict:
     requested_op = str(operation or "").strip()
     op = _REMOTE_OPERATION_ALIASES.get(requested_op, requested_op)
@@ -449,6 +477,39 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
     with httpx.Client(base_url=base_url, timeout=125.0, trust_env=False) as client:
         if op == "capabilities":
             return _local_response(client.get("/api/v1/capabilities"))
+        if op == "apps.system.catalog":
+            _vp3_system_apps_identity(token)
+            return {"status":200,"ok":True,"payload":homeserver_app_prebuilt.catalog()}
+        if op == "apps.system.status":
+            _vp3_system_apps_identity(token)
+            try:
+                payload_out=_system_app_status(str(body.get("app_key") or ""))
+            except homeserver_apps.HomeServerAppError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.system.install":
+            _vp3_system_apps_identity(token)
+            try:
+                result=homeserver_app_prebuilt.install(str(body.get("app_key") or ""))
+                payload_out=_system_app_status(str(body.get("app_key") or ""))
+                payload_out["changed"]=bool(result.get("changed"))
+                payload_out["reason"]=str(result.get("reason") or "")
+                payload_out["release"]=result.get("release")
+            except homeserver_apps.HomeServerAppError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.system.reconcile":
+            _vp3_system_apps_identity(token)
+            requested=body.get("app_keys")
+            if not isinstance(requested,list) or len(requested)>100:
+                raise RemoteBridgeError("apps.system.reconcile requires a bounded app_keys array.")
+            items=[]
+            for raw_key in requested:
+                try:
+                    items.append(_system_app_status(str(raw_key or "")))
+                except homeserver_apps.HomeServerAppError as exc:
+                    items.append({"contract":"vp3.system-app-installation.v1","app_key":str(raw_key or ""),"error":str(exc),"status":int(exc.status_code)})
+            return {"status":200,"ok":True,"payload":{"contract":"vp3.system-app-reconciliation.v1","runtime_authority":"homeserver","items":items}}
         if op == "hosting.inventory":
             _vp3_hosting_identity(token)
             return {"status":200,"ok":True,"payload":hosting_cloud_control.inventory()}
