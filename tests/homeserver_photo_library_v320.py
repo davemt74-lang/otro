@@ -24,6 +24,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-photos-v320-") as data_dir, 
     p1.write_bytes(b"\xff\xd8\xff"+b"a"*100)
     p2.write_bytes(b"\xff\xd8\xff"+b"b"*100)
     p3.write_bytes(b"\x89PNG\r\n\x1a\n"+b"c"*95)
+    stable_ts=1704153600  # 2024-01-02 UTC
+    for path in (p1,p2,p3):
+        os.utime(path,(stable_ts,stable_ts))
 
     from app.runtime import app
     from app.security import OWNER_CONTROL_TOKEN
@@ -92,7 +95,14 @@ with tempfile.TemporaryDirectory(prefix="homeserver-photos-v320-") as data_dir, 
         body=photos.json()
         assert body["total"]==3
         assert {row["folder_album"] for row in body["photos"]}=={"Sedona 2026"}
+        assert {row["source_file_date"] for row in body["photos"]}=={"2024-01-02"}
         assert str(source) not in photos.text
+        timeline=client.get("/api/v1/control/homeserver-apps/photo-library/timeline").json()
+        assert timeline["days"][0]["day"]=="2024-01-02"
+        client.post("/api/v1/control/homeserver-apps/media-server/scan")
+        client.post("/api/v1/control/homeserver-apps/photo-library/sync")
+        timeline_after=client.get("/api/v1/control/homeserver-apps/photo-library/timeline").json()
+        assert timeline_after["days"][0]["day"]=="2024-01-02"
         first=body["photos"][0]["media_id"]
 
         folders=client.get("/api/v1/control/homeserver-apps/photo-library/folders").json()
