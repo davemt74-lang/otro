@@ -98,7 +98,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
     unknown=set(manifest)-_ALLOWED_KEYS
     if unknown:
         raise AppPackageError("App manifest contains unsupported fields: "+", ".join(sorted(unknown))+".")
-    required={"contract","app_key","name","version","runtime","entrypoint","permissions","agent_actions","settings_schema"}
+    required={"contract","app_key","name","version","runtime","entrypoint","permissions"}
     missing=sorted(key for key in required if key not in manifest)
     if missing:
         raise AppPackageError("App manifest is missing required fields: "+", ".join(missing)+".")
@@ -133,6 +133,10 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
     sdk_version=str(manifest.get("sdk_version") or "").strip()
     if sdk_version and sdk_version not in {"1.0","1.1","1.2"}:
         raise AppPackageError("App SDK version is not supported.")
+    if sdk_version=="1.2":
+        missing_control=[field for field in ("agent_actions","settings_schema") if not str(manifest.get(field) or "").strip()]
+        if missing_control:
+            raise AppPackageError("SDK 1.2 app manifest is missing required control fields: "+", ".join(missing_control)+".")
     routes=manifest.get("routes",{})
     if routes is not None:
         if not isinstance(routes,dict) or any(k not in {"local","private_remote","public"} for k in routes):
@@ -348,8 +352,12 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         from . import homeserver_app_control
         try:
             homeserver_app_runtime.validate_release_contracts(app_key,content)
-            homeserver_app_control.validate_action_manifest(content,app_key,str(manifest.get("agent_actions") or ""))
-            homeserver_app_control.validate_settings_schema(content,app_key,str(manifest.get("settings_schema") or ""))
+            agent_actions_path=str(manifest.get("agent_actions") or "").strip()
+            settings_schema_path=str(manifest.get("settings_schema") or "").strip()
+            if agent_actions_path:
+                homeserver_app_control.validate_action_manifest(content,app_key,agent_actions_path)
+            if settings_schema_path:
+                homeserver_app_control.validate_settings_schema(content,app_key,settings_schema_path)
         except (homeserver_app_runtime.AppRuntimeError,homeserver_app_control.AppControlError) as exc:
             raise AppPackageError(str(exc),getattr(exc,"status_code",400)) from exc
         homeserver_apps.transition(
@@ -475,12 +483,15 @@ def verify_active_release(
         raise AppPackageError("Active release package hash does not match the expected update.",409)
     content=(releases_root(app_key)/active/"content").resolve()
     from . import homeserver_app_control
-    manifest_path=str((homeserver_apps.get(app_key).get("metadata") or {}).get("agent_actions") or "agent/actions.json")
-    settings_path=str((homeserver_apps.get(app_key).get("metadata") or {}).get("settings_schema") or "settings.schema.json")
     try:
         homeserver_app_runtime.validate_release_contracts(app_key,content)
-        homeserver_app_control.validate_action_manifest(content,app_key,manifest_path)
-        homeserver_app_control.validate_settings_schema(content,app_key,settings_path)
+        metadata=dict(homeserver_apps.get(app_key).get("metadata") or {})
+        manifest_path=str(metadata.get("agent_actions") or "").strip()
+        settings_path=str(metadata.get("settings_schema") or "").strip()
+        if manifest_path:
+            homeserver_app_control.validate_action_manifest(content,app_key,manifest_path)
+        if settings_path:
+            homeserver_app_control.validate_settings_schema(content,app_key,settings_path)
     except (homeserver_app_runtime.AppRuntimeError,homeserver_app_control.AppControlError) as exc:
         raise AppPackageError(str(exc),getattr(exc,"status_code",400)) from exc
     resources=homeserver_app_resources.resource_status(app_key)
