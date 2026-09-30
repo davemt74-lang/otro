@@ -462,6 +462,21 @@ def media_processor_settings()->dict:
 def media_processor_update_settings(payload:MediaProcessorSettingsRequest)->dict:
     return _call(homeserver_media_processor.update_settings,payload.values)
 
+@router.get("/media-processor/remote")
+def media_processor_remote_status()->dict:
+    return _call(homeserver_media_processor.remote_status)
+
+
+@router.post("/media-processor/remote/enable")
+def media_processor_remote_enable()->dict:
+    return _call(homeserver_media_processor.enable_remote)
+
+
+@router.post("/media-processor/remote/disable")
+def media_processor_remote_disable()->dict:
+    return _call(homeserver_media_processor.disable_remote)
+
+
 @router.get("/download-manager/capability")
 def download_manager_capability()->dict:
     return homeserver_download_manager.public_capability()
