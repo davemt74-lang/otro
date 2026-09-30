@@ -96,6 +96,22 @@ CATALOG = {
                 "key":"media.scan","risk":"background","requires_confirmation":False,
                 "input_schema":{"type":"object","properties":{"root_id":{"type":"string","maxLength":64}},"additionalProperties":False},
                 "executor":{"type":"builtin","provider":"media_server"}
+            },
+            {
+                "key":"media.root.map","risk":"admin","requires_confirmation":True,
+                "input_schema":{"type":"object","properties":{
+                    "path":{"type":"string","minLength":1,"maxLength":2000},
+                    "label":{"type":"string","maxLength":120},
+                    "computer_name":{"type":"string","maxLength":120},
+                    "source_hint":{"type":"string","maxLength":240},
+                    "source_kind":{"type":"string","enum":["computer_folder","network_share","local_folder"]}
+                },"required":["path"],"additionalProperties":False},
+                "executor":{"type":"builtin","provider":"media_server"}
+            },
+            {
+                "key":"media.root.remove","risk":"destructive","requires_confirmation":True,
+                "input_schema":{"type":"object","properties":{"root_id":{"type":"string","minLength":1,"maxLength":64}},"required":["root_id"],"additionalProperties":False},
+                "executor":{"type":"builtin","provider":"media_server"}
             }
         ],
     },
