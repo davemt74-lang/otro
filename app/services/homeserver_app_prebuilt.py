@@ -106,6 +106,17 @@ CATALOG = {
                 "executor":{"type":"builtin","provider":"media_server"}
             },
             {
+                "key":"media.process","risk":"consequential","requires_confirmation":True,
+                "input_schema":{"type":"object","properties":{
+                    "media_id":{"type":"string","minLength":1,"maxLength":100},
+                    "operation":{"type":"string","enum":["thumbnail","proxy","video.convert","audio.convert","image.convert"]},
+                    "preset":{"type":"string","maxLength":80},
+                    "output_format":{"type":"string","maxLength":20},
+                    "priority":{"type":"integer","minimum":-100,"maximum":100}
+                },"required":["media_id","operation"],"additionalProperties":False},
+                "executor":{"type":"builtin","provider":"media_server"}
+            },
+            {
                 "key":"media.root.map","risk":"admin","requires_confirmation":True,
                 "input_schema":{"type":"object","properties":{
                     "path":{"type":"string","minLength":1,"maxLength":2000},
@@ -238,7 +249,8 @@ CATALOG = {
             {"key":"downloads.destination.remove","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"destination_id":{"type":"string","minLength":1,"maxLength":80}},"required":["destination_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
             {"key":"downloads.settings","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
             {"key":"downloads.settings.update","risk":"admin","requires_confirmation":True,"input_schema":{"type":"object","properties":{"values":{"type":"object"}},"required":["values"],"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
-            {"key":"downloads.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}}
+            {"key":"downloads.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
+            {"key":"downloads.processor.handoff","risk":"consequential","requires_confirmation":True,"input_schema":{"type":"object","properties":{"download_id":{"type":"string","minLength":1,"maxLength":80},"operation":{"type":"string","enum":["thumbnail","proxy","video.convert","audio.convert","image.convert"]},"preset":{"type":"string","maxLength":80},"output_format":{"type":"string","maxLength":20},"priority":{"type":"integer","minimum":-100,"maximum":100}},"required":["download_id","operation"],"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}}
         ],
     },
     "vp3.media-processor": {
@@ -355,6 +367,14 @@ CATALOG = {
                     "preset":{"type":"string","enum":["720p","1080p","4k","source"]},
                     "format":{"type":"string","enum":["mp4","webm"]}
                 },"required":["project_id"],"additionalProperties":False},
+                "executor":{"type":"builtin","provider":"video_editor"}
+            },
+            {
+                "key":"video.clip.proxy","risk":"consequential","requires_confirmation":True,
+                "input_schema":{"type":"object","properties":{
+                    "project_id":{"type":"string","minLength":1,"maxLength":80},
+                    "clip_id":{"type":"string","minLength":1,"maxLength":80}
+                },"required":["project_id","clip_id"],"additionalProperties":False},
                 "executor":{"type":"builtin","provider":"video_editor"}
             },
         ],
