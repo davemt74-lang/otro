@@ -64,6 +64,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v180-") as data_dir:
     assert installed["app"]["app_key"]=="import.demo"
     assert installed["app"]["lifecycle_state"]=="running"
     assert installed["app"]["source_type"]=="zip"
+    assert installed["release"]["source_id"]==inspected["source_id"]
+    assert installed["release"]["source_ref"]=="Import Demo.zip"
     status=homeserver_app_sources.source_status("import.demo")
     assert status["current"]["source_id"]==inspected["source_id"]
     assert status["update_available"] is False
@@ -113,6 +115,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v180-") as data_dir:
         "https://localhost/org/app.git",
         "https://127.0.0.1/org/app.git",
         "https://10.0.0.4/org/app.git",
+        "https://example.com/org/app.git",
     ):
         try:
             homeserver_app_sources._safe_public_url(bad)
@@ -181,6 +184,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v180-") as data_dir:
     cap=homeserver_app_sources.public_capability()
     assert cap["zip_import"] is True
     assert cap["git_import"] is True
+    assert cap["git_public_hosts"]==["bitbucket.org","github.com","gitlab.com"]
     assert cap["exact_git_sha"] is True
     assert cap["owner_approval_required"] is True
     assert cap["protected_system_overwrite"] is False
