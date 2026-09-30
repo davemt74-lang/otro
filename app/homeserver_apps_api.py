@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -109,6 +109,16 @@ class VideoRenderRequest(BaseModel):
     format:str=Field(default="mp4",pattern="^(mp4|webm)$")
 
 
+class AppControlInvokeRequest(BaseModel):
+    action:str=Field(min_length=1,max_length=120)
+    arguments:dict=Field(default_factory=dict)
+    confirmed:bool=False
+
+
+class AppSettingsUpdateRequest(BaseModel):
+    values:dict=Field(default_factory=dict)
+
+
 class VideoAgentInvokeRequest(BaseModel):
     action:str=Field(min_length=1,max_length=120)
     arguments:dict=Field(default_factory=dict)
@@ -126,6 +136,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
     except homeserver_apps.HomeServerAppError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_packages.AppPackageError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_control.AppControlError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_security.AppSecurityError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
@@ -156,7 +168,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"media_server":homeserver_media_server.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -377,6 +389,46 @@ def create_user_app(payload:CreateUserAppRequest)->dict:
         metadata=payload.metadata,
         permissions=homeserver_app_security.normalize_declared_permissions(payload.permissions),
     )
+
+
+
+
+@router.get("/{app_key}/control")
+def app_control_status(app_key:str)->dict:
+    return {
+        "compatibility":_call(homeserver_app_control.compatibility,app_key),
+        "manifest":_call(homeserver_app_control.manifest,app_key),
+        "settings":_call(homeserver_app_control.settings,app_key),
+        "hosting":_call(homeserver_app_agent.hosting_status,{"app_key":app_key}),
+    }
+
+
+@router.get("/{app_key}/control/actions")
+def app_control_actions(app_key:str)->dict:
+    return _call(homeserver_app_control.manifest,app_key)
+
+
+@router.post("/{app_key}/control/invoke")
+def app_control_invoke(app_key:str,payload:AppControlInvokeRequest)->dict:
+    spec=_call(homeserver_app_control.action_spec,app_key,payload.action)
+    if bool(spec.get("requires_confirmation")) and not payload.confirmed:
+        raise HTTPException(status_code=409,detail="This app action requires owner confirmation.")
+    return _call(homeserver_app_control.invoke,app_key,payload.action,payload.arguments)
+
+
+@router.get("/{app_key}/settings")
+def app_control_settings(app_key:str)->dict:
+    return _call(homeserver_app_control.settings,app_key)
+
+
+@router.put("/{app_key}/settings")
+def app_control_settings_update(app_key:str,payload:AppSettingsUpdateRequest)->dict:
+    return _call(homeserver_app_control.update_settings,app_key,payload.values)
+
+
+@router.get("/{app_key}/hosting")
+def app_control_hosting(app_key:str)->dict:
+    return _call(homeserver_app_agent.hosting_status,{"app_key":app_key})
 
 
 @router.get("/{app_key}/distribution")
