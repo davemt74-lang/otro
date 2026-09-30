@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v110-") as data_dir:
         built=homeserver_app_packages.build_project_package("garage.inventory")
         assert built["validation"]["valid"] is True
         assert built["validation"]["manifest"]["app_key"]=="garage.inventory"
-        assert built["validation"]["manifest"]["sdk_version"]=="1.1"
+        assert built["validation"]["manifest"]["sdk_version"]=="1.2"
 
         validate=client.post(
             "/api/v1/control/homeserver-apps/garage.inventory/package/validate",
@@ -70,7 +70,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v110-") as data_dir:
 
         app_row=homeserver_apps.get("garage.inventory")
         assert app_row["installed_version"]=="0.1.0"
-        assert app_row["metadata"]["sdk_version"]=="1.1"
+        assert app_row["metadata"]["sdk_version"]=="1.2"
         assert app_row["metadata"]["active_release_id"]==first["release_id"]
         assert len(app_row["metadata"]["package_sha256"])==64
 
