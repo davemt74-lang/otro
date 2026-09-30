@@ -283,3 +283,19 @@ def app_release_rollback(app_key:str)->dict:
 @router.post("/{app_key}/recover")
 def app_release_recover(app_key:str)->dict:
     return _call(homeserver_app_releases.recover,app_key)
+
+
+@router.post("/agent-actions/{request_id}/approve")
+def approve_app_agent_action(request_id:str)->dict:
+    try:
+        return {"request":homeserver_app_approvals.approve(request_id)}
+    except homeserver_app_approvals.AppApprovalStoreError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@router.post("/agent-actions/{request_id}/deny")
+def deny_app_agent_action(request_id:str)->dict:
+    try:
+        return {"request":homeserver_app_approvals.deny(request_id)}
+    except homeserver_app_approvals.AppApprovalStoreError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
