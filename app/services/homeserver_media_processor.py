@@ -1,8 +1,8 @@
 from __future__ import annotations
-import json, os, shutil, sqlite3, subprocess, threading, time, uuid
+import json, os, secrets, shutil, sqlite3, subprocess, threading, time, uuid
 from pathlib import Path
 from typing import Any
-from . import homeserver_app_resources, homeserver_app_runtime, homeserver_apps, homeserver_media_server, homeserver_media_tools
+from . import homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_apps, homeserver_media_server, homeserver_media_tools
 
 APP_KEY="vp3.media-processor"
 CONTRACT="vp3.media-processor.v1"
@@ -97,6 +97,7 @@ def capability()->dict[str,Any]:
       "video_transcode":available,"audio_convert":available,"image_convert":available,
       "thumbnail_generation":available,"proxy_generation":available,
       "source_media_owned":False,"source_media_deleted":False,"homeserver_execution_authority":True,
+      "private_hosted_access_key":True,
       "resource_limits":True,"atomic_derivatives":True,"restart_recovery":True}
 
 def _public(row)->dict[str,Any]:
@@ -276,6 +277,29 @@ def recover_interrupted()->dict[str,Any]:
       c.commit()
     finally:c.close()
     return {"contract":CONTRACT,"recovered":int(n)}
+
+
+
+def enable_remote()->dict[str,Any]:
+    key=secrets.token_urlsafe(32)
+    homeserver_app_security.set_secret(APP_KEY,"REMOTE_ACCESS_KEY",key)
+    return {"contract":CONTRACT,"remote_enabled":True,"access_key":key,"access_key_returned_once":True}
+
+
+def disable_remote()->dict[str,Any]:
+    homeserver_app_security.remove_secret(APP_KEY,"REMOTE_ACCESS_KEY")
+    return {"contract":CONTRACT,"remote_enabled":False}
+
+
+def remote_status()->dict[str,Any]:
+    configured="REMOTE_ACCESS_KEY" in set(homeserver_app_security.secret_status(APP_KEY).get("configured_keys") or [])
+    return {"contract":CONTRACT,"remote_enabled":configured,"access_key_exposed":False}
+
+
+def authenticate_remote(value:str)->bool:
+    expected=homeserver_app_security.get_secret(APP_KEY,"REMOTE_ACCESS_KEY")
+    return bool(expected and secrets.compare_digest(str(value or ""),expected))
+
 
 def brain_context(limit:int=8)->dict[str,Any]:
     s=status(); jobs=list_jobs(limit)["jobs"]
