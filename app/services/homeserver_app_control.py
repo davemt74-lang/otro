@@ -158,15 +158,9 @@ def invoke(app_key:str,action_key:str,arguments:dict[str,Any]|None=None)->dict[s
 
 
 
-def _settings_schema(app_key:str)->dict[str,Any]:
-    app=homeserver_apps.get(app_key)
-    metadata=dict(app.get("metadata") or {})
-    rel=str(metadata.get("settings_schema") or "settings.schema.json")
-    try:
-        root=homeserver_app_packages.active_content_root(app_key)
-    except homeserver_app_packages.AppPackageError as exc:
-        raise AppControlError(str(exc),exc.status_code) from exc
-    target=(root/_safe_rel(rel)).resolve()
+def validate_settings_schema(content_root:Path,app_key:str,schema_path:str)->dict[str,Any]:
+    root=content_root.resolve()
+    target=(root/_safe_rel(schema_path)).resolve()
     if root not in target.parents or not target.is_file():
         raise AppControlError("App settings schema is unavailable.",409)
     try:
@@ -206,6 +200,17 @@ def _settings_schema(app_key:str)->dict[str,Any]:
             "maximum":row.get("maximum"),
         })
     return {"contract":"vp3.app.settings-schema.v1","app_key":app_key,"fields":normalized}
+
+
+def _settings_schema(app_key:str)->dict[str,Any]:
+    app=homeserver_apps.get(app_key)
+    metadata=dict(app.get("metadata") or {})
+    rel=str(metadata.get("settings_schema") or "settings.schema.json")
+    try:
+        root=homeserver_app_packages.active_content_root(app_key)
+    except homeserver_app_packages.AppPackageError as exc:
+        raise AppControlError(str(exc),exc.status_code) from exc
+    return validate_settings_schema(root,app_key,rel)
 
 
 def settings(app_key:str)->dict[str,Any]:
