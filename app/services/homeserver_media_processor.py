@@ -28,6 +28,7 @@ def _connect()->sqlite3.Connection:
     CREATE TABLE IF NOT EXISTS processor_jobs(
       job_id TEXT PRIMARY KEY, media_id TEXT NOT NULL, operation TEXT NOT NULL, preset TEXT NOT NULL,
       output_format TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', progress REAL NOT NULL DEFAULT 0,
+      eta_seconds INTEGER, duration_seconds REAL,
       output_rel TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '', priority INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, started_at TEXT, completed_at TEXT,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -47,6 +48,11 @@ def _connect()->sqlite3.Connection:
     );
     INSERT OR IGNORE INTO processor_settings(singleton) VALUES (1);
     """)
+    job_columns={str(row["name"]) for row in c.execute("PRAGMA table_info(processor_jobs)").fetchall()}
+    if "eta_seconds" not in job_columns:
+        c.execute("ALTER TABLE processor_jobs ADD COLUMN eta_seconds INTEGER")
+    if "duration_seconds" not in job_columns:
+        c.execute("ALTER TABLE processor_jobs ADD COLUMN duration_seconds REAL")
     columns={str(row["name"]) for row in c.execute("PRAGMA table_info(processor_settings)").fetchall()}
     if "max_output_bytes" not in columns:
         c.execute("ALTER TABLE processor_settings ADD COLUMN max_output_bytes INTEGER NOT NULL DEFAULT 10737418240")
@@ -98,10 +104,13 @@ def capability()->dict[str,Any]:
       "thumbnail_generation":available,"proxy_generation":available,
       "source_media_owned":False,"source_media_deleted":False,"homeserver_execution_authority":True,
       "private_hosted_access_key":True,
-      "resource_limits":True,"atomic_derivatives":True,"restart_recovery":True}
+      "resource_limits":True,"atomic_derivatives":True,"restart_recovery":True,
+      "progress_eta":True,"active_cancellation":True,"derivative_file_access":True}
 
 def _public(row)->dict[str,Any]:
     d=dict(row); d["progress"]=float(d.get("progress") or 0); d["priority"]=int(d.get("priority") or 0)
+    d["eta_seconds"]=None if d.get("eta_seconds") is None else int(d["eta_seconds"])
+    d["duration_seconds"]=None if d.get("duration_seconds") is None else float(d["duration_seconds"])
     d["filesystem_path_exposed"]=False; return d
 
 def status()->dict[str,Any]:
@@ -119,6 +128,21 @@ def list_jobs(limit:int=100)->dict[str,Any]:
     finally:c.close()
     return {"contract":CONTRACT,"jobs":[_public(r) for r in rows],"count":len(rows)}
 
+def resolve_derivative(derivative_id:str)->tuple[Path,dict[str,Any]]:
+    c=_connect()
+    try:
+        row=c.execute("SELECT * FROM processor_derivatives WHERE derivative_id=?",(str(derivative_id),)).fetchone()
+    finally:c.close()
+    if not row:
+        raise MediaProcessorError("Derivative not found.",404)
+    root=homeserver_app_resources.files_root(APP_KEY).resolve()
+    rel=Path(str(row["relative_path"]))
+    target=(root/rel).resolve()
+    if root not in target.parents or not target.is_file() or target.is_symlink():
+        raise MediaProcessorError("Derivative file is unavailable.",404)
+    return target,dict(row)
+
+
 def derivatives(media_id:str="",limit:int=200)->dict[str,Any]:
     c=_connect()
     try:
@@ -129,6 +153,89 @@ def derivatives(media_id:str="",limit:int=200)->dict[str,Any]:
     for r in rows:
       d=dict(r); d.pop("relative_path",None); d["filesystem_path_exposed"]=False; out.append(d)
     return {"contract":CONTRACT,"derivatives":out,"count":len(out)}
+
+def _probe_duration(path:Path)->float|None:
+    try:
+        tools=homeserver_media_tools.require()
+        result=subprocess.run(
+            [str(tools["ffprobe"]),"-v","error","-show_entries","format=duration","-of","default=nw=1:nk=1",str(path)],
+            capture_output=True,text=True,timeout=30,check=False,
+            creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0),
+        )
+        if result.returncode!=0:
+            return None
+        value=float((result.stdout or "").strip())
+        return value if value>0 else None
+    except Exception:
+        return None
+
+
+def _job_state(job_id:str)->str:
+    c=_connect()
+    try:
+        row=c.execute("SELECT status FROM processor_jobs WHERE job_id=?",(job_id,)).fetchone()
+    finally:c.close()
+    return str(row["status"]) if row else "cancelled"
+
+
+def _update_progress(job_id:str,progress:float,eta:int|None,duration:float|None)->None:
+    c=_connect()
+    try:
+        c.execute(
+            "UPDATE processor_jobs SET progress=?,eta_seconds=?,duration_seconds=?,updated_at=CURRENT_TIMESTAMP WHERE job_id=?",
+            (max(0.0,min(1.0,float(progress))),eta,duration,job_id),
+        )
+        c.commit()
+    finally:c.close()
+
+
+def _run_ffmpeg(job_id:str,cmd:list[str],duration:float|None)->None:
+    command=[*cmd[:-1],"-progress","pipe:1","-nostats",cmd[-1]]
+    try:
+        process=subprocess.Popen(
+            command,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,bufsize=1,
+            creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0),
+        )
+    except OSError as exc:
+        raise MediaProcessorError("Managed FFmpeg process could not start.",503) from exc
+    started=time.monotonic()
+    try:
+        if process.stdout is not None:
+            for line in process.stdout:
+                state=_job_state(job_id)
+                if state=="cancelled":
+                    process.terminate()
+                    try: process.wait(timeout=5)
+                    except subprocess.TimeoutExpired: process.kill()
+                    raise MediaProcessorError("Processing job was cancelled.",409)
+                try:
+                    if str(homeserver_apps.get(APP_KEY).get("lifecycle_state") or "")!="running":
+                        process.terminate()
+                        try: process.wait(timeout=5)
+                        except subprocess.TimeoutExpired: process.kill()
+                        raise MediaProcessorError("Media Processor stopped while processing.",409)
+                except MediaProcessorError:
+                    raise
+                except Exception:
+                    pass
+                raw=line.strip()
+                if raw.startswith("out_time_ms=") and duration:
+                    try:
+                        seconds=float(raw.split("=",1)[1])/1_000_000
+                        progress=max(0.0,min(0.99,seconds/duration))
+                        elapsed=max(0.001,time.monotonic()-started)
+                        eta=int(max(0,(elapsed/progress)-elapsed)) if progress>0.01 else None
+                        _update_progress(job_id,progress,eta,duration)
+                    except Exception:
+                        pass
+        code=process.wait(timeout=30)
+    except Exception:
+        if process.poll() is None:
+            process.kill()
+        raise
+    if code!=0:
+        raise MediaProcessorError("FFmpeg processing failed.",422)
+
 
 def _spec(operation:str,preset:str,fmt:str,source_type:str)->tuple[list[str],str,str]:
     op=str(operation or "").strip().lower(); preset=str(preset or "default").strip().lower(); fmt=str(fmt or "").strip().lower()
@@ -204,14 +311,18 @@ def _run(job_id:str)->None:
       name=f"{job_id}.{fmt}"; tmp=root/f".{job_id}.tmp.{fmt}"; final=root/name
       tools=homeserver_media_tools.require()
       limits=settings()["settings"]
+      duration=_probe_duration(src)
+      _update_progress(job_id,0.01,None,duration)
       cmd=[str(tools["ffmpeg"]),"-y","-threads",str(limits["max_threads"]),"-i",str(src),*args,str(tmp)]
-      result=subprocess.run(cmd,capture_output=True,text=True,timeout=7200)
-      if result.returncode!=0: raise MediaProcessorError("FFmpeg processing failed.",422)
+      _run_ffmpeg(job_id,cmd,duration)
+      if not tmp.is_file():
+        raise MediaProcessorError("FFmpeg did not create the expected derivative.",502)
       size=tmp.stat().st_size
       if size>int(limits["max_output_bytes"]):
         raise MediaProcessorError("Generated derivative exceeds the configured maximum output size.",413)
       resource=homeserver_app_resources.resource_status(APP_KEY)
-      if int(resource["storage_used_bytes"])+size>int(resource["storage_limit_bytes"]):
+      used=max(0,int(resource["storage_used_bytes"])-size)
+      if used+size>int(resource["storage_limit_bytes"]):
         raise MediaProcessorError("Media Processor app storage quota would be exceeded.",413)
       os.replace(tmp,final)
       did="deriv_"+uuid.uuid4().hex
@@ -219,7 +330,7 @@ def _run(job_id:str)->None:
       try:
         c.execute("INSERT INTO processor_derivatives(derivative_id,job_id,media_id,kind,preset,format,relative_path,size_bytes) VALUES (?,?,?,?,?,?,?,?)",
           (did,job_id,job["media_id"],kind,job["preset"],fmt,f"derivatives/{name}",final.stat().st_size))
-        c.execute("UPDATE processor_jobs SET status='completed',progress=1,output_rel=?,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(f"derivatives/{name}",job_id))
+        c.execute("UPDATE processor_jobs SET status='completed',progress=1,eta_seconds=0,output_rel=?,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(f"derivatives/{name}",job_id))
         c.commit()
       finally:c.close()
       homeserver_app_runtime.publish_event(APP_KEY,"processor.completed",{"job_id":job_id,"media_id":job["media_id"],"derivative_id":did,"kind":kind},source="media-processor")
