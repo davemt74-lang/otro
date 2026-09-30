@@ -44,6 +44,23 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v190-") as data_dir:
     assert replay["payload"]["changed"] is False
     assert replay["payload"]["reason"]=="already_current"
 
+    deactivated=remote_bridge.dispatch_remote_request("apps.system.deactivate",{"app_key":"vp3.notes"},token)
+    assert deactivated["ok"] is True
+    assert deactivated["payload"]["changed"] is True
+    assert deactivated["payload"]["installed"] is True
+    assert deactivated["payload"]["state"]=="stopped"
+    assert homeserver_apps.get("vp3.notes")["lifecycle_state"]=="stopped"
+
+    deactivate_replay=remote_bridge.dispatch_remote_request("apps.system.deactivate",{"app_key":"vp3.notes"},token)
+    assert deactivate_replay["ok"] is True
+    assert deactivate_replay["payload"]["changed"] is False
+    assert deactivate_replay["payload"]["reason"]=="already_inactive"
+
+    restored=remote_bridge.dispatch_remote_request("apps.system.install",{"app_key":"vp3.notes"},token)
+    assert restored["ok"] is True
+    assert restored["payload"]["installed"] is True
+    assert restored["payload"]["state"]=="running"
+
     reconcile=remote_bridge.dispatch_remote_request(
         "apps.system.reconcile",
         {"app_keys":["vp3.notes","vp3.inventory","missing.app"]},
@@ -77,7 +94,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v190-") as data_dir:
         pass
 
     relay=(ROOT/"relay"/"app.py").read_text(encoding="utf-8")
-    for operation in ("apps.system.catalog","apps.system.status","apps.system.install","apps.system.reconcile"):
+    for operation in ("apps.system.catalog","apps.system.status","apps.system.install","apps.system.deactivate","apps.system.reconcile"):
         assert operation in relay
 
 print("HomeServer Apps V1 Section 10 Cloud ownership install bridge: PASS")
