@@ -426,153 +426,11 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         archive.close()
 
 
-def _release_record(app_key:str,release_id:str)->dict[str,Any]:
-    rid=str(release_id or "").strip()
-    if not rid.startswith("apprel_"):
-        raise AppPackageError("App release identifier is invalid.",409)
-    path=releases_root(app_key)/rid/"release.json"
-    if not path.is_file():
-        raise AppPackageError("App release metadata is unavailable.",404)
-    try:
-        value=json.loads(path.read_text(encoding="utf-8"))
-    except (OSError,UnicodeDecodeError,json.JSONDecodeError) as exc:
-        raise AppPackageError("App release metadata is unreadable.",500) from exc
-    if not isinstance(value,dict) or value.get("app_key")!=app_key or value.get("release_id")!=rid:
-        raise AppPackageError("App release metadata is invalid.",500)
-    return value
-
-
-def verify_active_release(app_key:str,*,expected_release_id:str|None=None,expected_version:str|None=None,expected_sha256:str|None=None)->dict[str,Any]:
-    status=runtime_status(app_key)
-    active=str(status.get("active_release_id") or "")
-    release=status.get("active_release")
-    if not active or not isinstance(release,dict):
-        raise AppPackageError("App has no active release to verify.",409)
-    if expected_release_id and active!=expected_release_id:
-        raise AppPackageError("Active release changed before verification completed.",409)
-    if expected_version and str(release.get("version") or "")!=str(expected_version):
-        raise AppPackageError("Active release version does not match the expected update.",409)
-    if expected_sha256 and str(release.get("package_sha256") or "").lower()!=str(expected_sha256).lower():
-        raise AppPackageError("Active release package hash does not match the expected update.",409)
-    content=(releases_root(app_key)/active/"content").resolve()
-    homeserver_app_runtime.validate_release_contracts(app_key,content)
-    resources=homeserver_app_resources.resource_status(app_key)
-    app=homeserver_apps.get(app_key)
-    healthy=str(app.get("lifecycle_state") or "")=="running"
-    return {
-        "contract":"vp3.app.release-health.v1",
-        "app_key":app_key,
-        "release_id":active,
-        "version":str(release.get("version") or ""),
-        "package_sha256":str(release.get("package_sha256") or ""),
-        "healthy":healthy,
-        "lifecycle_state":str(app.get("lifecycle_state") or ""),
-        "resources":resources,
-    }
-
-
-def rollback_release(app_key:str,*,expected_active_release_id:str|None=None,reason:str="verification_failed",_system_managed:bool=False)->dict[str,Any]:
-    app=homeserver_apps.get(app_key)
-    if app["app_class"]!="user" and not (_system_managed and app["app_class"]=="system" and app["protected_system_app"]):
-        raise AppPackageError("System apps are managed by the VP3 system app installer.",409)
-    state=_read_state(app_key)
-    active=str(state.get("active_release_id") or "")
-    previous=str(state.get("previous_release_id") or "")
-    if expected_active_release_id and active!=expected_active_release_id:
-        raise AppPackageError("Active release changed before rollback.",409)
-    if not previous:
-        raise AppPackageError("No previous app release is available for rollback.",409)
-    target=_release_record(app_key,previous)
-    content=(releases_root(app_key)/previous/"content").resolve()
-    homeserver_app_runtime.validate_release_contracts(app_key,content)
-    try:
-        homeserver_apps.transition(
-            app_key,"recovering",
-            actor_type="system" if _system_managed else "owner",
-            actor_key="vp3_prebuilt" if _system_managed else "local_owner",
-            metadata={"reason":reason,"from_release_id":active,"to_release_id":previous},
-        )
-    except homeserver_apps.HomeServerAppError:
-        pass
-    new_state={
-        "contract":RUNTIME_CONTRACT,
-        "app_key":app_key,
-        "active_release_id":previous,
-        "previous_release_id":active or None,
-    }
-    _write_state(app_key,new_state)
-    manifest_path=content/"vp3-app.json"
-    try:
-        manifest_value=json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise AppPackageError("Rollback app manifest is unavailable.",500) from exc
-    permissions=list(manifest_value.get("permissions") or [])
-    metadata=dict(app.get("metadata") or {})
-    metadata.update({
-        "runtime":str(target.get("runtime") or ""),
-        "entrypoint":str(target.get("entrypoint") or ""),
-        "package_sha256":str(target.get("package_sha256") or ""),
-        "active_release_id":previous,
-        "previous_release_id":active or None,
-        "sdk_version":str(target.get("sdk_version") or ""),
-        "release_channel":str(target.get("release_channel") or "stable"),
-    })
-    with db() as connection:
-        connection.execute(
-            """UPDATE homeserver_apps SET installed_version=?,desired_version=?,lifecycle_state='running',
-               metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE app_key=?""",
-            (
-                str(target.get("version") or ""),
-                str(target.get("version") or ""),
-                json.dumps(metadata,separators=(",",":"),sort_keys=True),
-                app_key,
-            ),
-        )
-        connection.execute(
-            """INSERT INTO homeserver_app_events(app_id,event_type,from_state,to_state,actor_type,actor_key,metadata_json)
-               VALUES (?, 'app.package.rolled_back','recovering','running',?,?,?)""",
-            (
-                app["app_id"],
-                "system" if _system_managed else "owner",
-                "vp3_prebuilt" if _system_managed else "local_owner",
-                json.dumps({
-                    "reason":reason,"from_release_id":active,"to_release_id":previous,
-                    "version":str(target.get("version") or ""),"package_sha256":str(target.get("package_sha256") or ""),
-                },separators=(",",":"),sort_keys=True),
-            ),
-        )
-    homeserver_app_security.sync_declared_permissions(app_key,permissions)
-    homeserver_app_runtime.sync_release(app_key,content)
-    homeserver_app_resources.enforce_sqlite_quota(app_key)
-    return {
-        "contract":"vp3.app.release-rollback.v1",
-        "app_key":app_key,
-        "rolled_back":True,
-        "from_release_id":active,
-        "active_release_id":previous,
-        "version":str(target.get("version") or ""),
-        "package_sha256":str(target.get("package_sha256") or ""),
-        "reason":reason,
-    }
-
-
 def install_system_package(app_key:str,package:bytes)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]!="system" or not app["protected_system_app"]:
         raise AppPackageError("VP3 system package target is not a protected system app.",409)
     return install_package(app_key,package,source_type="vp3_system",_system_managed=True)
-
-
-def rollback_system_package(app_key:str,*,expected_active_release_id:str|None=None,reason:str="verification_failed")->dict[str,Any]:
-    app=homeserver_apps.get(app_key)
-    if app["app_class"]!="system" or not app["protected_system_app"]:
-        raise AppPackageError("VP3 system package target is not a protected system app.",409)
-    return rollback_release(
-        app_key,
-        expected_active_release_id=expected_active_release_id,
-        reason=reason,
-        _system_managed=True,
-    )
 
 
 def runtime_status(app_key:str)->dict[str,Any]:
@@ -620,7 +478,6 @@ def public_capability()->dict[str,Any]:
         "release_channels":True,
         "release_notes":True,
         "post_activation_verification":True,
-        "previous_release_rollback":True,
         "path_traversal_protection":True,
         "symbolic_links":False,
         "encrypted_zip":False,
