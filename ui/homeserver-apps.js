@@ -212,7 +212,7 @@
         <div><span>SHA-256</span><code>${esc(descriptor.package_sha256||'')}</code></div>
         <div class="wide"><span>Publisher fingerprint</span><code>${esc(descriptor.publisher_fingerprint||'')}</code></div>
         <div><span>New permissions</span><strong>${esc((pd.added||[]).length)}</strong></div>
-        <div><span>High-risk additions</span><strong>${esc((pd.high_risk_added||[]).length)}</strong></div>
+        <div><span>High-risk additions</span><strong>${esc((pd.high_risk_added_details||[]).length)}</strong></div>
         <div><span>Data schema</span><strong>${esc(sc.from||'1')} → ${esc(sc.to||'1')}</strong></div>
         <div><span>Automatic update</span><strong>No</strong></div>
       </div>
