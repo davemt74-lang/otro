@@ -384,12 +384,13 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
             spec=homeserver_app_control.action_spec(key,app_action)
         except homeserver_app_control.AppControlError as exc:
             raise AppAgentError(str(exc),exc.status_code) from exc
+        # Policy metadata is evaluated before proposal/execution and must not be
+        # persisted inside executable arguments. This keeps approved replay
+        # idempotent through the same canonical validator.
         return {
             "app_key":key,
             "action":app_action,
             "arguments":payload,
-            "risk":str(spec.get("risk") or "write"),
-            "requires_confirmation":bool(spec.get("requires_confirmation")),
         }
 
     if action=="apps.git.inspect":
