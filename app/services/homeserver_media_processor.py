@@ -42,11 +42,52 @@ def _connect()->sqlite3.Connection:
       singleton INTEGER PRIMARY KEY CHECK(singleton=1),
       max_concurrent INTEGER NOT NULL DEFAULT 1,
       max_threads INTEGER NOT NULL DEFAULT 2,
+      max_output_bytes INTEGER NOT NULL DEFAULT 10737418240,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     INSERT OR IGNORE INTO processor_settings(singleton) VALUES (1);
     """)
+    columns={str(row["name"]) for row in c.execute("PRAGMA table_info(processor_settings)").fetchall()}
+    if "max_output_bytes" not in columns:
+        c.execute("ALTER TABLE processor_settings ADD COLUMN max_output_bytes INTEGER NOT NULL DEFAULT 10737418240")
+        c.commit()
     return c
+
+def settings()->dict[str,Any]:
+    c=_connect()
+    try:
+      row=c.execute("SELECT * FROM processor_settings WHERE singleton=1").fetchone()
+      return {"contract":CONTRACT,"settings":{
+        "max_concurrent":int(row["max_concurrent"]),
+        "max_threads":int(row["max_threads"]),
+        "max_output_bytes":int(row["max_output_bytes"]),
+      }}
+    finally:c.close()
+
+def update_settings(values:dict[str,Any])->dict[str,Any]:
+    allowed={"max_concurrent","max_threads","max_output_bytes"}
+    unknown=set(values)-allowed
+    if unknown: raise MediaProcessorError(f"Unknown Media Processor setting: {sorted(unknown)[0]}")
+    current=settings()["settings"]
+    if "max_concurrent" in values:
+      n=int(values["max_concurrent"])
+      if n<1 or n>4: raise MediaProcessorError("max_concurrent must be 1-4.")
+      current["max_concurrent"]=n
+    if "max_threads" in values:
+      n=int(values["max_threads"])
+      if n<1 or n>16: raise MediaProcessorError("max_threads must be 1-16.")
+      current["max_threads"]=n
+    if "max_output_bytes" in values:
+      n=int(values["max_output_bytes"])
+      if n<1024*1024 or n>100*1024*1024*1024: raise MediaProcessorError("max_output_bytes is out of range.")
+      current["max_output_bytes"]=n
+    c=_connect()
+    try:
+      c.execute("UPDATE processor_settings SET max_concurrent=?,max_threads=?,max_output_bytes=?,updated_at=CURRENT_TIMESTAMP WHERE singleton=1",
+        (current["max_concurrent"],current["max_threads"],current["max_output_bytes"]))
+      c.commit()
+    finally:c.close()
+    return settings()
 
 def capability()->dict[str,Any]:
     tools=homeserver_media_tools.public_capability()
@@ -55,7 +96,8 @@ def capability()->dict[str,Any]:
       "ffmpeg_managed_by_homeserver":True,"ffmpeg_version":tools["ffmpeg_version"],
       "video_transcode":available,"audio_convert":available,"image_convert":available,
       "thumbnail_generation":available,"proxy_generation":available,
-      "source_media_owned":False,"source_media_deleted":False,"homeserver_execution_authority":True}
+      "source_media_owned":False,"source_media_deleted":False,"homeserver_execution_authority":True,
+      "resource_limits":True,"atomic_derivatives":True,"restart_recovery":True}
 
 def _public(row)->dict[str,Any]:
     d=dict(row); d["progress"]=float(d.get("progress") or 0); d["priority"]=int(d.get("priority") or 0)
@@ -158,13 +200,19 @@ def _run(job_id:str)->None:
       src,mime,item=homeserver_media_server.resolve_stream(job["media_id"])
       args,fmt,kind=_spec(job["operation"],job["preset"],job["output_format"],item["media_type"])
       root=homeserver_app_resources.files_root(APP_KEY)/"derivatives"; root.mkdir(parents=True,exist_ok=True)
-      name=f"{job_id}.{fmt}"; tmp=root/(name+".tmp"); final=root/name
+      name=f"{job_id}.{fmt}"; tmp=root/f".{job_id}.tmp.{fmt}"; final=root/name
       tools=homeserver_media_tools.require()
-      cmd=[str(tools["ffmpeg"]),"-y","-i",str(src),*args,str(tmp)]
+      limits=settings()["settings"]
+      cmd=[str(tools["ffmpeg"]),"-y","-threads",str(limits["max_threads"]),"-i",str(src),*args,str(tmp)]
       result=subprocess.run(cmd,capture_output=True,text=True,timeout=7200)
-      if result.returncode!=0: raise MediaProcessorError((result.stderr or "FFmpeg failed.")[-1200:],422)
+      if result.returncode!=0: raise MediaProcessorError("FFmpeg processing failed.",422)
+      size=tmp.stat().st_size
+      if size>int(limits["max_output_bytes"]):
+        raise MediaProcessorError("Generated derivative exceeds the configured maximum output size.",413)
+      resource=homeserver_app_resources.resource_status(APP_KEY)
+      if int(resource["storage_used_bytes"])+size>int(resource["storage_limit_bytes"]):
+        raise MediaProcessorError("Media Processor app storage quota would be exceeded.",413)
       os.replace(tmp,final)
-      homeserver_app_resources.resource_status(APP_KEY)
       did="deriv_"+uuid.uuid4().hex
       c=_connect()
       try:
@@ -194,13 +242,25 @@ def _loop()->None:
     while not _STOP.wait(1):
       try:
         if str(homeserver_apps.get(APP_KEY).get("lifecycle_state") or "")!="running": continue
-        process_next()
+        max_concurrent=settings()["settings"]["max_concurrent"]
+        c=_connect()
+        try:
+          active=int(c.execute("SELECT COUNT(*) FROM processor_jobs WHERE status='processing'").fetchone()[0])
+          rows=c.execute("SELECT job_id FROM processor_jobs WHERE status='queued' ORDER BY priority DESC,created_at LIMIT ?",
+            (max(0,max_concurrent-active),)).fetchall()
+        finally:c.close()
+        for row in rows:
+          threading.Thread(target=_run,args=(str(row["job_id"]),),daemon=True).start()
       except Exception: continue
 
+_RECOVERED=False
+
 def _ensure_worker()->None:
-    global _WORKER
+    global _WORKER,_RECOVERED
     with _LOCK:
       if _WORKER and _WORKER.is_alive(): return
+      if not _RECOVERED:
+        recover_interrupted(); _RECOVERED=True
       _STOP.clear(); _WORKER=threading.Thread(target=_loop,daemon=True,name="vp3-media-processor"); _WORKER.start()
 
 def stop_worker()->None:
@@ -234,4 +294,6 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
     if k=="processor.retry": return retry(str(a.get("job_id") or ""))
     if k=="processor.derivatives": return derivatives(str(a.get("media_id") or ""),int(a.get("limit",200)))
     if k=="processor.brain-context": return brain_context(int(a.get("limit",8)))
+    if k=="processor.settings": return settings()
+    if k=="processor.settings.update": return update_settings(dict(a.get("values") or {}))
     raise MediaProcessorError("Unsupported Media Processor action.",404)
