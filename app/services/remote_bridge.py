@@ -451,6 +451,22 @@ def _system_app_status(app_key: str) -> dict[str, Any]:
     package=next((item for item in catalog.get("packages",[]) if str(item.get("key") or "")==key),None)
     if package is None:
         raise homeserver_apps.HomeServerAppError("VP3 system app not found.",404)
+    installed_package_sha256=""
+    active_release_id=""
+    previous_release_id=""
+    if bool(package.get("installed")):
+        try:
+            app=homeserver_apps.get(key)
+            metadata=app.get("metadata") or {}
+            installed_package_sha256=str(metadata.get("package_sha256") or "")
+            active_release_id=str(metadata.get("active_release_id") or "")
+            previous_release_id=str(metadata.get("previous_release_id") or "")
+        except homeserver_apps.HomeServerAppError:
+            pass
+    package=dict(package)
+    package["installed_package_sha256"]=installed_package_sha256 or None
+    package["active_release_id"]=active_release_id or None
+    package["previous_release_id"]=previous_release_id or None
     return {
         "contract":"vp3.system-app-installation.v1",
         "catalog_version":catalog.get("catalog_version"),
