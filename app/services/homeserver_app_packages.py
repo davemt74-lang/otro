@@ -98,7 +98,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
     unknown=set(manifest)-_ALLOWED_KEYS
     if unknown:
         raise AppPackageError("App manifest contains unsupported fields: "+", ".join(sorted(unknown))+".")
-    required={"contract","app_key","name","version","runtime","entrypoint","permissions","agent_actions"}
+    required={"contract","app_key","name","version","runtime","entrypoint","permissions","agent_actions","settings_schema"}
     missing=sorted(key for key in required if key not in manifest)
     if missing:
         raise AppPackageError("App manifest is missing required fields: "+", ".join(missing)+".")
