@@ -5,11 +5,18 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
 CONTRACT="vp3.homeserver.media-tools.v1"
 MANIFEST_NAME="manifest.json"
+_CACHE_LOCK=threading.RLock()
+_CACHE_VALUE:dict[str,Any]|None=None
+_CACHE_FINGERPRINT:tuple[Any,...]|None=None
+_CACHE_AT=0.0
+CACHE_SECONDS=60.0
 
 
 def _install_root()->Path:
@@ -68,7 +75,32 @@ def _version(binary:Path)->str:
     return first[0].strip()[:240] if first and result.returncode==0 else ""
 
 
-def health()->dict[str,Any]:
+def _fingerprint()->tuple[Any,...]:
+    values=[]
+    for path in (ffmpeg_path(),ffprobe_path(),manifest_path()):
+        try:
+            stat=path.stat()
+            values.extend([str(path),int(stat.st_mtime_ns),int(stat.st_size)])
+        except OSError:
+            values.extend([str(path),None,None])
+    return tuple(values)
+
+
+def invalidate_cache()->None:
+    global _CACHE_VALUE,_CACHE_FINGERPRINT,_CACHE_AT
+    with _CACHE_LOCK:
+        _CACHE_VALUE=None
+        _CACHE_FINGERPRINT=None
+        _CACHE_AT=0.0
+
+
+def health(*,force:bool=False)->dict[str,Any]:
+    global _CACHE_VALUE,_CACHE_FINGERPRINT,_CACHE_AT
+    fingerprint=_fingerprint()
+    now=time.monotonic()
+    with _CACHE_LOCK:
+        if not force and _CACHE_VALUE is not None and _CACHE_FINGERPRINT==fingerprint and now-_CACHE_AT<CACHE_SECONDS:
+            return dict(_CACHE_VALUE)
     ffmpeg=ffmpeg_path()
     ffprobe=ffprobe_path()
     manifest=_read_manifest()
@@ -87,7 +119,7 @@ def health()->dict[str,Any]:
         except OSError:
             hashes_match=False
     healthy=bool(packaged and ffmpeg_version and ffprobe_version and hashes_match is not False)
-    return {
+    result={
         "contract":CONTRACT,
         "managed":True,
         "root_kind":"homeserver_install",
@@ -103,6 +135,11 @@ def health()->dict[str,Any]:
         "absolute_paths_exposed":False,
         "upgrade_managed_by_homeserver":True,
     }
+    with _CACHE_LOCK:
+        _CACHE_VALUE=dict(result)
+        _CACHE_FINGERPRINT=fingerprint
+        _CACHE_AT=now
+    return result
 
 
 def require()->dict[str,Path]:
