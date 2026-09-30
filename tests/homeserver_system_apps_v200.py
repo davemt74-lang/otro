@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-release-v200-") as da
     assert pairing.approve_pairing(vp3["code"]) is not None
     token=vp3["claim_token"]
 
-    # Seed a previous protected-system release to prove a real 1.0 -> 1.1 update.
+    # Seed a previous protected-system release to prove a real 1.0 -> current update.
     old=copy.deepcopy(homeserver_app_prebuilt.CATALOG["vp3.notes"])
     old["version"]="1.0.0"
     old["release_notes"]=["Previous stable release."]
@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-release-v200-") as da
     rs=status["payload"]
     assert rs["contract"]=="vp3.system-app-release-status.v1"
     assert rs["release_channel"]=="stable"
-    assert rs["available_version"]=="1.1.0"
+    assert rs["available_version"]=="1.2.0"
     assert rs["compatibility"]["min_homeserver_version"]=="2.4"
     assert len(rs["package_sha256"])==64
     assert rs["integrity"]["trust"]=="embedded_vp3"
@@ -54,7 +54,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-release-v200-") as da
 
     bad_hash=remote_bridge.dispatch_remote_request(
         "apps.system.install",
-        {"app_key":"vp3.notes","expected_version":"1.1.0","expected_sha256":"0"*64,"release_channel":"stable"},
+        {"app_key":"vp3.notes","expected_version":"1.2.0","expected_sha256":"0"*64,"release_channel":"stable"},
         token,
     )
     assert bad_hash["ok"] is False
@@ -76,10 +76,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-system-release-v200-") as da
     assert update["payload"]["installed"] is True
     assert update["payload"]["current"] is True
     assert update["payload"]["verification"]["healthy"] is True
-    assert update["payload"]["verification"]["version"]=="1.1.0"
+    assert update["payload"]["verification"]["version"]=="1.2.0"
     assert update["payload"]["release"]["previous_release_id"]==first_release
     second_release=update["payload"]["release"]["release_id"]
-    assert homeserver_apps.get("vp3.notes")["installed_version"]=="1.1.0"
+    assert homeserver_apps.get("vp3.notes")["installed_version"]=="1.2.0"
 
     after=remote_bridge.dispatch_remote_request("apps.system.release.status",{"app_key":"vp3.notes"},token)
     assert after["payload"]["rollback_available"] is True

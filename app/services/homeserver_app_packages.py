@@ -13,7 +13,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import homeserver_app_resources, homeserver_app_runtime, homeserver_app_sdk, homeserver_app_security, homeserver_apps
+from . import homeserver_app_data_lifecycle, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sdk, homeserver_app_security, homeserver_apps
 
 CONTRACT="vp3.app.package.v1"
 RUNTIME_CONTRACT="vp3.app.runtime-install.v1"
@@ -25,6 +25,7 @@ _ALLOWED_KEYS={
     "contract","app_key","name","version","runtime","entrypoint","sdk_version",
     "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events","sample_data",
     "release_channel","min_homeserver_version","max_homeserver_version","release_notes",
+    "data_schema_version","data_migration_reversible",
 }
 
 
@@ -149,6 +150,14 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
         raise AppPackageError("App release_notes must be a list of short strings.")
     manifest["release_channel"]=channel
     manifest["release_notes"]=list(notes or [])
+    schema_version=str(manifest.get("data_schema_version") or "1").strip()
+    if not schema_version or len(schema_version)>80:
+        raise AppPackageError("App data_schema_version is invalid.")
+    reversible=manifest.get("data_migration_reversible",True)
+    if not isinstance(reversible,bool):
+        raise AppPackageError("App data_migration_reversible must be a boolean.")
+    manifest["data_schema_version"]=schema_version
+    manifest["data_migration_reversible"]=reversible
     manifest["app_key"]=key
     manifest["runtime"]=runtime
     manifest["entrypoint"]=entry.as_posix()
@@ -312,6 +321,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         raise AppPackageError("App is busy with another lifecycle operation.",409)
     transition_target="updating" if current_state in {"installed","running","degraded","stopped"} else "installing"
     transitioned=False
+    data_migration_result=None
     root=releases_root(app_key)
     release_id="apprel_"+uuid.uuid4().hex[:24]
     staging=Path(tempfile.mkdtemp(prefix=".staging-",dir=root))
@@ -365,7 +375,13 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             "min_homeserver_version":str(manifest.get("min_homeserver_version") or ""),
             "max_homeserver_version":str(manifest.get("max_homeserver_version") or ""),
             "release_notes":list(manifest.get("release_notes") or []),
+            "data_schema_version":str(manifest.get("data_schema_version") or "1"),
+            "data_migration_reversible":bool(manifest.get("data_migration_reversible",True)),
         }
+        data_migration_result=homeserver_app_data_lifecycle.prepare_and_apply_migration(
+            app_key,manifest,content,release_id=release_id
+        )
+        release["data_migration"]=data_migration_result
         (staging/"release.json").write_text(json.dumps(release,indent=2,sort_keys=True)+"\n",encoding="utf-8")
         os.replace(staging,final)
         previous=_read_state(app_key)
@@ -376,6 +392,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
             "previous_release_id":previous.get("active_release_id"),
         }
         _write_state(app_key,state)
+        app=homeserver_apps.get(app_key)
         metadata=dict(app.get("metadata") or {})
         metadata.update({
             "runtime":manifest["runtime"],
@@ -416,6 +433,13 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         return result
     except Exception as exc:
         shutil.rmtree(staging,ignore_errors=True)
+        if isinstance(data_migration_result,dict) and data_migration_result.get("migration_required") and data_migration_result.get("snapshot_id"):
+            try:
+                homeserver_app_data_lifecycle.restore_snapshot(
+                    app_key,str(data_migration_result["snapshot_id"]),reason="release_activation_failed"
+                )
+            except Exception:
+                pass
         if transitioned:
             try:
                 homeserver_apps.transition(app_key,"failed",metadata={"reason":str(exc)[:500]})
@@ -513,6 +537,7 @@ def public_capability()->dict[str,Any]:
         "release_channels":True,
         "release_notes":True,
         "post_activation_verification":True,
+        "data_lifecycle":homeserver_app_data_lifecycle.public_capability(),
         "path_traversal_protection":True,
         "symbolic_links":False,
         "encrypted_zip":False,
