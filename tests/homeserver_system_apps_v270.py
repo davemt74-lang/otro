@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-manager-v270-") as data_
         assert state["contract"]=="vp3.app.manager.v1"
         assert state["first_party_library"] is True
         assert state["app_store"] is False
-        assert state["counts"]["available"]>=len(expected)
+        assert state["counts"]["available"]>=len(baseline)+1
         by_key={row["app_key"]:row for row in state["items"]}
         
         # Install a system app through the canonical prebuilt/package runtime.
