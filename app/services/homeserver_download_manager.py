@@ -99,11 +99,16 @@ def _connect()->sqlite3.Connection:
             bandwidth_limit_bps INTEGER NOT NULL DEFAULT 0,
             max_file_bytes INTEGER NOT NULL DEFAULT 10737418240,
             auto_retry INTEGER NOT NULL DEFAULT 1 CHECK(auto_retry IN (0,1)),
+            blocked_extensions_json TEXT NOT NULL DEFAULT '[]',
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         INSERT OR IGNORE INTO download_settings(singleton) VALUES (1);
         """
     )
+    columns={str(row["name"]) for row in connection.execute("PRAGMA table_info(download_settings)").fetchall()}
+    if "blocked_extensions_json" not in columns:
+        connection.execute("ALTER TABLE download_settings ADD COLUMN blocked_extensions_json TEXT NOT NULL DEFAULT '[]'")
+        connection.commit()
     default_root=homeserver_app_resources.files_root(APP_KEY).resolve()/"downloads"
     default_root.mkdir(parents=True,exist_ok=True)
     connection.execute(
@@ -126,6 +131,7 @@ def _settings(connection:sqlite3.Connection|None=None)->dict[str,Any]:
             "bandwidth_limit_bps":int(row["bandwidth_limit_bps"]),
             "max_file_bytes":int(row["max_file_bytes"]),
             "auto_retry":bool(row["auto_retry"]),
+            "blocked_extensions":list(json.loads(row["blocked_extensions_json"] or "[]")),
         }
     finally:
         if own:
@@ -137,7 +143,7 @@ def settings()->dict[str,Any]:
 
 
 def update_settings(values:dict[str,Any])->dict[str,Any]:
-    allowed={"max_concurrent","bandwidth_limit_bps","max_file_bytes","auto_retry"}
+    allowed={"max_concurrent","bandwidth_limit_bps","max_file_bytes","auto_retry","blocked_extensions"}
     unknown=set(values)-allowed
     if unknown:
         raise DownloadManagerError(f"Unknown Download Manager setting: {sorted(unknown)[0]}")
@@ -159,14 +165,27 @@ def update_settings(values:dict[str,Any])->dict[str,Any]:
         current["max_file_bytes"]=n
     if "auto_retry" in values:
         current["auto_retry"]=bool(values["auto_retry"])
+    if "blocked_extensions" in values:
+        raw=values["blocked_extensions"]
+        if not isinstance(raw,list) or len(raw)>100:
+            raise DownloadManagerError("blocked_extensions must be a list of at most 100 extensions.")
+        cleaned=[]
+        for value in raw:
+            ext=str(value or "").strip().lower()
+            if ext and not ext.startswith("."): ext="."+ext
+            if ext and (len(ext)>20 or not re.fullmatch(r"\.[a-z0-9][a-z0-9._-]*",ext)):
+                raise DownloadManagerError("A blocked file extension is invalid.")
+            if ext and ext not in cleaned: cleaned.append(ext)
+        current["blocked_extensions"]=cleaned
     connection=_connect()
     try:
         connection.execute(
             """UPDATE download_settings SET max_concurrent=?,bandwidth_limit_bps=?,max_file_bytes=?,
-               auto_retry=?,updated_at=CURRENT_TIMESTAMP WHERE singleton=1""",
+               auto_retry=?,blocked_extensions_json=?,updated_at=CURRENT_TIMESTAMP WHERE singleton=1""",
             (
                 current["max_concurrent"],current["bandwidth_limit_bps"],current["max_file_bytes"],
                 1 if current["auto_retry"] else 0,
+                json.dumps(current["blocked_extensions"],separators=(",",":")),
             ),
         )
         connection.commit()
@@ -297,6 +316,8 @@ def _validate_url(url:str)->urllib.parse.SplitResult:
 
 
 class _SafeRedirect(urllib.request.HTTPRedirectHandler):
+    max_redirections=5
+    max_repeats=2
     def redirect_request(self,req,fp,code,msg,headers,newurl):  # noqa: ANN001
         _validate_url(newurl)
         redirected=super().redirect_request(req,fp,code,msg,headers,newurl)
@@ -586,7 +607,10 @@ def _update_progress(download_id:str,downloaded:int,total:int|None,speed:float,e
 def _open_for_job(row:dict[str,Any],resume_at:int):
     headers={"User-Agent":"VP3-HomeServer-DownloadManager/1.0","Accept":"*/*"}
     secret=homeserver_app_security.get_secret(APP_KEY,"AUTHORIZATION_HEADER")
-    if secret:
+    app=homeserver_apps.get(APP_KEY)
+    configured_host=str(((app.get("metadata") or {}).get("control_settings") or {}).get("authorization_host") or "").strip().lower().rstrip(".")
+    request_host=(urllib.parse.urlsplit(str(row["url"])).hostname or "").lower().rstrip(".")
+    if secret and configured_host and request_host==configured_host:
         headers["Authorization"]=secret
     if resume_at>0:
         headers["Range"]=f"bytes={resume_at}-"
@@ -635,6 +659,8 @@ def _process(download_id:str)->dict[str,Any]:
         if total is not None and total>max_bytes:
             raise DownloadManagerError("Download exceeds the configured maximum file size.",413)
         filename=_content_filename(response.headers,str(item["url"]),str(item["requested_filename"]))
+        if Path(filename).suffix.lower() in set(settings_value.get("blocked_extensions") or []):
+            raise DownloadManagerError("This file type is blocked by Download Manager settings.",403)
         mode="ab" if resume_at>0 and code==206 else "wb"
         downloaded=resume_at if mode=="ab" else 0
         digest=hashlib.new(str(item["checksum_algorithm"])) if item.get("checksum_algorithm") else None
@@ -680,8 +706,12 @@ def _process(download_id:str)->dict[str,Any]:
                         time.sleep(min(delay,1.0))
             handle.flush()
             os.fsync(handle.fileno())
+        if total is not None and downloaded!=total:
+            raise DownloadManagerError("Download ended before the expected content length was received.",502)
         actual=digest.hexdigest().lower() if digest else ""
         if item.get("checksum_expected") and actual!=str(item["checksum_expected"]).lower():
+            temp.unlink(missing_ok=True)
+            _update_progress(download_id,0,total,0,etag,modified)
             raise DownloadManagerError("Downloaded file checksum did not match the expected digest.",422)
         final=_unique_final(root,filename)
         os.replace(temp,final)
@@ -707,11 +737,13 @@ def _process(download_id:str)->dict[str,Any]:
                 retries=int(current["retry_count"])+1
                 auto=bool(_settings(connection)["auto_retry"])
                 next_state="queued" if auto and retries<=int(current["max_retries"]) else "failed"
+                retry_at=int(time.time())+min(300,5*(2**max(0,retries-1))) if next_state=="queued" else None
                 connection.execute(
                     """UPDATE download_jobs SET status=?,retry_count=?,error=?,speed_bps=0,
+                       scheduled_at=CASE WHEN ?='queued' THEN ? ELSE scheduled_at END,
                        completed_at=CASE WHEN ?='failed' THEN CURRENT_TIMESTAMP ELSE NULL END,
                        updated_at=CURRENT_TIMESTAMP WHERE download_id=?""",
-                    (next_state,retries,str(exc)[:1000],next_state,download_id),
+                    (next_state,retries,str(exc)[:1000],next_state,retry_at,next_state,download_id),
                 )
                 connection.commit()
         finally:
@@ -919,6 +951,9 @@ def public_capability()->dict[str,Any]:
         "scheduled_downloads":True,
         "bandwidth_limit":True,
         "concurrency_limit":True,
+        "retry_backoff":True,
+        "configurable_file_type_blocklist":True,
+        "scoped_authentication_host":True,
         "owner_granted_destinations":True,
         "app_owned_default_destination":True,
         "authenticated_downloads_via_secret":True,
