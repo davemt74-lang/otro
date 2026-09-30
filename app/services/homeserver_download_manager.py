@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import homeserver_app_resources, homeserver_app_security, homeserver_apps
+from . import homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_apps
 
 APP_KEY="vp3.download-manager"
 CONTRACT="vp3.download-manager.v1"
@@ -34,6 +34,13 @@ class DownloadManagerError(RuntimeError):
     def __init__(self,message:str,status_code:int=400):
         super().__init__(message)
         self.status_code=status_code
+
+
+def _event(topic:str,payload:dict[str,Any])->None:
+    try:
+        homeserver_app_runtime.publish_event(APP_KEY,topic,payload,source="download-manager")
+    except Exception:
+        pass
 
 
 def _ensure_app()->dict[str,Any]:
@@ -460,6 +467,7 @@ def enqueue(
         connection.commit()
     finally:
         connection.close()
+    _event("downloads.queued",{"download_id":download_id,"destination_id":destination_id,"priority":prio})
     _ensure_worker()
     return get_download(download_id)
 
@@ -478,6 +486,7 @@ def pause(download_id:str)->dict[str,Any]:
         connection.commit()
     finally:
         connection.close()
+    _event("downloads.paused",{"download_id":download_id})
     return get_download(download_id)
 
 
@@ -496,6 +505,7 @@ def resume(download_id:str)->dict[str,Any]:
         connection.commit()
     finally:
         connection.close()
+    _event("downloads.resumed",{"download_id":download_id})
     _ensure_worker()
     return get_download(download_id)
 
@@ -515,6 +525,7 @@ def cancel(download_id:str)->dict[str,Any]:
         connection.commit()
     finally:
         connection.close()
+    _event("downloads.cancelled",{"download_id":download_id})
     return get_download(download_id)
 
 
@@ -533,6 +544,7 @@ def retry(download_id:str)->dict[str,Any]:
         connection.commit()
     finally:
         connection.close()
+    _event("downloads.retry",{"download_id":download_id})
     _ensure_worker()
     return get_download(download_id)
 
@@ -726,7 +738,9 @@ def _process(download_id:str)->dict[str,Any]:
             connection.commit()
         finally:
             connection.close()
-        return get_download(download_id)
+        result=get_download(download_id)
+        _event("downloads.completed",{"download_id":download_id,"filename":result["download"].get("final_filename",""),"bytes":downloaded})
+        return result
     except Exception as exc:
         connection=_connect()
         try:
@@ -748,7 +762,10 @@ def _process(download_id:str)->dict[str,Any]:
                 connection.commit()
         finally:
             connection.close()
-        return get_download(download_id)
+        result=get_download(download_id)
+        if result["download"]["status"]=="failed":
+            _event("downloads.failed",{"download_id":download_id,"error":result["download"].get("error","")})
+        return result
 
 
 def process_next()->dict[str,Any]|None:
@@ -961,6 +978,7 @@ def public_capability()->dict[str,Any]:
         "source_urls_exposed":False,
         "filesystem_paths_exposed":False,
         "agent_brain_context":True,
+        "runtime_events":True,
         "universal_agent_control":True,
         "homeserver_execution_authority":True,
     }
