@@ -79,6 +79,7 @@ try:
             "homeserver_apps_list",
             "homeserver_app_get",
             "homeserver_app_releases",
+            "homeserver_app_source_status",
         }
 
         baseline = client.post("/api/v1/control/chat", json={"message": "Baseline before autonomous tools."})
