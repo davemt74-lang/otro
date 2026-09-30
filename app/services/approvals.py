@@ -782,6 +782,7 @@ def approve_request(request_id: str) -> dict[str, Any]:
         "knowledge.create", "knowledge.update", "knowledge.delete",
         "calendar.create", "calendar.update", "calendar.delete",
         "apps.prebuilt.install", "apps.build_install", "apps.rollback", "apps.recover", "apps.start", "apps.stop",
+        "apps.git.inspect", "apps.source.install", "apps.source.detach",
     }:
         raise ApprovalError("Action type is not approved for local execution.", 403)
     with db() as connection:
