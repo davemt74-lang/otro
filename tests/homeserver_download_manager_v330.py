@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
         assert by_perm["files.write"]["allowed"] is False
 
         denied=client.post("/api/v1/control/homeserver-apps/download-manager/downloads",json={
-            "url":"https://downloads.example.com/file.bin"
+            "url":"https://downloads.example.com/file.bin?token=private-secret"
         })
         assert denied.status_code==403,denied.text
 
@@ -94,7 +94,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
             digest=hashlib.sha256(payload).hexdigest()
 
             created=client.post("/api/v1/control/homeserver-apps/download-manager/downloads",json={
-                "url":"https://downloads.example.com/file.bin",
+                "url":"https://downloads.example.com/file.bin?token=private-secret",
                 "filename":"file.bin",
                 "checksum_algorithm":"sha256",
                 "checksum_expected":digest,
@@ -104,7 +104,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
             assert created.status_code==200,created.text
             download_id=created.json()["download"]["download_id"]
             assert "downloads.example.com/file.bin" in created.json()["download"]["display_url"]
-            assert "https://downloads.example.com/file.bin" not in created.text
+            assert "private-secret" not in created.text
+            assert "token=" not in created.json()["download"]["display_url"]
             assert created.json()["download"]["source_url_exposed"] is False
 
             seen_headers=[]
