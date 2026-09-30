@@ -10,6 +10,7 @@ from . import (
     homeserver_app_security,
     homeserver_apps,
     homeserver_media_server,
+    homeserver_video_editor,
     hosting_cloud_control,
 )
 
@@ -67,6 +68,7 @@ def inventory()->dict[str,Any]:
         bound=list(hosting.get(key,[]))
         lifecycle=str((app or {}).get("lifecycle_state") or ("available" if available else "unknown"))
         media_state=_safe(homeserver_media_server.status) if key==homeserver_media_server.APP_KEY and installed else None
+        video_state=_safe(homeserver_video_editor.status) if key==homeserver_video_editor.APP_KEY and installed else None
         item={
             "app_key":key,
             "name":str((app or {}).get("name") or (package or {}).get("name") or key),
@@ -90,6 +92,14 @@ def inventory()->dict[str,Any]:
             "releases":releases,
             "distribution":shared,
             "media_server":media_state,
+            "video_editor":video_state,
+            "agent_control":{
+                "complete":bool(installed),
+                "manifest":homeserver_video_editor.agent_actions() if key==homeserver_video_editor.APP_KEY and installed else None,
+                "lifecycle":bool(installed),
+                "permissions":bool(app),
+                "hosting":bool(installed),
+            },
             "deployment_modes":list((package or {}).get("deployment_modes") or ["local","private_remote","hosted_subdomain","custom_domain"]),
             "hosting":{
                 "bound":bool(bound),
@@ -132,6 +142,8 @@ def inventory()->dict[str,Any]:
         "canonical_permission_engine":True,
         "canonical_hosting_engine":True,
         "canonical_distribution_engine":True,
+        "homeserver_agent_complete_control":True,
+        "agent_manifest_actions":True,
     }
 
 
@@ -156,5 +168,7 @@ def public_capability()->dict[str,Any]:
         "storage_usage":True,
         "release_update_rollback":True,
         "hosting_bindings":True,
+        "homeserver_agent_complete_control":True,
+        "agent_manifest_actions":True,
         "app_store":False,
     }

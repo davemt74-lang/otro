@@ -5,10 +5,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ..database import db
-from . import homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_sources, homeserver_app_workspace, homeserver_apps
+from . import homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_video_editor
 
 CONTRACT="vp3.app.agent-integration.v1"
-READ_ACTIONS={"apps.list","apps.get","apps.releases","apps.source.status","apps.workspace.status","apps.workspace.file.read"}
+READ_ACTIONS={"apps.list","apps.get","apps.releases","apps.source.status","apps.workspace.status","apps.workspace.file.read","apps.actions","apps.invoke.read"}
 WRITE_ACTIONS={
     "apps.prebuilt.install",
     "apps.build_install",
@@ -20,6 +20,8 @@ WRITE_ACTIONS={
     "apps.source.install",
     "apps.source.detach",
     "apps.workspace.file.write",
+    "apps.permission.set",
+    "apps.invoke",
 }
 
 
@@ -239,11 +241,76 @@ def workspace_file_read(arguments:dict[str,Any]|None=None)->dict[str,Any]:
         raise AppAgentError(str(exc),exc.status_code) from exc
 
 
+
+def app_actions(arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    args=dict(arguments or {})
+    if set(args)-{"app_key"}:
+        raise AppAgentError("apps.actions accepts only app_key.")
+    key=str(args.get("app_key") or "").strip().lower()
+    if not key:
+        raise AppAgentError("apps.actions requires app_key.")
+    app=homeserver_apps.get(key)
+    actions=[]
+    if key==homeserver_video_editor.APP_KEY:
+        actions=list(homeserver_video_editor.agent_actions()["actions"])
+    return {
+        "contract":"vp3.app.agent-control.v2",
+        "app_key":key,
+        "installed":bool(app.get("installed_version")),
+        "complete_control":True,
+        "actions":actions,
+        "lifecycle_actions":["apps.start","apps.stop"],
+        "permission_actions":["apps.permission.set"],
+        "release_actions":["apps.rollback","apps.recover"],
+        "destructive_actions_require_confirmation":True,
+    }
+
+
+def invoke_read(arguments:dict[str,Any]|None=None)->dict[str,Any]:
+    args=dict(arguments or {})
+    key=str(args.get("app_key") or "").strip().lower()
+    action=str(args.get("action") or "").strip()
+    payload=args.get("arguments") if isinstance(args.get("arguments"),dict) else {}
+    if key==homeserver_video_editor.APP_KEY:
+        spec={row["key"]:row for row in homeserver_video_editor.agent_actions()["actions"]}.get(action)
+        if spec is None:
+            raise AppAgentError("App action not found.",404)
+        if str(spec.get("risk") or "")!="read":
+            raise AppAgentError("Use the confirmed Apps action path for write actions.",409)
+        return {"app_key":key,"action":action,"result":homeserver_video_editor.invoke(action,payload)}
+    raise AppAgentError("This app does not expose a readable agent action.",404)
+
 def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]:
     action=str(action_key or "").strip()
     if action not in WRITE_ACTIONS:
         raise AppAgentError("Unsupported Apps Agent action.")
     args=dict(arguments or {})
+
+    if action=="apps.permission.set":
+        unknown=set(args)-{"app_key","permission","allowed"}
+        if unknown:
+            raise AppAgentError(f"Unsupported {action} argument: {sorted(unknown)[0]}")
+        key=str(args.get("app_key") or "").strip().lower()
+        permission=str(args.get("permission") or "").strip()
+        if not key or not permission:
+            raise AppAgentError("apps.permission.set requires app_key and permission.")
+        homeserver_apps.get(key)
+        homeserver_app_security.permission_definition(permission)
+        return {"app_key":key,"permission":permission,"allowed":bool(args.get("allowed"))}
+
+    if action=="apps.invoke":
+        unknown=set(args)-{"app_key","action","arguments"}
+        if unknown:
+            raise AppAgentError(f"Unsupported {action} argument: {sorted(unknown)[0]}")
+        key=str(args.get("app_key") or "").strip().lower()
+        app_action=str(args.get("action") or "").strip()
+        payload=args.get("arguments") if isinstance(args.get("arguments"),dict) else {}
+        if key==homeserver_video_editor.APP_KEY:
+            spec={row["key"]:row for row in homeserver_video_editor.agent_actions()["actions"]}.get(app_action)
+            if spec is None:
+                raise AppAgentError("App action not found.",404)
+            return {"app_key":key,"action":app_action,"arguments":payload,"requires_confirmation":bool(spec.get("requires_confirmation"))}
+        raise AppAgentError("This app does not expose an executable agent action.",404)
 
     if action=="apps.git.inspect":
         unknown=set(args)-{"repo_url","ref"}
@@ -309,11 +376,9 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
         if app["app_class"]!="user" or app["source_type"] not in {"user_created","agent_builder"}:
             raise AppAgentError("Build & install is only available to local SDK user apps.",409)
     elif action in {"apps.rollback","apps.recover"}:
-        if app["app_class"]!="user":
-            raise AppAgentError("VP3 system app release recovery is managed by VP3.",409)
+        pass
     elif action in {"apps.start","apps.stop"}:
-        if app["app_class"]!="user":
-            raise AppAgentError("VP3 system app lifecycle is managed by VP3.",409)
+        pass
     elif action=="apps.source.detach":
         if app["app_class"]!="user":
             raise AppAgentError("VP3 system app sources are managed by VP3.",409)
@@ -343,6 +408,13 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
             return homeserver_app_sources.install_source(args["source_id"],approved=True)
         if action_key=="apps.workspace.file.write":
             return {"workspace":homeserver_app_workspace.write_file(args["app_key"],args["path"],args["content"])}
+        if action_key=="apps.permission.set":
+            return {"permissions":homeserver_app_security.set_permission(
+                args["app_key"],args["permission"],args["allowed"],
+                actor_type="agent",actor_key="homeserver-agent",reason="confirmed_agent_action",
+            )}
+        if action_key=="apps.invoke":
+            return {"app_key":args["app_key"],"action":args["action"],"result":homeserver_video_editor.invoke(args["action"],args["arguments"])}
         key=args["app_key"]
         if action_key=="apps.prebuilt.install":
             return homeserver_app_prebuilt.install(key)
@@ -350,17 +422,23 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
             from . import homeserver_app_packages
             return {"release":homeserver_app_packages.install_project(key)}
         if action_key=="apps.rollback":
-            return homeserver_app_releases.rollback(key)
+            app=homeserver_apps.get(key)
+            return homeserver_app_prebuilt.rollback(key,reason="agent_confirmed") if app["app_class"]=="system" else homeserver_app_releases.rollback(key)
         if action_key=="apps.recover":
             return homeserver_app_releases.recover(key)
         if action_key=="apps.start":
+            app=homeserver_apps.get(key)
+            if app["lifecycle_state"]=="running":
+                return {"app":app,"changed":False}
+            if app["app_class"]=="system" and app["lifecycle_state"] in {"stopped","installed","degraded"}:
+                return {"app":homeserver_apps.transition(key,"running",actor_type="agent",actor_key="homeserver-agent",metadata={"reason":"confirmed_agent_action"}),"changed":True}
             return {"app":homeserver_apps.resume_user_app(key)}
         if action_key=="apps.stop":
             app=homeserver_apps.get(key)
             if app["lifecycle_state"]=="stopped":
                 return {"app":app,"changed":False}
             return {"app":homeserver_apps.transition(
-                key,"stopped",actor_type="owner",actor_key="agent-approved",
+                key,"stopped",actor_type="agent",actor_key="homeserver-agent",
                 metadata={"reason":"approved_agent_action"},
             ),"changed":True}
         if action_key=="apps.source.detach":
@@ -390,6 +468,10 @@ def public_capability()->dict[str,Any]:
         "read_actions":sorted(READ_ACTIONS),
         "write_actions":sorted(WRITE_ACTIONS),
         "write_actions_require_owner_approval":True,
+        "complete_control_over_installed_apps":True,
+        "manifest_driven_app_actions":True,
+        "system_app_lifecycle_control":True,
+        "permission_control":True,
         "paired_app_admin_tools":False,
         "system_app_protection":True,
     }

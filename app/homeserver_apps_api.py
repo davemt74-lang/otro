@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server
+from .services import homeserver_app_agent, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -79,6 +79,42 @@ class MediaPlaybackRequest(BaseModel):
     completed:bool=False
 
 
+class VideoProjectRequest(BaseModel):
+    name:str=Field(min_length=1,max_length=160)
+    width:int=Field(default=1920,ge=320,le=7680)
+    height:int=Field(default=1080,ge=240,le=4320)
+    fps:float=Field(default=30,ge=1,le=240)
+
+
+class VideoTrackRequest(BaseModel):
+    kind:str=Field(pattern="^(video|audio)$")
+    name:str=Field(default="",max_length=120)
+
+
+class VideoClipRequest(BaseModel):
+    track_id:str=Field(min_length=1,max_length=80)
+    media_id:str=Field(min_length=1,max_length=100)
+    start_seconds:float=Field(default=0,ge=0)
+
+
+class VideoClipUpdateRequest(BaseModel):
+    start_seconds:float|None=Field(default=None,ge=0)
+    in_seconds:float|None=Field(default=None,ge=0)
+    out_seconds:float|None=Field(default=None,ge=0)
+    volume:float|None=Field(default=None,ge=0,le=4)
+
+
+class VideoRenderRequest(BaseModel):
+    preset:str=Field(default="1080p",pattern="^(720p|1080p|4k|source)$")
+    format:str=Field(default="mp4",pattern="^(mp4|webm)$")
+
+
+class VideoAgentInvokeRequest(BaseModel):
+    action:str=Field(min_length=1,max_length=120)
+    arguments:dict=Field(default_factory=dict)
+    confirmed:bool=False
+
+
 class WorkspaceRenameRequest(BaseModel):
     path:str=Field(min_length=1,max_length=1000)
     new_path:str=Field(min_length=1,max_length=1000)
@@ -109,6 +145,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_media_server.MediaServerError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_video_editor.VideoEditorError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("")
@@ -118,7 +156,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"media_server":homeserver_media_server.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"media_server":homeserver_media_server.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -223,6 +261,77 @@ def media_server_remote_enable()->dict:
 def media_server_remote_disable()->dict:
     return _call(homeserver_media_server.disable_remote_access)
 
+
+
+@router.get("/video-editor/capability")
+def video_editor_capability()->dict:
+    return homeserver_video_editor.public_capability()
+
+
+@router.get("/video-editor/status")
+def video_editor_status()->dict:
+    return _call(homeserver_video_editor.status)
+
+
+@router.get("/video-editor/projects")
+def video_editor_projects(limit:int=Query(default=100,ge=1,le=200))->dict:
+    return _call(homeserver_video_editor.list_projects,limit)
+
+
+@router.post("/video-editor/projects")
+def video_editor_create_project(payload:VideoProjectRequest)->dict:
+    return _call(homeserver_video_editor.create_project,payload.name,payload.width,payload.height,payload.fps)
+
+
+@router.get("/video-editor/projects/{project_id}")
+def video_editor_project(project_id:str)->dict:
+    return _call(homeserver_video_editor.project,project_id)
+
+
+@router.post("/video-editor/projects/{project_id}/tracks")
+def video_editor_add_track(project_id:str,payload:VideoTrackRequest)->dict:
+    return _call(homeserver_video_editor.add_track,project_id,payload.kind,payload.name)
+
+
+@router.post("/video-editor/projects/{project_id}/clips")
+def video_editor_add_clip(project_id:str,payload:VideoClipRequest)->dict:
+    return _call(homeserver_video_editor.add_clip,project_id,payload.track_id,payload.media_id,payload.start_seconds)
+
+
+@router.put("/video-editor/projects/{project_id}/clips/{clip_id}")
+def video_editor_update_clip(project_id:str,clip_id:str,payload:VideoClipUpdateRequest)->dict:
+    return _call(homeserver_video_editor.update_clip,project_id,clip_id,start_seconds=payload.start_seconds,in_seconds=payload.in_seconds,out_seconds=payload.out_seconds,volume=payload.volume)
+
+
+@router.delete("/video-editor/projects/{project_id}/clips/{clip_id}")
+def video_editor_remove_clip(project_id:str,clip_id:str)->dict:
+    return _call(homeserver_video_editor.remove_clip,project_id,clip_id)
+
+
+@router.post("/video-editor/projects/{project_id}/render")
+def video_editor_render(project_id:str,payload:VideoRenderRequest)->dict:
+    return _call(homeserver_video_editor.queue_render,project_id,payload.preset,payload.format)
+
+
+@router.get("/video-editor/render/{render_id}")
+def video_editor_render_status(render_id:str)->dict:
+    return _call(homeserver_video_editor.render_status,render_id)
+
+
+@router.get("/video-editor/agent-actions")
+def video_editor_agent_actions()->dict:
+    return homeserver_video_editor.agent_actions()
+
+
+@router.post("/video-editor/agent-invoke")
+def video_editor_agent_invoke(payload:VideoAgentInvokeRequest)->dict:
+    manifest={row["key"]:row for row in homeserver_video_editor.agent_actions()["actions"]}
+    spec=manifest.get(payload.action)
+    if spec is None:
+        raise HTTPException(status_code=404,detail="Video Editor agent action not found.")
+    if bool(spec.get("requires_confirmation")) and not payload.confirmed:
+        raise HTTPException(status_code=409,detail="This Video Editor action requires owner confirmation.")
+    return _call(homeserver_video_editor.invoke,payload.action,payload.arguments)
 
 @router.get("/permissions/catalog")
 def app_permission_catalog()->dict:

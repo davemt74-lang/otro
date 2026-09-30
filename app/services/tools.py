@@ -42,6 +42,53 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "additionalProperties": False
         },
     },
+    "apps.actions": {
+        "key": "apps.actions",
+        "name": "List App Agent Actions",
+        "description": "Read the installed app's HomeServer Agent control manifest, including action risk and confirmation requirements.",
+        "mode": "read",
+        "required_permissions": ["apps.read"],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "required": ["app_key"],
+            "additionalProperties": False
+        },
+    },
+    "apps.permission.set": {
+        "key": "apps.permission.set",
+        "name": "Set App Permission",
+        "description": "Grant or revoke a declared app capability through the canonical permission engine after owner confirmation.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "app_key": {"type": "string", "maxLength": 80},
+                "permission": {"type": "string", "maxLength": 120},
+                "allowed": {"type": "boolean"}
+            },
+            "required": ["app_key","permission","allowed"],
+            "additionalProperties": False
+        },
+    },
+    "apps.invoke": {
+        "key": "apps.invoke",
+        "name": "Invoke Installed App Action",
+        "description": "Invoke an action declared by an installed app's Agent manifest. Consequential and destructive actions remain approval-gated.",
+        "mode": "write",
+        "required_permissions": ["apps.manage"],
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "app_key": {"type": "string", "maxLength": 80},
+                "action": {"type": "string", "maxLength": 120},
+                "arguments": {"type": "object"}
+            },
+            "required": ["app_key","action"],
+            "additionalProperties": False
+        },
+    },
     "apps.releases": {
         "key": "apps.releases",
         "name": "List HomeServer App Releases",
@@ -1693,39 +1740,43 @@ def _apps_releases(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str,
 def _apps_start(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     key=_apps_key(arguments)
     try:
-        app=homeserver_apps.get(key)
-        if app["app_class"]!="user":
-            raise ToolError("VP3 system app lifecycle is managed by VP3.",409)
-        before=str(app["lifecycle_state"])
-        if before=="running":
-            result=app
-            changed=False
-        else:
-            result=homeserver_apps.resume_user_app(key)
-            changed=True
-    except homeserver_apps.HomeServerAppError as exc:
+        result=homeserver_app_agent.execute_action("apps.start",{"app_key":key})
+    except homeserver_app_agent.AppAgentError as exc:
         raise ToolError(str(exc),exc.status_code) from exc
-    return {"app":result,"changed":changed},{"app_key":key,"changed":changed}
+    return result,{"app_key":key,"changed":bool(result.get("changed"))}
 
 
 def _apps_stop(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     key=_apps_key(arguments)
     try:
-        app=homeserver_apps.get(key)
-        if app["app_class"]!="user":
-            raise ToolError("VP3 system app lifecycle is managed by VP3.",409)
-        if app["lifecycle_state"]=="stopped":
-            result=app
-            changed=False
-        else:
-            result=homeserver_apps.transition(
-                key,"stopped",actor_type="owner",actor_key="agent-approved",
-                metadata={"reason":"approved_agent_action"},
-            )
-            changed=True
-    except homeserver_apps.HomeServerAppError as exc:
+        result=homeserver_app_agent.execute_action("apps.stop",{"app_key":key})
+    except homeserver_app_agent.AppAgentError as exc:
         raise ToolError(str(exc),exc.status_code) from exc
-    return {"app":result,"changed":changed},{"app_key":key,"changed":changed}
+    return result,{"app_key":key,"changed":bool(result.get("changed"))}
+
+
+def _apps_actions(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result=homeserver_app_agent.app_actions(arguments)
+    except (homeserver_app_agent.AppAgentError,homeserver_apps.HomeServerAppError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return result,{"app_key":result.get("app_key"),"count":len(result.get("actions") or [])}
+
+
+def _apps_permission_set(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result=homeserver_app_agent.execute_action("apps.permission.set",arguments)
+    except (homeserver_app_agent.AppAgentError,homeserver_app_security.AppSecurityError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return result,{"app_key":arguments.get("app_key"),"permission":arguments.get("permission"),"allowed":bool(arguments.get("allowed"))}
+
+
+def _apps_invoke(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        result=homeserver_app_agent.execute_action("apps.invoke",arguments)
+    except (homeserver_app_agent.AppAgentError,RuntimeError) as exc:
+        raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
+    return result,{"app_key":arguments.get("app_key"),"action":arguments.get("action")}
 
 def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] | None,
                  granted_permissions: set[str] | None = None, *, owner: bool = False,
@@ -1760,6 +1811,12 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _apps_list(payload)
         elif tool["key"] == "apps.status":
             result, result_meta = _apps_status(payload)
+        elif tool["key"] == "apps.actions":
+            result, result_meta = _apps_actions(payload)
+        elif tool["key"] == "apps.permission.set":
+            result, result_meta = _apps_permission_set(payload)
+        elif tool["key"] == "apps.invoke":
+            result, result_meta = _apps_invoke(payload)
         elif tool["key"] == "apps.releases":
             result, result_meta = _apps_releases(payload)
         elif tool["key"] == "apps.source.status":

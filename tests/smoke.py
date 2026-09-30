@@ -158,9 +158,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         owner_tools = client.get("/api/v1/control/tools")
         assert owner_tools.status_code == 200
         assert [item["key"] for item in owner_tools.json()["items"]] == [
+            "apps.actions",
             "apps.build_install",
             "apps.git.inspect",
+            "apps.invoke",
             "apps.list",
+            "apps.permission.set",
             "apps.prebuilt.install",
             "apps.prebuilt.list",
             "apps.recover",
