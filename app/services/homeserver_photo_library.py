@@ -220,7 +220,7 @@ def timeline(limit:int=500)->dict[str,Any]:
     connection=_connect()
     try:
         rows=connection.execute(
-            """SELECT substr(COALESCE(NULLIF(source_updated_at,''),indexed_at),1,10) day,COUNT(*) photos
+            """SELECT substr(COALESCE(NULLIF(source_created_at,''),indexed_at),1,10) day,COUNT(*) photos
                FROM photo_items GROUP BY day ORDER BY day DESC LIMIT ?""",
             (max(1,min(int(limit),2000)),),
         ).fetchall()
