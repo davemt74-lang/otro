@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-server-v280-") as data
 
         install=client.post("/api/v1/control/homeserver-apps/catalog/prebuilt/vp3.media-server/install")
         assert install.status_code==200,install.text
-        assert install.json()["app"]["installed_version"]=="1.0.0"
+        assert install.json()["app"]["installed_version"]=="1.1.0"
 
         perms=client.get("/api/v1/control/homeserver-apps/vp3.media-server/permissions")
         assert perms.status_code==200,perms.text
