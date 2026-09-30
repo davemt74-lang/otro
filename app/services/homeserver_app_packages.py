@@ -264,7 +264,7 @@ def _read_state(app_key:str)->dict[str,Any]:
     return value
 
 
-def install_package(app_key:str,package:bytes,*,source_type:str|None=None,_system_managed:bool=False)->dict[str,Any]:
+def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source_provenance:dict[str,Any]|None=None,_system_managed:bool=False)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]!="user" and not (_system_managed and app["app_class"]=="system" and app["protected_system_app"]):
         raise AppPackageError("System apps are managed by the VP3 system app installer.",409)
@@ -320,6 +320,9 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,_syste
             "expanded_bytes":validation["expanded_bytes"],
             "file_count":validation["file_count"],
             "source_type":source_type or app["source_type"],
+            "source_id":str((source_provenance or {}).get("source_id") or ""),
+            "source_ref":str((source_provenance or {}).get("source_ref") or ""),
+            "source_revision":str((source_provenance or {}).get("source_revision") or ""),
             "sdk_version":str(manifest.get("sdk_version") or ""),
         }
         (staging/"release.json").write_text(json.dumps(release,indent=2,sort_keys=True)+"\n",encoding="utf-8")

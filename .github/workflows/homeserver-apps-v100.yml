@@ -31,6 +31,7 @@ on:
       - 'app/services/local_app_catalog.py'
       - 'app/bridge.py'
       - 'database/migrations/059_homeserver_apps_registry.sql'
+      - 'database/migrations/060_homeserver_app_sources.sql'
       - 'sdk/homeserver-app/**'
       - 'tests/homeserver_apps_v1*.py'
       - 'tests/homeserver_apps_v100.py'
@@ -48,9 +49,12 @@ on:
     paths:
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_apps.py'
+      - 'app/services/homeserver_app_sources.py'
       - 'database/migrations/059_homeserver_apps_registry.sql'
+      - 'database/migrations/060_homeserver_app_sources.sql'
       - 'sdk/homeserver-app/**'
       - 'tests/homeserver_apps_v100.py'
+      - 'tests/homeserver_apps_v180.py'
       - '.github/workflows/homeserver-apps-v100.yml'
   workflow_dispatch:
 
@@ -84,7 +88,9 @@ jobs:
           app/services/homeserver_app_resources.py
           app/services/homeserver_app_runtime.py
           app/services/homeserver_app_sample_data.py
+          app/services/homeserver_app_sources.py
           tests/homeserver_apps_v170.py
+          tests/homeserver_apps_v180.py
           app/services/tools.py
           app/services/approvals.py
           app/services/agent_tools.py
@@ -134,3 +140,5 @@ jobs:
         run: python tests/homeserver_apps_v160.py
       - name: Verify Apps Agent Chat and Agent Brain integration
         run: python tests/homeserver_apps_v170.py
+      - name: Verify ZIP Git import and source management
+        run: python tests/homeserver_apps_v180.py
