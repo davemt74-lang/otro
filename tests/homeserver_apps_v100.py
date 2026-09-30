@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v100-") as data_dir, te
         assert created.status_code==200,created.text
         created_payload=created.json()
         item=created_payload["app"]
-        assert created_payload["sdk"]["sdk_version"]=="1.0"
+        assert created_payload["sdk"]["sdk_version"]=="1.1"
         managed_project=Path(data_dir)/"apps"/"garage.inventory"
         assert (managed_project/"vp3-app.json").is_file()
         assert (managed_project/"assets"/"vp3-sdk.js").is_file()
@@ -91,13 +91,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v100-") as data_dir, te
     project=Path(proc.stdout.strip())
     manifest=json.loads((project/"vp3-app.json").read_text(encoding="utf-8"))
     assert manifest["contract"]=="vp3.app.package.v1"
-    assert manifest["sdk_version"]=="1.0"
+    assert manifest["sdk_version"]=="1.1"
     assert manifest["routes"]=={"local":True,"private_remote":False,"public":False}
     assert (project/"index.html").is_file()
     assert (project/"assets"/"vp3-sdk.js").is_file()
     assert (project/"settings.schema.json").is_file()
     assert (project/"agent"/"actions.json").is_file()
-    assert (project/"database"/"migrations").is_dir()
+    assert (project/"database"/"migrations"/"README.md").is_file()
 
     with __import__("sqlite3").connect(Path(data_dir)/"homeserver.db") as connection:
         version=connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
