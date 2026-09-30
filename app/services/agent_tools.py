@@ -16,7 +16,7 @@ MODEL_TOOL_NAMES = {
     "homeserver_notifications_list": "notifications.list",
     "homeserver_tasks_list": "tasks.list",
     "homeserver_apps_list": "apps.list",
-    "homeserver_app_get": "apps.get",
+    "homeserver_app_get": "apps.status",
     "homeserver_app_releases": "apps.releases",
 }
 MEMORY_PROPOSAL_TOOL_NAME = "homeserver_memory_write_request"
