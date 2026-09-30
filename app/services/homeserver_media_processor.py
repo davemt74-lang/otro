@@ -74,7 +74,7 @@ def _connect()->sqlite3.Connection:
     columns={str(row["name"]) for row in c.execute("PRAGMA table_info(processor_settings)").fetchall()}
     if "max_output_bytes" not in columns:
         c.execute("ALTER TABLE processor_settings ADD COLUMN max_output_bytes INTEGER NOT NULL DEFAULT 10737418240")
-        c.commit()
+    c.commit()
     return c
 
 def settings()->dict[str,Any]:
@@ -217,7 +217,10 @@ def _public(row)->dict[str,Any]:
     d=dict(row); d["progress"]=float(d.get("progress") or 0); d["priority"]=int(d.get("priority") or 0)
     d["eta_seconds"]=None if d.get("eta_seconds") is None else int(d["eta_seconds"])
     d["duration_seconds"]=None if d.get("duration_seconds") is None else float(d["duration_seconds"])
-    d["filesystem_path_exposed"]=False; return d
+    d["output_ready"]=bool(d.get("output_rel"))
+    d.pop("output_rel",None)
+    d["filesystem_path_exposed"]=False
+    return d
 
 def status()->dict[str,Any]:
     c=_connect()
@@ -445,7 +448,7 @@ def _run(job_id:str)->None:
       try:
         c.execute("INSERT INTO processor_derivatives(derivative_id,job_id,media_id,kind,preset,format,destination_id,relative_path,size_bytes) VALUES (?,?,?,?,?,?,?,?,?)",
           (did,job_id,job["media_id"],kind,job["preset"],fmt,str(job.get("destination_id") or "app-storage"),name,final.stat().st_size))
-        c.execute("UPDATE processor_jobs SET status='completed',progress=1,eta_seconds=0,output_rel=?,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(f"derivatives/{name}",job_id))
+        c.execute("UPDATE processor_jobs SET status='completed',progress=1,eta_seconds=0,output_rel=?,completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE job_id=?",(name,job_id))
         c.commit()
       finally:c.close()
       homeserver_app_runtime.publish_event(APP_KEY,"processor.completed",{"job_id":job_id,"media_id":job["media_id"],"derivative_id":did,"kind":kind},source="media-processor")
