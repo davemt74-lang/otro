@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_music_server, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -79,6 +79,31 @@ class MediaMappedRootRequest(BaseModel):
     computer_name:str=Field(default="",max_length=120)
     source_hint:str=Field(default="",max_length=240)
     source_kind:str=Field(default="computer_folder",pattern="^(computer_folder|network_share|local_folder)$")
+
+
+class PhotoAlbumRequest(BaseModel):
+    name:str=Field(min_length=1,max_length=160)
+
+
+class PhotoMediaRequest(BaseModel):
+    media_id:str=Field(min_length=1,max_length=100)
+
+
+class PhotoFavoriteRequest(BaseModel):
+    enabled:bool=True
+
+
+class PhotoTagsRequest(BaseModel):
+    tags:list[str]=Field(default_factory=list,max_length=50)
+
+
+class PhotoPersonRequest(BaseModel):
+    name:str=Field(min_length=1,max_length=160)
+
+
+class PhotoPersonAssignRequest(BaseModel):
+    media_id:str=Field(min_length=1,max_length=100)
+    enabled:bool=True
 
 
 class MusicPlaylistRequest(BaseModel):
@@ -185,6 +210,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_music_server.MusicServerError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_photo_library.PhotoLibraryError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_video_editor.VideoEditorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
@@ -196,7 +223,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -322,6 +349,123 @@ def media_server_remote_disable()->dict:
 
 
 
+
+
+
+@router.get("/photo-library/capability")
+def photo_library_capability()->dict:
+    return homeserver_photo_library.public_capability()
+
+
+@router.get("/photo-library/status")
+def photo_library_status()->dict:
+    return _call(homeserver_photo_library.status)
+
+
+@router.post("/photo-library/sync")
+def photo_library_sync()->dict:
+    return _call(homeserver_photo_library.sync)
+
+
+@router.get("/photo-library/photos")
+def photo_library_photos(
+    q:str=Query(default="",max_length=200),
+    folder_album:str=Query(default="",max_length=240),
+    tag:str=Query(default="",max_length=80),
+    favorites_only:bool=Query(default=False),
+    limit:int=Query(default=200,ge=1,le=500),
+    offset:int=Query(default=0,ge=0,le=1_000_000),
+)->dict:
+    return _call(homeserver_photo_library.photos,q,folder_album,tag,favorites_only,limit,offset)
+
+
+@router.get("/photo-library/folders")
+def photo_library_folders()->dict:
+    return _call(homeserver_photo_library.folders)
+
+
+@router.get("/photo-library/timeline")
+def photo_library_timeline(limit:int=Query(default=500,ge=1,le=2000))->dict:
+    return _call(homeserver_photo_library.timeline,limit)
+
+
+@router.put("/photo-library/favorites/{media_id}")
+def photo_library_favorite(media_id:str,payload:PhotoFavoriteRequest)->dict:
+    return _call(homeserver_photo_library.favorite,media_id,payload.enabled)
+
+
+@router.get("/photo-library/tags")
+def photo_library_tags()->dict:
+    return _call(homeserver_photo_library.tags)
+
+
+@router.put("/photo-library/photos/{media_id}/tags")
+def photo_library_set_tags(media_id:str,payload:PhotoTagsRequest)->dict:
+    return _call(homeserver_photo_library.set_tags,media_id,payload.tags)
+
+
+@router.get("/photo-library/albums")
+def photo_library_albums()->dict:
+    return _call(homeserver_photo_library.albums)
+
+
+@router.post("/photo-library/albums")
+def photo_library_create_album(payload:PhotoAlbumRequest)->dict:
+    return _call(homeserver_photo_library.create_album,payload.name)
+
+
+@router.get("/photo-library/albums/{album_id}")
+def photo_library_album(album_id:str)->dict:
+    return _call(homeserver_photo_library.album,album_id)
+
+
+@router.post("/photo-library/albums/{album_id}/photos")
+def photo_library_album_add(album_id:str,payload:PhotoMediaRequest)->dict:
+    return _call(homeserver_photo_library.album_add,album_id,payload.media_id)
+
+
+@router.delete("/photo-library/albums/{album_id}/photos/{media_id}")
+def photo_library_album_remove(album_id:str,media_id:str)->dict:
+    return _call(homeserver_photo_library.album_remove,album_id,media_id)
+
+
+@router.delete("/photo-library/albums/{album_id}")
+def photo_library_album_delete(album_id:str)->dict:
+    return _call(homeserver_photo_library.delete_album,album_id)
+
+
+@router.get("/photo-library/people")
+def photo_library_people()->dict:
+    return _call(homeserver_photo_library.people)
+
+
+@router.post("/photo-library/people")
+def photo_library_create_person(payload:PhotoPersonRequest)->dict:
+    return _call(homeserver_photo_library.create_person,payload.name)
+
+
+@router.put("/photo-library/people/{person_id}/photos")
+def photo_library_assign_person(person_id:str,payload:PhotoPersonAssignRequest)->dict:
+    return _call(homeserver_photo_library.person_assign,person_id,payload.media_id,payload.enabled)
+
+
+@router.get("/photo-library/duplicates")
+def photo_library_duplicates(limit:int=Query(default=100,ge=1,le=500))->dict:
+    return _call(homeserver_photo_library.duplicate_groups,limit)
+
+
+@router.get("/photo-library/smart-albums")
+def photo_library_smart_albums()->dict:
+    return _call(homeserver_photo_library.smart_albums)
+
+
+@router.get("/photo-library/slideshow")
+def photo_library_slideshow(
+    q:str=Query(default="",max_length=200),
+    folder_album:str=Query(default="",max_length=240),
+    limit:int=Query(default=200,ge=1,le=500),
+)->dict:
+    return _call(homeserver_photo_library.slideshow,q,folder_album,limit)
 
 @router.get("/music-server/capability")
 def music_server_capability()->dict:
