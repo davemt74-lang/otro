@@ -171,7 +171,7 @@ def photos(query:str="",folder_album:str="",tag:str="",favorites_only:bool=False
     q=" ".join(str(query or "").split())[:200]
     clauses=[];params=[]
     if q:
-        clauses.append("(LOWER(p.title) LIKE ? OR LOWER(p.folder_album) LIKE ?)")
+        clauses.append("(LOWER(p.title) LIKE ? ESCAPE '\\' OR LOWER(p.folder_album) LIKE ? ESCAPE '\\')")
         term="%"+q.lower().replace("%","\\%").replace("_","\\_")+"%"
         params.extend([term,term])
     if folder_album:
