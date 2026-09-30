@@ -26,7 +26,7 @@
     section.id='view-homeserver-apps';
     section.innerHTML=`
       <div class="section-intro split hs-apps-intro">
-        <div><p class="eyebrow">HOMESERVER APPS</p><h2>App Manager</h2><p>Install VP3 system apps and manage every local, shared, hosted, and user-created app from one place.</p></div>
+        <div><p class="eyebrow">HOMESERVER APPS</p><h2>App Manager</h2><p>Installed Apps, available VP3 system apps, shared apps, hosted apps, and user-created apps are managed from one place.</p></div>
         <div class="hs-app-intro-actions"><button class="button secondary" type="button" data-hs-app-import>Import App</button><button class="button primary" type="button" data-hs-app-create>Create App</button></div>
       </div>
       <section class="hs-app-manager-summary" id="hsAppManagerSummary">
