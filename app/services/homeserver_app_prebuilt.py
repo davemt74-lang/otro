@@ -87,10 +87,6 @@ CATALOG = {
         "sample": [],
         "permissions": ["files.read"],
         "routes": {"local": True, "private_remote": True, "public": False},
-        "settings_fields": [
-            {"key":"authorization_host","type":"string","label":"Authenticated host","description":"Exact hostname allowed to receive the stored Authorization header.","required":False,"secret":False,"default":""},
-            {"key":"authorization_header","type":"string","label":"Authorization header","description":"Stored securely and sent only to the configured authenticated host.","required":False,"secret":True}
-        ],
         "agent_actions": [
             {
                 "key":"media.roots.list","risk":"read","requires_confirmation":False,
@@ -220,6 +216,10 @@ CATALOG = {
         "sample": [],
         "permissions": ["network.external","files.write"],
         "routes": {"local": True, "private_remote": True, "public": False},
+        "settings_fields": [
+            {"key":"authorization_host","type":"string","label":"Authenticated host","description":"Exact hostname allowed to receive the stored Authorization header.","required":False,"secret":False,"default":""},
+            {"key":"authorization_header","type":"string","label":"Authorization header","description":"Stored securely and sent only to the configured authenticated host.","required":False,"secret":True}
+        ],
         "agent_actions": [
             {"key":"downloads.status","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
             {"key":"downloads.list","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"status":{"type":"string","maxLength":40},"limit":{"type":"integer","minimum":1,"maximum":1000}},"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
