@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, homeserver_app_packages, homeserver_app_prebuilt, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, homeserver_app_prebuilt, homeserver_app_releases, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -522,7 +522,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     expected_active_release_id=str(body.get("expected_active_release_id") or "") or None,
                     reason=str(body.get("reason") or "owner_requested"),
                 )
-            except (homeserver_apps.HomeServerAppError, homeserver_app_packages.AppPackageError) as exc:
+            except (homeserver_apps.HomeServerAppError, homeserver_app_releases.AppReleaseError) as exc:
                 return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "apps.system.deactivate":
