@@ -23,6 +23,19 @@ EXTRA_PERMISSIONS={
     "notifications.write",
 }
 ALLOWED_PERMISSIONS=set(DEFAULT_PERMISSIONS)|EXTRA_PERMISSIONS
+PERMISSION_GOVERNANCE={
+    "agent.context":{"risk":"medium","category":"agent","description":"Read scoped Agent context supplied to the app."},
+    "hardware.camera":{"risk":"high","category":"hardware","description":"Access camera input through governed HomeServer capability APIs."},
+    "hardware.microphone":{"risk":"high","category":"hardware","description":"Access microphone input through governed HomeServer capability APIs."},
+    "network.external":{"risk":"high","category":"network","description":"Make outbound network requests through governed HomeServer capability APIs."},
+    "notifications.write":{"risk":"medium","category":"notifications","description":"Create user-visible HomeServer notifications."},
+}
+for _permission in ALLOWED_PERMISSIONS:
+    PERMISSION_GOVERNANCE.setdefault(_permission,{
+        "risk":"medium" if _permission.endswith(".write") else "low",
+        "category":_permission.split(".",1)[0],
+        "description":"Use the declared "+_permission+" HomeServer capability.",
+    })
 _SECRET_KEY=re.compile(r"^[A-Z][A-Z0-9_]{1,79}$")
 CRYPTPROTECT_UI_FORBIDDEN=0x1
 
@@ -155,7 +168,7 @@ def _metadata(app:dict[str,Any])->dict[str,Any]:
     return dict(app.get("metadata") or {})
 
 
-def _write_metadata(app:dict[str,Any],metadata:dict[str,Any],event_type:str,event_meta:dict[str,Any])->None:
+def _write_metadata(app:dict[str,Any],metadata:dict[str,Any],event_type:str,event_meta:dict[str,Any],*,actor_type:str="owner",actor_key:str="local_owner")->None:
     with db() as connection:
         connection.execute(
             "UPDATE homeserver_apps SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE app_id=?",
@@ -163,9 +176,46 @@ def _write_metadata(app:dict[str,Any],metadata:dict[str,Any],event_type:str,even
         )
         connection.execute(
             """INSERT INTO homeserver_app_events(app_id,event_type,actor_type,actor_key,metadata_json)
-               VALUES (?,?, 'owner','local_owner',?)""",
-            (app["app_id"],event_type,json.dumps(event_meta,separators=(",",":"),sort_keys=True)),
+               VALUES (?,?,?,?,?)""",
+            (app["app_id"],event_type,actor_type[:40],actor_key[:120],json.dumps(event_meta,separators=(",",":"),sort_keys=True)),
         )
+
+
+def permission_definition(permission:str)->dict[str,Any]:
+    name=str(permission or "").strip()
+    if name not in ALLOWED_PERMISSIONS:
+        raise AppSecurityError(f"Unsupported app permission: {name or '<empty>'}.")
+    definition=dict(PERMISSION_GOVERNANCE[name])
+    return {"permission":name,**definition}
+
+
+def permission_catalog()->dict[str,Any]:
+    return {
+        "contract":"vp3.app.permission-catalog.v1",
+        "permissions":[permission_definition(name) for name in sorted(ALLOWED_PERMISSIONS)],
+        "risk_levels":["low","medium","high"],
+        "default_decision":"denied",
+        "grant_authority":"explicit_owner_or_confirmed_agent_action",
+    }
+
+
+def permission_delta(app_key:str,candidate_permissions:list[str])->dict[str,Any]:
+    current=permission_status(app_key)
+    current_names={row["permission"] for row in current["permissions"]}
+    candidate=set(normalize_declared_permissions(candidate_permissions))
+    added=sorted(candidate-current_names)
+    removed=sorted(current_names-candidate)
+    retained=sorted(current_names&candidate)
+    return {
+        "contract":"vp3.app.permission-delta.v1",
+        "app_key":app_key,
+        "added":[permission_definition(name) for name in added],
+        "removed":[permission_definition(name) for name in removed],
+        "retained":[permission_definition(name) for name in retained],
+        "requires_review":bool(added),
+        "high_risk_added":any(permission_definition(name)["risk"]=="high" for name in added),
+        "new_permissions_default_denied":True,
+    }
 
 
 def normalize_declared_permissions(values:list[str]|None)->list[str]:
@@ -204,17 +254,33 @@ def permission_status(app_key:str)->dict[str,Any]:
     security=dict(_metadata(app).get("security") or {})
     declared=sorted({str(x) for x in security.get("declared_permissions",[]) if str(x)})
     grants={str(k):bool(v) for k,v in dict(security.get("permission_grants") or {}).items()}
+    rows=[]
+    for permission in declared:
+        definition=permission_definition(permission)
+        rows.append({
+            "permission":permission,
+            "allowed":bool(grants.get(permission,False)),
+            "risk":definition["risk"],
+            "category":definition["category"],
+            "description":definition["description"],
+        })
     return {
         "contract":CONTRACT,
+        "governance_contract":"vp3.app.permission-governance.v1",
         "app_key":app["app_key"],
-        "permissions":[{"permission":p,"allowed":bool(grants.get(p,False))} for p in declared],
+        "permissions":rows,
         "declared_count":len(declared),
         "allowed_count":sum(1 for p in declared if grants.get(p,False)),
+        "denied_count":sum(1 for p in declared if not grants.get(p,False)),
+        "high_risk_declared":sum(1 for row in rows if row["risk"]=="high"),
+        "high_risk_allowed":sum(1 for row in rows if row["risk"]=="high" and row["allowed"]),
+        "effective_capabilities":[row["permission"] for row in rows if row["allowed"]],
         "default_for_new_permissions":"denied",
+        "permission_expansion_requires_review":True,
     }
 
 
-def set_permission(app_key:str,permission:str,allowed:bool)->dict[str,Any]:
+def set_permission(app_key:str,permission:str,allowed:bool,*,actor_type:str="owner",actor_key:str="local_owner",reason:str="owner_decision")->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     name=str(permission or "").strip()
     security=dict(_metadata(app).get("security") or {})
@@ -226,13 +292,26 @@ def set_permission(app_key:str,permission:str,allowed:bool)->dict[str,Any]:
     security["permission_grants"]=grants
     metadata=_metadata(app)
     metadata["security"]=security
-    _write_metadata(app,metadata,"app.permission.updated",{"permission":name,"allowed":bool(allowed)})
+    definition=permission_definition(name)
+    _write_metadata(
+        app,metadata,"app.permission.updated",
+        {"permission":name,"allowed":bool(allowed),"risk":definition["risk"],"category":definition["category"],"reason":str(reason or "")[:160]},
+        actor_type=actor_type,actor_key=actor_key,
+    )
     return permission_status(app_key)
 
 
 def permission_allowed(app_key:str,permission:str)->bool:
     status=permission_status(app_key)
     return any(row["permission"]==permission and row["allowed"] for row in status["permissions"])
+
+
+
+def require_permission(app_key:str,permission:str)->dict[str,Any]:
+    definition=permission_definition(permission)
+    if not permission_allowed(app_key,permission):
+        raise AppSecurityError(f"App capability denied: {permission}.",403)
+    return {"contract":"vp3.app.capability-grant.v1","app_key":app_key,**definition,"allowed":True}
 
 
 def set_secret(app_key:str,key:str,value:str)->dict[str,Any]:
@@ -302,8 +381,15 @@ def public_capability()->dict[str,Any]:
         "owner_approval_required":True,
         "new_permissions_default_denied":True,
         "permission_expansion_auto_approved":False,
+        "permission_governance_contract":"vp3.app.permission-governance.v1",
+        "risk_classification":True,
+        "effective_capability_projection":True,
+        "grant_provenance_events":True,
+        "permission_delta_review":True,
+        "high_risk_permissions_explicit":True,
         "write_only_secret_api":True,
         "secret_values_exposed":False,
         "secret_protection":"windows-dpapi" if os.name=="nt" else "restricted-local-file",
         "allowed_permissions":sorted(ALLOWED_PERMISSIONS),
+        "permission_catalog":permission_catalog(),
     }

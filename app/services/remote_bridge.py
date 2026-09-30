@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, homeserver_app_prebuilt, homeserver_app_releases, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -483,6 +483,7 @@ def _system_app_status(app_key: str) -> dict[str, Any]:
         "update_available":bool(package.get("update_available")),
         "state":str(package.get("state") or "available"),
         "data":data_status,
+        "permissions":homeserver_app_security.permission_status(key) if bool(package.get("installed")) else None,
     }
 
 
@@ -530,6 +531,34 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                 payload_out["error"]=str(result.get("error") or "")
             except homeserver_apps.HomeServerAppError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.system.permissions.status":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            try:
+                app=homeserver_apps.get(key)
+                if app["app_class"]!="system" or not app["protected_system_app"]:
+                    raise homeserver_apps.HomeServerAppError("Permission governance is restricted to protected VP3 System Apps.",409)
+                payload_out=homeserver_app_security.permission_status(key)
+            except (homeserver_apps.HomeServerAppError, homeserver_app_security.AppSecurityError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.system.permissions.set":
+            _vp3_system_apps_identity(token)
+            key=str(body.get("app_key") or "").strip().lower()
+            permission=str(body.get("permission") or "").strip()
+            allowed=bool(body.get("allowed"))
+            try:
+                app=homeserver_apps.get(key)
+                if app["app_class"]!="system" or not app["protected_system_app"]:
+                    raise homeserver_apps.HomeServerAppError("Permission governance is restricted to protected VP3 System Apps.",409)
+                payload_out=homeserver_app_security.set_permission(
+                    key,permission,allowed,
+                    actor_type="owner",actor_key="vp3_cloud_confirmed",
+                    reason=str(body.get("reason") or "cloud_confirmed")[:160],
+                )
+            except (homeserver_apps.HomeServerAppError, homeserver_app_security.AppSecurityError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "apps.system.release.status":
             _vp3_system_apps_identity(token)

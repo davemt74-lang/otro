@@ -93,6 +93,11 @@ def apps_capability()->dict:
     return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability()}
 
 
+@router.get("/permissions/catalog")
+def app_permission_catalog()->dict:
+    return homeserver_app_security.permission_catalog()
+
+
 @router.get("/catalog/prebuilt")
 def prebuilt_apps_catalog()->dict:
     return homeserver_app_prebuilt.catalog()
