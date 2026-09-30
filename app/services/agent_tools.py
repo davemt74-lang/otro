@@ -19,6 +19,7 @@ MODEL_TOOL_NAMES = {
     "homeserver_app_get": "apps.status",
     "homeserver_app_releases": "apps.releases",
     "homeserver_app_source_status": "apps.source.status",
+    "homeserver_app_actions": "apps.actions",
 }
 MEMORY_PROPOSAL_TOOL_NAME = "homeserver_memory_write_request"
 MEMORY_PROPOSAL_TOOL_KEY = "memory.write"
@@ -41,6 +42,8 @@ APP_ACTION_MODEL_TOOLS = {
     "homeserver_app_git_inspect_request": "apps.git.inspect",
     "homeserver_app_source_install_request": "apps.source.install",
     "homeserver_app_source_detach_request": "apps.source.detach",
+    "homeserver_app_permission_request": "apps.permission.set",
+    "homeserver_app_invoke_request": "apps.invoke",
 }
 
 
