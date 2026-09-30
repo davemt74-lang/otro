@@ -135,6 +135,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
     assert "VP3 System" in ui
     assert "data-hs-prebuilt-install" in ui
     assert "/catalog/prebuilt" in ui
-    assert "meta.prebuilt_app" in ui
+    assert "/api/v1/control/homeserver-apps/manager" in ui
 
 print("HomeServer Apps V1 Section 6 VP3 prebuilt apps: PASS")
