@@ -65,14 +65,21 @@
     $('ambientVadHardware').textContent = yesNo(hardware.voice_activity_event);
   }
 
+  let loadPromise = null;
   async function load() {
     if (!$('ambientEnabled')) return;
+    if (loadPromise) return loadPromise;
+    loadPromise = (async () => {
     try {
       render(await request('/api/v1/control/vp3-os/ambient'));
       $('ambientFeedback').textContent = '';
     } catch (error) {
       $('ambientFeedback').textContent = error.message;
+    } finally {
+      loadPromise = null;
     }
+    })();
+    return loadPromise;
   }
 
   async function save() {

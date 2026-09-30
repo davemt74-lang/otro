@@ -121,10 +121,13 @@ function ensureKnowledgeControls() {
   }
 }
 
+let vp3CloudRefreshPromise = null;
 async function refreshVp3CloudState() {
+  if (vp3CloudRefreshPromise) return vp3CloudRefreshPromise;
   const node = $('vp3CloudState');
   const label = $('vp3CloudStateLabel');
   if (!node || !label) return;
+  vp3CloudRefreshPromise = (async () => {
   try {
     const data = await api('/api/v1/control/cloud-connection');
     const cloud = data.cloud || {};
@@ -136,7 +139,11 @@ async function refreshVp3CloudState() {
   } catch (_) {
     node.dataset.state = 'offline';
     label.textContent = 'VP3 Cloud status unavailable';
+  } finally {
+    vp3CloudRefreshPromise = null;
   }
+  })();
+  return vp3CloudRefreshPromise;
 }
 
 async function loadOverview() {
@@ -339,4 +346,5 @@ const initial = location.hash.replace('#','') || 'dashboard';
 openView(viewNames.includes(initial) ? initial : 'dashboard');
 
 refreshVp3CloudState();
-setInterval(()=>{if(document.visibilityState==='visible')refreshVp3CloudState();},3000);
+setInterval(()=>{if(document.visibilityState==='visible')refreshVp3CloudState();},15000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshVp3CloudState();});
