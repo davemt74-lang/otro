@@ -63,7 +63,7 @@ def validate_action_manifest(content_root:Path,app_key:str,manifest_path:str)->d
             if not isinstance(executor,dict):
                 raise AppControlError(f"Agent action {key} executor must be an object.")
             kind=str(executor.get("type") or "")
-            if kind not in {"event.emit","job.run","builtin"}:
+            if kind not in {"runtime.status","settings.read","event.emit","job.run","builtin"}:
                 raise AppControlError(f"Agent action {key} executor type is unsupported.")
             if kind=="event.emit":
                 topic=str(executor.get("topic") or "").strip()
@@ -136,7 +136,15 @@ def invoke(app_key:str,action_key:str,arguments:dict[str,Any]|None=None)->dict[s
         raise AppControlError("App action has no executable handler.",409)
     args=dict(arguments or {})
     kind=str(executor.get("type") or "")
-    if kind=="event.emit":
+    if kind=="runtime.status":
+        if args:
+            raise AppControlError("runtime.status actions do not accept arguments.")
+        result=homeserver_app_runtime.runtime_status(app_key)
+    elif kind=="settings.read":
+        if args:
+            raise AppControlError("settings.read actions do not accept arguments.")
+        result=settings(app_key)
+    elif kind=="event.emit":
         base=dict(executor.get("payload") or {})
         base.update(args)
         result=homeserver_app_runtime.publish_event(
@@ -346,7 +354,7 @@ def public_capability()->dict[str,Any]:
         "generic_invocation":True,
         "generic_settings_control":True,
         "secret_settings_write_only":True,
-        "generic_executors":["event.emit","job.run","builtin"],
+        "generic_executors":["runtime.status","settings.read","event.emit","job.run","builtin"],
         "install_time_validation":True,
         "compatibility_negotiation":True,
         "owner_confirmation_for_high_risk":True,
