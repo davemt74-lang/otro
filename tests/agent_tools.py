@@ -76,6 +76,9 @@ try:
             "homeserver_memory_list",
             "homeserver_notifications_list",
             "homeserver_tasks_list",
+            "homeserver_apps_list",
+            "homeserver_app_get",
+            "homeserver_app_releases",
         }
 
         baseline = client.post("/api/v1/control/chat", json={"message": "Baseline before autonomous tools."})
@@ -123,6 +126,9 @@ try:
             "homeserver_memory_list",
             "homeserver_notifications_list",
             "homeserver_tasks_list",
+            "homeserver_apps_list",
+            "homeserver_app_get",
+            "homeserver_app_releases",
         }
         assert "homeserver_memory_write_request" not in offered
         assert "homeserver_task_create_request" not in offered
