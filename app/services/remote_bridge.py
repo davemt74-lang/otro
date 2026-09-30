@@ -490,13 +490,40 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
         if op == "apps.system.install":
             _vp3_system_apps_identity(token)
             try:
-                result=homeserver_app_prebuilt.install(str(body.get("app_key") or ""))
+                result=homeserver_app_prebuilt.install(
+                    str(body.get("app_key") or ""),
+                    expected_version=str(body.get("expected_version") or "") or None,
+                    expected_sha256=str(body.get("expected_sha256") or "") or None,
+                    release_channel=str(body.get("release_channel") or "") or None,
+                )
                 payload_out=_system_app_status(str(body.get("app_key") or ""))
                 payload_out["changed"]=bool(result.get("changed"))
                 payload_out["reason"]=str(result.get("reason") or "")
                 payload_out["release"]=result.get("release")
+                payload_out["verification"]=result.get("verification")
+                payload_out["rolled_back"]=bool(result.get("rolled_back"))
+                payload_out["rollback"]=result.get("rollback")
+                payload_out["error"]=str(result.get("error") or "")
             except homeserver_apps.HomeServerAppError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.system.release.status":
+            _vp3_system_apps_identity(token)
+            try:
+                payload_out=homeserver_app_prebuilt.release_status(str(body.get("app_key") or ""))
+            except homeserver_apps.HomeServerAppError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.system.rollback":
+            _vp3_system_apps_identity(token)
+            try:
+                payload_out=homeserver_app_prebuilt.rollback(
+                    str(body.get("app_key") or ""),
+                    expected_active_release_id=str(body.get("expected_active_release_id") or "") or None,
+                    reason=str(body.get("reason") or "owner_requested"),
+                )
+            except (homeserver_apps.HomeServerAppError, homeserver_app_packages.AppPackageError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "apps.system.deactivate":
             _vp3_system_apps_identity(token)
