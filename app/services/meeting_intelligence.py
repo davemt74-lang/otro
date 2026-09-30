@@ -196,7 +196,10 @@ def analyze(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]
     app_key = str(identity.get("app_key") or "").strip()
     if not app_key:
         raise MeetingIntelligenceError("Paired app identity is invalid.", 403)
-    cache_key = f"{app_key}|{job['idempotency_key']}"
+    # The protocol idempotency key is deliberately bound to meeting + source
+    # hash. Runtime caching also includes mode so a final pass cannot receive a
+    # cached live result when the transcript stopped changing before room end.
+    cache_key = f"{app_key}|{job['idempotency_key']}|{job['mode']}"
     with _CACHE_LOCK:
         cached = _CACHE.get(cache_key)
         if cached is not None:
