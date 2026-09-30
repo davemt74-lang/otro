@@ -113,6 +113,93 @@ def update_settings(values:dict[str,Any])->dict[str,Any]:
     finally:c.close()
     return settings()
 
+def _destination_public(row:sqlite3.Row|dict[str,Any])->dict[str,Any]:
+    return {
+      "destination_id":str(row["destination_id"]),
+      "label":str(row["label"]),
+      "destination_kind":str(row["destination_kind"]),
+      "enabled":bool(row["enabled"]),
+      "absolute_path_exposed":False,
+    }
+
+
+def destinations()->dict[str,Any]:
+    c=_connect()
+    try:
+      rows=c.execute("SELECT * FROM processor_destinations ORDER BY destination_kind,label").fetchall()
+    finally:
+      c.close()
+    return {"contract":CONTRACT,"destinations":[_destination_public(row) for row in rows],"count":len(rows)}
+
+
+def add_destination(path_value:str,label:str="",destination_kind:str="mapped_folder")->dict[str,Any]:
+    homeserver_app_security.require_permission(APP_KEY,"files.write")
+    root=Path(str(path_value or "")).expanduser().resolve()
+    if not root.is_dir() or root.is_symlink():
+      raise MediaProcessorError("Processor destination must be an existing non-symlink folder.")
+    kind=str(destination_kind or "mapped_folder")
+    if kind not in {"mapped_folder","network_share","local_folder"}:
+      raise MediaProcessorError("Unsupported processor destination kind.")
+    name=" ".join(str(label or root.name or "Processor Output").split())[:120]
+    destination_id="dest_"+uuid.uuid4().hex
+    c=_connect()
+    try:
+      c.execute(
+        "INSERT INTO processor_destinations(destination_id,label,root_path,destination_kind) VALUES (?,?,?,?)",
+        (destination_id,name,str(root),kind),
+      )
+      c.commit()
+    finally:
+      c.close()
+    return {
+      "contract":CONTRACT,
+      "destination":_destination_public({
+        "destination_id":destination_id,"label":name,"destination_kind":kind,"enabled":1
+      }),
+      "owner_granted":True,
+    }
+
+
+def remove_destination(destination_id:str)->dict[str,Any]:
+    if destination_id=="app-storage":
+      raise MediaProcessorError("The app-owned processor destination cannot be removed.",409)
+    c=_connect()
+    try:
+      active=int(c.execute(
+        "SELECT COUNT(*) FROM processor_jobs WHERE destination_id=? AND status IN ('queued','processing')",
+        (destination_id,),
+      ).fetchone()[0])
+      if active:
+        raise MediaProcessorError("Processor destination is in use by active jobs.",409)
+      cur=c.execute("DELETE FROM processor_destinations WHERE destination_id=?",(destination_id,))
+      if cur.rowcount<1:
+        raise MediaProcessorError("Processor destination not found.",404)
+      c.commit()
+    finally:
+      c.close()
+    return {"contract":CONTRACT,"removed":True,"destination_id":destination_id,"files_deleted":False}
+
+
+def _destination_path(destination_id:str)->tuple[Path,str]:
+    c=_connect()
+    try:
+      row=c.execute(
+        "SELECT * FROM processor_destinations WHERE destination_id=? AND enabled=1",
+        (destination_id,),
+      ).fetchone()
+    finally:
+      c.close()
+    if not row:
+      raise MediaProcessorError("Processor destination is unavailable.",409)
+    root=Path(str(row["root_path"])).resolve()
+    if not root.is_dir() or root.is_symlink():
+      raise MediaProcessorError("Processor destination is disconnected.",409)
+    kind=str(row["destination_kind"])
+    if kind!="app_storage":
+      homeserver_app_security.require_permission(APP_KEY,"files.write")
+    return root,kind
+
+
 def capability()->dict[str,Any]:
     tools=homeserver_media_tools.public_capability()
     available=bool(tools["healthy"])
