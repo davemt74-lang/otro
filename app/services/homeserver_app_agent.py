@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from ..database import db
-from . import homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_video_editor
+from . import homeserver_app_control, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps
 
 CONTRACT="vp3.app.agent-integration.v1"
 READ_ACTIONS={"apps.list","apps.get","apps.releases","apps.source.status","apps.workspace.status","apps.workspace.file.read","apps.actions","apps.invoke.read"}
@@ -249,36 +249,46 @@ def app_actions(arguments:dict[str,Any]|None=None)->dict[str,Any]:
     key=str(args.get("app_key") or "").strip().lower()
     if not key:
         raise AppAgentError("apps.actions requires app_key.")
-    app=homeserver_apps.get(key)
-    actions=[]
-    if key==homeserver_video_editor.APP_KEY:
-        actions=list(homeserver_video_editor.agent_actions()["actions"])
+    try:
+        app=homeserver_apps.get(key)
+        control=homeserver_app_control.manifest(key)
+        compatibility=homeserver_app_control.compatibility(key)
+    except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
+        raise AppAgentError(str(exc),getattr(exc,"status_code",400)) from exc
     return {
-        "contract":"vp3.app.agent-control.v2",
+        "contract":"vp3.app.agent-control.v3",
         "app_key":key,
         "installed":bool(app.get("installed_version")),
         "complete_control":True,
-        "actions":actions,
+        "compatible":bool(compatibility.get("compatible")),
+        "manifest_contract":control.get("manifest_contract"),
+        "actions":control.get("actions",[]),
         "lifecycle_actions":["apps.start","apps.stop"],
         "permission_actions":["apps.permission.set"],
         "release_actions":["apps.rollback","apps.recover"],
+        "hosting_actions":["apps.hosting.status"],
         "destructive_actions_require_confirmation":True,
     }
 
 
 def invoke_read(arguments:dict[str,Any]|None=None)->dict[str,Any]:
     args=dict(arguments or {})
+    unknown=set(args)-{"app_key","action","arguments"}
+    if unknown:
+        raise AppAgentError(f"Unsupported apps.invoke.read argument: {sorted(unknown)[0]}")
     key=str(args.get("app_key") or "").strip().lower()
     action=str(args.get("action") or "").strip()
     payload=args.get("arguments") if isinstance(args.get("arguments"),dict) else {}
-    if key==homeserver_video_editor.APP_KEY:
-        spec={row["key"]:row for row in homeserver_video_editor.agent_actions()["actions"]}.get(action)
-        if spec is None:
-            raise AppAgentError("App action not found.",404)
-        if str(spec.get("risk") or "")!="read":
-            raise AppAgentError("Use the confirmed Apps action path for write actions.",409)
-        return {"app_key":key,"action":action,"result":homeserver_video_editor.invoke(action,payload)}
-    raise AppAgentError("This app does not expose a readable agent action.",404)
+    if not key or not action:
+        raise AppAgentError("apps.invoke.read requires app_key and action.")
+    try:
+        spec=homeserver_app_control.action_spec(key,action)
+        if str(spec.get("risk") or "")!="read" or bool(spec.get("requires_confirmation")):
+            raise AppAgentError("Use the governed Apps action path for non-read actions.",409)
+        return homeserver_app_control.invoke(key,action,payload)
+    except homeserver_app_control.AppControlError as exc:
+        raise AppAgentError(str(exc),exc.status_code) from exc
+
 
 def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]:
     action=str(action_key or "").strip()
@@ -305,12 +315,17 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
         key=str(args.get("app_key") or "").strip().lower()
         app_action=str(args.get("action") or "").strip()
         payload=args.get("arguments") if isinstance(args.get("arguments"),dict) else {}
-        if key==homeserver_video_editor.APP_KEY:
-            spec={row["key"]:row for row in homeserver_video_editor.agent_actions()["actions"]}.get(app_action)
-            if spec is None:
-                raise AppAgentError("App action not found.",404)
-            return {"app_key":key,"action":app_action,"arguments":payload,"requires_confirmation":bool(spec.get("requires_confirmation"))}
-        raise AppAgentError("This app does not expose an executable agent action.",404)
+        try:
+            spec=homeserver_app_control.action_spec(key,app_action)
+        except homeserver_app_control.AppControlError as exc:
+            raise AppAgentError(str(exc),exc.status_code) from exc
+        return {
+            "app_key":key,
+            "action":app_action,
+            "arguments":payload,
+            "risk":str(spec.get("risk") or "write"),
+            "requires_confirmation":bool(spec.get("requires_confirmation")),
+        }
 
     if action=="apps.git.inspect":
         unknown=set(args)-{"repo_url","ref"}
@@ -414,7 +429,7 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
                 actor_type="agent",actor_key="homeserver-agent",reason="confirmed_agent_action",
             )}
         if action_key=="apps.invoke":
-            return {"app_key":args["app_key"],"action":args["action"],"result":homeserver_video_editor.invoke(args["action"],args["arguments"])}
+            return homeserver_app_control.invoke(args["app_key"],args["action"],args["arguments"])
         key=args["app_key"]
         if action_key=="apps.prebuilt.install":
             return homeserver_app_prebuilt.install(key)
@@ -443,7 +458,7 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
             ),"changed":True}
         if action_key=="apps.source.detach":
             return {"source":homeserver_app_sources.detach(key,confirmed=True)}
-    except (homeserver_apps.HomeServerAppError,homeserver_app_releases.AppReleaseError,homeserver_app_sources.AppSourceError) as exc:
+    except (homeserver_apps.HomeServerAppError,homeserver_app_releases.AppReleaseError,homeserver_app_sources.AppSourceError,homeserver_app_control.AppControlError) as exc:
         raise AppAgentError(str(exc),getattr(exc,"status_code",400)) from exc
     raise AppAgentError("Unsupported Apps Agent action.")
 
@@ -470,6 +485,9 @@ def public_capability()->dict[str,Any]:
         "write_actions_require_owner_approval":True,
         "complete_control_over_installed_apps":True,
         "manifest_driven_app_actions":True,
+        "universal_app_control_contract":"vp3.app.agent-control.v3",
+        "generic_action_invocation":True,
+        "compatibility_negotiation":True,
         "system_app_lifecycle_control":True,
         "permission_control":True,
         "paired_app_admin_tools":False,
