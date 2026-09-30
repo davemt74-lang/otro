@@ -35,3 +35,13 @@
 .hs-workspace-textarea{display:block;width:100%;min-height:360px;border:0;border-radius:0;padding:16px;resize:vertical;font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:transparent;color:inherit}
 .hs-workspace-editor .form-actions{padding:10px 12px;border-top:1px solid var(--border,#d9dde5)}
 @media(max-width:800px){.hs-workspace-layout{grid-template-columns:1fr}.hs-workspace-files{max-height:240px}}
+
+.hs-app-manager-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin:0 0 18px}
+.hs-app-kpi{padding:14px 16px;display:grid;gap:4px}
+.hs-app-kpi span{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted,#697075)}
+.hs-app-kpi strong{font-size:24px;line-height:1}
+.hs-app-card.is-available{border-style:dashed}
+.hs-app-card .hs-app-meta{grid-template-columns:repeat(2,minmax(0,1fr))}
+.hs-app-status.available{background:#8a929a}
+.hs-app-tags span:last-child{max-width:100%}
+@media(max-width:900px){.hs-app-manager-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.hs-app-manager-summary .hs-app-kpi:last-child{grid-column:1/-1}}
