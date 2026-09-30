@@ -5,6 +5,9 @@ on:
     paths:
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_app_*.py'
+      - 'app/services/hosting_cloud_control.py'
+      - 'app/services/hosting_serving.py'
+      - 'tests/hosting_system_app_target_v250.py'
       - 'app/services/remote_bridge.py'
       - 'relay/app.py'
       - 'app/services/homeserver_apps.py'
@@ -95,6 +98,9 @@ jobs:
           tests/homeserver_apps_v170.py
           tests/homeserver_apps_v180.py
           tests/homeserver_apps_v190.py
+          tests/hosting_system_app_target_v250.py
+          app/services/hosting_cloud_control.py
+          app/services/hosting_serving.py
           app/services/remote_bridge.py
           relay/app.py
           app/services/tools.py
@@ -150,3 +156,5 @@ jobs:
         run: python tests/homeserver_apps_v180.py
       - name: Verify Cloud ownership install bridge
         run: python tests/homeserver_apps_v190.py
+      - name: Verify hosted system app target bridge
+        run: python tests/hosting_system_app_target_v250.py
