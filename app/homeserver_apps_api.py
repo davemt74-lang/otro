@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_apps
+from .services import homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -63,6 +63,16 @@ class SourceDetachRequest(BaseModel):
     confirmed:bool=False
 
 
+class WorkspaceWriteRequest(BaseModel):
+    path:str=Field(min_length=1,max_length=1000)
+    content:str=Field(max_length=2*1024*1024)
+
+
+class WorkspaceRenameRequest(BaseModel):
+    path:str=Field(min_length=1,max_length=1000)
+    new_path:str=Field(min_length=1,max_length=1000)
+
+
 def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
     try:
         return operation(*args,**kwargs)
@@ -82,6 +92,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_sources.AppSourceError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_workspace.AppWorkspaceError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("")
@@ -91,7 +103,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability()}
+    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability()}
 
 
 @router.get("/permissions/catalog")
@@ -138,6 +150,41 @@ def create_user_app(payload:CreateUserAppRequest)->dict:
         metadata=payload.metadata,
         permissions=homeserver_app_security.normalize_declared_permissions(payload.permissions),
     )
+
+
+@router.get("/{app_key}/workspace")
+def app_workspace_status(app_key:str)->dict:
+    return _call(homeserver_app_workspace.status,app_key)
+
+
+@router.get("/{app_key}/workspace/files")
+def app_workspace_files(app_key:str)->dict:
+    return _call(homeserver_app_workspace.list_files,app_key)
+
+
+@router.get("/{app_key}/workspace/file")
+def app_workspace_file(app_key:str,path:str=Query(min_length=1,max_length=1000))->dict:
+    return _call(homeserver_app_workspace.read_file,app_key,path)
+
+
+@router.put("/{app_key}/workspace/file")
+def app_workspace_file_write(app_key:str,payload:WorkspaceWriteRequest)->dict:
+    return _call(homeserver_app_workspace.write_file,app_key,payload.path,payload.content)
+
+
+@router.delete("/{app_key}/workspace/file")
+def app_workspace_file_delete(app_key:str,path:str=Query(min_length=1,max_length=1000))->dict:
+    return _call(homeserver_app_workspace.delete_path,app_key,path)
+
+
+@router.post("/{app_key}/workspace/rename")
+def app_workspace_rename(app_key:str,payload:WorkspaceRenameRequest)->dict:
+    return _call(homeserver_app_workspace.rename_path,app_key,payload.path,payload.new_path)
+
+
+@router.post("/{app_key}/workspace/validate")
+def app_workspace_validate(app_key:str)->dict:
+    return _call(homeserver_app_workspace.validate_project,app_key)
 
 
 @router.get("/{app_key}/source")
