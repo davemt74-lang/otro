@@ -12,7 +12,10 @@ if str(ROOT) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="homeserver-apps-v170-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
 
+    from app.database import initialize_database  # noqa: E402
     from app.services import agent_tools, approvals, homeserver_app_agent, homeserver_apps  # noqa: E402
+
+    initialize_database()
 
     created=homeserver_apps.create_user_app("agent.demo","Agent Demo",runtime="static")
     assert created["app"]["lifecycle_state"]=="draft"
