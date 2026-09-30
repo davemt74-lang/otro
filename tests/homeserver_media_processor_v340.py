@@ -192,6 +192,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-processor-v340-") as data_di
 
         # Download Manager completed-file handoff requires the file to be inside
         # a canonical Media Server root. Create a completed job pointing at that root.
+        grant_download_files=client.put("/api/v1/control/homeserver-apps/vp3.download-manager/permissions",json={
+            "permission":"files.write","allowed":True
+        })
+        assert grant_download_files.status_code==200,grant_download_files.text
         conn=homeserver_download_manager._connect()
         try:
             conn.execute(
