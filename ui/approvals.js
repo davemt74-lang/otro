@@ -59,7 +59,7 @@
     node.innerHTML = items.map(item => {
       const content = proposalContent(item);
       const actions = item.status === 'pending'
-        ? `<div class="approval-actions"><button class="button secondary danger" data-action-deny="${escapeHtml(item.id)}">Deny</button><button class="button primary" data-action-approve="${escapeHtml(item.id)}" data-confirm="${escapeHtml(content.confirm)}">Approve</button></div>`
+        ? `<div class="approval-actions"><button class="button secondary danger" data-action-deny="${escapeHtml(item.id)}" data-action-key="${escapeHtml(item.action_key||'')}">Deny</button><button class="button primary" data-action-approve="${escapeHtml(item.id)}" data-action-key="${escapeHtml(item.action_key||'')}" data-confirm="${escapeHtml(content.confirm)}">Approve</button></div>`
         : `<div class="approval-actions"><span class="approval-status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></div>`;
       return `<article class="approval-card ${escapeHtml(item.status)}"><div><h3>${content.title}</h3><p>${content.body}</p><div class="approval-meta"><span class="approval-status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</span><span>${escapeHtml(item.action_key || 'action')}</span><span>${escapeHtml(item.source_app_key)}</span>${content.detail}<span>created ${escapeHtml(fmt(item.created_at))}</span><span>expires ${escapeHtml(fmt(item.expires_at))}</span>${item.execution_tool_run_id ? `<span>tool run #${Number(item.execution_tool_run_id)}</span>` : ''}</div>${item.error ? `<div class="muted">${escapeHtml(item.error)}</div>` : ''}</div>${actions}</article>`;
     }).join('');
@@ -103,7 +103,10 @@
       if (!confirm(approve.dataset.confirm || 'Approve this action and execute it now?')) return;
       approve.disabled = true;
       try {
-        await request(`/api/v1/control/action-requests/${encodeURIComponent(approve.dataset.actionApprove)}/approve`, {method:'POST'});
+        const base=(approve.dataset.actionKey||'').startsWith('apps.')
+          ? '/api/v1/control/homeserver-apps/agent-actions'
+          : '/api/v1/control/action-requests';
+        await request(`${base}/${encodeURIComponent(approve.dataset.actionApprove)}/approve`, {method:'POST'});
         notify('Action approved and executed.');
         await loadApprovals();
       } catch (err) { notify(err.message, true); }
@@ -115,7 +118,10 @@
     if (deny) {
       deny.disabled = true;
       try {
-        await request(`/api/v1/control/action-requests/${encodeURIComponent(deny.dataset.actionDeny)}/deny`, {method:'POST'});
+        const base=(deny.dataset.actionKey||'').startsWith('apps.')
+          ? '/api/v1/control/homeserver-apps/agent-actions'
+          : '/api/v1/control/action-requests';
+        await request(`${base}/${encodeURIComponent(deny.dataset.actionDeny)}/deny`, {method:'POST'});
         notify('Action denied.');
         await loadApprovals();
       } catch (err) { notify(err.message, true); }

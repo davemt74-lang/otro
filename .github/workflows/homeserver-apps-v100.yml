@@ -12,6 +12,11 @@ on:
       - 'app/services/homeserver_app_resources.py'
       - 'app/services/homeserver_app_runtime.py'
       - 'app/services/homeserver_app_sample_data.py'
+      - 'tests/homeserver_apps_v170.py'
+      - 'app/services/tools.py'
+      - 'app/services/approvals.py'
+      - 'app/services/agent_tools.py'
+      - 'app/services/homeserver_app_agent.py'
       - 'tests/homeserver_apps_v150.py'
       - 'app/services/homeserver_app_prebuilt.py'
       - 'tests/homeserver_apps_v160.py'
@@ -79,6 +84,11 @@ jobs:
           app/services/homeserver_app_resources.py
           app/services/homeserver_app_runtime.py
           app/services/homeserver_app_sample_data.py
+          tests/homeserver_apps_v170.py
+          app/services/tools.py
+          app/services/approvals.py
+          app/services/agent_tools.py
+          app/services/homeserver_app_agent.py
           app/services/homeserver_app_prebuilt.py
           app/services/homeserver_app_releases.py
           app/main.py
@@ -115,3 +125,5 @@ jobs:
         run: python tests/homeserver_apps_v150.py
       - name: Verify App updates rollback and recovery
         run: python tests/homeserver_apps_v160.py
+      - name: Verify Apps Agent Chat and Agent Brain integration
+        run: python tests/homeserver_apps_v170.py

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_apps
+from .services import homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_apps
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -71,7 +71,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"releases":homeserver_app_releases.public_capability()}
+    return {**homeserver_apps.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability()}
 
 
 @router.get("/catalog/prebuilt")
@@ -283,3 +283,19 @@ def app_release_rollback(app_key:str)->dict:
 @router.post("/{app_key}/recover")
 def app_release_recover(app_key:str)->dict:
     return _call(homeserver_app_releases.recover,app_key)
+
+
+@router.post("/agent-actions/{request_id}/approve")
+def approve_app_agent_action(request_id:str)->dict:
+    try:
+        return {"request":homeserver_app_approvals.approve(request_id)}
+    except homeserver_app_approvals.AppApprovalStoreError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+
+@router.post("/agent-actions/{request_id}/deny")
+def deny_app_agent_action(request_id:str)->dict:
+    try:
+        return {"request":homeserver_app_approvals.deny(request_id)}
+    except homeserver_app_approvals.AppApprovalStoreError as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
