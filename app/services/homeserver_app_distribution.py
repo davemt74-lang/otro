@@ -224,8 +224,9 @@ def preview_bundle(bundle:bytes,*,expected_package_sha256:str="")->dict[str,Any]
         incoming_publisher=str(descriptor.get("publisher_fingerprint") or "")
         if prior_publisher and incoming_publisher and not hmac.compare_digest(prior_publisher,incoming_publisher):
             raise AppDistributionError("Shared app publisher fingerprint changed. Install is blocked.",409)
-        if not prior_publisher and str(existing.get("installed_version") or ""):
-            raise AppDistributionError("Existing local app is not trusted as this private distribution publisher. Archive or detach the local app before installing this shared build.",409)
+        if not prior_publisher and str(existing.get("installed_version") or "") and not expected_package_sha256:
+            raise AppDistributionError("Existing local app has no trusted private publisher. An exact private-share package hash is required before adopting this publisher.",409)
+    publisher_adoption=bool(existing and not str(installed.get("publisher_fingerprint") or "") and expected_package_sha256)
     candidate_permissions=list(inspected["validation"]["manifest"].get("permissions") or [])
     permission_delta=(
         homeserver_app_security.permission_delta(app_key,candidate_permissions)
@@ -255,6 +256,7 @@ def preview_bundle(bundle:bytes,*,expected_package_sha256:str="")->dict[str,Any]
             "changed":bool(existing and str(installed.get("package_sha256") or "")!=str(descriptor.get("package_sha256") or "")),
         },
         "publisher_continuity":True,
+        "publisher_adoption":publisher_adoption,
         "permission_delta":permission_delta,
         "schema_change":{"from":current_schema,"to":target_schema,"changed":current_schema!=target_schema},
         "requires_explicit_approval":True,
