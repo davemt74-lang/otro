@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v170-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
 
     from app.database import initialize_database  # noqa: E402
-    from app.services import agent_tools, approvals, homeserver_app_agent, homeserver_apps  # noqa: E402
+    from app.services import agent_tools, approvals, homeserver_app_agent, homeserver_app_approvals, homeserver_apps  # noqa: E402
 
     initialize_database()
     policy=agent_tools.save_policy(True,3,True)
@@ -64,9 +64,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v170-") as data_dir:
     )
     request_id=proposal["result"]["request_id"]
     assert proposal["result"]["status"]=="pending"
+    assert any(row["id"]==request_id and row["action_key"]=="apps.build_install" for row in approvals.list_requests("pending",100))
     assert homeserver_apps.get("agent.demo")["lifecycle_state"]=="draft"
 
-    approved=approvals.approve_request(request_id)
+    approved=homeserver_app_approvals.approve(request_id)
     assert approved["status"]=="executed"
     assert homeserver_apps.get("agent.demo")["lifecycle_state"]=="running"
 
@@ -79,7 +80,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v170-") as data_dir:
     )
     stop_request=stop["result"]["request_id"]
     assert homeserver_apps.get("agent.demo")["lifecycle_state"]=="running"
-    approvals.approve_request(stop_request)
+    homeserver_app_approvals.approve(stop_request)
     assert homeserver_apps.get("agent.demo")["lifecycle_state"]=="stopped"
 
     start=agent_tools.execute_model_tool(
@@ -89,7 +90,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v170-") as data_dir:
         set(),
         owner=True,
     )
-    approvals.approve_request(start["result"]["request_id"])
+    homeserver_app_approvals.approve(start["result"]["request_id"])
     assert homeserver_apps.get("agent.demo")["lifecycle_state"]=="running"
 
     prebuilt=agent_tools.execute_model_tool(
@@ -100,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v170-") as data_dir:
         owner=True,
     )
     assert prebuilt["result"]["status"]=="pending"
-    approvals.approve_request(prebuilt["result"]["request_id"])
+    homeserver_app_approvals.approve(prebuilt["result"]["request_id"])
     notes=homeserver_apps.get("vp3.notes")
     assert notes["app_class"]=="system"
     assert notes["protected_system_app"] is True
