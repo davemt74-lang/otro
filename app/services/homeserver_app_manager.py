@@ -11,6 +11,7 @@ from . import (
     homeserver_app_security,
     homeserver_apps,
     homeserver_media_server,
+    homeserver_music_server,
     homeserver_video_editor,
     hosting_cloud_control,
 )
@@ -69,6 +70,7 @@ def inventory()->dict[str,Any]:
         bound=list(hosting.get(key,[]))
         lifecycle=str((app or {}).get("lifecycle_state") or ("available" if available else "unknown"))
         media_state=_safe(homeserver_media_server.status) if key==homeserver_media_server.APP_KEY and installed else None
+        music_state=_safe(homeserver_music_server.status) if key==homeserver_music_server.APP_KEY and installed else None
         video_state=_safe(homeserver_video_editor.status) if key==homeserver_video_editor.APP_KEY and installed else None
         control_compat=_safe(lambda:homeserver_app_control.compatibility(key)) if installed else None
         control_manifest=_safe(lambda:homeserver_app_control.manifest(key)) if installed else None
@@ -95,6 +97,7 @@ def inventory()->dict[str,Any]:
             "releases":releases,
             "distribution":shared,
             "media_server":media_state,
+            "music_server":music_state,
             "video_editor":video_state,
             "agent_control":{
                 "complete":bool(installed and control_compat and control_compat.get("compatible")),

@@ -11,7 +11,9 @@ on:
       - 'tests/homeserver_media_server_v280.py'
       - 'tests/homeserver_video_editor_v290.py'
       - 'tests/homeserver_app_control_v300.py'
+      - 'tests/homeserver_music_server_v310.py'
       - 'app/services/homeserver_media_server.py'
+      - 'app/services/homeserver_music_server.py'
       - 'app/services/homeserver_video_editor.py'
       - 'app/services/homeserver_app_control.py'
       - 'app/services/hosting_cloud_control.py'
@@ -102,6 +104,9 @@ on:
       - 'app/services/homeserver_app_releases.py'
       - 'app/services/hosting_cloud_control.py'
       - 'tests/homeserver_system_apps_v270.py'
+      - 'tests/homeserver_music_server_v310.py'
+      - 'app/services/homeserver_music_server.py'
+      - 'app/services/homeserver_media_server.py'
   workflow_dispatch:
 
 permissions:
@@ -141,7 +146,9 @@ jobs:
           tests/homeserver_media_server_v280.py
           tests/homeserver_video_editor_v290.py
           tests/homeserver_app_control_v300.py
+          tests/homeserver_music_server_v310.py
           app/services/homeserver_media_server.py
+          app/services/homeserver_music_server.py
           app/services/homeserver_video_editor.py
           app/services/homeserver_app_control.py
           tests/homeserver_apps_v170.py
@@ -236,5 +243,7 @@ jobs:
         run: python tests/homeserver_video_editor_v290.py
       - name: Verify Universal App Control Contract
         run: python tests/homeserver_app_control_v300.py
+      - name: Verify Music Server and mapped computer folders
+        run: python tests/homeserver_music_server_v310.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py

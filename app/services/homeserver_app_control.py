@@ -205,6 +205,29 @@ def _builtin(app_key:str,provider:str,action_key:str,arguments:dict[str,Any])->A
         if app_key!=homeserver_video_editor.APP_KEY:
             raise AppControlError("Builtin action provider does not match the app.",409)
         return homeserver_video_editor.invoke(action_key,arguments)
+    if provider=="music_server":
+        from . import homeserver_music_server
+        if app_key!=homeserver_music_server.APP_KEY:
+            raise AppControlError("Builtin action provider does not match the app.",409)
+        return homeserver_music_server.invoke(action_key,arguments)
+    if provider=="media_server":
+        from . import homeserver_media_server
+        if app_key!=homeserver_media_server.APP_KEY:
+            raise AppControlError("Builtin action provider does not match the app.",409)
+        action=str(action_key or "")
+        if action=="media.roots.list": return homeserver_media_server.roots()
+        if action=="media.scan": return homeserver_media_server.scan(str(arguments.get("root_id") or ""))
+        if action=="media.root.check": return homeserver_media_server.check_root(str(arguments.get("root_id") or ""))
+        if action=="media.root.map":
+            return homeserver_media_server.add_mapped_root(
+                str(arguments.get("path") or ""),
+                str(arguments.get("label") or ""),
+                computer_name=str(arguments.get("computer_name") or ""),
+                source_hint=str(arguments.get("source_hint") or ""),
+                source_kind=str(arguments.get("source_kind") or "computer_folder"),
+            )
+        if action=="media.root.remove": return homeserver_media_server.remove_root(str(arguments.get("root_id") or ""))
+        raise AppControlError("Unsupported Media Server builtin action.",404)
     raise AppControlError("Builtin app action provider is unavailable.",501)
 
 
