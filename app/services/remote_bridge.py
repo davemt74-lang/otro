@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, federated_data, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -532,6 +532,47 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             except homeserver_apps.HomeServerAppError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
+        if op == "apps.media.status":
+            _vp3_system_apps_identity(token)
+            try:
+                state=homeserver_media_server.status()
+            except homeserver_media_server.MediaServerError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":{
+                "contract":"vp3.media-server-projection.v1",
+                "app_key":state.get("app_key"),
+                "installed_version":state.get("installed_version"),
+                "lifecycle_state":state.get("lifecycle_state"),
+                "library_count":int(state.get("library_count") or 0),
+                "roots":int(state.get("roots") or 0),
+                "types":state.get("types") or {},
+                "recently_played":list(state.get("recently_played") or [])[:12],
+                "remote":state.get("remote") or {},
+                "transcoding":False,
+                "absolute_paths_exposed":False,
+                "source_media_exposed":False,
+            }}
+        if op == "apps.media.search":
+            _vp3_system_apps_identity(token)
+            try:
+                result=homeserver_media_server.library(
+                    str(body.get("query") or ""),
+                    str(body.get("media_type") or ""),
+                    min(50,max(1,int(body.get("limit") or 20))),
+                    0,
+                )
+            except (homeserver_media_server.MediaServerError,ValueError) as exc:
+                return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
+            items=[{
+                "media_id":row.get("media_id"),"title":row.get("title"),"media_type":row.get("media_type"),
+                "mime_type":row.get("mime_type"),"size_bytes":int(row.get("size_bytes") or 0),
+                "absolute_path_exposed":False,
+            } for row in result.get("items",[])[:50]]
+            return {"status":200,"ok":True,"payload":{
+                "contract":"vp3.media-server-search-projection.v1",
+                "query":result.get("query") or "","media_type":result.get("media_type") or "",
+                "items":items,"count":len(items),"source_media_exposed":False,
+            }}
         if op == "apps.manager.status":
             _vp3_system_apps_identity(token)
             state=homeserver_app_manager.inventory()

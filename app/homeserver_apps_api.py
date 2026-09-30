@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps
+from .services import homeserver_app_agent, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_media_server
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -68,6 +68,17 @@ class WorkspaceWriteRequest(BaseModel):
     content:str=Field(max_length=2*1024*1024)
 
 
+class MediaRootGrantRequest(BaseModel):
+    path:str=Field(min_length=1,max_length=2000)
+    label:str=Field(default="",max_length=120)
+
+
+class MediaPlaybackRequest(BaseModel):
+    position_seconds:float=Field(default=0,ge=0)
+    duration_seconds:float=Field(default=0,ge=0)
+    completed:bool=False
+
+
 class WorkspaceRenameRequest(BaseModel):
     path:str=Field(min_length=1,max_length=1000)
     new_path:str=Field(min_length=1,max_length=1000)
@@ -96,6 +107,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_distribution.AppDistributionError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_media_server.MediaServerError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("")
@@ -105,7 +118,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"media_server":homeserver_media_server.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -121,6 +134,94 @@ def app_manager_inventory()->dict:
 @router.get("/manager/{app_key}")
 def app_manager_item(app_key:str)->dict:
     return {"app":_call(homeserver_app_manager.app,app_key)}
+
+
+@router.get("/media-server/capability")
+def media_server_capability()->dict:
+    return homeserver_media_server.public_capability()
+
+
+@router.get("/media-server/status")
+def media_server_status()->dict:
+    return _call(homeserver_media_server.status)
+
+
+@router.get("/media-server/roots")
+def media_server_roots()->dict:
+    return _call(homeserver_media_server.roots)
+
+
+@router.post("/media-server/roots")
+def media_server_add_root(payload:MediaRootGrantRequest)->dict:
+    return _call(homeserver_media_server.add_root,payload.path,payload.label)
+
+
+@router.delete("/media-server/roots/{root_id}")
+def media_server_remove_root(root_id:str)->dict:
+    return _call(homeserver_media_server.remove_root,root_id)
+
+
+@router.post("/media-server/scan")
+def media_server_scan(root_id:str=Query(default="",max_length=64))->dict:
+    return _call(homeserver_media_server.scan,root_id)
+
+
+@router.get("/media-server/library")
+def media_server_library(
+    q:str=Query(default="",max_length=200),
+    media_type:str=Query(default="",max_length=20),
+    limit:int=Query(default=100,ge=1,le=500),
+    offset:int=Query(default=0,ge=0,le=1000000),
+)->dict:
+    return _call(homeserver_media_server.library,q,media_type,limit,offset)
+
+
+@router.get("/media-server/item/{media_id}")
+def media_server_item(media_id:str)->dict:
+    return _call(homeserver_media_server.item,media_id)
+
+
+@router.get("/media-server/stream/{media_id}")
+def media_server_stream(media_id:str):
+    path,mime,item=_call(homeserver_media_server.resolve_stream,media_id)
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        path,
+        media_type=mime,
+        filename=None,
+        headers={
+            "Accept-Ranges":"bytes",
+            "Cache-Control":"private, no-store",
+            "X-Content-Type-Options":"nosniff",
+            "X-VP3-Media-Id":str(item["media_id"]),
+        },
+    )
+
+
+@router.put("/media-server/playback/{media_id}")
+def media_server_playback(media_id:str,payload:MediaPlaybackRequest)->dict:
+    return _call(
+        homeserver_media_server.update_playback,
+        media_id,
+        payload.position_seconds,
+        payload.duration_seconds,
+        payload.completed,
+    )
+
+
+@router.get("/media-server/remote")
+def media_server_remote_status()->dict:
+    return _call(homeserver_media_server.remote_status)
+
+
+@router.post("/media-server/remote/enable")
+def media_server_remote_enable()->dict:
+    return _call(homeserver_media_server.enable_remote_access)
+
+
+@router.post("/media-server/remote/disable")
+def media_server_remote_disable()->dict:
+    return _call(homeserver_media_server.disable_remote_access)
 
 
 @router.get("/permissions/catalog")

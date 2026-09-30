@@ -9,6 +9,7 @@ from . import (
     homeserver_app_resources,
     homeserver_app_security,
     homeserver_apps,
+    homeserver_media_server,
     hosting_cloud_control,
 )
 
@@ -65,6 +66,7 @@ def inventory()->dict[str,Any]:
         update_available=bool(package and package.get("update_available"))
         bound=list(hosting.get(key,[]))
         lifecycle=str((app or {}).get("lifecycle_state") or ("available" if available else "unknown"))
+        media_state=_safe(homeserver_media_server.status) if key==homeserver_media_server.APP_KEY and installed else None
         item={
             "app_key":key,
             "name":str((app or {}).get("name") or (package or {}).get("name") or key),
@@ -87,6 +89,7 @@ def inventory()->dict[str,Any]:
             "resources":resources,
             "releases":releases,
             "distribution":shared,
+            "media_server":media_state,
             "deployment_modes":list((package or {}).get("deployment_modes") or ["local","private_remote","hosted_subdomain","custom_domain"]),
             "hosting":{
                 "bound":bool(bound),

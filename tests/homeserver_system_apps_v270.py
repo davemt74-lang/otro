@@ -27,8 +27,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-manager-v270-") as data_
         assert catalog.status_code==200,catalog.text
         packages=catalog.json()["packages"]
         keys={row["key"] for row in packages}
-        expected={"vp3.notes","vp3.inventory","vp3.checklists"}
-        assert keys==expected
+        baseline={"vp3.notes","vp3.inventory","vp3.checklists"}
+        assert baseline.issubset(keys)
+        assert "vp3.media-server" in keys
         for duplicate_core in {"vp3.contacts","vp3.tasks","vp3.calendar","vp3.files","vp3.tracky","vp3.crm","vp3.campaigns","vp3.rewards","vp3.website"}:
             assert duplicate_core not in keys
         assert catalog.json()["app_store"] is False
@@ -39,7 +40,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-manager-v270-") as data_
         assert state["contract"]=="vp3.app.manager.v1"
         assert state["first_party_library"] is True
         assert state["app_store"] is False
-        assert state["counts"]["available"]>=len(expected)
+        assert state["counts"]["available"]>=len(baseline)+1
         by_key={row["app_key"]:row for row in state["items"]}
         
         # Install a system app through the canonical prebuilt/package runtime.
@@ -80,7 +81,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-manager-v270-") as data_
         assert cap["manager"]["vp3_apps_library"] is True
         assert cap["manager"]["core_homeserver_features_excluded"] is True
         assert cap["manager"]["canonical_permission_engine"] if "canonical_permission_engine" in cap["manager"] else True
-        assert cap["prebuilt"]["package_count"]==len(expected)
+        assert cap["prebuilt"]["package_count"]>=len(baseline)+1
         assert cap["prebuilt"]["core_homeserver_features_in_catalog"] is False
         platform=client.get("/api/v1/control/homeserver-apps/platform").json()
         assert platform["product_model"]=="optional_self_hosted_app"

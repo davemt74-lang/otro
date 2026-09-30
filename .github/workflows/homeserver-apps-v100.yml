@@ -8,6 +8,8 @@ on:
       - 'app/services/homeserver_app_distribution.py'
       - 'app/services/homeserver_app_manager.py'
       - 'app/services/homeserver_app_platform.py'
+      - 'tests/homeserver_media_server_v280.py'
+      - 'app/services/homeserver_media_server.py'
       - 'app/services/hosting_cloud_control.py'
       - 'app/services/hosting_serving.py'
       - 'tests/hosting_system_app_target_v250.py'
@@ -122,6 +124,8 @@ jobs:
           app/services/homeserver_app_distribution.py
           app/services/homeserver_app_manager.py
           app/services/homeserver_app_platform.py
+          tests/homeserver_media_server_v280.py
+          app/services/homeserver_media_server.py
           tests/homeserver_apps_v170.py
           tests/homeserver_apps_v180.py
           tests/homeserver_apps_v190.py
@@ -208,5 +212,7 @@ jobs:
         run: python tests/homeserver_system_apps_v260.py
       - name: Verify Unified App Manager and System Apps Library
         run: python tests/homeserver_system_apps_v270.py
+      - name: Verify VP3 Media Server
+        run: python tests/homeserver_media_server_v280.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
