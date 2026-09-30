@@ -227,6 +227,25 @@ def serve(
         raise ServingError("Hosted runtime method is not allowed.", 405)
     if site["state"] != "active":
         raise ServingError("Hosted site is not active.", 503)
+    try:
+        from . import hosting_cloud_control, homeserver_app_runtime
+        binding=hosting_cloud_control.binding_for_site(site_id)
+    except Exception:
+        binding=None
+    target_app_key=str((binding or {}).get("target_app_key") or "").strip().lower()
+    if target_app_key:
+        try:
+            return homeserver_app_runtime.serve(
+                target_app_key,
+                request_path,
+                method=method,
+                query_string=query_string,
+                content_type=content_type,
+                body=body,
+            )
+        except homeserver_app_runtime.AppRuntimeError as exc:
+            raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
+
     target = _resolve_target(site_id, request_path)
 
     if target.suffix.lower() == ".php":
@@ -272,6 +291,12 @@ def runtime_health(site_id: str) -> dict[str, Any]:
     site = hosting_runtime.get_site(site_id)
     deployment = hosting_deployment.deployment_status(site_id)
     active = deployment.get("active_release")
+    try:
+        from . import hosting_cloud_control, homeserver_app_runtime
+        binding=hosting_cloud_control.binding_for_site(site_id)
+    except Exception:
+        binding=None
+    target_app_key=str((binding or {}).get("target_app_key") or "").strip().lower()
     result: dict[str, Any] = {
         "contract": SERVING_CONTRACT,
         "site_id": site_id,
@@ -284,7 +309,19 @@ def runtime_health(site_id: str) -> dict[str, Any]:
         "php_cgi_available": bool(php_cgi_path()),
         "public_routing": False,
         "scheduler": hosting_scheduler.status(site_id),
+        "target_app_key":target_app_key or None,
+        "target_kind":"system_app" if target_app_key else "deployment",
     }
+    if target_app_key:
+        if site["state"]!="active":
+            return result
+        try:
+            app_status=homeserver_app_runtime.runtime_status(target_app_key)
+            result["local_serving_ready"]=str(app_status.get("state") or "")=="running"
+            result["app_runtime"]=app_status
+        except Exception:
+            result["local_serving_ready"]=False
+        return result
     if not active or site["state"] != "active":
         return result
     try:
