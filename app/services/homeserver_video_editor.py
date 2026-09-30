@@ -292,6 +292,33 @@ def remove_clip(project_id: str, clip_id: str) -> dict[str, Any]:
     return project(pid)
 
 
+def queue_clip_proxy(project_id:str,clip_id:str)->dict[str,Any]:
+    pid=str(project_id or "").strip()
+    cid=str(clip_id or "").strip()
+    connection=_connect()
+    try:
+        row=connection.execute(
+            "SELECT media_id FROM video_clips WHERE clip_id=? AND project_id=?",(cid,pid)
+        ).fetchone()
+    finally:
+        connection.close()
+    if not row:
+        raise VideoEditorError("Timeline clip not found.",404)
+    try:
+        from . import homeserver_media_processor
+        result=homeserver_media_processor.enqueue(str(row["media_id"]),"proxy","editor","mp4",10)
+    except Exception as exc:
+        raise VideoEditorError(str(exc),getattr(exc,"status_code",422)) from exc
+    return {
+        "contract":CONTRACT,
+        "project_id":pid,
+        "clip_id":cid,
+        "media_id":str(row["media_id"]),
+        "processor_job":result["job"],
+        "processor":"vp3.media-processor",
+    }
+
+
 def queue_render(project_id: str, preset: str = "1080p", format_name: str = "mp4") -> dict[str, Any]:
     pid = str(project_id or "").strip()
     preset = str(preset or "1080p").strip().lower()
@@ -373,6 +400,7 @@ def agent_actions() -> dict[str, Any]:
             {"key": "video.clip.update", "risk": "write", "requires_confirmation": False},
             {"key": "video.clip.remove", "risk": "destructive", "requires_confirmation": True},
             {"key": "video.render.queue", "risk": "consequential", "requires_confirmation": True},
+            {"key": "video.clip.proxy", "risk": "consequential", "requires_confirmation": True},
         ],
     }
 
@@ -410,6 +438,8 @@ def invoke(action: str, arguments: dict[str, Any] | None = None) -> dict[str, An
         return queue_render(
             str(args.get("project_id") or ""), str(args.get("preset") or "1080p"), str(args.get("format") or "mp4")
         )
+    if key == "video.clip.proxy":
+        return queue_clip_proxy(str(args.get("project_id") or ""),str(args.get("clip_id") or ""))
     raise VideoEditorError("Unsupported Video Editor agent action.", 404)
 
 
@@ -421,6 +451,7 @@ def public_capability() -> dict[str, Any]:
         "media_server_source_library": True,
         "non_destructive_source_media": True,
         "local_render_queue": True,
+        "media_processor_proxy_handoff": True,
         "agent_complete_control": True,
         "agent_actions": agent_actions()["actions"],
         "cloud_projects_projection": True,
