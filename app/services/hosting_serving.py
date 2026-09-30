@@ -293,6 +293,96 @@ def serve(
             raise
         except homeserver_media_server.MediaServerError as exc:
             raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
+    if target_app_key=="vp3.photo-library" and str(request_path or "").lstrip("/").startswith("__vp3_photos__/"):
+        try:
+            import json as _json
+            from . import homeserver_media_server, homeserver_photo_library
+            rel=str(request_path or "").lstrip("/")[len("__vp3_photos__/"):]
+            headers={str(k).lower():str(v) for k,v in (request_headers or {}).items()}
+            auth=headers.get("authorization","")
+            bearer=auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+            query=parse_qs(str(query_string or ""),keep_blank_values=True)
+            if rel.startswith("stream/"):
+                media_id=rel.split("/",1)[1]
+                ticket=str((query.get("ticket") or [""])[0])
+                if not homeserver_media_server.authenticate_stream_ticket(media_id,ticket):
+                    raise ServingError("Photo Library stream ticket is invalid or expired.",401)
+                path,mime,item=homeserver_media_server.resolve_stream(media_id)
+                if str(item.get("media_type") or "")!="image":
+                    raise ServingError("Photo Library can stream image items only.",415)
+                return FileResponse(
+                    path,media_type=mime,filename=None,
+                    headers={
+                        "Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff",
+                        "Referrer-Policy":"no-referrer","X-VP3-Media-Id":str(item["media_id"]),
+                    },
+                )
+            if not homeserver_media_server.authenticate_remote(bearer):
+                raise ServingError("Photo Library access key is required.",401)
+            def _payload()->dict[str,Any]:
+                if not body:
+                    return {}
+                try:
+                    value=_json.loads(body.decode("utf-8") or "{}")
+                except Exception as exc:
+                    raise ServingError("Photo Library request payload is invalid.",400) from exc
+                if not isinstance(value,dict):
+                    raise ServingError("Photo Library request payload must be an object.",400)
+                return value
+            def _response(value:Any)->Response:
+                return Response(content=_json.dumps(value),media_type="application/json",headers={"Cache-Control":"no-store"})
+            if rel=="status" and method=="GET":
+                return _response(homeserver_photo_library.status())
+            if rel=="sync" and method=="POST":
+                return _response(homeserver_photo_library.sync())
+            if rel=="photos" and method=="GET":
+                q=str((query.get("q") or [""])[0])
+                folder=str((query.get("folder_album") or [""])[0])
+                tag=str((query.get("tag") or [""])[0])
+                favorites=str((query.get("favorites_only") or ["false"])[0]).lower() in {"1","true","yes"}
+                try: limit=int((query.get("limit") or ["200"])[0])
+                except ValueError: limit=200
+                try: offset=int((query.get("offset") or ["0"])[0])
+                except ValueError: offset=0
+                return _response(homeserver_photo_library.photos(q,folder,tag,favorites,limit,offset))
+            if rel=="folders" and method=="GET":
+                return _response(homeserver_photo_library.folders())
+            if rel=="timeline" and method=="GET":
+                try: limit=int((query.get("limit") or ["500"])[0])
+                except ValueError: limit=500
+                return _response(homeserver_photo_library.timeline(limit))
+            if rel=="albums" and method=="GET":
+                return _response(homeserver_photo_library.albums())
+            if rel=="albums" and method=="POST":
+                return _response(homeserver_photo_library.create_album(str(_payload().get("name") or "")))
+            if rel=="smart-albums" and method=="GET":
+                return _response(homeserver_photo_library.smart_albums())
+            if rel=="tags" and method=="GET":
+                return _response(homeserver_photo_library.tags())
+            if rel=="people" and method=="GET":
+                return _response(homeserver_photo_library.people())
+            if rel=="duplicates" and method=="GET":
+                try: limit=int((query.get("limit") or ["100"])[0])
+                except ValueError: limit=100
+                return _response(homeserver_photo_library.duplicate_groups(limit))
+            if rel=="slideshow" and method=="GET":
+                q=str((query.get("q") or [""])[0])
+                folder=str((query.get("folder_album") or [""])[0])
+                try: limit=int((query.get("limit") or ["200"])[0])
+                except ValueError: limit=200
+                return _response(homeserver_photo_library.slideshow(q,folder,limit))
+            if rel.startswith("stream-ticket/") and method=="GET":
+                media_id=rel.split("/",1)[1]
+                ticket=homeserver_media_server.stream_ticket(media_id)
+                return _response({
+                    **ticket,
+                    "stream_url":f"/__vp3_photos__/stream/{media_id}?ticket={ticket['ticket']}",
+                })
+            raise ServingError("Photo Library hosted route not found.",404)
+        except ServingError:
+            raise
+        except (homeserver_photo_library.PhotoLibraryError,homeserver_media_server.MediaServerError) as exc:
+            raise ServingError(str(exc),getattr(exc,"status_code",422)) from exc
     if target_app_key=="vp3.music-server" and str(request_path or "").lstrip("/").startswith("__vp3_music__/"):
         try:
             import json as _json
