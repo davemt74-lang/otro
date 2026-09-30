@@ -19,6 +19,7 @@ from . import homeserver_app_packages, homeserver_apps
 CONTRACT="vp3.app.sources.v1"
 GIT_TIMEOUT_SECONDS=45
 MAX_GIT_REF=160
+_ALLOWED_GIT_HOSTS={"github.com","gitlab.com","bitbucket.org"}
 
 
 class AppSourceError(RuntimeError):
@@ -46,6 +47,8 @@ def _safe_public_url(value:str)->str:
     host=parsed.hostname.lower().rstrip(".")
     if host in {"localhost","localhost.localdomain"} or host.endswith(".local"):
         raise AppSourceError("Git repository host is not allowed.")
+    if host not in _ALLOWED_GIT_HOSTS:
+        raise AppSourceError("Git repository host is not supported. Use GitHub, GitLab, or Bitbucket.")
     try:
         ip=ipaddress.ip_address(host)
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
@@ -208,7 +211,7 @@ def source_history(app_key:str,limit:int=50)->dict[str,Any]:
         rows=connection.execute(
             """SELECT source_id,app_key,source_type,source_ref,source_revision,package_sha256,
                       manifest_json,validation_json,status,created_at,updated_at
-               FROM homeserver_app_sources WHERE app_key=? ORDER BY created_at DESC LIMIT ?""",
+               FROM homeserver_app_sources WHERE app_key=? ORDER BY created_at DESC,rowid DESC LIMIT ?""",
             (key,max(1,min(200,int(limit)))),
         ).fetchall()
     return {"contract":CONTRACT,"app_key":key,"sources":[_public(row) for row in rows],"count":len(rows)}
@@ -217,16 +220,21 @@ def source_history(app_key:str,limit:int=50)->dict[str,Any]:
 def source_status(app_key:str)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     history=source_history(app["app_key"],20)
-    current=next((item for item in history["sources"] if item.get("status")!="detached"),None)
-    installed_hash=str((app.get("metadata") or {}).get("package_sha256") or "")
+    metadata=dict(app.get("metadata") or {})
+    attached_id=str(metadata.get("source_id") or "")
+    attached=next((item for item in history["sources"] if item.get("source_id")==attached_id),None) if attached_id else None
+    candidate=next((item for item in history["sources"] if item.get("status")=="inspected"),None)
+    current=candidate or attached
+    installed_hash=str(metadata.get("package_sha256") or "")
     return {
         "contract":CONTRACT,
         "app_key":app["app_key"],
         "source_type":app["source_type"],
         "source_ref":app.get("source_ref") or "",
         "installed_package_sha256":installed_hash,
+        "attached_source_id":attached_id or None,
         "current":current,
-        "update_available":bool(current and current["status"]=="inspected" and current["package_sha256"]!=installed_hash),
+        "update_available":bool(candidate and candidate["package_sha256"]!=installed_hash),
         "history":history["sources"],
     }
 
@@ -324,12 +332,13 @@ def refresh_git(app_key:str)->dict[str,Any]:
     return inspect_git(str(current["source_ref"]),requested)
 
 
-def refresh_git_ref(app_key:str,ref:str="HEAD")->dict[str,Any]:
+def refresh_git_ref(app_key:str,ref:str="")->dict[str,Any]:
     status=source_status(app_key)
     current=status.get("current")
     if not current or current.get("source_type")!="git":
         raise AppSourceError("This app does not have a Git source to refresh.",409)
-    return inspect_git(str(current["source_ref"]),ref)
+    requested=str(ref or (current.get("validation") or {}).get("git_requested_ref") or "HEAD")
+    return inspect_git(str(current["source_ref"]),requested)
 
 
 def detach(app_key:str,*,confirmed:bool=False)->dict[str,Any]:
@@ -365,6 +374,7 @@ def public_capability()->dict[str,Any]:
         "zip_import":True,
         "git_import":True,
         "git_https_only":True,
+        "git_public_hosts":sorted(_ALLOWED_GIT_HOSTS),
         "exact_git_sha":True,
         "immutable_package_sha256":True,
         "preview_before_install":True,
