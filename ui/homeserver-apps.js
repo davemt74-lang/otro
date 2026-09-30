@@ -26,7 +26,7 @@
     section.id='view-homeserver-apps';
     section.innerHTML=`
       <div class="section-intro split hs-apps-intro">
-        <div><p class="eyebrow">HOMESERVER APPS</p><h2>App Manager</h2><p>Installed Apps, available VP3 system apps, shared apps, hosted apps, and user-created apps are managed from one place.</p></div>
+        <div><p class="eyebrow">HOMESERVER APPS</p><h2>App Manager</h2><p>Installed Apps, available VP3 Apps, shared apps, hosted apps, and user-created apps are managed from one place.</p></div>
         <div class="hs-app-intro-actions"><button class="button secondary" type="button" data-hs-app-import>Import App</button><button class="button primary" type="button" data-hs-app-create>Create App</button></div>
       </div>
       <section class="hs-app-manager-summary" id="hsAppManagerSummary">
@@ -39,7 +39,7 @@
       <div class="hs-apps-toolbar">
         <button class="button secondary active" type="button" data-hs-app-filter="all">All</button>
         <button class="button secondary" type="button" data-hs-app-filter="available">Available</button>
-        <button class="button secondary" type="button" data-hs-app-filter="system">VP3 System</button>
+        <button class="button secondary" type="button" data-hs-app-filter="system">VP3 Apps</button>
         <button class="button secondary" type="button" data-hs-app-filter="user">My Apps</button>
         <button class="button secondary" type="button" data-hs-app-filter="shared">Shared</button>
         <button class="button secondary" type="button" data-hs-app-filter="updates">Updates</button>
@@ -115,7 +115,7 @@
           <div><div class="hs-app-status-row"><span class="hs-app-status ${esc(status)}"></span><span>${esc(statusLabel({lifecycle_state:status}))}</span></div><h3>${esc(app.name)}</h3><p>${esc(app.description||app.app_key)}</p></div>
         </div>
         <div class="hs-app-tags">
-          <span>${system?'VP3 System':'User App'}</span>
+          <span>${system?'VP3 Apps':'User App'}</span>
           <span>${esc(app.category||'App')}</span>
           ${shared?'<span>Private Share</span>':''}
           ${hosted?'<span>Hosted</span>':''}
@@ -348,7 +348,7 @@
       const rt=runtime?.runtime;
       const releaseRows=releases?.releases||[];
       panel.innerHTML=`
-        <div class="panel-head"><div><p class="eyebrow">${system?'VP3 SYSTEM APP':'USER APP'}</p><h3>${esc(app.name)}</h3><p class="muted">${esc(app.app_key)} · ${esc(statusLabel(app))}</p></div><button class="text-button" type="button" data-hs-app-detail-close>Close</button></div>
+        <div class="panel-head"><div><p class="eyebrow">${system?'VP3 APP':'USER APP'}</p><h3>${esc(app.name)}</h3><p class="muted">${esc(app.app_key)} · ${esc(statusLabel(app))}</p></div><button class="text-button" type="button" data-hs-app-detail-close>Close</button></div>
         <div class="hs-app-detail-grid">
           <section><h4>Runtime</h4><p>Version <strong>${esc(app.installed_version||'—')}</strong></p><p>Source <strong>${esc(app.source_type)}</strong></p>${rt?`<p>Jobs <strong>${rt.jobs?.length||0}</strong> · Events <strong>${rt.event_count||0}</strong></p>`:''}</section>
           <section><h4>Permissions</h4>${permRows.length?permRows.map(p=>`<label class="hs-app-permission"><input type="checkbox" data-hs-app-permission="${esc(key)}" data-permission="${esc(p.permission)}" ${p.allowed?'checked':''}> ${esc(p.permission)} <span class="muted">· ${esc(p.risk||'unknown')} risk</span></label>`).join(''):'<p class="muted">No permissions declared.</p>'}</section>
