@@ -44,6 +44,7 @@
         <button class="nav-item" data-view="apps">Connected Apps</button>
         <button class="nav-item" data-view="ambient">Ambient Agent</button>
         <button class="nav-item" data-view="automation">Rooms & Devices</button>
+        <button class="nav-item" data-view="tracky">Tracky</button>
         <button class="nav-item" data-view="federation">Physical Network</button>
         <button class="nav-item" data-view="physical-world">Physical World</button>
         <button class="nav-item" data-view="activity">Activity</button>
@@ -75,6 +76,33 @@
         <div class="two-col">
           <article class="panel"><div class="panel-head"><div><p class="eyebrow">RECENT</p><h3>Activity</h3></div><button class="text-button" data-go="activity">View all</button></div><div id="recentActivity" class="list empty-state">No activity yet.</div></article>
           <article class="panel"><div class="panel-head"><div><p class="eyebrow">RELATIONSHIP CONTEXT</p><h3>Private Contacts</h3></div></div><div class="flow"><div><span>1</span><p><strong>Stored locally</strong><small>Names, organizations, contact details and relationship notes stay in SQLite.</small></p></div><div><span>2</span><p><strong>Permissioned</strong><small>Apps need contacts.read before they can search people.</small></p></div><div><span>3</span><p><strong>Agent read-only</strong><small>The model can search contacts but cannot silently modify them.</small></p></div></div><button class="button secondary full" data-go="contacts">Open contacts</button></article>
+        </div>
+      </section>
+
+      <section class="view" id="view-tracky">
+        <div class="section-intro split">
+          <div><p class="eyebrow">TRACKY</p><h2>Physical Awareness</h2><p>One place for cameras, people, objects, rooms, physical context, federation health, and Agent Brain awareness. Raw perception remains local to HomeServer.</p></div>
+          <div class="top-actions"><button class="button secondary" id="refreshTrackyOverview" type="button">Refresh</button><button class="button primary" data-go="chat" type="button">Ask Agent</button></div>
+        </div>
+        <div class="stats-grid">
+          <article class="stat"><span>Rooms</span><strong id="trackyRoomCount">0</strong><small>governed locations</small></article>
+          <article class="stat"><span>People</span><strong id="trackyPeopleCount">0</strong><small>visible by policy</small></article>
+          <article class="stat"><span>Objects</span><strong id="trackyObjectCount">0</strong><small>tracked entities</small></article>
+          <article class="stat"><span>Hardware</span><strong id="trackyHardwareCount">0</strong><small>cameras + sensors</small></article>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">STATUS</p><h3>Tracky runtime</h3></div><span id="trackyOverviewState" class="muted">Loading…</span></div>
+          <div class="item-meta"><span>Site <strong id="trackySiteName">No site</strong></span><span>World revision <strong id="trackyWorldRevision">0</strong></span><span>Federation <strong id="trackyFederationHealth">unknown</strong></span><span>Agent view <strong id="trackyAgentView">None</strong></span></div>
+          <p class="muted" id="trackyOverviewMessage">Tracky will summarize the current governed physical-world projection here.</p>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">OPEN</p><h3>Tracky workspaces</h3></div></div>
+          <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
+            <button class="button secondary" data-go="physical-world" type="button">Physical World</button>
+            <button class="button secondary" data-go="federation" type="button">Physical Network</button>
+            <button class="button secondary" data-go="automation" type="button">Rooms & Devices</button>
+            <button class="button secondary" data-go="chat" type="button">Ask Agent about Tracky</button>
+          </div>
         </div>
       </section>
 
@@ -628,6 +656,7 @@
   <script src="/assets/knowledge-sources.js" defer></script>
   <script src="/assets/local-apps.js" defer></script>
   <script src="/assets/homeserver-apps.js" defer></script>
+  <script src="/assets/tracky-overview.js" defer></script>
   <script src="/assets/federation-control-center-v280.js" defer></script>
   <script src="/assets/physical-world-dashboard-v280.js" defer></script>
   <script src="/assets/cross-site-presence-v280.js" defer></script>
