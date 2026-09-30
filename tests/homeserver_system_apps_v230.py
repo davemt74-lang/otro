@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
         assert migration["migration_execution"]=="app_managed"
         assert migration["snapshot_id"].startswith("appsnap_")
         assert migration["migration_scripts"]==[]
-        assert data_path.read_bytes()==b"persistent user data"
+        assert client.get("/api/v1/control/homeserver-apps/starter.notes/data/file?path=notes/one.txt").content==b"persistent user data"
 
         db_path=homeserver_app_resources.sqlite_path("starter.notes","app.db")
         if db_path.exists():
@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
         rollback_payload=rollback.json()
         assert rollback_payload["release"]["version"]=="0.1.0"
         assert rollback_payload["data_restore"]["restored"] is True
-        assert data_path.read_bytes()==b"persistent user data"
+        assert client.get("/api/v1/control/homeserver-apps/starter.notes/data/file?path=notes/one.txt").content==b"persistent user data"
         app_state=homeserver_apps.get("starter.notes")
         assert app_state["metadata"]["data_schema_version"]=="1"
 
