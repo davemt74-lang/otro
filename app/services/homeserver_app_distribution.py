@@ -123,12 +123,13 @@ def export_bundle(app_key:str)->dict[str,Any]:
     bundle=buffer.getvalue()
     if len(bundle)>MAX_BUNDLE_BYTES:
         raise AppDistributionError("Distribution bundle exceeds the size limit.",413)
+    safe_version="".join(ch if ch.isalnum() or ch in {".","-","_"} else "-" for ch in str(descriptor["version"] or "app"))[:80] or "app"
     return {
         "contract":BUNDLE_CONTRACT,
         "bundle":bundle,
         "descriptor":descriptor,
         "bundle_sha256":hashlib.sha256(bundle).hexdigest(),
-        "file_name":f"{descriptor['app_key']}-{descriptor['version'] or 'app'}.vp3app.zip",
+        "file_name":f"{descriptor['app_key']}-{safe_version}.vp3app.zip",
     }
 
 
