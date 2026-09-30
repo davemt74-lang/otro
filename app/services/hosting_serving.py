@@ -324,7 +324,7 @@ def serve(
                 return _response(homeserver_media_processor.enqueue(
                     str(p.get("media_id") or ""),str(p.get("operation") or ""),
                     str(p.get("preset") or "default"),str(p.get("output_format") or ""),
-                    int(p.get("priority") or 0),
+                    int(p.get("priority") or 0),str(p.get("destination_id") or "app-storage"),
                 ))
             if rel.startswith("derivatives/") and rel.endswith("/file") and method=="GET":
                 derivative_id=rel.split("/")[1]
@@ -342,6 +342,7 @@ def serve(
                 try: limit=int((query.get("limit") or ["200"])[0])
                 except ValueError: limit=200
                 return _response(homeserver_media_processor.derivatives(media_id,limit))
+            if rel=="destinations" and method=="GET": return _response(homeserver_media_processor.destinations())
             if rel=="settings" and method=="GET": return _response(homeserver_media_processor.settings())
             if rel.startswith("jobs/"):
                 parts=rel.split("/")
