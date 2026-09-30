@@ -427,7 +427,7 @@ def library(query:str="",media_type:str="",limit:int=100,offset:int=0)->dict[str
     clauses=[]
     params=[]
     if q:
-        clauses.append("(LOWER(title) LIKE ? OR LOWER(file_name) LIKE ?)")
+        clauses.append("(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(file_name) LIKE ? ESCAPE '\\')")
         term="%"+q.lower().replace("%","\\%").replace("_","\\_")+"%"
         params.extend([term,term])
     if kind:
