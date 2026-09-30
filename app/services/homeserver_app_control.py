@@ -242,6 +242,12 @@ def _builtin(app_key:str,provider:str,action_key:str,arguments:dict[str,Any])->A
                 source_kind=str(arguments.get("source_kind") or "computer_folder"),
             )
         if action=="media.root.remove": return homeserver_media_server.remove_root(str(arguments.get("root_id") or ""))
+        if action=="media.process":
+            return homeserver_media_server.process_media(
+                str(arguments.get("media_id") or ""),str(arguments.get("operation") or ""),
+                str(arguments.get("preset") or "default"),str(arguments.get("output_format") or ""),
+                int(arguments.get("priority",0)),
+            )
         raise AppControlError("Unsupported Media Server builtin action.",404)
     raise AppControlError("Builtin app action provider is unavailable.",501)
 
