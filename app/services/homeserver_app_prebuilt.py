@@ -7,7 +7,7 @@ import zipfile
 from typing import Any
 
 from ..database import db
-from . import homeserver_app_packages, homeserver_apps
+from . import homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
 CATALOG_VERSION = "2026.09.30.2"
@@ -215,10 +215,11 @@ def install(
     except Exception as exc:
         previous_release_id = str(prior_status.get("active_release_id") or "")
         if previous_release_id:
-            rollback = homeserver_app_packages.rollback_system_package(
+            rollback = homeserver_app_releases.promote(
                 key,
-                expected_active_release_id=str(release.get("release_id") or ""),
+                previous_release_id,
                 reason="post_update_verification_failed",
+                system_managed=True,
             )
             return {
                 "changed": False,
@@ -312,12 +313,20 @@ def rollback(catalog_key: str, *, expected_active_release_id: str | None = None,
     key = str(catalog_key or "").strip().lower()
     if key not in CATALOG:
         raise homeserver_apps.HomeServerAppError("VP3 prebuilt app not found.", 404)
-    result = homeserver_app_packages.rollback_system_package(
+    releases = homeserver_app_releases.list_releases(key)
+    active = str(releases.get("active_release_id") or "")
+    previous = str(releases.get("previous_release_id") or "")
+    if expected_active_release_id and active != expected_active_release_id:
+        raise homeserver_apps.HomeServerAppError("Active System App release changed before rollback.",409)
+    if not previous:
+        raise homeserver_apps.HomeServerAppError("No previous System App release is available for rollback.",409)
+    result = homeserver_app_releases.promote(
         key,
-        expected_active_release_id=expected_active_release_id,
+        previous,
         reason=reason,
+        system_managed=True,
     )
-    return {"changed": True, "rollback": result, "status": release_status(key)}
+    return {"changed": bool(result.get("changed")), "rollback": result, "status": release_status(key)}
 
 
 def public_capability() -> dict[str, Any]:
