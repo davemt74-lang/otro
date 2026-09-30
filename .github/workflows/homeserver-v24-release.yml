@@ -1,38 +1,14 @@
 name: HomeServer v2.4 Release Acceptance
 
 on:
-  pull_request:
-    paths-ignore:
-      - 'app/homeserver_apps_api.py'
-      - 'app/services/homeserver_app_*.py'
-      - 'ui/homeserver-apps.*'
-      - 'app/services/homeserver_apps.py'
-      - 'app/services/homeserver_app_sdk.py'
-      - 'app/services/homeserver_app_packages.py'
-      - 'app/services/homeserver_app_security.py'
-      - 'app/services/homeserver_app_resources.py'
-      - 'app/services/homeserver_app_runtime.py'
-      - 'app/services/homeserver_app_sample_data.py'
-      - 'ui/homeserver-apps.css'
-      - 'ui/homeserver-apps.js'
-      - 'app/services/homeserver_app_prebuilt.py'
-      - 'ui/system.html'
-      - 'ui/system.js'
-      - 'sdk/homeserver-app/**'
-      - 'tests/homeserver_apps_v1*.py'
-      - '.github/workflows/homeserver-apps-v100.yml'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/homeserver-v23-release.yml'
-      - '.github/workflows/homeserver-v24-data-continuity.yml'
-      - '.github/workflows/homeserver-v24-release.yml'
   push:
     branches:
       - main
   workflow_dispatch:
 
 concurrency:
-  group: homeserver-v24-release-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: homeserver-v24-release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
