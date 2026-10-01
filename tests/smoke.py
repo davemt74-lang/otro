@@ -207,6 +207,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "memory.write",
             "notifications.list",
             "storage.status",
+            "health.status",
+            "health.repair-plan",
             "tasks.create",
             "tasks.delete",
             "tasks.list",
@@ -223,6 +225,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "room.automation",
             "task.manager",
             "app.update.manager",
+            "homeserver.health",
             "local.file-management",
         ]
         assert client.post("/api/v1/control/tools/not.real/execute", json={"arguments": {}}).status_code == 404
