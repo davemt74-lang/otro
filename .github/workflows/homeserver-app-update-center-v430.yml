@@ -5,6 +5,7 @@ on:
     paths:
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_app_update_center.py'
+      - 'app/services/homeserver_app_agent.py'
       - 'app/services/homeserver_app_prebuilt.py'
       - 'app/services/canonical_context.py'
       - 'app/services/tools.py'
@@ -46,6 +47,7 @@ jobs:
           python -m py_compile
           app/homeserver_apps_api.py
           app/services/homeserver_app_update_center.py
+          app/services/homeserver_app_agent.py
           app/services/homeserver_app_prebuilt.py
           app/services/canonical_context.py
           app/services/tools.py
