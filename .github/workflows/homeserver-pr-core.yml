@@ -38,6 +38,11 @@ jobs:
           python tests/tracky_visual_onboarding.py
           node tests/tracky_visual_browser.mjs
           node --check ui/tracky/owner-visual.js
+      - name: Owner-gated canonical Tracky camera-to-inference provider
+        run: |
+          python tests/tracky_owner_perception_v1.py
+          node tests/tracky_owner_perception_ui_v1.mjs
+          node --check ui/tracky/eyes-runtime.js
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify API smoke contract

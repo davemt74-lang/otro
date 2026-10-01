@@ -123,7 +123,8 @@ def inventory(*, probe: bool = False) -> dict[str, Any]:
     # Do not call public_capability here: it may recover stale requests and
     # would make an ostensibly read-only diagnosis mutate Tracky state.
     tracky_provider, tracky_capabilities, provider_name = tracky_physical_context._provider_snapshot()
-    eyes_ready = bool(camera_ready and tracky_provider is not None)
+    browser_provider = bool(tracky_provider and tracky_capabilities.get("surface") == "owner_browser")
+    eyes_ready = bool(camera_ready and tracky_provider is not None and not browser_provider)
     checks.append(_entry(
         "agent_eyes", "not_verified" if eyes_ready else "missing",
         "Camera and Tracky perception provider are registered." if eyes_ready else
@@ -134,6 +135,14 @@ def inventory(*, probe: bool = False) -> dict[str, Any]:
         camera_ready=camera_ready,
         semantic_sync_failures=int(tracky.get("consecutive_failures") or 0),
         frame_inference_tested=False,
+    ))
+    checks.append(_entry(
+        "tracky_owner_browser",
+        "not_verified" if browser_provider else "missing",
+        "Owner-approved browser Tracky model session attached, not native hardware-certified."
+        if browser_provider else "No consented owner browser perception session attached.",
+        "Owner can run the one-shot visual test inside HomeServer Agent Chat.",
+        session_active=browser_provider, hardware_certified=False, face_identity_verified=False,
     ))
     local = next((row for row in inference.get("providers", [])
         if isinstance(row, dict) and row.get("provider_key") == "ollama"), {})

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import system_state, tracky_physical_context, vp3_os
+from . import system_state, tracky_physical_context, tracky_owner_perception, vp3_os
 
 STATE_KEY = "tracky.owner_visual_chat.v1"
 SCOPE = "owner-self-local-recognition-v1"
@@ -63,9 +63,11 @@ def status() -> dict[str, Any]:
     with _LOCK:
         row = _read()
         try:
-            provider, _, _ = tracky_physical_context._provider_snapshot()
+            provider, provider_caps, _ = tracky_physical_context._provider_snapshot()
         except Exception:
-            provider = None
+            provider, provider_caps = None, {}
+        eyes = tracky_owner_perception.status()
+        browser_only = provider is not None and provider_caps.get("surface") == "owner_browser"
         phase = str(row.get("phase") or "not_started")
         if phase == "awaiting_capture" and _expired(row):
             phase = "interrupted"
@@ -78,7 +80,8 @@ def status() -> dict[str, Any]:
             "local_participant_id": str(row.get("local_participant_id") or ""),
             "sample_count": int(row.get("sample_count") or 0),
             "browser_enrollment_assets": all((_UI_ROOT / name).is_file() for name in _BUNDLE),
-            "trusted_perception_provider_registered": provider is not None,
+            "trusted_perception_provider_registered": provider is not None and not browser_only,
+            "owner_browser_perception": eyes,
             "provider_certified": False,  # Registration alone is never live hardware certification.
             "enrollment_verified": False,  # Browser-only IndexedDB has no trusted server attestation.
             "privacy_engaged": _privacy_engaged(),

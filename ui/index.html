@@ -191,6 +191,17 @@
       <div id="onboardVisualProgress" role="status" aria-live="polite">Preparing local enrollment…</div>
     </div>
   </div>
+  <div class="onboard-step" id="onboardEyes">
+    <div class="onboard-step-head"><span>04 · OPTIONAL AGENT EYES TEST</span><strong id="onboardEyesState">Camera inactive</strong></div>
+    <p class="onboard-agent-line">I can verify the connection between a real, owner-approved camera observation and HomeServer's existing Tracky perception runtime. This is a one-time local test, not continuous tracking or proof of native hardware certification. It does not identify anyone or create contacts. No image, face descriptor, or identifying record leaves this session.</p>
+    <label class="onboard-visual-consent"><input type="checkbox" id="onboardEyesConsent"><span>I authorize a one-time local camera observation for the Agent Eyes connection test. I understand camera permission is separate.</span></label>
+    <div class="onboard-actions"><button id="onboardEyesStart" class="onboard-button" type="button">Run one-time Agent Eyes test →</button><button id="onboardEyesStop" class="onboard-minor" type="button" hidden>Stop camera and test</button></div>
+    <div id="onboardEyesCapture" class="onboard-visual-capture" hidden>
+      <video id="onboardEyesVideo" autoplay muted playsinline aria-label="Private one-time camera test"></video>
+      <div id="onboardEyesResult" role="status" aria-live="polite">Waiting for owner permission.</div>
+    </div>
+    <p id="onboardEyesDetails" class="onboard-package-state" role="status" aria-live="polite">No camera test running. You can skip this step.</p>
+  </div>
   <div class="onboard-agent-message end"><span class="onboard-orb" aria-hidden="true">✦</span><div class="onboard-agent-content">
     <span class="onboard-name">YOUR AGENT</span><p>That's all we need to get started. Cloud and voice are optional; you can finish them later by opening Setup in Chat.</p>
     <div class="onboard-actions"><button id="onboardFinish" type="button" class="onboard-button">Finish setup & start chatting →</button><button id="onboardLater" type="button" class="onboard-minor">Close for now</button></div>
@@ -750,6 +761,7 @@
   <script src="/assets/chat-enhancements.js" defer></script>
 <script src="/assets/chat-onboarding.js" defer></script>
   <script type="module" src="/assets/tracky/owner-visual.js"></script>
+  <script type="module" src="/assets/tracky/eyes-runtime.js"></script>
   <script src="/assets/chat-dictation.js" defer></script>
   <script src="/assets/transcription-workspace.js" defer></script>
   <script src="/assets/tools.js" defer></script>
