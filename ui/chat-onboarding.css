@@ -1,0 +1,27 @@
+.chat-onboarding{margin:0 0 14px;max-height:min(66vh,700px);overflow-y:auto;overscroll-behavior:contain;border-radius:17px;padding:18px;background:linear-gradient(155deg,#f8faff,#edf3fc);border:1px solid #dce6f5;color:#1a2940;scrollbar-gutter:stable}
+.chat-onboarding[hidden],.onboard-code[hidden],.onboard-feedback[hidden]{display:none!important}
+.onboard-agent-message{display:flex;gap:12px;align-items:flex-start;max-width:720px;margin:2px 0 18px}
+.onboard-agent-message.end{margin:17px 0 2px;padding-top:17px;border-top:1px solid #d4deec}
+.onboard-orb{width:32px;height:32px;flex:0 0 32px;border-radius:50%;display:grid;place-items:center;color:white;background:radial-gradient(circle at 28% 25%,#bcdfff,#4566a1 68%,#172e53);box-shadow:0 5px 16px #6b9ace45}
+.onboard-agent-content{min-width:0}.onboard-name{display:block;color:#5c7392;font-size:10px;font-weight:750;letter-spacing:.12em}
+.onboard-agent-content h3{margin:7px 0 5px;font-size:18px;letter-spacing:-.03em}
+.onboard-agent-content p,.onboard-step .onboard-agent-line{font-size:13px;line-height:1.65;margin:6px 0;color:#435771}
+.onboard-step{margin:12px 0 13px 44px;padding:16px 18px;background:#ffffffd9;border:1px solid #dce4ef;border-radius:15px;box-shadow:0 3px 12px #263f6910}
+.onboard-step[data-complete="true"]{border-color:#9ed6c4}.onboard-step-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.onboard-step-head span{font-size:10px;font-weight:750;letter-spacing:.14em;color:#7185a1}.onboard-step-head strong{font-size:11px;color:#456087}
+.onboard-step[data-complete="true"] .onboard-step-head strong{color:#387461}
+.onboard-actions,.onboard-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:13px}
+.onboard-button{font-size:12px;font-weight:650;font-family:inherit;border:1px solid #143966;background:#1c3d6e;color:white;border-radius:11px;padding:11px 15px;cursor:pointer}
+.onboard-button:disabled{background:#d9e3f1;border-color:#d9e3f1;color:#60748c;cursor:default}
+.onboard-minor{font-size:12px;font-weight:650;font-family:inherit;border:1px solid #c6d8ee;background:white;color:#315682;border-radius:11px;padding:10px 14px;cursor:pointer}
+.onboard-link{display:inline-flex;color:#19528e;font-size:12px;font-weight:720;padding:8px 0;text-decoration:underline;text-underline-offset:4px}
+.onboard-code{background:#edf4ff;padding:16px;border-radius:13px;border:1px solid #b6cced;margin-top:13px}
+.onboard-code>span{display:block;font-size:11px;color:#526c8d}
+.onboard-code>strong{display:block;margin:9px 0;font:750 clamp(17px,2.5vw,27px) ui-monospace,Consolas,monospace;letter-spacing:.15em;overflow-wrap:anywhere;user-select:all}
+.onboard-code>p{font-size:11px;color:#49627e;line-height:1.5;margin:10px 0 0}
+.onboard-package-state{font-size:11px;line-height:1.55;color:#4e6380;margin:11px 0;overflow-wrap:anywhere}
+.onboard-feedback{margin:12px 0 0 44px;border:1px solid #b4c9e8;border-radius:11px;background:white;color:#2d567e;padding:11px 13px;font-size:12px;line-height:1.5}
+.onboard-feedback.error{color:#8c333e;border-color:#e1b8bd;background:#fff6f7}
+.onboard-toggle{margin-left:6px!important;color:#396590!important;font-weight:750!important}
+@media(max-width:620px){.chat-onboarding{padding:12px;max-height:70vh}.onboard-step{margin-left:0;padding:13px}.onboard-agent-message{gap:8px}.onboard-feedback{margin-left:0}.onboard-code>strong{font-size:19px;letter-spacing:.08em}}
+@media(prefers-reduced-motion:reduce){.chat-onboarding *{scroll-behavior:auto!important;animation:none!important}}

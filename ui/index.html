@@ -32,6 +32,7 @@
   <link rel="stylesheet" href="/assets/live-certification.css">
   <link rel="stylesheet" href="/assets/governed-recordings.css">
   <link rel="stylesheet" href="/assets/transcription-workspace.css">
+<link rel="stylesheet" href="/assets/chat-onboarding.css">
 </head>
 <body>
   <div class="shell">
@@ -150,7 +151,32 @@
         <div class="section-intro split"><div><h2>Agent Chat</h2><p>Chat through the private HomeServer brain. Read tools remain permission-bounded and write proposals require owner approval.</p></div><span id="chatContext" class="brain-context"></span></div>
         <div class="chat-layout">
           <aside class="panel conversation-panel"><button class="button secondary" id="newChat" type="button">New conversation</button><div id="conversationList" class="conversation-list"><div class="empty-state">No conversations yet.</div></div></aside>
-          <article class="panel chat-panel"><div class="chat-head"><h3 id="chatConversationTitle">New conversation</h3><button class="text-button danger" id="deleteChat" type="button">Delete</button></div><div id="fahChatAlert" class="fah-chat-alert" role="status" aria-live="polite" hidden></div><div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local context is added only when permitted.</div></div><form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="2" maxlength="32000" placeholder="Message your HomeServer agent…" required></textarea><button class="button primary" type="submit">Send</button></form></article>
+          <article class="panel chat-panel"><div class="chat-head"><h3 id="chatConversationTitle">New conversation</h3><button class="text-button danger" id="deleteChat" type="button">Delete</button></div><div id="fahChatAlert" class="fah-chat-alert" role="status" aria-live="polite" hidden></div><section id="chatOnboardingCanvas" class="chat-onboarding" aria-label="HomeServer Agent guided onboarding" hidden>
+  <div class="onboard-agent-message"><span class="onboard-orb" aria-hidden="true">✦</span><div class="onboard-agent-content">
+    <span class="onboard-name">HOMESERVER AGENT · FIRST CONVERSATION</span>
+    <h3>Hi. I'm your HomeServer Agent.</h3>
+    <p>I'll get everything connected from right here. Connect VP3 Cloud, let me prepare local voice, or start chatting immediately. Nothing accesses your microphone or camera without permission.</p>
+  </div></div>
+  <div class="onboard-step" id="onboardCloud">
+    <div class="onboard-step-head"><span>01 · YOUR CLOUD</span><strong id="onboardCloudState">Checking connection…</strong></div>
+    <p class="onboard-agent-line">Let's connect your VP3 Cloud account. I'll give you a temporary code and a link where you can enter it. You won't need to copy a long token back.</p>
+    <div id="onboardPairingCode" class="onboard-code" hidden><span>Your temporary pairing code</span><strong id="onboardCodeText" aria-live="polite"></strong><span id="onboardCodeExpiry">Valid for 15 minutes</span>
+      <div class="onboard-row"><button id="onboardCopyCode" class="onboard-minor" type="button">Copy code</button><a id="onboardCloudLink" class="onboard-link" href="https://vp3.me/settings-homeserver.php" target="_blank" rel="noopener noreferrer">Open VP3 Cloud ↗</a></div>
+      <p>Sign in if needed, enter this code on Settings → HomeServer, then return here. I'll finish pairing automatically.</p></div>
+    <div class="onboard-actions"><button type="button" id="onboardStartCloud" class="onboard-button">Generate pairing code →</button><button type="button" id="onboardResetCode" class="onboard-minor" hidden>New code</button></div>
+  </div>
+  <div class="onboard-step" id="onboardVoice">
+    <div class="onboard-step-head"><span>02 · YOUR VOICE</span><strong id="onboardVoiceState">Checking essentials…</strong></div>
+    <p class="onboard-agent-line">I can install verified Whisper and Piper components in one step, so we can talk privately. Text chat doesn't need these downloads.</p>
+    <p id="onboardVoicePackages" class="onboard-package-state" aria-live="polite">Checking installed packages…</p>
+    <div class="onboard-actions"><button type="button" id="onboardInstallVoice" class="onboard-button">Prepare local voice →</button></div>
+  </div>
+  <div class="onboard-agent-message end"><span class="onboard-orb" aria-hidden="true">✦</span><div class="onboard-agent-content">
+    <span class="onboard-name">YOUR AGENT</span><p>That's all we need to get started. Cloud and voice are optional; you can finish them later by opening Setup in Chat.</p>
+    <div class="onboard-actions"><button id="onboardFinish" type="button" class="onboard-button">Finish setup & start chatting →</button><button id="onboardLater" type="button" class="onboard-minor">Close for now</button></div>
+  </div></div>
+  <div class="onboard-feedback" id="onboardFeedback" role="status" aria-live="polite" hidden></div>
+</section><div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local context is added only when permitted.</div></div><form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="2" maxlength="32000" placeholder="Message your HomeServer agent…" required></textarea><button class="button primary" type="submit">Send</button></form></article>
         </div>
       </section>
 
@@ -702,6 +728,7 @@
   <script src="/assets/room-device-automation.js" defer></script>
   <script src="/assets/voice-catalog.js" defer></script>
   <script src="/assets/chat-enhancements.js" defer></script>
+<script src="/assets/chat-onboarding.js" defer></script>
   <script src="/assets/chat-dictation.js" defer></script>
   <script src="/assets/transcription-workspace.js" defer></script>
   <script src="/assets/tools.js" defer></script>
