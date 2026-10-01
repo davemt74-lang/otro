@@ -9,7 +9,7 @@ assert page.index('/assets/brain.js') < page.index('/assets/agent-brain-drawer.j
 for expected in (
     '/api/v1/control/health',
     "document.querySelector('.nav [data-view=\"chat\"]')",
-    "document.querySelector('[data-view=\"health\"]')",
+    "openWorkspace('health')",
     "input.value = existing",
     'input.focus()',
     "credentials:'same-origin'",
