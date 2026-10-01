@@ -135,12 +135,25 @@ with tempfile.TemporaryDirectory(prefix="homeserver-update-center-v430-") as dat
 
         # Agent Chat gets read-only review tools; non-owner apps cannot use them.
         owner_tools={row["key"]:row for row in tools.list_tools(owner=True)}
+        owner_skills={row["key"]:row for row in tools.list_skills(owner=True)}
+        assert owner_skills["app.update.manager"]["available"] is True
+        assert owner_skills["app.update.manager"]["tools"]==["apps.update-center","apps.update.review","apps.prebuilt.list"]
         assert owner_tools["apps.update-center"]["available"] is True
         assert owner_tools["apps.update.review"]["available"] is True
         app_tools={row["key"]:row for row in tools.list_tools({"tools.execute","apps.read"},owner=False)}
         assert app_tools["apps.update-center"]["available"] is False
         assert app_tools["apps.update.review"]["available"] is False
         assert "owner.control" in app_tools["apps.update-center"]["missing_permissions"]
+
+        try:
+            tools.execute_tool("owner","apps.prebuilt.install",{
+                "app_key":"vp3.notes",
+                "expected_version":"0.0.0",
+                "expected_sha256":catalog_notes["package_sha256"],
+            },set(),owner=True)
+            raise AssertionError("Stale direct tool update pin should fail")
+        except tools.ToolError as exc:
+            assert exc.status_code==409
 
         center_tool=tools.execute_tool("owner","apps.update-center",{},set(),owner=True)
         assert center_tool["status"]=="completed"
@@ -192,6 +205,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-update-center-v430-") as dat
         assert "expected_version" in ui
         assert "expected_sha256" in ui
         assert "data-hs-prebuilt-install" not in ui
+        assert "Review rollback" in ui
+        assert "Rollback this app to its previous release?" in ui
         assert ".hs-update-center" in css
 
 print("HomeServer Section 29 App Install Update Center: PASS")
