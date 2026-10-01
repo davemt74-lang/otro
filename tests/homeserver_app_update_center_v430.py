@@ -145,6 +145,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-update-center-v430-") as dat
         assert app_tools["apps.update.review"]["available"] is False
         assert "owner.control" in app_tools["apps.update-center"]["missing_permissions"]
 
+        catalog_notes={row["key"]:row for row in homeserver_app_prebuilt.catalog()["packages"]}["vp3.notes"]
+
         try:
             tools.execute_tool("owner","apps.prebuilt.install",{
                 "app_key":"vp3.notes",
@@ -165,7 +167,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-update-center-v430-") as dat
 
         # Existing Agent write contract is still the execution authority.
         pinned_action=homeserver_app_agent.normalize_action("apps.prebuilt.install",{"app_key":"vp3.notes"})
-        catalog_notes={row["key"]:row for row in homeserver_app_prebuilt.catalog()["packages"]}["vp3.notes"]
         assert pinned_action["expected_version"]==catalog_notes["version"]
         assert pinned_action["expected_sha256"]==catalog_notes["package_sha256"]
         try:
