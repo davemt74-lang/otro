@@ -180,6 +180,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "apps.start",
             "apps.status",
             "apps.stop",
+            "backups.status",
             "calendar.create",
             "calendar.delete",
             "calendar.list",
