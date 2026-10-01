@@ -5,6 +5,7 @@ on:
     paths:
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_app_center.py'
+      - 'app/services/homeserver_app_agent.py'
       - 'app/services/homeserver_app_manager.py'
       - 'app/services/homeserver_app_prebuilt.py'
       - 'tests/homeserver_app_center_v420.py'
@@ -43,6 +44,7 @@ jobs:
           python -m py_compile
           app/homeserver_apps_api.py
           app/services/homeserver_app_center.py
+          app/services/homeserver_app_agent.py
           tests/homeserver_app_center_v420.py
       - name: Validate App Center JavaScript
         run: node --check ui/homeserver-apps.js
