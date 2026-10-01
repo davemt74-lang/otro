@@ -293,14 +293,14 @@ CATALOG = {
     "vp3.media-library": {
         "key": "vp3.media-library",
         "name": "VP3 Media Library",
-        "version": "1.3.0",
+        "version": "1.4.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Adds Media Processor-backed thumbnails, posters, album art, covers, and multi-source collection contact sheets.",
-            "Media Library owns semantic artwork assignments only; derivatives remain owned by Media Processor and originals remain untouched.",
-            "Retains metadata, collections, cleanup review, SDK 1.2 / Agent Actions v2, and Agent Brain awareness."
+            "Adds Agent Brain metadata-debt, cleanup-attention, artwork-attention, and recent-change knowledge.",
+            "Adds bounded needs-metadata and recent-change read actions for Agent Chat and Cloud projections.",
+            "All writes remain governed through universal HomeServer Agent actions; Cloud remains read/orchestration only."
         ],
         "category": "Media",
         "kind": "media_library",
@@ -329,6 +329,8 @@ CATALOG = {
             {"key":"library.artwork.generate","risk":"consequential","requires_confirmation":True,"input_schema":{"type":"object","properties":{"target_type":{"type":"string","enum":["media","collection"]},"target_id":{"type":"string","minLength":1,"maxLength":100},"role":{"type":"string","enum":["thumbnail","poster","album_art","cover","contact_sheet"]},"source_media_ids":{"type":"array","items":{"type":"string","minLength":1,"maxLength":100},"maxItems":16},"preset":{"type":"string","maxLength":40}},"required":["target_type","target_id","role"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.artwork","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"target_type":{"type":"string","enum":["media","collection"]},"target_id":{"type":"string","minLength":1,"maxLength":100}},"required":["target_type","target_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.artwork.remove","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"target_type":{"type":"string","enum":["media","collection"]},"target_id":{"type":"string","minLength":1,"maxLength":100},"role":{"type":"string","enum":["thumbnail","poster","album_art","cover","contact_sheet"]}},"required":["target_type","target_id","role"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.needs-metadata","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.recent-changes","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}}
         ],
     },
