@@ -118,6 +118,7 @@ function ensureStorageWorkspace() {
       </form>
       <div class="storage-grid">
         <section class="panel"><div class="panel-head"><div><p class="eyebrow">BY CATEGORY</p><h3>HomeServer data</h3></div></div><div id="storageCategories" class="storage-list"></div></section>
+        <section class="panel"><div class="panel-head"><div><p class="eyebrow">WORKLOAD DOMAINS</p><h3>What is using storage</h3></div></div><div id="storageDomains" class="storage-list"></div></section>
         <section class="panel"><div class="panel-head"><div><p class="eyebrow">APP QUOTAS</p><h3>Installed apps</h3></div></div><div id="storageApps" class="storage-list"></div></section>
       </div>
       <section class="panel storage-recommendations"><div class="panel-head"><div><p class="eyebrow">MAINTENANCE</p><h3>Recommendations</h3></div><button class="button secondary" id="storagePruneBackups" type="button">Prune backups by retention</button></div><div id="storageRecommendations" class="storage-list"></div></section>`;
@@ -378,6 +379,16 @@ async function loadStorage() {
   $('storageCategories').innerHTML=Object.entries(categories).map(([key,value]) =>
     '<div class="storage-row"><span>'+esc(labels[key]||key)+'</span><strong>'+esc(formatBytes(value))+'</strong></div>'
   ).join('');
+  const domains=status.domains||{};
+  const domainLabels={downloads:'Downloads',media_derivatives:'Media derivatives',other_app_data:'Other app data',backups:'Backups',runtime_state:'Runtime state',member_owned:'Member-owned data'};
+  $('storageDomains').innerHTML=Object.entries(domains).map(([key,value]) => {
+    const physical=value?.physical_bytes;
+    const logical=value?.logical_bytes_estimate;
+    const detail=physical===null||physical===undefined
+      ? (esc(formatBytes(logical||0))+' logical · '+Number(value?.member_count||0)+' users')
+      : esc(formatBytes(physical));
+    return '<div class="storage-row"><span>'+esc(domainLabels[key]||key)+'</span><strong>'+detail+'</strong></div>';
+  }).join('');
   const apps=status.apps?.items||[];
   $('storageApps').innerHTML=apps.length ? apps.map(app =>
     '<div class="storage-app"><div><strong>'+esc(app.name)+'</strong><small>'+esc(app.app_key)+'</small></div><div><span>'+esc(formatBytes(app.used_bytes))+' / '+esc(formatBytes(app.limit_bytes))+'</span><strong>'+Number(app.usage_percent||0).toFixed(1)+'%</strong></div></div>'
