@@ -1,4 +1,4 @@
-const state = { view: 'dashboard', apps: [] };
+const state = { view: 'dashboard', apps: [], activityCategory: '', activityAttention: false, activityUnreadOnly: false };
 const $ = (id) => document.getElementById(id);
 const esc = (value = '') => String(value).replace(/[&<>'\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','\"':'&quot;'}[c]));
 const fmt = (value) => value ? new Date(value).toLocaleString() : 'Never';
@@ -219,8 +219,42 @@ async function loadApps() {
 }
 
 async function loadActivity() {
-  const data = await api('/api/v1/control/activity?limit=200');
-  $('activityTable').innerHTML = data.items.length ? data.items.map(item => `<tr><td>${esc(fmt(item.created_at))}</td><td>${esc(item.actor_type)}${item.actor_key ? ` · ${esc(item.actor_key)}` : ''}</td><td>${esc(item.action)}</td><td>${esc([item.resource_type, item.resource_key].filter(Boolean).join(' · '))}</td></tr>`).join('') : '<tr><td colspan="4">No activity yet.</td></tr>';
+  const query = new URLSearchParams({limit:'250'});
+  if (state.activityCategory) query.set('category', state.activityCategory);
+  if (state.activityAttention) query.set('needs_attention','true');
+  if (state.activityUnreadOnly) query.set('unread_only','true');
+  await api('/api/v1/control/activity-center/sync',{method:'POST'});
+  const [data, summary] = await Promise.all([
+    api('/api/v1/control/activity?' + query.toString()),
+    api('/api/v1/control/activity-center/summary')
+  ]);
+  if ($('activityUnread')) $('activityUnread').textContent = summary.unread ?? 0;
+  if ($('activityAttention')) $('activityAttention').textContent = summary.needs_attention ?? 0;
+  if ($('activityApprovals')) $('activityApprovals').textContent = summary.pending_approvals ?? 0;
+  if ($('activityFailures')) $('activityFailures').textContent = Number(summary.failed_automations || 0) + Number(summary.failed_agent_runs || 0);
+  const feed=$('activityFeed');
+  if (!feed) return;
+  feed.innerHTML = data.items.length ? data.items.map(item => {
+    const notificationActions = item.notification_id ? `
+      <button class="text-button" data-activity-read="${item.notification_id}" data-read-value="${item.read ? 'false' : 'true'}">${item.read ? 'Mark unread' : 'Mark read'}</button>
+      <button class="text-button" data-activity-dismiss="${item.notification_id}">Dismiss</button>` : '';
+    const approvalAction = item.action_payload?.type === 'approval' ? '<button class="button secondary" data-go="approvals">Open approval</button>' : '';
+    const resource=[item.resource_type,item.resource_key].filter(Boolean).join(' · ');
+    return `<article class="panel activity-card level-${esc(item.level)} ${item.read ? '' : 'unread'}">
+      <span class="activity-card-marker" aria-hidden="true"></span>
+      <div class="activity-card-main">
+        <div class="activity-card-head"><h3>${esc(item.title)}</h3><span class="activity-badge">${esc(item.category)}</span><span class="activity-badge">${esc(item.level)}</span></div>
+        ${item.body ? `<p>${esc(item.body)}</p>` : ''}
+        <div class="activity-meta"><span>${esc(fmt(item.created_at))}</span><span>${esc(item.source_key || item.actor_key || item.source_kind)}</span>${resource ? `<span>${esc(resource)}</span>` : ''}</div>
+      </div>
+      <div class="activity-card-actions">${approvalAction}${notificationActions}</div>
+    </article>`;
+  }).join('') : '<div class="panel empty-state">No activity matches these filters.</div>';
+  document.querySelectorAll('[data-activity-filter],[data-activity-attention]').forEach(button => {
+    const selected = button.hasAttribute('data-activity-attention') ? state.activityAttention : (!state.activityAttention && button.dataset.activityFilter === state.activityCategory);
+    button.classList.toggle('active', selected);
+  });
+  if ($('activityUnreadOnly')) $('activityUnreadOnly').checked=state.activityUnreadOnly;
 }
 
 function restoreStatusMarkup(data) {
@@ -272,6 +306,33 @@ async function loadView(name) {
 document.addEventListener('click', async (event) => {
   const nav = event.target.closest('[data-view]'); if (nav) openView(nav.dataset.view);
   const go = event.target.closest('[data-go]'); if (go) openView(go.dataset.go);
+  const activityFilter=event.target.closest('[data-activity-filter]');
+  if (activityFilter) {
+    state.activityCategory=activityFilter.dataset.activityFilter || '';
+    state.activityAttention=false;
+    loadActivity().catch(error=>flash(error.message,true));
+  }
+  const activityAttention=event.target.closest('[data-activity-attention]');
+  if (activityAttention) {
+    state.activityAttention=true;
+    state.activityCategory='';
+    loadActivity().catch(error=>flash(error.message,true));
+  }
+  if (event.target.id==='activityRefresh') loadActivity().catch(error=>flash(error.message,true));
+  const activityRead=event.target.closest('[data-activity-read]');
+  if (activityRead) {
+    await api('/api/v1/control/activity-center/notifications/'+encodeURIComponent(activityRead.dataset.activityRead),{
+      method:'PATCH',body:JSON.stringify({read:activityRead.dataset.readValue==='true'})
+    });
+    await loadActivity();
+  }
+  const activityDismiss=event.target.closest('[data-activity-dismiss]');
+  if (activityDismiss) {
+    await api('/api/v1/control/activity-center/notifications/'+encodeURIComponent(activityDismiss.dataset.activityDismiss),{
+      method:'PATCH',body:JSON.stringify({dismissed:true})
+    });
+    await loadActivity();
+  }
   if (event.target.id === 'showKnowledgeForm') $('knowledgeForm').classList.remove('hidden');
   if (event.target.id === 'cancelKnowledge') $('knowledgeForm').classList.add('hidden');
   if (event.target.id === 'showMemoryForm') $('memoryForm').classList.remove('hidden');
@@ -311,6 +372,11 @@ document.addEventListener('click', async (event) => {
 });
 
 document.addEventListener('change', async (event) => {
+  if (event.target.id === 'activityUnreadOnly') {
+    state.activityUnreadOnly=Boolean(event.target.checked);
+    await loadActivity();
+    return;
+  }
   if (event.target.id === 'knowledgeFiles') { await importKnowledgeFiles(); return; }
   if (event.target.id === 'restoreBackupFile') {
     const file = event.target.files?.[0];
