@@ -84,7 +84,7 @@ class MediaMappedRootRequest(BaseModel):
 class MediaProcessRequest(BaseModel):
     operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
     preset:str=Field(default="default",max_length=80)
-    output_format:str=Field(default="",max_length=20)
+    output_format:str=Field(default="",pattern="^(|jpg|jpeg|png|webp|mp4|mp3)$")
     priority:int=Field(default=0,ge=-100,le=100)
 
 
