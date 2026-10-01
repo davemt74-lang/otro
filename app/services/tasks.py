@@ -426,6 +426,14 @@ class TaskScheduler:
                 except Exception:
                     # Scheduler survives a failed probe; the next cycle retries.
                     pass
+            # The same scheduler enforces recording retention even if nobody
+            # opens the Health page; no new thread or unattended capture.
+            if cycle % 240 == 0 and not self._stop.is_set():
+                try:
+                    from . import governed_recordings
+                    governed_recordings.list_recordings(limit=1)
+                except Exception:
+                    pass
             self._stop.wait(self.interval_seconds)
 
 
