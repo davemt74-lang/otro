@@ -7,7 +7,7 @@ on:
       - 'installer/HomeServer.iss'
       - 'tests/installer_contract.py'
       - 'app/services/homeserver_media_tools.py'
-      - 'app/services/homeserver_media_processor.py'
+      - '.github/workflows/ci.yml'
       - '.github/workflows/homeserver-managed-ffmpeg.yml'
   push:
     branches: [main]
