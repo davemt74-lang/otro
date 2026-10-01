@@ -81,6 +81,50 @@ function ensureBackupWorkspace() {
   }
 }
 
+function ensureStorageWorkspace() {
+  if ($('view-storage')) return;
+  if (!document.querySelector('link[href="/assets/storage.css"]')) {
+    const stylesheet=document.createElement('link');
+    stylesheet.rel='stylesheet';
+    stylesheet.href='/assets/storage.css';
+    document.head.append(stylesheet);
+  }
+  const backupsNav=document.querySelector('.nav-item[data-view="backups"]');
+  if (backupsNav && !document.querySelector('.nav-item[data-view="storage"]')) {
+    const button=document.createElement('button');
+    button.className='nav-item';
+    button.dataset.view='storage';
+    button.textContent='Storage';
+    backupsNav.parentNode.insertBefore(button,backupsNav.nextSibling);
+  }
+  const backupsView=$('view-backups');
+  if (backupsView) {
+    const section=document.createElement('section');
+    section.className='view';
+    section.id='view-storage';
+    section.innerHTML=`
+      <div class="section-intro split">
+        <div><h2>Storage</h2><p>See HomeServer disk health, app quotas, and safe maintenance recommendations without exposing local filesystem paths.</p></div>
+        <button class="button secondary" id="storageRefreshButton" type="button">Refresh</button>
+      </div>
+      <div id="storageHealth"></div>
+      <form id="storagePolicyForm" class="panel storage-policy">
+        <div><p class="eyebrow">LOW-SPACE POLICY</p><h3>Reserve & thresholds</h3></div>
+        <label>Minimum free GB<input id="storageMinimumFreeGb" type="number" min=".25" max="1024" step=".25"></label>
+        <label>Warning %<input id="storageWarningPercent" type="number" min="1" max="50" step=".5"></label>
+        <label>Critical %<input id="storageCriticalPercent" type="number" min=".5" max="25" step=".5"></label>
+        <label class="storage-check"><input id="storageAllowBackupPrune" type="checkbox"> Allow owner backup prune</label>
+        <button class="button secondary" type="submit">Save policy</button>
+      </form>
+      <div class="storage-grid">
+        <section class="panel"><div class="panel-head"><div><p class="eyebrow">BY CATEGORY</p><h3>HomeServer data</h3></div></div><div id="storageCategories" class="storage-list"></div></section>
+        <section class="panel"><div class="panel-head"><div><p class="eyebrow">APP QUOTAS</p><h3>Installed apps</h3></div></div><div id="storageApps" class="storage-list"></div></section>
+      </div>
+      <section class="panel storage-recommendations"><div class="panel-head"><div><p class="eyebrow">MAINTENANCE</p><h3>Recommendations</h3></div><button class="button secondary" id="storagePruneBackups" type="button">Prune backups by retention</button></div><div id="storageRecommendations" class="storage-list"></div></section>`;
+    backupsView.parentNode.insertBefore(section,backupsView.nextSibling);
+  }
+}
+
 function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
@@ -313,6 +357,38 @@ async function loadBackups() {
   }).join('') : '<div class="panel empty-state">No backups yet. Create one before major changes or moving HomeServer to another machine.</div>';
 }
 
+async function loadStorage() {
+  ensureBackupWorkspace();
+  ensureStorageWorkspace();
+  const [status,plan]=await Promise.all([
+    api('/api/v1/control/storage'),
+    api('/api/v1/control/storage/maintenance')
+  ]);
+  const disk=status.disk||{};
+  if ($('storageHealth')) $('storageHealth').innerHTML=
+    '<div class="panel storage-health level-'+esc(disk.level||'healthy')+'"><div><p class="eyebrow">DISK HEALTH</p><h3>'+esc((disk.level||'healthy').toUpperCase())+'</h3></div>'+
+    '<div class="storage-health-grid"><span><strong>'+esc(formatBytes(disk.free_bytes))+'</strong> free</span><span><strong>'+esc(String(disk.free_percent??0))+'%</strong> free</span><span><strong>'+esc(formatBytes(disk.used_bytes))+'</strong> used</span><span><strong>'+esc(formatBytes(disk.total_bytes))+'</strong> total</span></div></div>';
+  const p=status.policy||{};
+  if ($('storageMinimumFreeGb')) $('storageMinimumFreeGb').value=((Number(p.minimum_free_bytes||0))/(1024**3)).toFixed(2);
+  if ($('storageWarningPercent')) $('storageWarningPercent').value=p.warning_free_percent ?? 15;
+  if ($('storageCriticalPercent')) $('storageCriticalPercent').value=p.critical_free_percent ?? 7.5;
+  if ($('storageAllowBackupPrune')) $('storageAllowBackupPrune').checked=Boolean(p.allow_owner_backup_prune);
+  const labels={database:'Database',knowledge:'Knowledge',app_data:'App data',backups:'Backups',restore:'Restore staging',runtime:'Runtime',security:'Security',app_recovery:'App recovery',other:'Other'};
+  const categories=status.categories||{};
+  $('storageCategories').innerHTML=Object.entries(categories).map(([key,value]) =>
+    '<div class="storage-row"><span>'+esc(labels[key]||key)+'</span><strong>'+esc(formatBytes(value))+'</strong></div>'
+  ).join('');
+  const apps=status.apps?.items||[];
+  $('storageApps').innerHTML=apps.length ? apps.map(app =>
+    '<div class="storage-app"><div><strong>'+esc(app.name)+'</strong><small>'+esc(app.app_key)+'</small></div><div><span>'+esc(formatBytes(app.used_bytes))+' / '+esc(formatBytes(app.limit_bytes))+'</span><strong>'+Number(app.usage_percent||0).toFixed(1)+'%</strong></div></div>'
+  ).join('') : '<div class="empty-state">No installed app storage to report.</div>';
+  const recs=plan.recommendations||[];
+  $('storageRecommendations').innerHTML=recs.length ? recs.map(item =>
+    '<article class="storage-rec level-'+esc(item.level)+'"><div><strong>'+esc(item.title)+'</strong><p>'+esc(item.body)+'</p></div><span class="tag">'+esc(item.level)+'</span></article>'
+  ).join('') : '<div class="empty-state">No storage maintenance is currently recommended.</div>';
+  $('storagePruneBackups').disabled=!Boolean(p.allow_owner_backup_prune);
+}
+
 async function loadView(name) {
   if (name === 'dashboard') return loadOverview();
   if (name === 'agent') return loadAgent();
@@ -324,6 +400,7 @@ async function loadView(name) {
   if (name === 'tracky' && typeof window.loadTrackyOverview === 'function') return window.loadTrackyOverview();
   if (name === 'apps') return loadApps();
   if (name === 'backups') return loadBackups();
+  if (name === 'storage') return loadStorage();
   if (name === 'federation' && typeof window.loadFederationControlCenter === 'function') return window.loadFederationControlCenter();
   if (name === 'physical-world' && typeof window.loadPhysicalWorldDashboard === 'function') return window.loadPhysicalWorldDashboard();
   if (name === 'activity') return loadActivity();
@@ -366,6 +443,16 @@ document.addEventListener('click', async (event) => {
   if (event.target.id === 'cancelMemory') $('memoryForm').classList.add('hidden');
   if (event.target.id === 'importKnowledgeFiles') $('knowledgeFiles')?.click();
   if (event.target.id === 'stageRestoreButton') $('restoreBackupFile')?.click();
+  if (event.target.id === 'storageRefreshButton') loadStorage().catch(err=>flash(err.message,true));
+  if (event.target.id === 'storagePruneBackups') {
+    if (confirm('Apply the existing backup retention policy now? Only archives already outside retention will be removed.')) {
+      try {
+        const result=await api('/api/v1/control/storage/maintenance/prune-backups',{method:'POST'});
+        await loadStorage();
+        flash(result.deleted_count ? `Pruned ${result.deleted_count} backup archive${result.deleted_count===1?'':'s'}.` : 'No backup archives were outside retention.');
+      } catch(err) { flash(err.message,true); }
+    }
+  }
   if (event.target.id === 'createBackupButton') {
     const button = event.target;
     button.disabled = true;
@@ -425,6 +512,26 @@ document.addEventListener('change', async (event) => {
 });
 
 document.addEventListener('submit', async (event) => {
+  if (event.target.id === 'storagePolicyForm') {
+    event.preventDefault();
+    try {
+      await api('/api/v1/control/storage/policy',{
+        method:'PUT',
+        body:JSON.stringify({
+          minimum_free_bytes:Math.round(Number($('storageMinimumFreeGb').value)*(1024**3)),
+          warning_free_percent:Number($('storageWarningPercent').value),
+          critical_free_percent:Number($('storageCriticalPercent').value),
+          allow_owner_backup_prune:Boolean($('storageAllowBackupPrune').checked)
+        })
+      });
+      await loadStorage();
+      flash('Storage policy updated.');
+    } catch(err) { flash(err.message,true); }
+    return;
+  }
+});
+
+document.addEventListener('submit', async (event) => {
   if (event.target.id !== 'backupPolicyForm') return;
   event.preventDefault();
   try {
@@ -450,7 +557,8 @@ $('knowledgeSearch').addEventListener('input', () => { clearTimeout(state.search
 $('refreshButton').addEventListener('click', () => loadView(state.view).then(() => flash('HomeServer refreshed.')).catch(err => flash(err.message, true)));
 
 ensureBackupWorkspace();
-const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','ambient','automation','federation','physical-world','activity'];
+ensureStorageWorkspace();
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','storage','ambient','automation','federation','physical-world','activity'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();
