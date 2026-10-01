@@ -70,10 +70,19 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-library-cleanup-v352-"
             })
             assert update.status_code==200,update.text
 
-        result=client.get("/api/v1/control/homeserver-apps/media-library/duplicates",params={"limit":100})
+        before=client.get("/api/v1/control/homeserver-apps/media-library/cleanup/status")
+        assert before.status_code==200,before.text
+        assert before.json()["scan_required"] is True
+        cheap=client.get("/api/v1/control/homeserver-apps/media-library/duplicates",params={"limit":100})
+        assert cheap.status_code==200,cheap.text
+        assert cheap.json()["count"]==0
+        assert cheap.json()["scan_required"] is True
+
+        result=client.post("/api/v1/control/homeserver-apps/media-library/duplicates/scan",params={"limit":100})
         assert result.status_code==200,result.text
         body=result.json()
         assert body["items_scanned"]==6
+        assert body["snapshot_persisted"] is True
         assert body["source_files_modified"] is False
         assert body["source_files_deleted"] is False
         assert body["filesystem_paths_exposed"] is False
@@ -96,9 +105,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-library-cleanup-v352-"
         assert any({ids["Road Trip.jpg"],ids["Road Trip (1).jpg"]}.issubset(set(g["media_ids"])) for g in near_candidates)
         assert all(g["content_hash_verified"] is False for g in near_candidates)
 
-        # A second scan must use the fingerprint cache rather than changing evidence.
+        # Reads now use the persisted scan snapshot and do not hash source files again.
         second=client.get("/api/v1/control/homeserver-apps/media-library/duplicates",params={"kind":"exact","limit":100})
         assert second.status_code==200,second.text
+        assert second.json()["snapshot_persisted"] is True
         exact2=next(g for g in second.json()["groups"] if g["group_key"]==exact["group_key"])
         assert exact2["sha256"]==exact["sha256"]
 
@@ -128,7 +138,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-library-cleanup-v352-"
         assert cleanup.json()["automatic_source_deletion"] is False
 
         actions={row["key"]:row for row in homeserver_app_control.manifest("vp3.media-library")["actions"]}
+        assert actions["library.duplicates.scan"]["risk"]=="background"
         assert actions["library.duplicates"]["risk"]=="read"
+        assert "refresh" not in actions["library.duplicates"]["input_schema"]["properties"]
         assert actions["library.duplicate.review"]["risk"]=="write"
         assert actions["library.cleanup.status"]["risk"]=="read"
 
@@ -144,6 +156,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-library-cleanup-v352-"
         assert cap["near_duplicate_candidates"] is True
         assert cap["metadata_conflict_detection"] is True
         assert cap["duplicate_review_workflow"] is True
+        assert cap["persisted_duplicate_snapshot"] is True
+        assert cap["explicit_duplicate_scan"] is True
         assert cap["automatic_source_deletion"] is False
 
         for path in source.iterdir():
