@@ -1381,6 +1381,65 @@ def brain_context(limit:int=8)->dict[str,Any]:
     }
 
 
+def agent_brief(limit:int=8)->dict[str,Any]:
+    bounded=max(1,min(int(limit),20))
+    context=brain_context(bounded)
+    state=context["summary"]
+    suggestions=[]
+    if int(state.get("metadata_debt_sample_count") or 0)>0:
+        suggestions.append({
+            "type":"metadata_enrichment",
+            "reason":"media items are missing descriptive metadata",
+            "count":int(state["metadata_debt_sample_count"]),
+            "read_action":"library.needs-metadata",
+            "write_action":"library.item.update",
+            "requires_confirmation":False,
+        })
+    if int(state.get("cleanup_needs_review") or 0)>0:
+        suggestions.append({
+            "type":"duplicate_review",
+            "reason":"duplicate groups are waiting for a review decision",
+            "count":int(state["cleanup_needs_review"]),
+            "read_action":"library.duplicates",
+            "write_action":"library.duplicate.review",
+            "requires_confirmation":False,
+        })
+    if int(state.get("artwork_attention") or 0)>0:
+        suggestions.append({
+            "type":"artwork_followup",
+            "reason":"artwork assignments are pending, processing, or failed",
+            "count":int(state["artwork_attention"]),
+            "read_action":"library.artwork",
+            "write_action":"library.artwork.generate",
+            "requires_confirmation":True,
+        })
+    if not suggestions and int(state.get("metadata_items") or 0)>0:
+        suggestions.append({
+            "type":"library_healthy",
+            "reason":"no immediate metadata, cleanup, or artwork attention is required",
+            "count":0,
+            "read_action":"library.brain-context",
+            "write_action":"",
+            "requires_confirmation":False,
+        })
+    return {
+        "contract":"vp3.media-library.agent-brief.v1",
+        "summary":state,
+        "attention":context["attention"],
+        "suggested_next_steps":suggestions,
+        "recent_changes":context["recent_changes"][:bounded],
+        "recent_media":context["recent"][:bounded],
+        "governance":{
+            "homeserver_execution_authority":True,
+            "universal_agent_control":True,
+            "consequential_actions_require_confirmation":True,
+            "automatic_source_deletion":False,
+        },
+        "source_files_modified":False,
+        "filesystem_paths_exposed":False,
+    }
+
+
 def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
     args=dict(arguments or {})
     key=str(action or "").strip()
@@ -1462,6 +1521,8 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
         return needs_metadata(int(args.get("limit",100)))
     if key=="library.recent-changes":
         return recent_changes(int(args.get("limit",20)))
+    if key=="library.agent-brief":
+        return agent_brief(int(args.get("limit",8)))
     if key=="library.brain-context":
         return brain_context(int(args.get("limit",8)))
     raise MediaLibraryError("Unsupported Media Library action.",404)
@@ -1503,6 +1564,8 @@ def public_capability()->dict[str,Any]:
         "agent_recent_changes":True,
         "agent_cleanup_attention":True,
         "agent_artwork_attention":True,
+        "agent_media_brief":True,
+        "governed_next_steps":True,
         "universal_agent_control":True,
         "homeserver_execution_authority":True,
     }
