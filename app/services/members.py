@@ -228,13 +228,14 @@ def _failed_login(row)->None:
 
 
 def authenticate(username:str,password:str)->dict[str,Any]:
-    key=_username(username)
-    with db() as connection:
-        row=connection.execute("SELECT * FROM homeserver_members WHERE username=?",(key,)).fetchone()
-    if row is None:
+    key=str(username or "").strip().lower()
+    if not _USERNAME.fullmatch(key):
         raise MemberError("Invalid member credentials.",401)
-    if str(row["status"])!="active":
-        raise MemberError("Member account is disabled.",403)
+    with db() as connection:
+        connection.execute("DELETE FROM homeserver_member_sessions WHERE expires_at<=?",(_iso(_now()),))
+        row=connection.execute("SELECT * FROM homeserver_members WHERE username=?",(key,)).fetchone()
+    if row is None or str(row["status"])!="active":
+        raise MemberError("Invalid member credentials.",401)
     locked=_parse(row["locked_until"])
     if locked and locked>_now():
         raise MemberError("Member account is temporarily locked.",429)
@@ -280,6 +281,7 @@ def session_identity(token:str|None)->dict[str,Any]:
     hashed=_session_hash(token)
     now=_iso(_now())
     with db() as connection:
+        connection.execute("DELETE FROM homeserver_member_sessions WHERE expires_at<=?",(now,))
         row=connection.execute(
             """SELECT s.session_hash,s.member_id,s.expires_at,m.username,m.display_name,m.role,m.status
                FROM homeserver_member_sessions s
@@ -479,6 +481,7 @@ def public_capability()->dict[str,Any]:
         "contract":CONTRACT,
         "implicit_owner_principal":True,
         "member_roles":["admin","member","guest"],
+        "member_admin_is_not_owner":True,
         "hashed_credentials":True,
         "scrypt":True,
         "hashed_sessions":True,
@@ -488,4 +491,5 @@ def public_capability()->dict[str,Any]:
         "private_member_context":True,
         "member_agent_context_isolation":True,
         "owner_control_inherited_by_members":False,
+        "owner_bootstrap_and_session_unchanged":True,
     }
