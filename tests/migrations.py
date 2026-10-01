@@ -303,6 +303,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             "SELECT include_app_data,retain_manual,retain_automatic,retain_pre_restore FROM backup_policy WHERE singleton_id=1"
         ).fetchone()
         assert tuple(backup_policy_row)==(1,10,7,3)
+        backup_policy_columns={row["name"] for row in migrated.execute("PRAGMA table_info(backup_policy)").fetchall()}
+        assert {"singleton_id","include_app_data","retain_manual","retain_automatic","retain_pre_restore","updated_at"}.issubset(backup_policy_columns)
+        backup_policy=migrated.execute(
+            "SELECT include_app_data,retain_manual,retain_automatic,retain_pre_restore FROM backup_policy WHERE singleton_id=1"
+        ).fetchone()
+        assert backup_policy is not None
+        assert tuple(backup_policy)==(1,10,7,3)
         member_columns={row["name"] for row in migrated.execute("PRAGMA table_info(homeserver_members)").fetchall()}
         assert {"member_id","username","display_name","role","status","password_salt","password_hash","failed_attempts","locked_until"}.issubset(member_columns)
         for table_name in (
