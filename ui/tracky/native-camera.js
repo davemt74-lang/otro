@@ -27,7 +27,7 @@ async function refresh(){
   label(current.running?'Native camera test running':ready?'Native detector installed · not certified':'Local detector unavailable');
   if(!running){
     if(!ready)say('Runtime or model missing. Install the signed HomeServer upgrade, then rerun diagnosis.');
-    else if(current.last_test?.status==='native_detector_completed')
+    else if(current.last_test_status==='native_detector_completed')
       say('Previous local test completed; on-device owner review is still required for hardware certification.');
     else say(recovery
       ? 'Diagnosis: '+recovery+'. The Agent can explain safe repair steps; camera testing still requires your approval.'
@@ -85,10 +85,10 @@ async function checkPrivacy(){
   button.disabled=true;
   try{
     const review=await call('privacy-review',{consent:true});
+    await refresh();
     if(review.privacy_check==='reported_software_gate_engaged')
       say('HomeServer reports its camera software gate engaged by the privacy switch. No camera was opened; physical camera disconnect and installed-device certification remain unverified.');
     else say(review.instruction||'Privacy switch not verified. Engage it, then retry this read-only check.');
-    await refresh();
   }catch(error){say('Privacy review unavailable: '+String(error.message));}
   finally{button.disabled=false;}
 }

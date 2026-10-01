@@ -6,6 +6,8 @@ const diagnosis=fs.readFileSync('app/services/tracky_native_diagnosis.py','utf8'
 const repair=fs.readFileSync('app/services/health_repair.py','utf8');
 const runtime=fs.readFileSync('app/services/tracky_native_camera.py','utf8');
 assert.match(js,/call\('diagnose'\)/);
+assert.match(js,/current\.last_test_status/,'live diagnostic state must survive a page reload');
+assert.match(js,/call\('privacy-review'/,'separate read-only privacy challenge');
 assert.match(js,/window\.confirm\(/);
 assert.match(js,/onboardNativeConsent/);
 assert.doesNotMatch(js,/getUserMedia|setInterval\(\s*.*test\(/);

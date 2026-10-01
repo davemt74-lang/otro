@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-diagnosis-v1c-") as root:
     from app.security import OWNER_CONTROL_TOKEN
     from app.services import (
         tracky_native_diagnosis as diag, tracky_native_camera as native,
-        vp3_os, health_repair
+        vp3_os, health_repair, federated_data
     )
     from app.services.tasks import scheduler
 
@@ -119,6 +119,17 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-diagnosis-v1c-") as root:
         fakecv.CAP_PROP_FRAME_HEIGHT=4
         fakecv.COLOR_BGR2GRAY=6
         fakecv.cvtColor=lambda frame,flag:object()
+        # The existing Tracky provider never observes while canonical
+        # HomeServer/Cloud reconciliation remains pending. Seed the same
+        # legitimate baseline used by native v1 acceptance, not a bypass.
+        datasets={key:[] for key in federated_data.DATASETS}
+        reconciled=federated_data.reconcile_snapshot({
+            "version":"2.2","federation_version":"2.4",
+            "authoritative_source":"vp3_cloud","snapshot_mode":"full",
+            "covered_datasets":list(datasets),"revision":"tracky-native-diagnosis-fixture",
+            "datasets":datasets
+        },observed_source="homeserver",trigger_reason="tracky-native-diagnosis-fixture")
+        assert reconciled["status"]=="completed"
         with patch.dict(sys.modules,{"cv2":fakecv}):
             completed=client.post(base+"test",headers=headers,json={
                 "consent":True,"scope":native.SCOPE,"camera_index":0
