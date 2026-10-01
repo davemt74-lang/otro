@@ -212,7 +212,7 @@ def capability()->dict[str,Any]:
     return {"contract":CONTRACT,"ffmpeg_available":available,"ffprobe_available":bool(tools["ffprobe_available"]),
       "ffmpeg_managed_by_homeserver":True,"ffmpeg_version":tools["ffmpeg_version"],
       "video_transcode":available,"audio_convert":available,"image_convert":available,
-      "thumbnail_generation":available,"proxy_generation":available,
+      "thumbnail_generation":available,"proxy_generation":available,"contact_sheet_generation":available,
       "source_media_owned":False,"source_media_deleted":False,"homeserver_execution_authority":True,
       "private_hosted_access_key":True,
       "resource_limits":True,"atomic_derivatives":True,"restart_recovery":True,
