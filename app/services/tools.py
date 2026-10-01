@@ -1521,6 +1521,7 @@ def _storage_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str
                 for item in status["apps"]["items"][:25]
             ],
         },
+        "domains":status["domains"],
         "recommendation_count":status["recommendation_count"],
         "policy":status["policy"],
         "automatic_deletion":False,
