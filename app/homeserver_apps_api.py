@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_center, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -351,7 +351,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"agent_runtime":homeserver_app_agent_runtime.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_player":homeserver_media_player.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"app_center":homeserver_app_center.public_capability(),"control":homeserver_app_control.public_capability(),"agent_runtime":homeserver_app_agent_runtime.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_player":homeserver_media_player.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/agent-runtime/capability")
@@ -402,6 +402,30 @@ def app_agent_runtime_runs(app_key:str,limit:int=Query(default=50,ge=1,le=200))-
 @router.get("/platform")
 def app_platform_capability()->dict:
     return homeserver_app_platform.capability()
+
+
+@router.get("/app-center")
+def app_center_catalog(
+    q:str=Query(default="",max_length=160),
+    category:str=Query(default="",max_length=120),
+    view:str=Query(default="all",max_length=40),
+)->dict:
+    return _call(homeserver_app_center.catalog,q,category,view)
+
+
+@router.get("/app-center/update-plan")
+def app_center_update_plan()->dict:
+    return _call(homeserver_app_center.update_plan)
+
+
+@router.get("/app-center/brain-context")
+def app_center_brain_context(limit:int=Query(default=20,ge=1,le=50))->dict:
+    return _call(homeserver_app_center.brain_context,limit)
+
+
+@router.get("/app-center/{app_key}")
+def app_center_item(app_key:str)->dict:
+    return {"app":_call(homeserver_app_center.item,app_key)}
 
 
 @router.get("/manager")
