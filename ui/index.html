@@ -175,6 +175,22 @@
     <p id="onboardVoicePackages" class="onboard-package-state" aria-live="polite">Checking installed packages…</p>
     <div class="onboard-actions"><button type="button" id="onboardInstallVoice" class="onboard-button">Prepare local voice →</button></div>
   </div>
+  <div class="onboard-step" id="onboardVisual">
+    <div class="onboard-step-head"><span>03 · OPTIONAL VISUAL IDENTITY</span><strong id="onboardVisualState">Checking local Tracky…</strong></div>
+    <p class="onboard-agent-line">I can help enroll your own visual profile inside this HomeServer Agent Chat. After you explicitly agree and approve browser camera access, Tracky automatically captures three distinct, quality-checked face angles. No other person is enrolled or made into a contact here.</p>
+    <p class="onboard-agent-line">Face descriptors and portrait stay in this browser's local Tracky participant store. The face model loads from a pinned HTTPS provider when needed; fully offline packaging and live HomeServer perception certification are separate checks.</p>
+    <label class="onboard-visual-consent"><input id="onboardVisualConsent" type="checkbox"><span>I consent to local enrollment and recognition of my own face in this browser. I can stop and delete it later.</span></label>
+    <div class="onboard-actions">
+      <button id="onboardVisualStart" class="onboard-button" type="button">Create my visual profile →</button>
+      <button id="onboardVisualStop" class="onboard-minor" type="button" hidden>Stop capture</button>
+      <button id="onboardVisualDelete" class="onboard-minor" type="button" hidden>Delete local visual profile</button>
+    </div>
+    <p class="onboard-package-state" id="onboardVisualDetails" role="status" aria-live="polite">Optional · no camera or recognition started.</p>
+    <div id="onboardVisualCapture" class="onboard-visual-capture" hidden>
+      <video id="onboardVisualVideo" playsinline muted autoplay aria-label="Local visual enrollment camera preview"></video>
+      <div id="onboardVisualProgress" role="status" aria-live="polite">Preparing local enrollment…</div>
+    </div>
+  </div>
   <div class="onboard-agent-message end"><span class="onboard-orb" aria-hidden="true">✦</span><div class="onboard-agent-content">
     <span class="onboard-name">YOUR AGENT</span><p>That's all we need to get started. Cloud and voice are optional; you can finish them later by opening Setup in Chat.</p>
     <div class="onboard-actions"><button id="onboardFinish" type="button" class="onboard-button">Finish setup & start chatting →</button><button id="onboardLater" type="button" class="onboard-minor">Close for now</button></div>
@@ -733,6 +749,7 @@
   <script src="/assets/voice-catalog.js" defer></script>
   <script src="/assets/chat-enhancements.js" defer></script>
 <script src="/assets/chat-onboarding.js" defer></script>
+  <script type="module" src="/assets/tracky/owner-visual.js"></script>
   <script src="/assets/chat-dictation.js" defer></script>
   <script src="/assets/transcription-workspace.js" defer></script>
   <script src="/assets/tools.js" defer></script>

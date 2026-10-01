@@ -35,6 +35,7 @@
   function render(){
     if(!snapshot)return;
     const cloud=snapshot.cloud||{}, code=snapshot.pairing||{}, voice=snapshot.provision||{};
+    window.HomeServerVisualEnrollment?.render(snapshot.visual||{});
     const paired=Boolean(cloud.paired), online=Boolean(cloud.connected);
     el('onboardCloudState').textContent=online?'Connected ✓':paired?'Paired · establishing connection':code.state==='pending'?'Waiting for Cloud':'Not connected';
     el('onboardCloud').dataset.complete=paired?'true':'false';
@@ -82,6 +83,7 @@
   }
   function hide(){
     visible=false;canvas.hidden=true;
+    window.dispatchEvent(new Event('homeserver:onboarding-hidden'));
     const t=el('chatOnboardingToggle');if(t)t.textContent='Setup';
     el('chatInput')?.focus();
   }
