@@ -100,6 +100,12 @@ class MediaCollectionItemRequest(BaseModel):
     position:int=Field(default=0,ge=-1000000,le=1000000)
 
 
+class MediaDuplicateReviewRequest(BaseModel):
+    decision:str=Field(pattern="^(needs_review|keep_both|ignore|resolved)$")
+    primary_media_id:str=Field(default="",max_length=100)
+    note:str=Field(default="",max_length=1000)
+
+
 class MediaProcessRequest(BaseModel):
     operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
     preset:str=Field(default="default",max_length=80)
@@ -525,6 +531,27 @@ def media_library_collection_remove(collection_id:str,media_id:str)->dict:
 @router.delete("/media-library/collections/{collection_id}")
 def media_library_collection_delete(collection_id:str)->dict:
     return _call(homeserver_media_library.delete_collection,collection_id)
+
+
+@router.get("/media-library/duplicates")
+def media_library_duplicates(
+    kind:str=Query(default="",pattern="^(|exact|same_size_candidate|near_name_candidate)$"),
+    limit:int=Query(default=100,ge=1,le=500),
+)->dict:
+    return _call(homeserver_media_library.duplicate_groups,kind,limit)
+
+
+@router.get("/media-library/cleanup/status")
+def media_library_cleanup_status()->dict:
+    return _call(homeserver_media_library.cleanup_status)
+
+
+@router.put("/media-library/duplicates/{group_key:path}/review")
+def media_library_duplicate_review(group_key:str,payload:MediaDuplicateReviewRequest)->dict:
+    return _call(
+        homeserver_media_library.review_duplicate,group_key,payload.decision,
+        primary_media_id=payload.primary_media_id,note=payload.note
+    )
 
 
 @router.get("/media-processor/capability")
