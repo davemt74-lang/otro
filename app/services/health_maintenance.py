@@ -30,9 +30,10 @@ def _sync_locked() -> dict[str, int]:
     created = 0
     resolved = 0
     updated = 0
+    refreshed = 0
     with db() as connection:
         rows = connection.execute(
-            "SELECT id,dedupe_key,level,archived_at,dismissed_at FROM notifications "
+            "SELECT id,dedupe_key,level,archived_at,dismissed_at,title,body,priority FROM notifications "
             "WHERE source='homeserver-health' AND dedupe_key LIKE 'health:%'"
         ).fetchall()
         existing = {str(row["dedupe_key"]): dict(row) for row in rows}
@@ -41,22 +42,32 @@ def _sync_locked() -> dict[str, int]:
         old = existing.get(key)
         severity = str(issue.get("severity") or "attention")
         level = "error" if severity in ("failed", "critical") else "warning"
-        # Only notify on a new issue, escalation, or recurrence after resolution.
-        if old and old["archived_at"] is None and old["level"] == level:
-            continue
         repair = issue.get("repair") or {}
+        title = str(issue.get("title") or "HomeServer maintenance issue")[:180]
         description = (
             "An existing governed recovery action may be available. "
             "Review it in Agent Chat; owner approvals still apply."
             if repair.get("agent_can_execute") else
             "Diagnosis or owner review is needed; no trusted automatic repair is available."
         )
+        priority = "urgent" if severity in ("failed", "critical") else "high"
+        # Refresh changed metadata without creating a new notification or
+        # undoing the owner's dismissal for an otherwise unchanged problem.
+        if old and old["archived_at"] is None and old["level"] == level:
+            if old["title"] != title or old["body"] != description or old["priority"] != priority:
+                with db() as connection:
+                    connection.execute(
+                        "UPDATE notifications SET title=?,body=?,priority=? WHERE id=?",
+                        (title,description,priority,int(old["id"])),
+                    )
+                refreshed += 1
+            continue
         result = activity_center.emit_notification(
             source="homeserver-health",
-            title=str(issue.get("title") or "HomeServer maintenance issue")[:180],
+            title=title,
             body=description,
             level=level,
-            priority="urgent" if severity in ("failed", "critical") else "high",
+            priority=priority,
             category="system",
             source_kind="system",
             source_key="homeserver-health",
@@ -87,4 +98,4 @@ def _sync_locked() -> dict[str, int]:
                     (int(old["id"]),),
                 )
             resolved += 1
-    return {"created": created, "updated": updated, "resolved": resolved, "snapshot_complete":bool(complete)}
+    return {"created": created, "updated": updated, "resolved": resolved, "snapshot_complete":bool(complete), "refreshed":refreshed}
