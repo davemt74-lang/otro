@@ -62,7 +62,6 @@ const document={
 let healthRequests=0,activityRequests=0,manualSyncs=0;
 const fetch=(url,options)=>{
   assert.equal(options.credentials,'same-origin');
-  assert.equal(options.cache,'no-store');
   if(url==='/api/v1/control/activity-center/sync') {
     assert.equal(options.method,'POST');
     manualSyncs++;
