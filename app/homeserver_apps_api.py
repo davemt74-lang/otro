@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -79,6 +79,13 @@ class MediaMappedRootRequest(BaseModel):
     computer_name:str=Field(default="",max_length=120)
     source_hint:str=Field(default="",max_length=240)
     source_kind:str=Field(default="computer_folder",pattern="^(computer_folder|network_share|local_folder)$")
+
+
+class MediaLibraryUpdateRequest(BaseModel):
+    patch:dict=Field(default_factory=dict)
+    actor:str=Field(default="user",max_length=120)
+    source:str=Field(default="media-library",max_length=120)
+    reason:str=Field(default="",max_length=500)
 
 
 class MediaProcessRequest(BaseModel):
@@ -267,6 +274,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_media_processor.MediaProcessorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_media_library.MediaLibraryError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_video_editor.VideoEditorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
@@ -278,7 +287,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -417,6 +426,55 @@ def media_server_remote_disable()->dict:
 
 
 
+
+
+@router.get("/media-library/capability")
+def media_library_capability()->dict:
+    return homeserver_media_library.public_capability()
+
+
+@router.get("/media-library/status")
+def media_library_status()->dict:
+    return _call(homeserver_media_library.status)
+
+
+@router.get("/media-library/brain-context")
+def media_library_brain_context(limit:int=Query(default=8,ge=1,le=20))->dict:
+    return _call(homeserver_media_library.brain_context,limit)
+
+
+@router.get("/media-library/search")
+def media_library_search(
+    q:str=Query(default="",max_length=200),
+    media_type:str=Query(default="",pattern="^(|video|audio|image)$"),
+    tag:str=Query(default="",max_length=80),
+    favorite:bool|None=Query(default=None),
+    limit:int=Query(default=200,ge=1,le=500),
+)->dict:
+    return _call(homeserver_media_library.search,q,media_type=media_type,tag=tag,favorite=favorite,limit=limit)
+
+
+@router.get("/media-library/items/{media_id}")
+def media_library_item(media_id:str)->dict:
+    return _call(homeserver_media_library.get,media_id)
+
+
+@router.put("/media-library/items/{media_id}")
+def media_library_update(media_id:str,payload:MediaLibraryUpdateRequest)->dict:
+    return _call(
+        homeserver_media_library.update,media_id,payload.patch,
+        actor=payload.actor,source=payload.source,reason=payload.reason
+    )
+
+
+@router.get("/media-library/items/{media_id}/history")
+def media_library_history(media_id:str,limit:int=Query(default=100,ge=1,le=500))->dict:
+    return _call(homeserver_media_library.history,media_id,limit)
+
+
+@router.post("/media-library/history/{history_id}/undo")
+def media_library_undo(history_id:str)->dict:
+    return _call(homeserver_media_library.undo,history_id)
 
 
 @router.get("/media-processor/capability")
