@@ -18,7 +18,8 @@ from ..config import settings
 from ..database import connect, db, initialize_database, migration_files
 
 BACKUP_FORMAT = "homeserver-backup-v1"
-BACKUP_FORMAT_VERSION = 1
+BACKUP_FORMAT_VERSION = 2
+SUPPORTED_BACKUP_FORMAT_VERSIONS = {1, 2}
 BACKUP_PREFIX = "HomeServer-Backup-"
 BACKUP_SUFFIX = ".zip"
 MANIFEST_NAME = "manifest.json"
