@@ -4,8 +4,11 @@ on:
     paths:
       - 'app/services/health_maintenance.py'
       - 'app/services/activity_center.py'
+      - 'app/services/health_repair.py'
+      - 'app/services/tasks.py'
       - 'ui/agent-brain-drawer.js'
       - 'tests/health_maintenance_v452.py'
+      - 'tests/agent_brain_drawer_behavior_v452.cjs'
       - '.github/workflows/homeserver-maintenance-v452.yml'
   workflow_dispatch:
 permissions:
@@ -31,6 +34,7 @@ jobs:
           node-version: '22'
       - run: pip install -r requirements.txt
       - run: node --check ui/agent-brain-drawer.js
-      - run: python -m py_compile app/services/health_maintenance.py app/services/activity_center.py tests/health_maintenance_v452.py
+      - run: node tests/agent_brain_drawer_behavior_v452.cjs
+      - run: python -m py_compile app/services/health_maintenance.py app/services/activity_center.py app/services/health_repair.py app/services/tasks.py tests/health_maintenance_v452.py
       - run: python tests/health_maintenance_v452.py
       - run: python tests/agent_brain_drawer_v451.py
