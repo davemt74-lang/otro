@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from contextvars import ContextVar
 
 from . import (
     activity_center,
@@ -14,6 +15,7 @@ from . import (
 )
 
 CONTRACT="vp3.homeserver.health-repair.v1"
+_PROBE_FAILURES: ContextVar[set[str] | None] = ContextVar("health_probe_failures", default=None)
 _SEVERITY_ORDER={"failed":0,"critical":1,"degraded":2,"attention":3,"warning":4,"healthy":5,"info":6}
 
 
@@ -21,6 +23,9 @@ def _safe(call,default):
     try:
         return call()
     except Exception:
+        failures=_PROBE_FAILURES.get()
+        if failures is not None:
+            failures.add(getattr(call, '__module__', 'internal').rsplit('.',1)[-1])
         return default
 
 
@@ -218,15 +223,28 @@ def _activity_issues()->list[dict[str,Any]]:
 
 
 def status()->dict[str,Any]:
-    issues=[
-        *_app_issues(),
-        *_storage_issues(),
-        *_backup_issues(),
-        *_bridge_issues(),
-        *_hosting_issues(),
-        *_media_issues(),
-        *_activity_issues(),
-    ]
+    failures:set[str]=set()
+    token=_PROBE_FAILURES.set(failures)
+    try:
+        issues=[
+            *_app_issues(),
+            *_storage_issues(),
+            *_backup_issues(),
+            *_bridge_issues(),
+            *_hosting_issues(),
+            *_media_issues(),
+            *_activity_issues(),
+        ]
+    finally:
+        _PROBE_FAILURES.reset(token)
+    if failures:
+        issues.append(_issue(
+            "health:incomplete-probes",
+            source="health",
+            severity="attention",
+            title="Some HomeServer health checks are unavailable",
+            detail="One or more checks could not complete; existing maintenance alerts remain active.",
+        ))
     deduped={}
     for issue in issues:
         deduped[issue["key"]]=issue
@@ -247,6 +265,8 @@ def status()->dict[str,Any]:
     return {
         "contract":CONTRACT,
         "overall":overall,
+        "snapshot_complete":not bool(failures),
+        "unavailable_check_count":len(failures),
         "issues":issues,
         "count":len(issues),
         "counts":counts,
