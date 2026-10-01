@@ -19,7 +19,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, federated_data, homeserver_app_agent, homeserver_app_control, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_voice_profiles, local_transcription_sessions, federated_data, homeserver_app_agent, homeserver_app_control, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -1219,6 +1219,23 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                     "tools_enabled": False,
                 },
             }
+        if op in {"transcription.shared.list","transcription.shared.fetch"}:
+            # Cloud can only pull completed transcript text the HomeServer owner
+            # explicitly marked shareable. No raw audio or private sessions.
+            _vp3_system_apps_identity(token)
+            _direct_identity(token,{"knowledge.search"})
+            try:
+                if op == "transcription.shared.list":
+                    payload_out=local_transcription_sessions.list_sessions(
+                        paired=True,limit=_bounded_int(body.get("limit"),default=25,minimum=1,maximum=50,name="limit"),
+                    )
+                else:
+                    payload_out=local_transcription_sessions.get(
+                        str(body.get("session_id") or ""),paired=True,
+                    )
+            except local_transcription_sessions.TranscriptError as exc:
+                return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
+            return {"status":200,"ok":True,"payload":payload_out}
         if op == "speech.status":
             _direct_identity(token, {"agent.chat"})
             profile = _remote_voice_profile()

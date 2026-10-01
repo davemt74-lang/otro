@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path, Header
+from fastapi import APIRouter, HTTPException, Path, Header, Request
 
-from .services import health_repair, maintenance_conversation, runtime_diagnostics, live_certification
+from .services import health_repair, maintenance_conversation, runtime_diagnostics, live_certification, governed_recordings
 
 from pydantic import BaseModel, Field
+from fastapi.responses import FileResponse
 
 router=APIRouter()
 
@@ -76,3 +77,101 @@ def control_runtime_certification_run(
         )
     except live_certification.CertificationError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+# Owner-only private recording routes. Recording never runs through a public
+# media endpoint or the Cloud bridge.
+class SaveRecordingRequest(BaseModel):
+    kind: str
+    seconds: int = Field(ge=2, le=30)
+    consent: bool = False
+    physical_capture_ack: bool = False
+
+
+def _local_capture_request(request: Request, requested_with: str | None) -> None:
+    if requested_with != "XMLHttpRequest":
+        raise HTTPException(403, detail="Use the local owner recording interface.")
+    # Owner may open this HomeServer over its LAN hostname. Keep capture local
+    # to the server process and reject cross-site browser submissions instead
+    # of incorrectly insisting that the BROWSER itself uses localhost.
+    site = (request.headers.get("sec-fetch-site") or "").lower()
+    if site and site not in ("same-origin", "none"):
+        raise HTTPException(403, detail="Cross-site recording request blocked.")
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+        raise HTTPException(403, detail="Recording origin mismatch.")
+
+
+@router.get("/api/v1/control/governed-recordings")
+def control_governed_recordings() -> dict:
+    return {
+        "status": governed_recordings.readiness(),
+        "recordings": governed_recordings.list_recordings(),
+    }
+
+
+@router.post("/api/v1/control/governed-recordings/capture")
+def control_governed_recordings_capture(
+    body: SaveRecordingRequest,
+    request: Request,
+    requested_with: str | None = Header(None, alias="X-Requested-With"),
+) -> dict:
+    _local_capture_request(request, requested_with)
+    try:
+        return governed_recordings.capture(
+            body.kind, body.seconds,
+            consent=body.consent, capture_ack=body.physical_capture_ack,
+        )
+    except governed_recordings.RecordingError as exc:
+        raise HTTPException(exc.status_code, detail=exc.reason) from exc
+
+
+@router.get("/api/v1/control/governed-recordings/{recording_id}/download")
+def control_governed_recordings_download(recording_id: str):
+    try:
+        path, item = governed_recordings.resolve(recording_id)
+    except governed_recordings.RecordingError as exc:
+        raise HTTPException(exc.status_code, detail="Recording unavailable.") from exc
+    extension = "wav" if item["kind"] == "audio" else "mp4"
+    response = FileResponse(
+        path,
+        media_type="audio/wav" if extension == "wav" else "video/mp4",
+        filename="HomeServer-recording-" + recording_id + "." + extension,
+        content_disposition_type="attachment",
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@router.delete("/api/v1/control/governed-recordings/{recording_id}")
+def control_governed_recordings_delete(
+    recording_id: str,
+    request: Request,
+    requested_with: str | None = Header(None, alias="X-Requested-With"),
+) -> dict:
+    _local_capture_request(request, requested_with)
+    try:
+        return governed_recordings.delete(recording_id)
+    except governed_recordings.RecordingError as exc:
+        raise HTTPException(exc.status_code, detail="Recording unavailable.") from exc
+
+
+@router.post("/api/v1/control/governed-recordings/{recording_id}/transcribe")
+def control_governed_recordings_transcribe(
+    recording_id:str,request:Request,
+    requested_with:str|None=Header(None,alias="X-Requested-With"),
+)->dict:
+    _local_capture_request(request,requested_with)
+    try:
+        return governed_recordings.transcribe_saved(recording_id)
+    except governed_recordings.RecordingError as exc:
+        raise HTTPException(exc.status_code,detail=exc.reason) from exc
+
+
+@router.get("/api/v1/control/governed-recordings/{recording_id}/transcript")
+def control_governed_recordings_transcript(recording_id:str)->dict:
+    try:
+        return governed_recordings.private_transcript(recording_id)
+    except governed_recordings.RecordingError as exc:
+        raise HTTPException(exc.status_code,detail="Private transcript unavailable.") from exc

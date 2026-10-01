@@ -33,6 +33,7 @@ from .knowledge_sources_api import router as knowledge_sources_router
 from .local_apps_api import router as local_apps_router
 from .local_automation_api import router as local_automation_router
 from .local_voice_api import router as local_voice_router
+from .local_transcription_api import router as local_transcription_router
 from .member_api import router as member_router
 from .storage_api import router as storage_router
 from .health_api import router as health_router
@@ -112,6 +113,7 @@ app.include_router(usage_router)
 app.include_router(connected_apps_router)
 app.include_router(local_apps_router)
 app.include_router(local_voice_router)
+app.include_router(local_transcription_router)
 app.include_router(member_router)
 app.include_router(storage_router)
 app.include_router(health_router)
@@ -184,6 +186,14 @@ def capabilities() -> dict:
             "owner_api": True,
             "local_only": True,
             "operations": ["speech.status", "speech.transcribe", "speech.synthesize"],
+        },
+        "local_transcriptions": {
+            "contract": "vp3.homeserver.transcription-session.v1",
+            "private_by_default": True,
+            "paired_text_only": True,
+            "explicit_owner_share": True,
+            "operations": ["transcription.shared.list", "transcription.shared.fetch"],
+            "raw_audio_relay": False,
         },
         "agent_personas": {
             "version": "v0.46",

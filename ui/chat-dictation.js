@@ -15,6 +15,7 @@
   let active = false;
   let starting = false;
   let mode = null;
+  let transcriptionSession = false;
   let generation = 0;
   let recognition = null;
   let recorder = null;
@@ -171,6 +172,8 @@
   }
 
   function stopDictation(message = '') {
+    const wasSession = transcriptionSession;
+    transcriptionSession = false;
     starting = false;
     active = false;
     mode = null;
@@ -179,6 +182,7 @@
     stopBrowserRecognition();
     setState('idle');
     if (message) flash(message);
+    if (wasSession) window.dispatchEvent(new CustomEvent('homeserver:transcription-capture-stopped'));
   }
 
   function separatorBefore(prefix, transcript) {
@@ -316,7 +320,14 @@
     if (!active || runGeneration !== generation) return;
     const transcript = String(payload.text || '').trim();
     if (!transcript) {
-      stopDictation('No speech detected. Nothing was added.');
+      stopDictation(transcriptionSession ? 'No speech detected; listening paused.' : 'No speech detected. Nothing was added.');
+      return;
+    }
+    if (transcriptionSession) {
+      window.dispatchEvent(new CustomEvent('homeserver:transcription-segment',{detail:{text:transcript,provider:'local_whisper'}}));
+      // Release the previous stream before beginning the next segment.
+      stopCapture();
+      setTimeout(() => { if(active && transcriptionSession && runGeneration===generation) startLocalDictation(); },350);
       return;
     }
     const inserted = insertTranscript(transcript);
@@ -325,6 +336,12 @@
 
   function localFailure(error) {
     if (!active) return;
+    if (transcriptionSession) {
+      // Never silently switch a private transcription to a browser cloud STT.
+      stopDictation('');
+      flash('Local transcription stopped. Check Whisper and restart explicitly.',true);
+      return;
+    }
     if (strictLocalEnabled()) {
       stopDictation('');
       flash(error.message || 'Strict Local Whisper dictation failed.', true);
@@ -387,7 +404,7 @@
         chunks = [];
         if (!active || runGeneration !== generation) return;
         if (!hadSpeech || !finishedChunks.length) {
-          stopDictation('No speech detected. Nothing was added.');
+          stopDictation(transcriptionSession ? 'Listening paused after silence.' : 'No speech detected. Nothing was added.');
           return;
         }
         transcribeLocal(new Blob(finishedChunks, {type: mimeType}), runGeneration).catch(localFailure);
@@ -440,6 +457,14 @@
       }
       const text = finalText.trim();
       if (!text) return;
+      if(transcriptionSession){
+        window.dispatchEvent(new CustomEvent('homeserver:transcription-segment',{detail:{text,provider:'browser_fallback'}}));
+        recognition.onend=null;
+        try { recognition.stop(); } catch (_) {}
+        recognition=null;
+        setTimeout(() => { if(active && transcriptionSession)startBrowserDictation(); },350);
+        return;
+      }
       const inserted = insertTranscript(text);
       stopDictation(inserted ? 'Dictation added. Review or edit it, then send when ready.' : '');
     };
@@ -451,7 +476,8 @@
     };
     recognition.onend = () => {
       recognition = null;
-      if (active) stopDictation('No speech detected. Nothing was added.');
+      if (active && transcriptionSession) stopDictation('Listening paused after silence.');
+      else if (active) stopDictation('No speech detected. Nothing was added.');
     };
     try { recognition.start(); }
     catch (error) {
@@ -500,8 +526,8 @@
     mode = localReady ? 'local' : 'browser';
     setState('listening');
     flash(localReady
-      ? 'Dictation on · local Whisper. Speak once; the transcript will be inserted without sending.'
-      : 'Dictation on · browser speech fallback. Speak once; the transcript will be inserted without sending.');
+      ? (transcriptionSession ? 'Transcription session listening locally. Audio is not retained by transcription.' : 'Dictation on · local Whisper. Speak once; the transcript will be inserted without sending.')
+      : (transcriptionSession ? 'Transcription using browser speech service. No audio is saved locally.' : 'Dictation on · browser speech fallback. Speak once; the transcript will be inserted without sending.'));
     if (mode === 'local') await startLocalDictation();
     else startBrowserDictation();
   }
@@ -514,6 +540,17 @@
     }
     await startDictation();
   }
+
+  window.HomeServerDictation={
+    startTranscription:async ()=>{
+      if(active || starting)stopDictation('');
+      transcriptionSession=true;
+      await startDictation();
+      return active;
+    },
+    stopTranscription:()=>{ if(transcriptionSession)stopDictation(''); },
+    isTranscribing:()=>Boolean(active && transcriptionSession),
+  };
 
   function boot() {
     ensureStyles();

@@ -349,7 +349,11 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
         "plugins": plugins_inventory,
         "local_apps": local_app_inventory,
         "services": _services(inference, local_app_inventory),
-        "operations": _operations(permissions, bool(contacts_inventory.get("available"))),
+        "operations": sorted(set(_operations(permissions, bool(contacts_inventory.get("available"))) + (
+            ["transcription.shared.list","transcription.shared.fetch"]
+            if str(identity.get("app_key") or "")=="vp3" and "knowledge.search" in permissions
+            else []
+        ))),
         "counts": {
             "tools": len(tools_inventory),
             "available_tools": sum(1 for item in tools_inventory if item["available"]),
