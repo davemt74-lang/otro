@@ -33,6 +33,11 @@ jobs:
           python tests/chat_onboarding_v2.py
           node --check ui/chat-onboarding.js
           node --check ui/welcome.js
+      - name: Integrated owner-only Tracky visual enrollment contracts
+        run: |
+          python tests/tracky_visual_onboarding.py
+          node tests/tracky_visual_browser.mjs
+          node --check ui/tracky/owner-visual.js
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify API smoke contract

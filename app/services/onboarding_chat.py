@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from ..config import settings
-from . import cloud_pairing, local_apps, remote_bridge, system_state
+from . import cloud_pairing, local_apps, remote_bridge, system_state, onboarding_visual
 from .owner_secret import _atomic_write, _protect_windows, _unprotect_windows
 from .remote_identity import load_or_create_remote_identity
 
@@ -181,7 +181,7 @@ def device_status() -> dict[str, Any]:
 
 def summary() -> dict[str, Any]:
     return {"setup": system_state.first_run_status(),
-            "provision": provision_status(), **device_status()}
+            "provision": provision_status(), "visual": onboarding_visual.status(), **device_status()}
 
 
 def _cloud(action: str, device: dict[str, Any]) -> dict[str, Any]:

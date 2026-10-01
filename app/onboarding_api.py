@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
-from .services import onboarding_chat
+from pydantic import BaseModel, ConfigDict, Field
+from .services import onboarding_chat, onboarding_visual
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -52,3 +53,59 @@ def device_poll(x_requested_with: str | None = Header(default=None)) -> dict:
 def device_reset(x_requested_with: str | None = Header(default=None)) -> dict:
     _require_ui(x_requested_with)
     return _invoke(onboarding_chat.clear_pending_code)
+
+
+class VisualStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool
+    scope: str = Field(max_length=80)
+
+
+class VisualReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    session: str = Field(min_length=32, max_length=128)
+    participant_id: str = Field(min_length=8, max_length=100)
+    samples: int = Field(ge=3, le=5)
+
+
+class VisualDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    participant_id: str = Field(min_length=8, max_length=100)
+
+
+def _visual_call(fn):
+    try:
+        return fn()
+    except onboarding_visual.VisualOnboardingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/visual/status")
+def visual_status() -> dict:
+    return onboarding_visual.status()
+
+
+@router.post("/visual/start")
+def visual_start(payload: VisualStart, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _visual_call(lambda: onboarding_visual.start(consent=payload.consent, scope=payload.scope))
+
+
+@router.post("/visual/report")
+def visual_report(payload: VisualReport, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _visual_call(lambda: onboarding_visual.report(
+        session=payload.session, participant_id=payload.participant_id, samples=payload.samples
+    ))
+
+
+@router.post("/visual/cancel")
+def visual_cancel(x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return onboarding_visual.cancel()
+
+
+@router.post("/visual/delete")
+def visual_delete(payload: VisualDelete, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _visual_call(lambda: onboarding_visual.delete_report(participant_id=payload.participant_id))
