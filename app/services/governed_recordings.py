@@ -19,7 +19,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import device_audio, homeserver_media_tools, physical_meeting, vp3_os
+from . import device_audio, homeserver_media_tools, local_voice, physical_meeting, vp3_os
 
 CONTRACT = "vp3.homeserver.governed-recordings.v1"
 MAX_CLIP_SECONDS = 30
@@ -36,6 +36,7 @@ _REASON_CODES = {
     "camera_not_ready", "capture_failed", "capture_timeout",
     "recording_exceeds_limit", "storage_unavailable", "storage_full",
     "capture_in_use", "privacy_switch_engaged", "meeting_in_progress",
+    "transcription_unavailable",
 }
 
 class RecordingError(RuntimeError):
@@ -74,6 +75,7 @@ def _now() -> datetime:
 
 def _safe_record(row: Any) -> dict[str, Any]:
     return {
+        "has_transcript": bool(row["transcript"]) if "transcript" in row.keys() else False,
         "id": str(row["recording_id"]),
         "kind": str(row["media_type"]),
         "seconds": int(row["duration_seconds"]),
@@ -297,6 +299,64 @@ def resolve(recording_id: str) -> tuple[Path, dict[str, Any]]:
     if path.is_symlink() or not path.is_file() or path.stat().st_size != row["size_bytes"] or _sha256(path) != row["sha256"]:
         raise RecordingError("capture_failed", 404)
     return path, _safe_record(row)
+
+
+def transcribe_saved(recording_id: str) -> dict[str, Any]:
+    """Separate Transcription mode: private saved text, never an Agent command."""
+    if not _CAPTURE.acquire(blocking=False):
+        raise RecordingError("capture_in_use",409)
+    try:
+        path, item = resolve(recording_id)
+        if item["kind"] != "audio":
+            raise RecordingError("transcription_unavailable",422)
+        if path.stat().st_size > min(MAX_CLIP_BYTES, 8 * 1024 * 1024):
+            raise RecordingError("transcription_unavailable",413)
+        with db() as connection:
+            prior=connection.execute(
+                "SELECT transcript FROM governed_recordings WHERE recording_id=?",
+                (recording_id,),
+            ).fetchone()
+        if prior is not None and prior["transcript"] is not None:
+            return {"contract": CONTRACT, "recording_id":recording_id,
+                    "transcript":str(prior["transcript"]), "source":"local_whisper",
+                    "sent_to_agent":False,"sent_to_cloud":False}
+        if not local_voice.status().get("stt",{}).get("available"):
+            raise RecordingError("transcription_unavailable",503)
+        try:
+            result=local_voice.transcribe(path.read_bytes())
+            text=str(result.get("text") or "").strip()
+        except Exception as exc:
+            raise RecordingError("transcription_unavailable",503) from exc
+        # Keep output bounded. Do not retain Whisper output paths or raw audio in DB.
+        if len(text)>12000:
+            text=text[:12000]
+        with db() as connection:
+            connection.execute(
+                "UPDATE governed_recordings SET transcript=?,transcript_at=? "
+                "WHERE recording_id=?",
+                (text,_now().isoformat(),recording_id),
+            )
+        return {"contract":CONTRACT,"recording_id":recording_id,
+                "transcript":text,"source":"local_whisper",
+                "sent_to_agent":False,"sent_to_cloud":False}
+    finally:
+        _CAPTURE.release()
+
+
+def private_transcript(recording_id: str) -> dict[str, Any]:
+    _,recording=resolve(recording_id)
+    if recording["kind"]!="audio":
+        raise RecordingError("transcription_unavailable",422)
+    with db() as connection:
+        row=connection.execute(
+            "SELECT transcript,transcript_at FROM governed_recordings WHERE recording_id=?",
+            (recording_id,),
+        ).fetchone()
+    if row is None or row["transcript"] is None:
+        raise RecordingError("transcription_unavailable",404)
+    return {"contract":CONTRACT,"recording_id":recording_id,
+            "transcript":str(row["transcript"]),"created_at":row["transcript_at"],
+            "sent_to_agent":False,"sent_to_cloud":False}
 
 
 def delete(recording_id: str) -> dict[str, Any]:
