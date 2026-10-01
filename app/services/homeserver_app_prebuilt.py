@@ -176,7 +176,7 @@ CATALOG = {
     "vp3.photo-library": {
         "key": "vp3.photo-library",
         "name": "VP3 Photo Library",
-        "version": "1.1.0",
+        "version": "1.0.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
@@ -292,7 +292,7 @@ CATALOG = {
     "vp3.media-library": {
         "key": "vp3.media-library",
         "name": "VP3 Media Library",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
