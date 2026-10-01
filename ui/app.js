@@ -476,7 +476,12 @@ async function loadView(name) {
 
 document.addEventListener('click', async (event) => {
   const nav = event.target.closest('[data-view]'); if (nav) openView(nav.dataset.view);
-  if (event.target.id==='healthRefreshButton') loadHealth().catch(err=>flash(err.message,true));
+  if (event.target.id==='healthRefreshButton') {
+    const button=event.target;button.disabled=true;
+    api('/api/v1/control/activity-center/sync',{method:'POST'})
+      .then(()=>loadHealth()).catch(err=>flash(err.message,true))
+      .finally(()=>{button.disabled=false;});
+  }
   const healthApp=event.target.closest('[data-health-go-app]');
   if(healthApp && healthApp.dataset.healthGoApp){location.hash='homeserver-apps';openView('homeserver-apps');}
   const go = event.target.closest('[data-go]'); if (go) openView(go.dataset.go);
