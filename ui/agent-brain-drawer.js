@@ -8,6 +8,7 @@
   let requestSequence = 0;
   const MAX_ITEMS = 8;
   const details = new Map();
+  const alerts = new Map();
 
   function build() {
     if ($('agentBrainDrawer')) return;
@@ -40,12 +41,20 @@
         <p class="agent-brain-intro">Live system context. All instructions and approvals stay in Agent Chat and existing governed workflows.</p>
         <section class="agent-brain-summary" aria-live="polite"><span>System health</span><strong id="agentBrainHealthState">Checking…</strong><small id="agentBrainHealthCount">Reading local health signals</small></section>
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Needs attention</h3><button id="agentBrainRefresh" type="button">Refresh</button></div><div id="agentBrainIssues" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
+        <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Proactive maintenance</h3><button id="agentBrainActivity" type="button">Activity</button></div><div id="agentBrainAlerts" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
         <div class="agent-brain-drawer-actions"><button id="agentBrainAsk" type="button" class="button primary">Discuss in Agent Chat</button><button id="agentBrainHealth" type="button" class="button secondary">Health workspace</button></div>
       </div>`;
     document.body.appendChild(drawer);
     toggle.addEventListener('click', () => setOpen(!open));
     drawer.querySelector('.agent-brain-close').addEventListener('click', () => setOpen(false));
     $('agentBrainRefresh').addEventListener('click', () => refresh());
+    $('agentBrainActivity').addEventListener('click', () => { setOpen(false); document.querySelector('[data-view="activity"]')?.click(); });
+    $('agentBrainAlerts').addEventListener('click', e => {
+      const button = e.target.closest('button[data-alert-key]');
+      const alert = button && alerts.get(button.dataset.alertKey);
+      if (!alert) return;
+      sendToChat('Explain this HomeServer maintenance notification: ' + alert.title + '. Check current system state and recommend only existing governed actions.');
+    });
     $('agentBrainAsk').addEventListener('click', () => sendToChat('What is the current health of my HomeServer? Explain what needs attention and what actions are available. Do not repair anything without going through existing approval controls.'));
     $('agentBrainHealth').addEventListener('click', () => {
       setOpen(false);
@@ -67,7 +76,7 @@
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) stop();
-      else if (open) { refresh(); start(); }
+      else if (open) { refresh(); refreshAlerts(); start(); }
     });
   }
 
@@ -81,13 +90,13 @@
     else drawer.setAttribute('inert', '');
     $('agentBrainDrawerToggle')?.setAttribute('aria-expanded', String(open));
     document.body.classList.toggle('agent-brain-drawer-open', open);
-    if (open) { refresh(); start(); drawer.querySelector('.agent-brain-close')?.focus(); }
+    if (open) { refresh(); refreshAlerts(); start(); drawer.querySelector('.agent-brain-close')?.focus(); }
     else { stop(); $('agentBrainDrawerToggle')?.focus(); }
   }
 
   function stop() { if (timer !== null) clearInterval(timer); timer = null; requestSequence++; }
   function start() {
-    if (timer === null) timer = setInterval(() => { if (open && !document.hidden) refresh(); }, 60000);
+    if (timer === null) timer = setInterval(() => { if (open && !document.hidden) { refresh(); refreshAlerts(); } }, 60000);
   }
   function sendToChat(prompt) {
     setOpen(false);
@@ -141,6 +150,33 @@
       host.appendChild(extra);
     }
   }
+  function renderAlerts(data) {
+    const items = Array.isArray(data.attention) ? data.attention : [];
+    const host = $('agentBrainAlerts');
+    host.replaceChildren();
+    alerts.clear();
+    if (!items.length) { host.textContent = 'No unresolved attention notifications.'; return; }
+    items.slice(0, 5).forEach(item => {
+      if (typeof item.event_id !== 'string') return;
+      alerts.set(item.event_id,item);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'agent-brain-issue';
+      button.dataset.alertKey = item.event_id;
+      const label = document.createElement('span');
+      label.className = 'agent-brain-severity';
+      label.textContent = String(item.level || 'attention');
+      const title = document.createElement('strong');
+      title.textContent = String(item.title || 'Maintenance attention');
+      button.append(label,title);
+      host.appendChild(button);
+    });
+    if (items.length > 5) {
+      const extra = document.createElement('p');
+      extra.textContent = '+' + (items.length - 5) + ' more in Activity';
+      host.appendChild(extra);
+    }
+  }
   function toggleSeverity(value) {
     const toggle = $('agentBrainDrawerToggle');
     if (toggle) toggle.dataset.health = value;
@@ -160,6 +196,16 @@
       $('agentBrainIssues').textContent = 'Diagnostics are unavailable. You can still ask Agent Chat.';
       toggleSeverity('unknown');
       previousSignature = null;
+    }
+  }
+  async function refreshAlerts() {
+    try {
+      const response = await fetch('/api/v1/control/activity-center/brain-context?limit=10', {credentials:'same-origin',headers:{'Accept':'application/json'}});
+      if (!response.ok) throw new Error('Activity unavailable');
+      const data = await response.json();
+      if (open) renderAlerts(data);
+    } catch (_) {
+      if (open && $('agentBrainAlerts')) $('agentBrainAlerts').textContent = 'Maintenance notifications temporarily unavailable.';
     }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',build,{once:true});
