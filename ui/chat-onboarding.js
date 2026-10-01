@@ -90,9 +90,25 @@
     refresh().catch(e=>feedback('Could not read setup status: '+e.message,true));
   }
 
-  el('onboardStartCloud').addEventListener('click',()=>act(
-    ()=>api('/api/v1/control/onboarding/device/start','POST'),
-    'Your pairing code is ready. Open VP3 Cloud and enter it there.'));
+  // Start with one owner action. Cloud remains responsible for sign-in and
+  // explicit approval; no pairing verifier or bearer token reaches the browser.
+  el('onboardStartCloud').addEventListener('click',async()=>{
+    if(busy)return;
+    const tab=window.open('about:blank','_blank');
+    if(tab)try{tab.opener=null;}catch(_){}
+    busy=true;render();
+    try{
+      await api('/api/v1/control/onboarding/device/start','POST');
+      await refresh();
+      const code=snapshot?.pairing?.code;
+      if(!code)throw new Error('The pairing code is not ready. Try again.');
+      const url='https://vp3.me/settings-homeserver.php#hs_code='+encodeURIComponent(code);
+      el('onboardCloudLink').href=url;
+      if(tab)tab.location.replace(url);
+      feedback(tab?'VP3 Cloud is open with your code. Sign in if needed and approve the connection; I’ll finish pairing.':'Your code is ready. Select Approve in VP3 Cloud below to continue.');
+    }catch(error){if(tab)tab.close();feedback(error.message,true);}
+    finally{busy=false;render();}
+  });
   el('onboardResetCode').addEventListener('click',()=>act(async()=>{
     await api('/api/v1/control/onboarding/device/reset','POST');
     await api('/api/v1/control/onboarding/device/start','POST');
