@@ -52,15 +52,8 @@ def _source_review(app_key:str,app_class:str)->dict[str,Any]|None:
     }
 
 
-def review(app_key:str)->dict[str,Any]:
-    key=str(app_key or "").strip().lower()
-    if not key:
-        raise AppUpdateCenterError("app_key is required.")
-    try:
-        item=homeserver_app_manager.app(key)
-    except homeserver_apps.HomeServerAppError as exc:
-        raise AppUpdateCenterError(str(exc),exc.status_code) from exc
-
+def _review_item(item:dict[str,Any])->dict[str,Any]:
+    key=str(item.get("app_key") or "").strip().lower()
     catalog=item.get("catalog")
     release_status=None
     if catalog:
@@ -170,12 +163,23 @@ def review(app_key:str)->dict[str,Any]:
     }
 
 
+def review(app_key:str)->dict[str,Any]:
+    key=str(app_key or "").strip().lower()
+    if not key:
+        raise AppUpdateCenterError("app_key is required.")
+    try:
+        item=homeserver_app_manager.app(key)
+    except homeserver_apps.HomeServerAppError as exc:
+        raise AppUpdateCenterError(str(exc),exc.status_code) from exc
+    return _review_item(item)
+
+
 def status()->dict[str,Any]:
     manager=homeserver_app_manager.inventory()
     rows=[]
     counts={"updates":0,"available":0,"attention":0,"rollback":0,"current":0,"source_updates":0}
     for item in manager["items"]:
-        row=review(str(item["app_key"]))
+        row=_review_item(item)
         action=row["recommended_action"]
         if row["update_available"]:
             counts["updates"]+=1
