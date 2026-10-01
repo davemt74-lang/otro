@@ -7,6 +7,12 @@ on:
       - 'app/health_api.py'
       - 'app/services/health_repair.py'
       - 'app/services/runtime_diagnostics.py'
+      - 'app/services/live_certification.py'
+      - 'app/database.py'
+      - 'database/runtime_certification.sql'
+      - 'tests/live_certification_v501.py'
+      - 'ui/live-certification.js'
+      - 'ui/live-certification.css'
       - 'tests/runtime_diagnostics_v500.py'
       - 'ui/runtime-diagnostics.js'
       - 'ui/runtime-diagnostics.css'
@@ -53,6 +59,8 @@ jobs:
           app/health_api.py
           app/services/health_repair.py
           app/services/runtime_diagnostics.py
+          app/services/live_certification.py
+          tests/live_certification_v501.py
           tests/runtime_diagnostics_v500.py
           app/services/canonical_context.py
           app/services/tools.py
@@ -63,6 +71,10 @@ jobs:
         run: node --check ui/app.js
       - name: Check runtime diagnostics UI
         run: node --check ui/runtime-diagnostics.js
+      - name: Verify certification UI syntax
+        run: node --check ui/live-certification.js
+      - name: Verify owner-only bounded live certification using synthetic test hardware
+        run: python tests/live_certification_v501.py
       - name: Verify installed-machine inventory without capture
         run: python tests/runtime_diagnostics_v500.py
       - name: Verify Section 30 health and repair orchestration
