@@ -410,6 +410,9 @@ class RuntimeController:
     def open_control_center(self, _icon=None, _item=None) -> None:
         _open(_recovery_path() if self.recovery_mode else _authorized_path("/"))
 
+    def open_welcome(self, _icon=None, _item=None) -> None:
+        _open(_recovery_path() if self.recovery_mode else _authorized_path("/welcome"))
+
     def open_system(self, _icon=None, _item=None) -> None:
         _open(_recovery_path() if self.recovery_mode else _authorized_path("/system"))
 
@@ -460,7 +463,7 @@ class RuntimeController:
             if not setup["complete"]:
                 if not setup["prompted"]:
                     mark_first_run_prompted()
-                threading.Timer(0.6, self.open_system).start()
+                threading.Timer(0.6, self.open_welcome).start()
                 return
         except Exception:
             pass
