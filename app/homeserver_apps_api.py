@@ -325,6 +325,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_releases.AppReleaseError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_update_center.AppUpdateCenterError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_sources.AppSourceError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_workspace.AppWorkspaceError as exc:
