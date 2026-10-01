@@ -149,7 +149,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-health-v440-") as data_dir:
         css=(ROOT/"ui"/"health.css").read_text(encoding="utf-8")
         assert "view-health" in ui
         assert "What the Agent can actually fix" in ui
-        assert "/api/v1/control/health/repair-plan" in ui
+        # The canonical repair-plan API remains supported for Agent tools, while
+        # the Health workspace now derives issue and repair rows from ONE snapshot.
+        assert "const status=await api('/api/v1/control/health')" in ui
+        assert "const plan={items:(status.issues||[]).filter" in ui
+        assert "/api/v1/control/health/repair-plan" not in ui
+        assert (ROOT/"ui"/"maintenance-workspace.js").is_file()
         assert "No automatic repair" in ui
         assert ".health-summary" in css
 
