@@ -250,6 +250,6 @@
         $('agentBrainAlerts').textContent = 'Maintenance notifications temporarily unavailable.';
     }
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',build,{once:true});
+  if (document.readyState !== 'complete') document.addEventListener('DOMContentLoaded',build,{once:true});
   else build();
 })();
