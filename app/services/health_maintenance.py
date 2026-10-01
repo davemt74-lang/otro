@@ -32,7 +32,7 @@ def _sync_locked() -> dict[str, int]:
     updated = 0
     with db() as connection:
         rows = connection.execute(
-            "SELECT id,dedupe_key,level,archived_at FROM notifications "
+            "SELECT id,dedupe_key,level,archived_at,dismissed_at FROM notifications "
             "WHERE source='homeserver-health' AND dedupe_key LIKE 'health:%'"
         ).fetchall()
         existing = {str(row["dedupe_key"]): dict(row) for row in rows}
@@ -69,7 +69,9 @@ def _sync_locked() -> dict[str, int]:
         if old:
             with db() as connection:
                 # A resolved recurrence is genuinely new attention.
-                if old["archived_at"] is not None:
+                if old["archived_at"] is not None or (old["level"]=="warning" and level=="error"):
+                    # Owner dismissal silences an unchanged problem, but a new
+                    # critical escalation must be visible again.
                     connection.execute(
                         "UPDATE notifications SET archived_at=NULL,dismissed_at=NULL,read_at=NULL WHERE id=?",
                         (int(old["id"]),),
