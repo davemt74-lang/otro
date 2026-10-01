@@ -79,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-library-v350-") as dat
         assert meta["description"]=="Golden-hour desert light"
         assert meta["rating"]==5
         assert meta["favorite"] is True
-        assert meta["tags"]==["travel","arizona"]
+        assert meta["tags"]==["arizona","travel"]
         assert meta["custom_fields"]["camera"]=="VP3 Test Cam"
         assert len(meta["relations"])==2
         assert body["source_file_modified"] is False
