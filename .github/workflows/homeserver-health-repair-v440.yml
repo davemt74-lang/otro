@@ -8,6 +8,11 @@ on:
       - 'app/services/health_repair.py'
       - 'app/services/runtime_diagnostics.py'
       - 'app/services/live_certification.py'
+      - 'app/services/governed_recordings.py'
+      - 'database/governed_recordings.sql'
+      - 'tests/governed_recordings_v502.py'
+      - 'ui/governed-recordings.js'
+      - 'ui/governed-recordings.css'
       - 'app/database.py'
       - 'database/runtime_certification.sql'
       - 'tests/live_certification_v501.py'
@@ -60,6 +65,8 @@ jobs:
           app/services/health_repair.py
           app/services/runtime_diagnostics.py
           app/services/live_certification.py
+          app/services/governed_recordings.py
+          tests/governed_recordings_v502.py
           tests/live_certification_v501.py
           tests/runtime_diagnostics_v500.py
           app/services/canonical_context.py
@@ -73,6 +80,10 @@ jobs:
         run: node --check ui/runtime-diagnostics.js
       - name: Verify certification UI syntax
         run: node --check ui/live-certification.js
+      - name: Validate private recording UI syntax
+        run: node --check ui/governed-recordings.js
+      - name: Verify consent-governed recordings and separate saved transcription
+        run: python tests/governed_recordings_v502.py
       - name: Verify owner-only bounded live certification using synthetic test hardware
         run: python tests/live_certification_v501.py
       - name: Verify installed-machine inventory without capture
