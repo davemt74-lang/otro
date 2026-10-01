@@ -196,7 +196,7 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
         protection_policy = backup_protection.policy()
         app_snapshot = {"archive_paths": [], "apps": [], "bytes": 0, "files": 0}
         if protection_policy["include_app_data"]:
-            app_snapshot = backup_protection.snapshot_app_data(root)
+            app_snapshot = backup_protection.snapshot_app_data(root,database_path)
 
         archive_paths = ["database/homeserver.db"]
         archive_paths.extend(
