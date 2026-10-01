@@ -136,7 +136,7 @@
         <div class="hs-app-actions">
           ${primary}
           ${installed?`<button class="button secondary" type="button" data-hs-app-details="${esc(app.app_key)}">Manage</button>`:''}
-          ${app.actions?.rollback?`<button class="text-button" type="button" data-hs-app-rollback="${esc(app.app_key)}">Rollback</button>`:''}
+          ${app.actions?.rollback?`<button class="text-button" type="button" data-hs-update-review="${esc(app.app_key)}">Review rollback</button>`:''}
         </div>
       </article>`;
   }
@@ -454,7 +454,10 @@
       if(target.dataset.hsAppStop) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/lifecycle`,{state:'stopped',metadata:{reason:'owner_ui'}});
       if(target.dataset.hsAppResume) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/resume`);
       if(target.dataset.hsAppBuild) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/build-install`);
-      if(target.dataset.hsAppRollback) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/rollback`);
+      if(target.dataset.hsAppRollback){
+        if(!confirm('Rollback this app to its previous release? HomeServer will use the existing release/data recovery lifecycle.')) return;
+        await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/rollback`);
+      }
       if(target.dataset.hsAppRecover) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/recover`);
       if(target.dataset.hsAppPromote) await post(`/api/v1/control/homeserver-apps/${encodeURIComponent(key)}/releases/${encodeURIComponent(target.dataset.releaseId)}/promote`);
       if(target.dataset.hsAppArchive){
