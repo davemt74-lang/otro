@@ -60,6 +60,15 @@ function ensureBackupWorkspace() {
       </div>
       <div class="backup-warning"><strong>Private archive:</strong> backup ZIPs contain private HomeServer data and are not encrypted by the ZIP format. Keep exported copies somewhere you control and protect.</div>
       <div id="restoreStatus"></div>
+      <div id="backupHealth"></div>
+      <form id="backupPolicyForm" class="panel backup-policy">
+        <div><p class="eyebrow">PROTECTION POLICY</p><h3>Backup coverage & retention</h3></div>
+        <label><input id="backupIncludeAppData" type="checkbox"> Include installed-app data</label>
+        <label>Manual backups <input id="backupRetainManual" type="number" min="1" max="100"></label>
+        <label>Automatic backups <input id="backupRetainAutomatic" type="number" min="1" max="100"></label>
+        <label>Pre-restore backups <input id="backupRetainPreRestore" type="number" min="1" max="20"></label>
+        <button class="button secondary" type="submit">Save policy</button>
+      </form>
       <div class="panel backup-explainer"><div><span>1</span><p><strong>Consistent snapshot</strong><small>SQLite's backup API captures a coherent database even while HomeServer is running.</small></p></div><div><span>2</span><p><strong>Integrity manifest</strong><small>Every database and knowledge file is SHA-256 checked before a restore can be staged.</small></p></div><div><span>3</span><p><strong>Restart-safe restore</strong><small>HomeServer makes a pre-restore backup and applies the validated stage before the API starts.</small></p></div></div>
       <div class="panel-head backup-list-head"><div><p class="eyebrow">LOCAL ARCHIVES</p><h3>Backups</h3></div><span id="backupCount" class="muted"></span></div>
       <div id="backupList" class="backup-list"><div class="panel empty-state">No backups yet.</div></div>`;
@@ -281,10 +290,26 @@ async function loadBackups() {
   ensureBackupWorkspace();
   const data = await api('/api/v1/control/backups');
   $('restoreStatus').innerHTML = restoreStatusMarkup(data);
+  const health=data.health||{};
+  const coverage=health.coverage||{};
+  if ($('backupHealth')) $('backupHealth').innerHTML =
+    '<div class="panel backup-health"><div><p class="eyebrow">BACKUP HEALTH</p><h3>'+(health.invalid_backup_count?'Needs attention':'Protected')+'</h3></div>'+
+    '<div class="backup-health-grid"><span><strong>'+Number(health.backup_count||0)+'</strong> valid backups</span>'+
+    '<span><strong>'+Number(health.invalid_backup_count||0)+'</strong> invalid</span>'+
+    '<span><strong>'+(coverage.app_data?'Yes':'No')+'</strong> app data</span>'+
+    '<span><strong>'+(health.session_invalidation_after_restore?'Yes':'No')+'</strong> session reset</span></div>'+
+    '<p class="muted">Secrets, runtime state, restore staging, existing backup archives, and app migration-recovery snapshots are intentionally excluded.</p></div>';
+  const policy=health.policy||{};
+  if ($('backupIncludeAppData')) $('backupIncludeAppData').checked=Boolean(policy.include_app_data);
+  if ($('backupRetainManual')) $('backupRetainManual').value=policy.retain_manual ?? 10;
+  if ($('backupRetainAutomatic')) $('backupRetainAutomatic').value=policy.retain_automatic ?? 7;
+  if ($('backupRetainPreRestore')) $('backupRetainPreRestore').value=policy.retain_pre_restore ?? 3;
   $('backupCount').textContent = `${data.items.length} archive${data.items.length === 1 ? '' : 's'}`;
   $('backupList').innerHTML = data.items.length ? data.items.map(item => {
     const invalid = item.invalid ? '<span class="tag danger">invalid manifest</span>' : '';
-    return `<article class="panel backup-card"><div><h3>${esc(item.name)}</h3><div class="backup-meta"><span>${esc(fmt(item.created_at))}</span><span>${esc(formatBytes(item.size_bytes))}</span><span>schema ${item.schema_version == null ? 'unknown' : `v${esc(item.schema_version)}`}</span><span>${esc(item.reason || 'manual')}</span>${invalid}</div></div><div class="backup-card-actions"><a class="button secondary" href="/api/v1/control/backups/download/${encodeURIComponent(item.name)}">Download</a><button class="text-button danger" data-delete-backup="${esc(item.name)}" type="button">Delete</button></div></article>`;
+    const legacy = Number(item.format_version||1)<2 ? '<span class="tag">legacy v1 · app data not included</span>' : '';
+    const appMeta = Number(item.format_version||1)>=2 ? `<span>${Number(item.app_count||0)} apps · ${Number(item.app_data_files||0)} app files</span>` : '';
+    return `<article class="panel backup-card"><div><h3>${esc(item.name)}</h3><div class="backup-meta"><span>${esc(fmt(item.created_at))}</span><span>${esc(formatBytes(item.size_bytes))}</span><span>format v${esc(item.format_version||1)}</span><span>schema ${item.schema_version == null ? 'unknown' : `v${esc(item.schema_version)}`}</span><span>${esc(item.reason || 'manual')}</span>${appMeta}${legacy}${invalid}</div></div><div class="backup-card-actions"><a class="button secondary" href="/api/v1/control/backups/download/${encodeURIComponent(item.name)}">Download</a><button class="text-button danger" data-delete-backup="${esc(item.name)}" type="button">Delete</button></div></article>`;
   }).join('') : '<div class="panel empty-state">No backups yet. Create one before major changes or moving HomeServer to another machine.</div>';
 }
 
@@ -397,6 +422,24 @@ document.addEventListener('change', async (event) => {
   if (status) { try { await api(`/api/v1/control/apps/${status.dataset.appStatus}`, {method:'PATCH', body:JSON.stringify({status:status.value})}); flash('Application status updated.'); await loadApps(); } catch (err) { flash(err.message, true); } }
   const permission = event.target.closest('[data-app-permission]');
   if (permission) { try { await api(`/api/v1/control/apps/${permission.dataset.appPermission}/permission`, {method:'PUT', body:JSON.stringify({permission:permission.dataset.permission, allowed:permission.checked})}); flash('Permission updated.'); } catch (err) { permission.checked = !permission.checked; flash(err.message, true); } }
+});
+
+document.addEventListener('submit', async (event) => {
+  if (event.target.id !== 'backupPolicyForm') return;
+  event.preventDefault();
+  try {
+    await api('/api/v1/control/backups/policy',{
+      method:'PUT',
+      body:JSON.stringify({
+        include_app_data:Boolean($('backupIncludeAppData').checked),
+        retain_manual:Number($('backupRetainManual').value),
+        retain_automatic:Number($('backupRetainAutomatic').value),
+        retain_pre_restore:Number($('backupRetainPreRestore').value)
+      })
+    });
+    await loadBackups();
+    flash('Backup policy updated.');
+  } catch(error) { flash(error.message,true); }
 });
 
 $('agentForm').addEventListener('submit', async (event) => { event.preventDefault(); try { await api('/api/v1/control/agent', {method:'PUT', body:JSON.stringify({name:$('agentName').value, model:$('agentModel').value, instructions:$('agentInstructions').value})}); flash('Primary agent saved.'); await loadAgent(); } catch (err) { flash(err.message, true); } });
