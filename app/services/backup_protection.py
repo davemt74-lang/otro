@@ -170,6 +170,7 @@ def snapshot_app_data(target_root:Path)->dict[str,Any]:
 
 def validate_app_data(target_root:Path,database_path:Path,manifest:dict[str,Any])->dict[str,Any]:
     version=int(manifest.get("format_version") or 1)
+    coverage=manifest.get("coverage") if isinstance(manifest.get("coverage"),dict) else {}
     if version<2:
         return {
             "included":False,
@@ -178,6 +179,15 @@ def validate_app_data(target_root:Path,database_path:Path,manifest:dict[str,Any]
             "files":0,
             "bytes":0,
             "warning":"Legacy v1 backup does not contain app data; existing app-data files will be preserved.",
+        }
+    if not bool(coverage.get("app_data")):
+        return {
+            "included":False,
+            "legacy_backup":False,
+            "apps":[],
+            "files":0,
+            "bytes":0,
+            "warning":"This v2 backup was created without app-data coverage; existing app-data files will be preserved.",
         }
 
     app_root=target_root/"app-data"
@@ -244,8 +254,16 @@ def validate_app_data(target_root:Path,database_path:Path,manifest:dict[str,Any]
 def prepare_app_data_restore(pending:Path,token:str)->dict[str,Any]:
     staged=pending/"app-data"
     target=settings.data_dir/"app-data"
-    if not staged.is_dir():
+    try:
+        manifest=json.loads((pending/"manifest.json").read_text(encoding="utf-8"))
+    except (OSError,UnicodeDecodeError,json.JSONDecodeError) as exc:
+        raise BackupProtectionError("Pending restore manifest is unavailable for app-data preparation.") from exc
+    coverage=manifest.get("coverage") if isinstance(manifest.get("coverage"),dict) else {}
+    included=int(manifest.get("format_version") or 1)>=2 and bool(coverage.get("app_data"))
+    if not included:
         return {"included":False,"new":None,"old":None,"target":target,"had_target":target.exists()}
+    if not staged.is_dir():
+        staged.mkdir(parents=True,exist_ok=True)
     new=settings.data_dir/f".app-data-restore-new-{token}"
     old=settings.data_dir/f".app-data-restore-old-{token}"
     shutil.copytree(staged,new,symlinks=False)
