@@ -161,22 +161,24 @@ function ensureHealthWorkspace() {
 
 async function loadHealth() {
   ensureHealthWorkspace();
-  const [status,plan]=await Promise.all([
-    api('/api/v1/control/health'),
-    api('/api/v1/control/health/repair-plan')
-  ]);
+  // One canonical snapshot for the Health list and repair recommendations.
+  const status=await api('/api/v1/control/health');
+  const plan={items:(status.issues||[]).filter(item=>item.repair?.class!=='diagnose_only')};
   const counts=status.counts||{};
   $('healthSummary').innerHTML=
     '<div class="panel health-summary level-'+esc(status.overall)+'"><div><p class="eyebrow">HOMESERVER HEALTH</p><h3>'+esc(String(status.overall||'healthy').toUpperCase())+'</h3></div>'+
     '<div class="health-summary-grid"><span><strong>'+Number(status.count||0)+'</strong> issues</span><span><strong>'+Number(status.agent_repairable_count||0)+'</strong> Agent-repairable</span><span><strong>'+Number(counts.failed||0)+'</strong> failed</span><span><strong>'+Number(counts.degraded||0)+'</strong> degraded</span></div></div>';
   $('healthIssues').innerHTML=(status.issues||[]).length ? status.issues.map(item =>
-    '<article class="health-row"><div><div class="health-row-title"><strong>'+esc(item.title)+'</strong><span class="tag">'+esc(item.severity)+'</span></div><p>'+esc(item.detail)+'</p><small>'+esc(item.source)+'</small></div></article>'
-  ).join('') : '<div class="empty-state">HomeServer is healthy.</div>';
+    '<article class="health-row"><div><div class="health-row-title"><strong>'+esc(item.title)+'</strong><span class="tag">'+esc(item.severity)+'</span></div><p>'+esc(item.detail)+'</p><small>'+esc(item.source)+'</small></div><button type="button" class="button secondary" data-maintenance-chat="'+esc(item.key)+'">Discuss</button></article>'
+  ).join('') : '<div class="empty-state">'+(status.snapshot_complete===false?'Health checks are incomplete; obtain fresh diagnostics.':'HomeServer is healthy.')+'</div>';
   $('healthRepairs').innerHTML=(plan.items||[]).length ? plan.items.map(item => {
     const repair=item.repair||{};
     return '<article class="health-row"><div><div class="health-row-title"><strong>'+esc(item.title)+'</strong><span class="tag">'+esc(repair.class||'review')+'</span></div><p>'+esc(repair.action_key||'Owner review')+(repair.owner_approval_required?' · owner approval required':'')+'</p></div>'+
       (repair.agent_can_execute?'<button class="button secondary" type="button" data-health-go-app="'+esc(repair.arguments?.app_key||'')+'">Open app</button>':'')+'</article>';
   }).join('') : '<div class="empty-state">No repair actions are currently required.</div>';
+  if(window.HomeServerMaintenanceWorkspace) {
+    await window.HomeServerMaintenanceWorkspace.load(status);
+  }
 }
 
 function openView(name) {
