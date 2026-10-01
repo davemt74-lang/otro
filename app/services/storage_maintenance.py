@@ -149,6 +149,51 @@ def app_usage()->dict[str,Any]:
     return {"items":items,"count":len(items),"total_used_bytes":sum(row["used_bytes"] for row in items)}
 
 
+def domain_usage(apps:dict[str,Any]|None=None,categories:dict[str,int]|None=None)->dict[str,Any]:
+    apps=apps or app_usage()
+    categories=categories or category_usage()
+    by_key={item["app_key"]:item for item in apps["items"]}
+    downloads=int((by_key.get("vp3.download-manager") or {}).get("used_bytes") or 0)
+    media_derivatives=int((by_key.get("vp3.media-processor") or {}).get("used_bytes") or 0)
+    app_total=int(categories.get("app_data") or 0)
+    app_other=max(0,app_total-downloads-media_derivatives)
+    with db() as connection:
+        tables={str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        member_count=int(connection.execute("SELECT COUNT(*) FROM homeserver_members").fetchone()[0]) if "homeserver_members" in tables else 0
+        member_context_bytes=int(connection.execute(
+            "SELECT COALESCE(SUM(LENGTH(value_json)),0) FROM homeserver_member_context"
+        ).fetchone()[0]) if "homeserver_member_context" in tables else 0
+        member_activity_bytes=int(connection.execute(
+            "SELECT COALESCE(SUM(LENGTH(metadata_json)+LENGTH(action)+COALESCE(LENGTH(resource_key),0)),0) FROM homeserver_member_activity"
+        ).fetchone()[0]) if "homeserver_member_activity" in tables else 0
+    return {
+        "downloads":{
+            "physical_bytes":downloads,
+            "owned_by":"vp3.download-manager",
+            "external_mapped_storage_included":False,
+        },
+        "media_derivatives":{
+            "physical_bytes":media_derivatives,
+            "owned_by":"vp3.media-processor",
+            "external_mapped_storage_included":False,
+        },
+        "other_app_data":{
+            "physical_bytes":app_other,
+            "owned_by":"installed-apps",
+            "external_mapped_storage_included":False,
+        },
+        "backups":{"physical_bytes":int(categories.get("backups") or 0),"owned_by":"homeserver-backups"},
+        "runtime_state":{"physical_bytes":int(categories.get("runtime") or 0),"owned_by":"homeserver-runtime"},
+        "member_owned":{
+            "physical_bytes":None,
+            "logical_bytes_estimate":member_context_bytes+member_activity_bytes,
+            "member_count":member_count,
+            "owned_by":"homeserver-database",
+            "double_counted_in_database":False,
+        },
+    }
+
+
 def disk_status()->dict[str,Any]:
     settings.data_dir.mkdir(parents=True,exist_ok=True)
     disk=shutil.disk_usage(settings.data_dir)
@@ -176,6 +221,7 @@ def maintenance_plan()->dict[str,Any]:
     disk=disk_status()
     categories=category_usage()
     apps=app_usage()
+    domains=domain_usage(apps,categories)
     recommendations=[]
     if disk["level"] in {"warning","critical"}:
         recommendations.append({
@@ -213,6 +259,7 @@ def maintenance_plan()->dict[str,Any]:
         "disk":disk,
         "categories":categories,
         "apps":apps,
+        "domains":domains,
         "recommendations":recommendations,
         "count":len(recommendations),
         "automatic_deletion":False,
@@ -241,6 +288,7 @@ def status()->dict[str,Any]:
         "disk":plan["disk"],
         "categories":plan["categories"],
         "apps":plan["apps"],
+        "domains":plan["domains"],
         "recommendation_count":plan["count"],
         "policy":policy(),
         "automatic_deletion":False,
@@ -272,6 +320,7 @@ def brain_context()->dict[str,Any]:
         "disk":plan["disk"],
         "top_categories":top_categories,
         "quota_attention":quota_attention,
+        "domains":plan["domains"],
         "recommendations":[
             {
                 "key":item["key"],
@@ -312,6 +361,16 @@ def agent_context_fragment(query:str="",max_chars:int=1600)->str:
         lines.append("- app_quota_attention="+", ".join(
             f"{item['app_key']}:{item['usage_percent']:.1f}%" for item in context["quota_attention"]
         ))
+    domains=context["domains"]
+    lines.append("- storage_domains="+", ".join(
+        [
+            f"downloads:{domains['downloads']['physical_bytes']}",
+            f"media_derivatives:{domains['media_derivatives']['physical_bytes']}",
+            f"backups:{domains['backups']['physical_bytes']}",
+            f"runtime_state:{domains['runtime_state']['physical_bytes']}",
+            f"member_logical:{domains['member_owned']['logical_bytes_estimate']}",
+        ]
+    ))
     if context["recommendations"]:
         lines.append("- maintenance="+", ".join(
             f"{item['level']}:{item['key']}" for item in context["recommendations"]
@@ -326,6 +385,10 @@ def public_capability()->dict[str,Any]:
         "contract":CONTRACT,
         "disk_health":True,
         "category_usage":True,
+        "domain_usage":True,
+        "download_usage":True,
+        "media_derivative_usage":True,
+        "member_owned_logical_usage":True,
         "per_app_quota_rollup":True,
         "low_space_policy":True,
         "maintenance_recommendations":True,
