@@ -99,6 +99,8 @@
 
   function card(app){
     const meta=app.metadata||{};
+    const center=app.center||{};
+    const readiness=center.readiness||{};
     const system=app.app_class==='system';
     const installed=!!app.installed;
     const canOpen=app.actions?.open;
@@ -109,9 +111,9 @@
     const shared=!!app.distribution;
     const status=installed?(app.lifecycle_state||'installed'):'available';
     const primary=!installed
-      ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}">Install</button>`
+      ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}" ${readiness.blocked?'disabled':''}>Install</button>`
       : app.update_available
-        ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}">Update</button>`
+        ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}" ${readiness.blocked?'disabled':''}>Update</button>`
         : canOpen
           ? `<a class="button primary" href="/api/v1/control/homeserver-apps/${encodeURIComponent(app.app_key)}/preview/" target="_blank" rel="noreferrer">Open</a>`
           : '';
@@ -127,6 +129,9 @@
           ${shared?'<span>Private Share</span>':''}
           ${hosted?'<span>Hosted</span>':''}
           ${app.update_available?'<span>Update Available</span>':''}
+          ${readiness.blocked?'<span class="hs-app-tag-danger">Blocked</span>':''}
+          ${readiness.warnings?.length?'<span class="hs-app-tag-warn">Review update</span>':''}
+          ${app.installed&&app.agent_control?.complete?'<span>Agent Ready</span>':''}
         </div>
         <dl class="hs-app-meta">
           <div><dt>Installed</dt><dd>${esc(app.installed_version||'—')}</dd></div>
@@ -134,6 +139,9 @@
           <div><dt>Permissions</dt><dd>${permissionCount?`${allowedCount}/${permissionCount}`:'—'}</dd></div>
           <div><dt>Storage</dt><dd>${installed?bytes(storage):'—'}</dd></div>
         </dl>
+        ${center.release_notes?.length?`<div class="hs-app-release-note"><strong>What’s new</strong><span>${esc(center.release_notes[0])}</span></div>`:''}
+        ${readiness.issues?.length?`<div class="hs-app-readiness danger"><strong>Not ready</strong><span>${esc(readiness.issues[0].message)}</span></div>`:''}
+        ${readiness.warnings?.length?`<div class="hs-app-readiness warning"><strong>Review before ${esc(readiness.operation||'update')}</strong><span>${esc(readiness.warnings[0].message)}</span></div>`:''}
         <div class="hs-app-actions">
           ${primary}
           ${installed?`<button class="button secondary" type="button" data-hs-app-details="${esc(app.app_key)}">Manage</button>`:''}
