@@ -718,6 +718,11 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
     if k=="processor.cancel": return cancel(str(a.get("job_id") or ""))
     if k=="processor.retry": return retry(str(a.get("job_id") or ""))
     if k=="processor.derivatives": return derivatives(str(a.get("media_id") or ""),int(a.get("limit",200)))
+    if k=="processor.contact-sheet": return enqueue_contact_sheet(
+        list(a.get("media_ids") or []),preset=str(a.get("preset") or "2x2"),
+        output_format=str(a.get("output_format") or "jpg"),priority=int(a.get("priority",0)),
+        destination_id=str(a.get("destination_id") or "app-storage")
+    )
     if k=="processor.brain-context": return brain_context(int(a.get("limit",8)))
     if k=="processor.destinations": return destinations()
     if k=="processor.destination.add": return add_destination(
