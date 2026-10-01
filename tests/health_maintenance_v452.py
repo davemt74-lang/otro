@@ -89,6 +89,34 @@ with tempfile.TemporaryDirectory(prefix="hs-maintenance-31b-") as temp:
             projection=activity_center.brain_context()
             assert any(x["title"]=="Disk pressure" for x in projection["attention"])
 
+            # An owner-dismissed warning must re-open when it becomes critical.
+            new_issue={
+                "key":"media:escalating",
+                "title":"Media runtime degraded",
+                "severity":"warning",
+                "repair":{"agent_can_execute":False,"action_key":None},
+            }
+            state["issues"]=[issue,new_issue]
+            health_maintenance.sync_health_notifications()
+            with db() as conn:
+                new_id=int(conn.execute(
+                    "SELECT id FROM notifications WHERE dedupe_key='health:media:escalating'"
+                ).fetchone()[0])
+            activity_center.mark_notification(new_id, read=True, dismissed=True)
+            health_maintenance.sync_health_notifications()
+            with db() as conn:
+                assert conn.execute("SELECT dismissed_at FROM notifications WHERE id=?",(new_id,)).fetchone()[0]
+            new_issue["severity"]="critical"
+            health_maintenance.sync_health_notifications()
+            with db() as conn:
+                row=conn.execute(
+                    "SELECT dismissed_at,read_at,level,occurrence_count FROM notifications WHERE id=?",
+                    (new_id,),
+                ).fetchone()
+                assert row["dismissed_at"] is None and row["read_at"] is None
+                assert row["level"]=="error" and int(row["occurrence_count"])==2
+            assert any(x["title"]=="Media runtime degraded" for x in activity_center.brain_context()["attention"])
+
             # A real probe failure reports incomplete, without leaking exception text.
             health_repair.status=original
             with patch.object(health_repair.homeserver_app_manager,"inventory",side_effect=RuntimeError("SECRET_PATH_123")):
