@@ -128,7 +128,7 @@
     } catch (_) { return; }
     if(!draft.trim()) return;
     document.querySelector('.nav [data-view="chat"]')?.click();
-    input.value=input.value.trim() ? input.value.trim() + '\\n\\n' + draft : draft;
+    input.value=input.value.trim() ? input.value.trim() + String.fromCharCode(10,10) + draft : draft;
     input.dispatchEvent(new Event('input',{bubbles:true}));
     input.focus();
   }

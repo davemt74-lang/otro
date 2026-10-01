@@ -7,7 +7,17 @@ const script=fs.readFileSync('ui/agent-brain-drawer.js','utf8');
 const css=fs.readFileSync('ui/agent-brain-drawer.css','utf8');
 const registry=new Map();
 const handlers=new Map();
-let submitCalls=0,chatNavClicks=0,healthNavClicks=0,intervals=0;
+let submitCalls=0,chatNavClicks=0,healthNavClicks=0,intervals=0,lastRoute=null;
+const stored=new Map();
+const sessionStorage={
+  setItem:(key,value)=>stored.set(key,value),
+  getItem:key=>stored.get(key)||null,
+  removeItem:key=>stored.delete(key)
+};
+const window={
+  addEventListener:(kind,fn)=>handlers.set('window:'+kind,fn),
+  location:{assign:route=>{lastRoute=route;}}
+};
 class Element {
   constructor(name='element') {
     this.name=name;this.children=[];this.listeners=new Map();this.dataset={};
@@ -88,7 +98,7 @@ const fetch=(url,options)=>{
   throw new Error('Unexpected fetch '+url);
 };
 vm.runInNewContext(script,{document,fetch,setInterval:()=>++intervals,clearInterval:()=>{},
-  Event:class{constructor(type){this.type=type;}},console});
+  Event:class{constructor(type){this.type=type;}},console,window,sessionStorage});
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{
   const toggle=registry.get('agentBrainDrawerToggle');
@@ -133,6 +143,19 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   registry.get('agentBrainHealth').fire('click');
   assert.equal(healthNavClicks,1,'Health action uses existing workspace');
   assert.ok(healthRequests>=2&&activityRequests>=2);
+  // From a standalone owner page the same drawer preserves an opaque prompt
+  // across navigation into the existing owner Chat canvas.
+  registry.delete('chatInput');
+  toggle.fire('click');
+  await flush();
+  issues.fire('click',{target:{closest:()=>issues.children[0]}});
+  assert.equal(lastRoute,'/#chat');
+  assert.ok(stored.get('homeserver:agent-brain:chat-draft-v1')?.includes('storage:disk-pressure'));
+  registry.set('chatInput',input);
+  input.value='';
+  handlers.get('window:load')();
+  assert.ok(input.value.includes('storage:disk-pressure'));
+  assert.equal(stored.size,0,'Draft is consumed exactly once');
   assert.match(css,/position:fixed/);
   assert.match(css,/max-width:100vw/);
   console.log('Section 31: real drawer interactions, warning handoff and governance PASS');

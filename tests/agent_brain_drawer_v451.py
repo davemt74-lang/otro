@@ -25,4 +25,12 @@ assert "fetch('/api/v1/control/health', {credentials:'same-origin'" in script
 assert 'position:fixed' in style
 assert 'max-width:100vw' in style
 assert 'translateX(105%)' in style
-print("Section 31A: Agent Brain drawer static contract PASS")
+for page in ("tasks.html","system.html","remote.html"):
+    text=(ROOT/"ui"/page).read_text(encoding="utf-8")
+    assert '<script src="/assets/agent-brain-drawer.js" defer></script>' in text,page
+    assert text.index('/assets/universal-shell-v220.js') < text.index('/assets/agent-brain-drawer.js'),page
+assert '/assets/agent-brain-drawer.js' not in (ROOT/"ui"/"member.html").read_text(encoding="utf-8")
+assert 'CHAT_DRAFT_KEY' in script
+assert 'sessionStorage.setItem(CHAT_DRAFT_KEY' in script
+assert 'window.location.assign(\'/#chat\')' in script
+print("Section 31: global owner drawer and safe Chat handoff contract PASS")
