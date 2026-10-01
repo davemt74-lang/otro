@@ -16,7 +16,7 @@ for expected in (
     "setAttribute('inert', '')",
     "setAttribute('aria-expanded', String(open))",
     'clearInterval(timer)',
-    "if (event.key === 'Escape'",
+    "if (e.key === 'Escape'",
 ):
     assert expected in script,expected
 assert "chatForm.submit(" not in script
