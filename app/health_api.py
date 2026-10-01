@@ -152,3 +152,23 @@ def control_governed_recordings_delete(
         return governed_recordings.delete(recording_id)
     except governed_recordings.RecordingError as exc:
         raise HTTPException(exc.status_code, detail="Recording unavailable.") from exc
+
+
+@router.post("/api/v1/control/governed-recordings/{recording_id}/transcribe")
+def control_governed_recordings_transcribe(
+    recording_id:str,request:Request,
+    requested_with:str|None=Header(None,alias="X-Requested-With"),
+)->dict:
+    _local_capture_request(request,requested_with)
+    try:
+        return governed_recordings.transcribe_saved(recording_id)
+    except governed_recordings.RecordingError as exc:
+        raise HTTPException(exc.status_code,detail=exc.reason) from exc
+
+
+@router.get("/api/v1/control/governed-recordings/{recording_id}/transcript")
+def control_governed_recordings_transcript(recording_id:str)->dict:
+    try:
+        return governed_recordings.private_transcript(recording_id)
+    except governed_recordings.RecordingError as exc:
+        raise HTTPException(exc.status_code,detail="Private transcript unavailable.") from exc
