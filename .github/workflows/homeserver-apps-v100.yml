@@ -18,6 +18,7 @@ on:
       - 'tests/homeserver_media_library_v350.py'
       - 'tests/homeserver_media_library_collections_v351.py'
       - 'tests/homeserver_media_library_duplicates_v352.py'
+      - 'tests/homeserver_media_library_artwork_v353.py'
       - 'app/services/homeserver_media_library.py'
       - 'app/services/homeserver_download_manager.py'
       - 'app/services/homeserver_media_processor.py'
@@ -132,6 +133,7 @@ on:
       - 'app/services/homeserver_media_library.py'
       - 'tests/homeserver_media_library_collections_v351.py'
       - 'tests/homeserver_media_library_duplicates_v352.py'
+      - 'tests/homeserver_media_library_artwork_v353.py'
   workflow_dispatch:
 
 permissions:
@@ -178,6 +180,7 @@ jobs:
           tests/homeserver_media_library_v350.py
           tests/homeserver_media_library_collections_v351.py
           tests/homeserver_media_library_duplicates_v352.py
+          tests/homeserver_media_library_artwork_v353.py
           app/services/homeserver_media_library.py
           app/services/homeserver_download_manager.py
           app/services/homeserver_media_processor.py
@@ -293,5 +296,7 @@ jobs:
         run: python tests/homeserver_media_library_collections_v351.py
       - name: Verify Media Library duplicate cleanup center
         run: python tests/homeserver_media_library_duplicates_v352.py
+      - name: Verify Media Library artwork posters and thumbnails
+        run: python tests/homeserver_media_library_artwork_v353.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
