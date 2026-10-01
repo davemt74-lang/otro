@@ -1,0 +1,36 @@
+name: HomeServer Section 31B Proactive Maintenance
+on:
+  pull_request:
+    paths:
+      - 'app/services/health_maintenance.py'
+      - 'app/services/activity_center.py'
+      - 'ui/agent-brain-drawer.js'
+      - 'tests/health_maintenance_v452.py'
+      - '.github/workflows/homeserver-maintenance-v452.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hs-maintenance-v452-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  maintenance:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - run: node --check ui/agent-brain-drawer.js
+      - run: python -m py_compile app/services/health_maintenance.py app/services/activity_center.py tests/health_maintenance_v452.py
+      - run: python tests/health_maintenance_v452.py
+      - run: python tests/agent_brain_drawer_v451.py
