@@ -16,6 +16,7 @@
     privacy_switch_engaged:'Turn off the physical privacy switch to record.',
     meeting_in_progress:'End the active physical meeting before recording.',
     capture_in_use:'Another recording is already in progress.',
+    transcription_unavailable:'Install or repair local Whisper, or use an audio recording.',
   };
   const status=text=>{const n=$('savedRecordingStatus');if(n)n.textContent=text;};
   async function jsonRequest(url,method='GET',body){
@@ -66,9 +67,33 @@
           }catch(err){status(err.message);}
           finally{busy=false;remove.disabled=false;}
         });
+        if(item.kind==='audio'){
+          const transcriptButton=document.createElement('button');
+          transcriptButton.type='button';transcriptButton.className='button secondary';
+          transcriptButton.textContent=item.has_transcript?'View transcript':'Transcribe';
+          transcriptButton.addEventListener('click',async()=>{
+            if(busy)return;
+            busy=true;transcriptButton.disabled=true;
+            try{
+              const result=await jsonRequest(base+'/'+encodeURIComponent(item.id)+
+                (item.has_transcript?'/transcript':'/transcribe'),item.has_transcript?'GET':'POST');
+              showTranscript(result.transcript||'');
+              status('Transcript is private. Use Copy or Draft in Agent Chat to share it explicitly.');
+              await refresh();
+            }catch(err){status(err.message);}
+            finally{busy=false;transcriptButton.disabled=false;}
+          });
+          actions.append(transcriptButton);
+        }
         actions.append(download,remove);row.append(heading,actions);list.append(row);
       });
     }catch(err){status(err.message);}
+  }
+  function showTranscript(text){
+    const area=$('savedRecordingTranscript');if(!area)return;
+    area.value=String(text||'').slice(0,12000);
+    $('savedRecordingTranscriptActions').hidden=false;
+    area.hidden=false;area.focus();
   }
   async function capture(kind){
     if(busy)return;
@@ -116,9 +141,32 @@
     const message=addText('p','Loading private recording status…','runtime-diagnostics-summary');
     message.id='savedRecordingStatus';message.setAttribute('role','status');message.setAttribute('aria-live','polite');
     const list=document.createElement('div');list.id='savedRecordingList';
+    const textarea=document.createElement('textarea');
+    textarea.id='savedRecordingTranscript';textarea.rows=6;textarea.hidden=true;
+    textarea.readOnly=true;textarea.setAttribute('aria-label','Private local transcription');
+    const transcriptActions=document.createElement('div');transcriptActions.id='savedRecordingTranscriptActions';
+    transcriptActions.className='runtime-diagnostics-actions';transcriptActions.hidden=true;
+    const copy=addText('button','Copy transcription');copy.type='button';
+    copy.addEventListener('click',async()=>{
+      try{await navigator.clipboard.writeText(textarea.value);status('Transcript copied locally.');}
+      catch(_){textarea.select();status('Copy the selected transcript manually.');}
+    });
+    const draft=addText('button','Draft in Agent Chat');draft.type='button';
+    draft.addEventListener('click',()=>{
+      const input=$('chatInput');if(!input){status('Open Agent Chat to draft this transcript.');return;}
+      const max=Number(input.maxLength||32000);
+      const next=(input.value?(input.value+'\\n\\n'):'')+textarea.value;
+      if(next.length>max){status('Transcript exceeds Agent Chat draft limit; select a shorter excerpt.');return;}
+      input.value=next.replace(/\\n/g,'\n');
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      document.querySelector('[data-view="chat"]')?.click();
+      input.focus();
+      status('Transcript drafted in Agent Chat; nothing sent until you submit it.');
+    });
+    transcriptActions.append(copy,draft);
     container.append(controls,message,
-      addText('p','Recordings expire after seven days. Only you can download or delete them; video requires a camera configured on the installed HomeServer.','runtime-diagnostics-boundary'),
-      list);
+      addText('p','Talk and Dictation remain in the existing Agent Chat canvas. Saved recordings use separate private transcription and are never sent to Cloud automatically.','runtime-diagnostics-boundary'),
+      list,textarea,transcriptActions);
     const after=$('liveCertification')||$('runtimeDiagnostics');
     if(after)after.insertAdjacentElement('afterend',container);
     else home.append(container);
