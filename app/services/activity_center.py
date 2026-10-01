@@ -459,12 +459,12 @@ def update_preference(source_key:str,values:dict[str,Any])->dict[str,Any]:
     return {"source_key":key,**payload}
 
 
-def summary()->dict[str,Any]:
-    sync_notifications()
+def failure_counts()->dict[str,int]:
+    """Read failure counts without triggering notification synchronization.
+
+    Health consumes this read-only primitive to avoid recursive summary->sync->health.
+    """
     with db() as connection:
-        unread=int(connection.execute("SELECT COUNT(*) FROM notifications WHERE read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL").fetchone()[0])
-        attention=int(connection.execute("""SELECT COUNT(*) FROM notifications WHERE level IN ('error','action_required') AND dismissed_at IS NULL AND archived_at IS NULL""").fetchone()[0])
-        pending_db=int(connection.execute("SELECT COUNT(*) FROM action_requests WHERE status='pending'").fetchone()[0])
         failed_auto=int(connection.execute(
             """SELECT COUNT(*) FROM notifications
                WHERE source_kind='automation' AND level='error'
@@ -475,9 +475,19 @@ def summary()->dict[str,Any]:
                WHERE source_kind='agent' AND level='error'
                  AND dismissed_at IS NULL AND archived_at IS NULL"""
         ).fetchone()[0])
+    return {"failed_automations":failed_auto,"failed_agent_runs":failed_agent}
+
+
+def summary()->dict[str,Any]:
+    sync_notifications()
+    with db() as connection:
+        unread=int(connection.execute("SELECT COUNT(*) FROM notifications WHERE read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL").fetchone()[0])
+        attention=int(connection.execute("""SELECT COUNT(*) FROM notifications WHERE level IN ('error','action_required') AND dismissed_at IS NULL AND archived_at IS NULL""").fetchone()[0])
+        pending_db=int(connection.execute("SELECT COUNT(*) FROM action_requests WHERE status='pending'").fetchone()[0])
+    failures=failure_counts()
     return {
         "contract":CONTRACT,"unread":unread,"needs_attention":attention,"pending_approvals":pending_db+len(homeserver_app_approvals.list_rows(status="pending",limit=500)),
-        "failed_automations":failed_auto,"failed_agent_runs":failed_agent,
+        "failed_automations":failures["failed_automations"],"failed_agent_runs":failures["failed_agent_runs"],
     }
 
 
