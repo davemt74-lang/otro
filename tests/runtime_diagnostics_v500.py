@@ -49,7 +49,10 @@ with tempfile.TemporaryDirectory(prefix="hs-runtime-diagnostics-") as data:
         assert overview["recorded_media"] is False
         assert overview["requested_repairs"] is False
         checks={x["name"]:x for x in overview["checks"]}
-        assert len(checks)==11
+        assert len(checks)==12
+        assert checks["tracky_owner_browser"]["status"]=="missing"
+        assert checks["tracky_owner_browser"]["hardware_certified"] is False
+        assert checks["tracky_owner_browser"]["face_identity_verified"] is False
         for name in ("transcription","voice_output","microphone_capture","speaker_device",
                      "video_processing","agent_eyes","local_llm"):
             assert checks[name]["status"]=="not_verified",(name,checks[name])

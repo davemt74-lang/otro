@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -109,3 +109,82 @@ def visual_cancel(x_requested_with: str | None = Header(default=None)) -> dict:
 def visual_delete(payload: VisualDelete, x_requested_with: str | None = Header(default=None)) -> dict:
     _require_ui(x_requested_with)
     return _visual_call(lambda: onboarding_visual.delete_report(participant_id=payload.participant_id))
+
+
+
+# One-shot local browser perception. The session proof stays only in the
+# authenticated owner's browser; never stored in persistent onboarding state.
+class EyesOpen(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool
+    scope: str = Field(max_length=80)
+    model_ready: bool
+    camera_ready: bool
+
+
+class EyesSession(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    session: str = Field(min_length=32, max_length=128)
+
+
+class EyesObservation(EyesSession):
+    request_id: str = Field(min_length=16, max_length=128)
+    face_count: int = Field(strict=True, ge=0, le=2)
+    confidence: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    model_ready: bool
+    camera_ready: bool
+
+
+def _eyes_call(fn):
+    try:
+        return fn()
+    except tracky_owner_perception.OwnerPerceptionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/visual/eyes/status")
+def visual_eyes_status() -> dict:
+    return tracky_owner_perception.status()
+
+
+@router.post("/visual/eyes/open")
+def visual_eyes_open(payload: EyesOpen, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _eyes_call(lambda: tracky_owner_perception.open_session(
+        consent=payload.consent, scope=payload.scope,
+        model_ready=payload.model_ready, camera_ready=payload.camera_ready
+    ))
+
+
+@router.post("/visual/eyes/heartbeat")
+def visual_eyes_heartbeat(payload: EyesSession, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _eyes_call(lambda: tracky_owner_perception.heartbeat(session=payload.session))
+
+
+@router.post("/visual/eyes/next")
+def visual_eyes_next(payload: EyesSession, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _eyes_call(lambda: tracky_owner_perception.next_request(session=payload.session))
+
+
+@router.post("/visual/eyes/submit")
+def visual_eyes_submit(payload: EyesObservation, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _eyes_call(lambda: tracky_owner_perception.submit(
+        session=payload.session, request_id=payload.request_id,
+        face_count=payload.face_count, confidence=payload.confidence,
+        model_ready=payload.model_ready, camera_ready=payload.camera_ready
+    ))
+
+
+@router.post("/visual/eyes/test")
+def visual_eyes_test(payload: EyesSession, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _eyes_call(lambda: tracky_owner_perception.run_owner_test(session=payload.session))
+
+
+@router.post("/visual/eyes/close")
+def visual_eyes_close(payload: EyesSession, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _eyes_call(lambda: tracky_owner_perception.close(session=payload.session))

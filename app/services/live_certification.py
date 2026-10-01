@@ -199,6 +199,10 @@ def _run_eyes()->tuple[str,dict[str,Any]]:
     provider,caps,_=tracky_physical_context._provider_snapshot()
     if provider is None:
         return "unsupported",{"reason":"perception_provider_unavailable"}
+    # An owner browser is a consented inference surface, not proof of a
+    # HomeServer-native camera. Its test is initiated within Agent Chat.
+    if caps.get("surface") == "owner_browser":
+        return "unsupported", {"reason": "owner_browser_requires_chat_test"}
     camera=vp3_os.hardware_inventory().get("camera",{})
     if caps.get("requires_camera",True) and not camera.get("ready"):
         return "unsupported",{"reason":"camera_not_ready"}
@@ -255,6 +259,7 @@ def execute(test_key:str,*,consent:bool,physical_capture_ack:bool=False)->dict[s
             "microphone_backend_unavailable","managed_ffmpeg_unavailable",
             "synthetic_encoder_failed","synthetic_encode_or_probe_failed",
             "perception_provider_unavailable","camera_not_ready",
+            "owner_browser_requires_chat_test",
             "owner_review_of_visual_result_required","provider_did_not_complete",
             "test_failed_review_local_logs","invalid_test_result",
         })
