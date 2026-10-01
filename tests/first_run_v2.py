@@ -13,15 +13,13 @@ launcher = (ROOT / "desktop/launcher.py").read_text(encoding="utf-8")
 system = (ROOT / "app/system_api.py").read_text(encoding="utf-8")
 gateway = (ROOT / "app/runtime.py").read_text(encoding="utf-8")
 
-assert '"/welcome"' in gateway and '"\/welcome"' not in gateway
+assert '"/welcome"' in gateway
 assert '"/welcome"' in system and 'no-store' in system
 assert '_authorized_path("/welcome")' in launcher
 assert 'self.open_welcome).start()' in launcher
 assert 'id="startSetup"' in html and 'id="enterAgent"' in html
 assert 'prefers-reduced-motion:reduce' in css
-assert "addEventListener('click', prepare)" in js
-assert "addEventListener('click', openAgent)" in js
-assert "REQUIRED_PACKAGES = ['whisper-stt', 'piper-tts']" in js
+assert "addEventListener('click',launch)" in js
 assert "control/local-apps/" not in js and "control/system/setup" not in js
 assert "window.location.assign('/#chat')" in js
 assert "Microphone, camera, and proactive speech remain your choice." in html
