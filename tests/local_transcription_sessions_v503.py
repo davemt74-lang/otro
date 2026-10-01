@@ -1,5 +1,6 @@
 """Owner-local persistent transcript, consented Cloud text relay, no audio exposure."""
 import os,sys,tempfile
+from unittest.mock import patch
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -8,7 +9,7 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
     from fastapi.testclient import TestClient
     from app.runtime import app
     from app.security import OWNER_CONTROL_TOKEN
-    from app.services import local_transcription_sessions as tx
+    from app.services import local_transcription_sessions as tx, remote_bridge
     from app.services.tasks import scheduler
 
     with TestClient(app) as client:
@@ -48,6 +49,23 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert shared["session"]["segments"][0]["text"]=="My private local transcript."
         assert "audio" not in str(shared["session"]["segments"])
         assert [s["id"] for s in tx.list_sessions(paired=True)["sessions"]]==[sid]
+        # The same consent gate applies at the existing paired HTTPS relay;
+        # verify the relay does not expose private audio or unrelated sessions.
+        with patch.object(remote_bridge,"_vp3_system_apps_identity",
+                          return_value={"app_key":"vp3"}) as vp3, \
+             patch.object(remote_bridge,"_direct_identity",
+                          return_value={"app_key":"vp3","permissions":["knowledge.read"]}) as scope:
+            relay_list=remote_bridge.dispatch_remote_request(
+                "transcription.shared.list",{"limit":5},"t"*40)
+            assert relay_list["status"]==200
+            assert [v["id"] for v in relay_list["payload"]["sessions"]]==[sid]
+            relay_doc=remote_bridge.dispatch_remote_request(
+                "transcription.shared.fetch",{"session_id":sid},"t"*40)
+            assert relay_doc["payload"]["session"]["segments"][0]["text"]=="My private local transcript."
+            assert relay_doc["payload"]["raw_audio_included"] is False
+            vp3.assert_called()
+            scope.assert_called()
+
         revoke=client.put(f"{base}/{sid}/cloud-share",json={"cloud_share":False},headers=req)
         assert revoke.status_code==200
         try:tx.get(sid,paired=True)
