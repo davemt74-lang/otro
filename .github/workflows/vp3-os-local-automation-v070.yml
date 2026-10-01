@@ -43,6 +43,7 @@ jobs:
         run: >-
           python -m py_compile
           app/services/local_automation.py
+          app/services/homeserver_app_control.py
           app/services/room_device_automation.py
           app/services/approvals.py
           app/local_automation_api.py
