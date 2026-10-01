@@ -59,9 +59,15 @@ const document={
   })[sel]||null,
   addEventListener:(event,fn)=>handlers.set(event,fn)
 };
-let healthRequests=0,activityRequests=0;
+let healthRequests=0,activityRequests=0,manualSyncs=0;
 const fetch=(url,options)=>{
   assert.equal(options.credentials,'same-origin');
+  assert.equal(options.cache,'no-store');
+  if(url==='/api/v1/control/activity-center/sync') {
+    assert.equal(options.method,'POST');
+    manualSyncs++;
+    return Promise.resolve({ok:true,json:async()=>({health:{created:0}})});
+  }
   assert.equal(options.cache,'no-store');
   assert.equal(options.method,undefined);
   if(url==='/api/v1/control/health') {
@@ -105,6 +111,9 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   await flush();
   const alerts=registry.get('agentBrainAlerts');
   assert.equal(alerts.children.length,1,'Warning maintenance event visible');
+  registry.get('agentBrainRefresh').fire('click');
+  await flush();
+  assert.equal(manualSyncs,1,'Explicit refresh synchronizes maintenance');
   alerts.fire('click',{target:{closest:()=>alerts.children[0]}});
   assert.equal(chatNavClicks,2);
   assert.ok(input.value.includes('notification:42'));
