@@ -59,13 +59,10 @@ with tempfile.TemporaryDirectory(prefix="hs-runtime-diagnostics-") as data:
         assert not checks["microphone_capture"]["recording_tested"]
         assert "SECRET_NEVER_EXPORT" not in json.dumps(overview)
         discover.assert_not_called()
-        model_names={entry["function"]["name"] for entry in
-                     agent_tools.model_tool_schemas(set(),owner=True)}
-        assert "homeserver_runtime_diagnostics" in model_names
-        assert "homeserver_runtime_diagnostics" not in {
-            entry["function"]["name"] for entry in
-            agent_tools.model_tool_schemas(set(),owner=False)
-        }
+        # Before app startup there is no tool policy table. Validate registry
+        # metadata here; authenticated integration exercises the live API below.
+        assert agent_tools.MODEL_TOOL_NAMES["homeserver_runtime_diagnostics"]=="runtime.diagnostics"
+        assert tools.TOOL_DEFINITIONS["runtime.diagnostics"]["owner_only"] is True
         tool_result=tools._runtime_diagnostics({})
         assert tool_result[0]["read_only"] is True
         discover.assert_not_called()
