@@ -61,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         with patch.object(remote_bridge,"_vp3_system_apps_identity",
                           return_value={"app_key":"vp3"}) as vp3, \
              patch.object(remote_bridge,"_direct_identity",
-                          return_value={"app_key":"vp3","permissions":["knowledge.read"]}) as scope:
+                          return_value={"app_key":"vp3","permissions":["knowledge.search"]}) as scope:
             relay_list=remote_bridge.dispatch_remote_request(
                 "transcription.shared.list",{"limit":5},"t"*40)
             assert relay_list["status"]==200
