@@ -38,7 +38,7 @@ from .release_readiness_api import router as release_readiness_router
 from .remote_bridge_api import router as remote_bridge_router
 from .room_device_api import router as room_device_router
 from .tracky_api import router as tracky_router
-from .services import ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, hosting_cloud_control, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
+from .services import activity_center, ambient_agent, ambient_orchestration, automation_intelligence, device_rollout, fleet_management, hardware_adapters, hardware_experience, hosting_cloud_control, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -152,7 +152,7 @@ def capabilities() -> dict:
         "tracky_physical_context": tracky_physical_context.public_capability(),
         "vp3_os_local_automation": local_automation.public_capability(),
         "vp3_os_automation_intelligence": automation_intelligence.public_capability(),
-        "vp3_activity_center": __import__("app.services.activity_center",fromlist=["public_capability"]).public_capability(),
+        "vp3_activity_center": activity_center.public_capability(),
         "vp3_os_ambient_orchestration": ambient_orchestration.public_capability(),
         "vp3_os_release_readiness": release_readiness.public_capability(),
         "vp3_os_device_rollout": device_rollout.public_capability(),
