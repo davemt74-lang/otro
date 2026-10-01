@@ -5,6 +5,7 @@ Device-code verifier is local-only, DPAPI protected on Windows, and never sent t
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import threading
 from datetime import datetime, timedelta, timezone
@@ -146,7 +147,7 @@ def _remove_device() -> None:
 def _read_device() -> dict[str, Any] | None:
     path = _device_file()
     try:
-        state = json.loads(_unprotect_windows(path.read_bytes()).decode("utf-8"))
+        state = json.loads((_unprotect_windows(path.read_bytes()) if os.name == "nt" else path.read_bytes()).decode("utf-8"))
         if not isinstance(state, dict):
             return None
         expiry = datetime.fromisoformat(str(state["expires_at"]))
@@ -218,7 +219,8 @@ def new_device_code() -> dict[str, Any]:
         _cloud("start", state)
         path = _device_file()
         path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(path, _protect_windows(json.dumps(state).encode("utf-8")))
+        payload = json.dumps(state).encode("utf-8")
+        _atomic_write(path, _protect_windows(payload) if os.name == "nt" else payload)
         return device_status()
 
 
