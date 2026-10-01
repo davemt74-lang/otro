@@ -1186,6 +1186,81 @@ def remove_artwork(target_type:str,target_id:str,role:str)->dict[str,Any]:
     }
 
 
+def needs_metadata(limit:int=100)->dict[str,Any]:
+    bounded=max(1,min(int(limit),500))
+    source=homeserver_media_server.library(limit=500,offset=0)
+    items=[]
+    connection=_connect()
+    try:
+        for row in source["items"]:
+            state=_row_state(connection,str(row["media_id"]))
+            meta=state["metadata"]
+            missing=[]
+            if not str(meta.get("title") or "").strip(): missing.append("title")
+            if not str(meta.get("description") or "").strip(): missing.append("description")
+            if meta.get("rating") is None: missing.append("rating")
+            if not list(meta.get("tags") or []): missing.append("tags")
+            if missing:
+                items.append({
+                    "media_id":state["media_id"],
+                    "media_type":state["canonical"]["media_type"],
+                    "title":meta.get("title") or state["canonical"]["title"],
+                    "missing":missing,
+                })
+                if len(items)>=bounded:
+                    break
+    finally:
+        connection.close()
+    return {
+        "contract":CONTRACT,
+        "items":items,
+        "count":len(items),
+        "library_total":int(source.get("total") or source.get("count") or 0),
+        "definition":["title","description","rating","tags"],
+        "filesystem_paths_exposed":False,
+    }
+
+
+def recent_changes(limit:int=20)->dict[str,Any]:
+    bounded=max(1,min(int(limit),100))
+    connection=_connect()
+    try:
+        rows=connection.execute(
+            """SELECT history_id,media_id,actor,source,reason,created_at
+               FROM media_metadata_history
+               ORDER BY created_at DESC,history_id DESC LIMIT ?""",
+            (bounded,),
+        ).fetchall()
+    finally:
+        connection.close()
+    changes=[]
+    for row in rows:
+        media_id=str(row["media_id"])
+        try:
+            item=get(media_id)["item"]
+            title=item["metadata"]["title"] or item["canonical"]["title"]
+            media_type=item["canonical"]["media_type"]
+        except Exception:
+            title=media_id
+            media_type=""
+        changes.append({
+            "history_id":str(row["history_id"]),
+            "media_id":media_id,
+            "title":title,
+            "media_type":media_type,
+            "actor":str(row["actor"]),
+            "source":str(row["source"]),
+            "reason":str(row["reason"]),
+            "created_at":str(row["created_at"]),
+        })
+    return {
+        "contract":CONTRACT,
+        "changes":changes,
+        "count":len(changes),
+        "filesystem_paths_exposed":False,
+    }
+
+
 def status()->dict[str,Any]:
     connection=_connect()
     try:
@@ -1201,6 +1276,12 @@ def status()->dict[str,Any]:
         exact_group_count=int(connection.execute("SELECT COUNT(*) FROM media_duplicate_groups WHERE kind='exact'").fetchone()[0])
         artwork_count=int(connection.execute("SELECT COUNT(*) FROM media_artwork_assignments").fetchone()[0])
         artwork_ready=int(connection.execute("SELECT COUNT(*) FROM media_artwork_assignments WHERE status='ready'").fetchone()[0])
+        artwork_attention=int(connection.execute("SELECT COUNT(*) FROM media_artwork_assignments WHERE status IN ('pending','processing','failed')").fetchone()[0])
+        cleanup_needs_review=int(connection.execute(
+            """SELECT COUNT(*) FROM media_duplicate_groups g
+               LEFT JOIN media_duplicate_reviews r ON r.group_key=g.group_key
+               WHERE COALESCE(r.decision,'needs_review')='needs_review'"""
+        ).fetchone()[0])
     finally:
         connection.close()
     return {
@@ -1217,6 +1298,8 @@ def status()->dict[str,Any]:
         "exact_duplicate_groups":exact_group_count,
         "artwork_assignments":artwork_count,
         "artwork_ready":artwork_ready,
+        "artwork_attention":artwork_attention,
+        "cleanup_needs_review":cleanup_needs_review,
         "canonical_source":"vp3.media-server",
         "source_files_modified":False,
         "source_files_deleted":False,
@@ -1245,9 +1328,10 @@ def status()->dict[str,Any]:
 
 def brain_context(limit:int=8)->dict[str,Any]:
     state=status()
-    source=homeserver_media_server.library(limit=max(1,min(int(limit),20)))
+    bounded=max(1,min(int(limit),20))
+    source=homeserver_media_server.library(limit=bounded)
     recent=[]
-    for row in source["items"][:max(1,min(int(limit),20))]:
+    for row in source["items"][:bounded]:
         try:
             item_state=get(str(row["media_id"]))["item"]
         except Exception:
@@ -1261,6 +1345,15 @@ def brain_context(limit:int=8)->dict[str,Any]:
             "rating":meta["rating"],
             "tags":meta["tags"][:8],
         })
+    debt=needs_metadata(bounded)
+    changes=recent_changes(bounded)
+    attention=[]
+    if debt["count"]:
+        attention.append({"type":"metadata_debt","count":debt["count"],"sample":debt["items"][:3]})
+    if state["cleanup_needs_review"]:
+        attention.append({"type":"duplicate_review","count":state["cleanup_needs_review"]})
+    if state["artwork_attention"]:
+        attention.append({"type":"artwork","count":state["artwork_attention"]})
     return {
         "contract":"vp3.media-library.brain-context.v1",
         "summary":{
@@ -1274,10 +1367,15 @@ def brain_context(limit:int=8)->dict[str,Any]:
             "duplicate_reviews":state["duplicate_reviews"],
             "duplicate_groups":state["duplicate_groups"],
             "exact_duplicate_groups":state["exact_duplicate_groups"],
+            "cleanup_needs_review":state["cleanup_needs_review"],
             "artwork_assignments":state["artwork_assignments"],
             "artwork_ready":state["artwork_ready"],
+            "artwork_attention":state["artwork_attention"],
+            "metadata_debt_sample_count":debt["count"],
         },
+        "attention":attention,
         "recent":recent,
+        "recent_changes":changes["changes"],
         "source_files_modified":False,
         "filesystem_paths_exposed":False,
     }
@@ -1360,6 +1458,10 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
         return remove_artwork(
             str(args.get("target_type") or ""),str(args.get("target_id") or ""),str(args.get("role") or "")
         )
+    if key=="library.needs-metadata":
+        return needs_metadata(int(args.get("limit",100)))
+    if key=="library.recent-changes":
+        return recent_changes(int(args.get("limit",20)))
     if key=="library.brain-context":
         return brain_context(int(args.get("limit",8)))
     raise MediaLibraryError("Unsupported Media Library action.",404)
@@ -1397,6 +1499,10 @@ def public_capability()->dict[str,Any]:
         "source_file_writes":False,
         "source_file_deletes":False,
         "agent_brain_context":True,
+        "agent_metadata_debt":True,
+        "agent_recent_changes":True,
+        "agent_cleanup_attention":True,
+        "agent_artwork_attention":True,
         "universal_agent_control":True,
         "homeserver_execution_authority":True,
     }
