@@ -134,11 +134,13 @@ def list_activity(
                 resource_type=str(row["resource_type"] or ""),resource_key=str(row["resource_key"] or ""),
                 metadata=_decode(row["metadata_json"]),
             ))
-        for row in connection.execute(
+        notification_rows=connection.execute(
             """SELECT n.*,t.status AS task_status
                FROM notifications n LEFT JOIN tasks t ON t.id=n.task_id
                ORDER BY n.id DESC LIMIT ?""",(fetch,)
-        ).fetchall():
+        ).fetchall()
+        notification_dedupe={str(row["dedupe_key"]) for row in notification_rows if row["dedupe_key"]}
+        for row in notification_rows:
             action_payload=_decode(row["action_json"])
             items.append(_event(
                 "notification",str(row["id"]),str(row["created_at"]),str(row["event_key"] or "notification"),
@@ -166,6 +168,8 @@ def list_activity(
             """SELECT id,action_key,source_app_key,actor_type,status,created_at,expires_at,error
                FROM action_requests ORDER BY created_at DESC LIMIT ?""",(fetch,)
         ).fetchall():
+            if str(row["status"])=="pending" and f"approval:{row['id']}" in notification_dedupe:
+                continue
             action_payload={}
             if str(row["status"])=="pending":
                 action_payload={"type":"approval","request_id":str(row["id"])}
@@ -186,6 +190,8 @@ def list_activity(
                JOIN automation_routines ru ON ru.id=x.routine_id
                ORDER BY x.id DESC LIMIT ?""",(fetch,)
         ).fetchall():
+            if str(row["status"])=="failed" and f"automation:{row['id']}" in notification_dedupe:
+                continue
             items.append(_event(
                 "automation",str(row["id"]),str(row["created_at"]),"automation."+str(row["status"]),
                 actor_type="system",actor_key="local-automation",resource_type="routine",
@@ -198,6 +204,8 @@ def list_activity(
                FROM homeserver_app_ai_runs r JOIN homeserver_apps a ON a.app_id=r.app_id
                ORDER BY r.id DESC LIMIT ?""",(fetch,)
         ).fetchall():
+            if str(row["status"])=="failed" and f"agent-run:{row['id']}" in notification_dedupe:
+                continue
             items.append(_event(
                 "agent",str(row["id"]),str(row["created_at"]),"app.agent."+str(row["status"]),
                 actor_type="system",actor_key="app-agent-runtime",resource_type="app",resource_key=str(row["app_key"]),
@@ -212,7 +220,7 @@ def list_activity(
         seen.add(semantic)
         if category and item["category"]!=category: continue
         if needs_attention and not item["needs_attention"]: continue
-        if unread_only and item["read"]: continue
+        if unread_only and (item["source_kind"]!="notification" or item["read"]): continue
         result.append(item)
         if len(result)>=bounded: break
     return {"contract":CONTRACT,"items":result,"count":len(result)}
