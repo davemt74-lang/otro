@@ -267,7 +267,12 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
         "size_bytes": final_path.stat().st_size,
         "sha256": _sha256_path(final_path),
     }
-    backup_protection.prune_backups(list_backups(), delete_backup, protect_name=filename)
+    try:
+        retention = backup_protection.prune_backups(list_backups(), delete_backup, protect_name=filename)
+        result["retention_deleted_count"] = retention["deleted_count"]
+    except Exception as exc:
+        result["retention_deleted_count"] = 0
+        result["retention_warning"] = f"Backup succeeded but retention cleanup failed: {type(exc).__name__}"
     return result
 
 
@@ -303,6 +308,7 @@ def _read_manifest_from_archive(path: Path) -> dict[str, Any]:
 
 def _backup_summary(path: Path) -> dict[str, Any]:
     manifest = _read_manifest_from_archive(path)
+    _validate_manifest_shape(manifest)
     return {
         "name": path.name,
         "size_bytes": path.stat().st_size,
