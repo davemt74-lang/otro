@@ -23,12 +23,14 @@ class AppAgentRuntimeError(RuntimeError):
         self.status_code=status_code
 
 
-def _app(app_key:str)->dict[str,Any]:
+def _app(app_key:str,*,require_running:bool=False)->dict[str,Any]:
     try:
         app=homeserver_apps.get(str(app_key or "").strip().lower())
     except homeserver_apps.HomeServerAppError as exc:
         raise AppAgentRuntimeError(str(exc),exc.status_code) from exc
-    if app.get("lifecycle_state")!="running":
+    if not app.get("installed_version"):
+        raise AppAgentRuntimeError("App must be installed before using the Agent runtime.",409)
+    if require_running and app.get("lifecycle_state")!="running":
         raise AppAgentRuntimeError("App must be running before using the Agent runtime.",409)
     return app
 
@@ -204,6 +206,7 @@ def _redact(value:Any,depth:int=0)->Any:
 
 
 def collect_context(app_key:str,keys:list[str]|None=None)->dict[str,Any]:
+    _app(app_key,require_running=True)
     policy_state=policy(app_key)["policy"]
     maximum=int(policy_state["max_context_chars"])
     if maximum<=0:
@@ -290,6 +293,8 @@ def run_prompt(
     job_id:str="",
 )->dict[str,Any]:
     app,policy_state=_policy_row(app_key)
+    if app.get("lifecycle_state")!="running":
+        raise AppAgentRuntimeError("App must be running before using the Agent runtime.",409)
     if not policy_state["enabled"]:
         raise AppAgentRuntimeError("App Agent runtime is disabled.",403)
     text=str(prompt or "").strip()
