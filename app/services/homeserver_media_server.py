@@ -312,6 +312,17 @@ def _kind(path:Path)->str|None:
     return None
 
 
+def _processor_available()->bool:
+    try:
+        from . import homeserver_media_processor
+        processor_app=homeserver_apps.get(homeserver_media_processor.APP_KEY)
+        if not processor_app.get("installed_version") or str(processor_app.get("lifecycle_state") or "")!="running":
+            return False
+        return bool(homeserver_media_processor.capability().get("ffmpeg_available"))
+    except Exception:
+        return False
+
+
 def scan(root_id:str="")->dict[str,Any]:
     _ensure_app()
     _require_files_permission()
@@ -396,7 +407,7 @@ def scan(root_id:str="")->dict[str,Any]:
         "roots_scanned":len(touched),
         "roots_unavailable":len(unavailable),
         "unavailable_root_ids":unavailable,
-        "transcoding":True,
+        "transcoding":_processor_available(),
         "processing_provider":"vp3.media-processor",
     }
 
@@ -675,11 +686,7 @@ def status()->dict[str,Any]:
         ).fetchall()]
     finally:
         connection.close()
-    try:
-        from . import homeserver_media_processor
-        processing_available=bool(homeserver_media_processor.capability().get("ffmpeg_available"))
-    except Exception:
-        processing_available=False
+    processing_available=_processor_available()
     return {
         "contract":CONTRACT,
         "app_key":APP_KEY,
