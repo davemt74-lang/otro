@@ -106,6 +106,14 @@ class MediaDuplicateReviewRequest(BaseModel):
     note:str=Field(default="",max_length=1000)
 
 
+class MediaArtworkRequest(BaseModel):
+    target_type:str=Field(pattern="^(media|collection)$")
+    target_id:str=Field(min_length=1,max_length=100)
+    role:str=Field(pattern="^(thumbnail|poster|album_art|cover|contact_sheet)$")
+    source_media_ids:list[str]=Field(default_factory=list,max_length=16)
+    preset:str=Field(default="",max_length=40)
+
+
 class MediaProcessRequest(BaseModel):
     operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
     preset:str=Field(default="default",max_length=80)
@@ -557,6 +565,25 @@ def media_library_duplicate_review(group_key:str,payload:MediaDuplicateReviewReq
         homeserver_media_library.review_duplicate,group_key,payload.decision,
         primary_media_id=payload.primary_media_id,note=payload.note
     )
+
+
+@router.post("/media-library/artwork")
+def media_library_generate_artwork(payload:MediaArtworkRequest)->dict:
+    return _call(
+        homeserver_media_library.request_artwork,
+        payload.target_type,payload.target_id,payload.role,
+        source_media_ids=payload.source_media_ids,preset=payload.preset,
+    )
+
+
+@router.get("/media-library/artwork/{target_type}/{target_id}")
+def media_library_artwork(target_type:str,target_id:str)->dict:
+    return _call(homeserver_media_library.artwork,target_type,target_id)
+
+
+@router.delete("/media-library/artwork/{target_type}/{target_id}/{role}")
+def media_library_remove_artwork(target_type:str,target_id:str,role:str)->dict:
+    return _call(homeserver_media_library.remove_artwork,target_type,target_id,role)
 
 
 @router.get("/media-processor/capability")
