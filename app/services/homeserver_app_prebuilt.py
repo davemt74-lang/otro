@@ -258,14 +258,14 @@ CATALOG = {
     "vp3.media-processor": {
         "key": "vp3.media-processor",
         "name": "VP3 Media Processor",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Adds HomeServer-managed FFmpeg processing for video, audio, images, thumbnails, and editor proxies.",
-            "Adds processor-owned derivative registry, resource limits, restart recovery, and Agent Brain context.",
-            "Integrates with Media Server, Download Manager, Video Editor, Hosting, Agent Chat, and Agent Brain."
+            "Adds multi-source contact-sheet rendering for Media Library collection artwork.",
+            "Retains HomeServer-managed FFmpeg, processor-owned derivatives, resource limits, and restart recovery.",
+            "Ships with SDK 1.2 / Agent Actions v2 including governed contact-sheet jobs."
         ],
         "category": "Media",
         "kind": "media_processor",
@@ -281,6 +281,7 @@ CATALOG = {
             {"key":"processor.cancel","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"job_id":{"type":"string","minLength":1,"maxLength":80}},"required":["job_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
             {"key":"processor.retry","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"job_id":{"type":"string","minLength":1,"maxLength":80}},"required":["job_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
             {"key":"processor.derivatives","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"media_id":{"type":"string","maxLength":100},"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.contact-sheet","risk":"consequential","requires_confirmation":True,"input_schema":{"type":"object","properties":{"media_ids":{"type":"array","items":{"type":"string","minLength":1,"maxLength":100},"minItems":2,"maxItems":16},"preset":{"type":"string","enum":["2x2","3x3","4x4"]},"output_format":{"type":"string","enum":["jpg","jpeg","png","webp"]},"priority":{"type":"integer","minimum":-100,"maximum":100},"destination_id":{"type":"string","maxLength":80}},"required":["media_ids"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
             {"key":"processor.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
             {"key":"processor.destinations","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
             {"key":"processor.destination.add","risk":"admin","requires_confirmation":True,"input_schema":{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":2000},"label":{"type":"string","maxLength":120},"destination_kind":{"type":"string","enum":["mapped_folder","network_share","local_folder"]}},"required":["path"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
