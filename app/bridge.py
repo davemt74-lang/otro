@@ -187,6 +187,14 @@ def capabilities() -> dict:
             "local_only": True,
             "operations": ["speech.status", "speech.transcribe", "speech.synthesize"],
         },
+        "local_transcriptions": {
+            "contract": "vp3.homeserver.transcription-session.v1",
+            "private_by_default": True,
+            "paired_text_only": True,
+            "explicit_owner_share": True,
+            "operations": ["transcription.shared.list", "transcription.shared.fetch"],
+            "raw_audio_relay": False,
+        },
         "agent_personas": {
             "version": "v0.46",
             "owner_managed": True,
