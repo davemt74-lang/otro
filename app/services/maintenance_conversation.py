@@ -4,11 +4,15 @@ Never executes a repair. The canonical Apps approval system remains authoritativ
 """
 from __future__ import annotations
 import re
+import json
+from datetime import datetime, timezone
+from threading import RLock
 from typing import Any
 from . import health_repair
 
 _KEY = re.compile(r"^[a-z0-9][a-z0-9:._-]{0,159}$")
 _ALLOWED = frozenset({"apps.recover"})
+_PROPOSAL_LOCK=RLock()
 CONTRACT = "vp3.homeserver.maintenance-conversation.v1"
 
 class MaintenanceError(ValueError):
@@ -72,9 +76,36 @@ def propose_repair(arguments: dict[str,Any], *, source_app_key: str, owner: bool
         or set(args)!={"app_key"} or not isinstance(args.get("app_key"),str)
     ):
         raise MaintenanceError("No approved canonical recovery is available for this issue.",409)
-    # Import here so health diagnosis remains independent of the approval subsystem.
-    from . import approvals
-    result=approvals.create_app_action_request(source_app_key,action,args,owner=True)
+    # Reuse the durable canonical Apps approval ledger; suppress accidental
+    # repeated requests when the Agent sees the same notification twice.
+    from . import approvals, homeserver_app_approvals
+    with _PROPOSAL_LOCK:
+        for pending in homeserver_app_approvals.list_rows(status="pending",limit=500):
+            if pending.get("action_key")!=action or pending.get("source_app_key")!=source_app_key:
+                continue
+            try:
+                expires=datetime.fromisoformat(str(pending.get("expires_at") or ""))
+                arguments_json=json.loads(str(pending.get("arguments_json") or "{}"))
+                if (expires.tzinfo is not None and expires > datetime.now(timezone.utc)
+                        and arguments_json==args):
+                    result={
+                        "tool":f"{action}.request",
+                        "run_id":pending.get("request_tool_run_id"),
+                        "status":"completed",
+                        "result":{
+                            "request_id":str(pending["id"]),
+                            "status":"pending",
+                            "action":action,
+                            "owner_approval_required":True,
+                            "expires_at":pending.get("expires_at"),
+                            "duplicate_suppressed":True,
+                        },
+                    }
+                    break
+            except (TypeError,ValueError,KeyError):
+                continue
+        else:
+            result=approvals.create_app_action_request(source_app_key,action,args,owner=True)
     return {
         **result,
         "maintenance":{
