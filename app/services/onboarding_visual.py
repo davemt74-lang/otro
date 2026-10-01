@@ -81,6 +81,7 @@ def status() -> dict[str, Any]:
             "trusted_perception_provider_registered": provider is not None,
             "provider_certified": False,  # Registration alone is never live hardware certification.
             "enrollment_verified": False,  # Browser-only IndexedDB has no trusted server attestation.
+            "privacy_engaged": _privacy_engaged(),
             "evidence": "browser_reported_unverified" if phase == "browser_reported" else "not_enrolled",
             "camera_activation": "owner_gesture_and_browser_permission_only",
             "cloud_biometrics": False,

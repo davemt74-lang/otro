@@ -15,6 +15,7 @@ let visual = null;
 let localOwner = null;
 let epoch = 0;
 let busy = false;
+let privacyCheckedAt = 0;
 const MAX_ANGLES = 3;
 
 async function api(path, body = null) {
@@ -103,6 +104,21 @@ async function scan(engine, generation, session, captures) {
   if(generation!==epoch || !stream || !active)return;
   const video=el('onboardVisualVideo');
   try {
+    // Fail closed if hardware privacy engages or status cannot be read.
+    if(Date.now()-privacyCheckedAt>2300){
+      let state;
+      try{state=await api('status');}
+      catch(_){
+        closeCamera();await api('cancel',{}).catch(()=>{});
+        message('Camera stopped: HomeServer privacy status is unavailable.');return;
+      }
+      privacyCheckedAt=Date.now();
+      if(state.privacy_engaged){
+        closeCamera();await api('cancel',{}).catch(()=>{});
+        message('Camera stopped: physical privacy is engaged.');return;
+      }
+    }
+    if(generation!==epoch || !stream || !active)return;
     if(video?.readyState >= 2) {
       const raw=await engine.detect(video);
       if(generation!==epoch || !active)return;
@@ -217,6 +233,7 @@ async function start() {
     if(generation!==epoch){stream.getTracks().forEach(t=>t.stop());stream=null;return;}
     const video=el('onboardVisualVideo');
     video.srcObject=stream;await video.play();
+    privacyCheckedAt=0;
     active={lastCaptureAt:0,timer:0};
     el('onboardVisualCapture').hidden=false;
     const captures=[];
