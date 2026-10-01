@@ -173,11 +173,38 @@ with tempfile.TemporaryDirectory(prefix="homeserver-activity-center-v390-") as d
         assert "SECRET_TOKEN_932" not in brain_text
         assert "C:/private/media/file.mp4" not in brain_text
 
+        # Retention remains bounded and only prunes old dismissed/archived rows.
+        with db() as connection:
+            connection.execute(
+                """INSERT INTO notifications(
+                     source,title,body,level,dismissed_at,created_at,category,priority,source_kind
+                   ) VALUES ('retention-test','Old dismissed','', 'info',
+                             '2025-01-01T00:00:00+00:00','2025-01-01 00:00:00',
+                             'system','normal','system')"""
+            )
+            old_id=connection.execute(
+                "SELECT id FROM notifications WHERE source='retention-test' ORDER BY id DESC LIMIT 1"
+            ).fetchone()["id"]
+            for i in range(1400):
+                connection.execute(
+                    """INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json)
+                       VALUES ('system','stress','stress.event','test',?,'{}')""",
+                    (str(i),),
+                )
+        pruned=activity_center.prune_notifications(retention_days=90,max_rows=5000)
+        assert pruned["deleted"]>=1
+        with db() as connection:
+            assert connection.execute("SELECT id FROM notifications WHERE id=?",(old_id,)).fetchone() is None
+        bounded_feed=activity_center.list_activity(limit=250)
+        assert bounded_feed["count"]<=250
+
         capability=client.get("/api/v1/control/activity-center/capability")
         assert capability.status_code==200,capability.text
         cap=capability.json()
         assert cap["unified_activity_feed"] is True
         assert cap["dedupe"] is True
+        assert cap["bounded_retention"] is True
+        assert cap["default_retention_days"]==90
         assert cap["actionable_approvals"] is True
         assert cap["agent_brain_context"] is True
 
@@ -189,6 +216,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-activity-center-v390-") as d
         assert 'data-activity-attention="1"' in ui
         assert "activity-center/summary" in js
         assert "data-activity-dismiss" in js
+        assert "state.view==='activity'" in js
+        assert "30000" in js
         assert ".activity-feed" in css
 
 print("HomeServer Section 25 Unified Notifications & Activity Center: PASS")
