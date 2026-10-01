@@ -7,11 +7,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..database import db
-from . import approvals, room_device_automation
+from . import approvals, homeserver_app_control, homeserver_apps, room_device_automation
 
-AUTOMATION_RULES_VERSION = "v0.70"
+AUTOMATION_RULES_VERSION = "v0.80"
 MAX_ROUTINE_STEPS = 16
-_ALLOWED_TRIGGER_KINDS = {"manual", "daily", "device_state"}
+_ALLOWED_TRIGGER_KINDS = {"manual", "daily", "device_state", "app_event"}
 _ALLOWED_APPROVAL_MODES = {"suggest_only", "ask_every_time"}
 
 _STOP = threading.Event()
@@ -117,21 +117,47 @@ def update_settings(
 def _validate_step(step: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(step, dict):
         raise LocalAutomationError("Each routine step must be an object.")
-    device_key = _key(step.get("device_key"), "device_key")
-    try:
-        validated = room_device_automation.validate_command_request(
-            device_key,
-            str(step.get("command") or ""),
-            step.get("arguments") or {},
-        )
-    except room_device_automation.RoomDeviceError as exc:
-        raise LocalAutomationError(str(exc), exc.status_code) from exc
-    return {
-        "device_id": int(validated["device"]["id"]),
-        "device_key": validated["device_key"],
-        "command": validated["command"],
-        "arguments": validated["arguments"],
-    }
+    step_kind = str(step.get("step_kind") or ("app_action" if step.get("app_key") or step.get("action_key") else "device")).strip().lower()
+    if step_kind == "device":
+        device_key = _key(step.get("device_key"), "device_key")
+        try:
+            validated = room_device_automation.validate_command_request(
+                device_key,
+                str(step.get("command") or ""),
+                step.get("arguments") or {},
+            )
+        except room_device_automation.RoomDeviceError as exc:
+            raise LocalAutomationError(str(exc), exc.status_code) from exc
+        return {
+            "step_kind": "device",
+            "device_id": int(validated["device"]["id"]),
+            "device_key": validated["device_key"],
+            "command": validated["command"],
+            "arguments": validated["arguments"],
+        }
+    if step_kind == "app_action":
+        app_key = str(step.get("app_key") or "").strip().lower()
+        action_key = str(step.get("action_key") or step.get("action") or "").strip()
+        if not app_key or not action_key:
+            raise LocalAutomationError("App action steps require app_key and action_key.")
+        try:
+            app = homeserver_apps.get(app_key)
+            spec = homeserver_app_control.action_spec(app_key, action_key)
+            arguments = homeserver_app_control._validate_arguments(spec, dict(step.get("arguments") or {}))
+        except (homeserver_apps.HomeServerAppError, homeserver_app_control.AppControlError) as exc:
+            raise LocalAutomationError(str(exc), getattr(exc, "status_code", 422)) from exc
+        if app.get("lifecycle_state") != "running":
+            raise LocalAutomationError(f"App {app_key} must be running before it can be used in an automation.", 409)
+        return {
+            "step_kind": "app_action",
+            "app_key": app_key,
+            "app_name": str(app.get("name") or app_key),
+            "action_key": action_key,
+            "risk": str(spec.get("risk") or "write"),
+            "requires_confirmation": bool(spec.get("requires_confirmation")),
+            "arguments": arguments,
+        }
+    raise LocalAutomationError("Unsupported routine step kind.")
 
 
 def _assert_routine_not_bound_to_room_mode(routine_key: str) -> None:
@@ -206,14 +232,18 @@ def upsert_routine(
         for position, step in enumerate(validated_steps, start=1):
             connection.execute(
                 """
-                INSERT INTO automation_routine_steps(routine_id,position,device_id,command,arguments_json)
-                VALUES (?,?,?,?,?)
+                INSERT INTO automation_routine_steps(
+                    routine_id,position,step_kind,device_id,command,app_key,action_key,arguments_json
+                ) VALUES (?,?,?,?,?,?,?,?)
                 """,
                 (
                     routine_id,
                     position,
-                    step["device_id"],
-                    step["command"],
+                    step["step_kind"],
+                    step.get("device_id"),
+                    step.get("command"),
+                    step.get("app_key"),
+                    step.get("action_key"),
                     json.dumps(step["arguments"], separators=(",", ":")),
                 ),
             )
@@ -238,9 +268,10 @@ def get_routine(routine_key: str) -> dict[str, Any]:
             raise LocalAutomationError("Routine not found.", 404)
         steps = connection.execute(
             """
-            SELECT s.position,d.device_key,d.name AS device_name,d.category,s.command,s.arguments_json
+            SELECT s.position,s.step_kind,s.device_id,d.device_key,d.name AS device_name,d.category,
+                   s.command,s.app_key,s.action_key,s.arguments_json
             FROM automation_routine_steps s
-            JOIN automation_devices d ON d.id=s.device_id
+            LEFT JOIN automation_devices d ON d.id=s.device_id
             WHERE s.routine_id=?
             ORDER BY s.position
             """,
@@ -248,13 +279,22 @@ def get_routine(routine_key: str) -> dict[str, Any]:
         ).fetchall()
     item = dict(row)
     item["enabled"] = bool(item["enabled"])
-    item["steps"] = [
-        {
-            **{k: value for k, value in dict(step).items() if k != "arguments_json"},
-            "arguments": _decode(step["arguments_json"], {}),
+    item["steps"] = []
+    for step in steps:
+        raw = dict(step)
+        payload = {
+            **{k: value for k, value in raw.items() if k != "arguments_json" and value is not None},
+            "arguments": _decode(raw["arguments_json"], {}),
         }
-        for step in steps
-    ]
+        if payload.get("step_kind") == "app_action":
+            try:
+                spec = homeserver_app_control.action_spec(str(payload["app_key"]), str(payload["action_key"]))
+                payload["risk"] = str(spec.get("risk") or "write")
+                payload["requires_confirmation"] = bool(spec.get("requires_confirmation"))
+            except Exception:
+                payload["risk"] = "unknown"
+                payload["requires_confirmation"] = True
+        item["steps"].append(payload)
     return item
 
 
@@ -338,6 +378,16 @@ def _validate_trigger(kind: str, trigger: dict[str, Any]) -> tuple[dict[str, Any
             raise LocalAutomationError("Unsupported device-state trigger operator.")
         room_device_automation.get_device(device_key)
         return {"device_key": device_key, "field": field, "operator": operator, "value": safe.get("value")}, None
+    if kind == "app_event":
+        app_key = str(safe.get("app_key") or "").strip().lower()
+        event_type = _text(safe.get("event_type"), 160, required=True, label="trigger event_type")
+        if not app_key:
+            raise LocalAutomationError("App-event trigger requires app_key.")
+        try:
+            homeserver_apps.get(app_key)
+        except homeserver_apps.HomeServerAppError as exc:
+            raise LocalAutomationError(str(exc), exc.status_code) from exc
+        return {"app_key": app_key, "event_type": event_type}, None
     raise LocalAutomationError("Unsupported trigger kind.")
 
 
@@ -349,13 +399,30 @@ def _validate_conditions(conditions: list[dict[str, Any]]) -> list[dict[str, Any
     for condition in safe:
         if not isinstance(condition, dict):
             raise LocalAutomationError("Each condition must be an object.")
-        device_key = _key(condition.get("device_key"), "condition.device_key")
-        field = _text(condition.get("field"), 80, required=True, label="condition field")
+        kind = str(condition.get("kind") or ("app_state" if condition.get("app_key") else "device_state")).strip().lower()
         operator = str(condition.get("operator") or "eq").strip().lower()
         if operator not in {"eq", "ne", "gt", "gte", "lt", "lte"}:
             raise LocalAutomationError("Unsupported condition operator.")
-        room_device_automation.get_device(device_key)
-        output.append({"device_key": device_key, "field": field, "operator": operator, "value": condition.get("value")})
+        if kind == "device_state":
+            device_key = _key(condition.get("device_key"), "condition.device_key")
+            field = _text(condition.get("field"), 80, required=True, label="condition field")
+            room_device_automation.get_device(device_key)
+            output.append({"kind":"device_state","device_key": device_key, "field": field, "operator": operator, "value": condition.get("value")})
+            continue
+        if kind == "app_state":
+            app_key = str(condition.get("app_key") or "").strip().lower()
+            field = _text(condition.get("field"), 80, required=True, label="condition field")
+            if field not in {"lifecycle_state","installed_version","desired_version"}:
+                raise LocalAutomationError("App-state conditions support lifecycle_state, installed_version, or desired_version.")
+            if not app_key:
+                raise LocalAutomationError("App-state condition requires app_key.")
+            try:
+                homeserver_apps.get(app_key)
+            except homeserver_apps.HomeServerAppError as exc:
+                raise LocalAutomationError(str(exc), exc.status_code) from exc
+            output.append({"kind":"app_state","app_key":app_key,"field":field,"operator":operator,"value":condition.get("value")})
+            continue
+        raise LocalAutomationError("Unsupported condition kind.")
     return output
 
 
@@ -639,9 +706,25 @@ def _compare(actual: Any, operator: str, expected: Any) -> bool:
 
 
 def _state_match(spec: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+    kind = str(spec.get("kind") or ("app_state" if spec.get("app_key") else "device_state"))
+    if kind == "app_state":
+        try:
+            app = homeserver_apps.get(str(spec["app_key"]))
+        except homeserver_apps.HomeServerAppError as exc:
+            raise LocalAutomationError(str(exc), exc.status_code) from exc
+        actual = app.get(str(spec["field"]))
+        return _compare(actual, str(spec["operator"]), spec.get("value")), {
+            "kind":"app_state",
+            "app_key": app["app_key"],
+            "field": spec["field"],
+            "actual": actual,
+            "operator": spec["operator"],
+            "expected": spec.get("value"),
+        }
     device = room_device_automation.get_device(str(spec["device_key"]))
     actual = (device.get("state") or {}).get(str(spec["field"]))
     return _compare(actual, str(spec["operator"]), spec.get("value")), {
+        "kind":"device_state",
         "device_key": device["device_key"],
         "field": spec["field"],
         "actual": actual,
@@ -733,26 +816,59 @@ def run_routine(
     request_ids: list[str] = []
     suggestion_ids: list[int] = []
     for step in routine["steps"]:
-        if routine["approval_mode"] == "suggest_only":
-            suggestion = room_device_automation.create_suggestion(
-                source_kind=source_kind,
-                reason=f"Routine {routine['name']} proposes {step['command']} for {step['device_name']}.",
-                device_key=step["device_key"],
-                command=step["command"],
-                arguments=step["arguments"],
-                source_event_type="automation.routine",
+        if step.get("step_kind") == "app_action":
+            if routine["approval_mode"] == "suggest_only":
+                with db() as connection:
+                    cursor = connection.execute(
+                        """INSERT INTO automation_app_suggestions(
+                             routine_id,rule_id,app_key,action_key,arguments_json,risk,source_kind
+                           ) VALUES (?,?,?,?,?,?,?)""",
+                        (
+                            int(routine["id"]),
+                            int(rule["id"]) if rule else None,
+                            str(step["app_key"]),
+                            str(step["action_key"]),
+                            json.dumps(step["arguments"], separators=(",", ":")),
+                            str(step.get("risk") or "write"),
+                            source_kind,
+                        ),
+                    )
+                    suggestion_ids.append(int(cursor.lastrowid))
+                continue
+            try:
+                request = approvals.create_app_action_request(
+                    "automation:local-rule",
+                    "apps.invoke",
+                    {
+                        "app_key": step["app_key"],
+                        "action": step["action_key"],
+                        "arguments": step["arguments"],
+                    },
+                    owner=True,
+                )
+            except approvals.ApprovalError as exc:
+                raise LocalAutomationError(str(exc), exc.status_code) from exc
+        else:
+            if routine["approval_mode"] == "suggest_only":
+                suggestion = room_device_automation.create_suggestion(
+                    source_kind=source_kind,
+                    reason=f"Routine {routine['name']} proposes {step['command']} for {step['device_name']}.",
+                    device_key=step["device_key"],
+                    command=step["command"],
+                    arguments=step["arguments"],
+                    source_event_type="automation.routine",
+                )
+                suggestion_ids.append(int(suggestion["id"]))
+                continue
+            request = approvals.create_device_command_request(
+                "automation:local-rule",
+                {
+                    "device_key": step["device_key"],
+                    "command": step["command"],
+                    "arguments": step["arguments"],
+                },
+                owner=True,
             )
-            suggestion_ids.append(int(suggestion["id"]))
-            continue
-        request = approvals.create_device_command_request(
-            "automation:local-rule",
-            {
-                "device_key": step["device_key"],
-                "command": step["command"],
-                "arguments": step["arguments"],
-            },
-            owner=True,
-        )
         request_id = str(((request.get("result") or {}).get("request_id") or ""))
         if not request_id:
             raise LocalAutomationError("Routine could not create an approval request.", 500)
@@ -855,6 +971,39 @@ def evaluate_rule(rule_key: str, *, force_manual: bool = False) -> dict[str, Any
                 "UPDATE automation_rules SET last_condition=? WHERE id=?",
                 (1 if matched else 0, int(rule["id"])),
             )
+    elif rule["trigger_kind"] == "app_event":
+        app_key = str(rule["trigger"].get("app_key") or "")
+        event_type = str(rule["trigger"].get("event_type") or "")
+        with db() as connection:
+            app_row = connection.execute(
+                "SELECT app_id FROM homeserver_apps WHERE app_key=?",
+                (app_key,),
+            ).fetchone()
+            event = None
+            if app_row is not None:
+                event = connection.execute(
+                    """SELECT id,event_type,actor_type,actor_key,created_at
+                       FROM homeserver_app_events
+                       WHERE app_id=? AND event_type=? AND id>?
+                       ORDER BY id ASC LIMIT 1""",
+                    (str(app_row["app_id"]), event_type, int(rule.get("last_event_id") or 0)),
+                ).fetchone()
+            if event is not None:
+                connection.execute(
+                    "UPDATE automation_rules SET last_event_id=? WHERE id=?",
+                    (int(event["id"]), int(rule["id"])),
+                )
+        if event is not None:
+            triggered = True
+            trigger_snapshot["app_event"] = {
+                "event_id": int(event["id"]),
+                "app_key": app_key,
+                "event_type": str(event["event_type"]),
+                "actor_type": str(event["actor_type"]),
+                "actor_key": str(event["actor_key"]),
+                "created_at": str(event["created_at"]),
+                "metadata_exposed": False,
+            }
 
     conditions_ok, condition_snapshot = _conditions_match(rule)
     trigger_snapshot["conditions"] = condition_snapshot
@@ -971,5 +1120,11 @@ def public_capability() -> dict[str, Any]:
         "approval_modes": sorted(_ALLOWED_APPROVAL_MODES),
         "direct_physical_execution": False,
         "device_commands_still_require_owner_approval": True,
+        "app_action_steps": True,
+        "app_event_triggers": True,
+        "app_state_conditions": True,
+        "universal_app_control_contract": "vp3.app.agent-control.v3",
+        "app_actions_use_owner_approval_ledger": True,
+        "homeserver_execution_authority": True,
         "max_routine_steps": MAX_ROUTINE_STEPS,
     }
