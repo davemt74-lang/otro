@@ -301,7 +301,11 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "required_permissions": ["apps.manage"],
         "input_schema": {
             "type": "object",
-            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "properties": {
+                "app_key": {"type": "string", "maxLength": 80},
+                "expected_version": {"type": "string", "maxLength": 80},
+                "expected_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+            },
             "required": ["app_key"],
             "additionalProperties": False
         },
