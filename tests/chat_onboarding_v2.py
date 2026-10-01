@@ -21,7 +21,7 @@ assert "Your code will be prefilled" in html
 assert "window.location.assign('/#chat')" in welcome
 assert "control/local-apps/" not in welcome  # No onboarding outside the chat canvas.
 assert "https://vp3.me/settings-homeserver.php" in html
-assert "'#hs_code='+encodeURIComponent(code)" in js
+assert "settings-homeserver.php#hs_code='+encodeURIComponent(code)" in js
 assert "window.open('about:blank','_blank')" in js
 assert "tab.location.replace(url)" in js
 assert "Approve in VP3 Cloud below" in js
