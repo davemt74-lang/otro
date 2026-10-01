@@ -395,7 +395,11 @@ def sync_notifications(limit:int=250)->dict[str,int]:
             action_payload={"type":"open","target_view":"automation"},
         )
         created+=0 if before or emitted.get("suppressed") else 1
-    return {"created":created,"pruned":pruned["deleted"]}
+    # Health transitions share this same maintenance notification ledger.
+    # Local import avoids a module-level cycle: health_repair reads Activity Center.
+    from . import health_maintenance
+    health = health_maintenance.sync_health_notifications()
+    return {"created": created + health["created"], "pruned": pruned["deleted"], "health": health}
 
 
 def _notification_by_dedupe(key:str)->dict[str,Any]|None:
