@@ -27,6 +27,10 @@ on:
       - 'tests/homeserver_backup_protection_v410.py'
       - 'tests/homeserver_storage_maintenance_v420.py'
       - 'tests/homeserver_app_update_center_v430.py'
+      - 'tests/homeserver_health_repair_v440.py'
+      - 'app/services/health_repair.py'
+      - 'app/health_api.py'
+      - 'ui/health.css'
       - 'app/services/homeserver_app_update_center.py'
       - 'app/services/storage_maintenance.py'
       - 'app/storage_api.py'
@@ -227,6 +231,8 @@ jobs:
           tests/homeserver_backup_protection_v410.py
           tests/homeserver_storage_maintenance_v420.py
           tests/homeserver_app_update_center_v430.py
+          tests/homeserver_health_repair_v440.py
+          app/services/health_repair.py
           app/services/homeserver_app_update_center.py
           app/services/storage_maintenance.py
           app/services/backup_protection.py
@@ -369,5 +375,7 @@ jobs:
         run: python tests/homeserver_storage_maintenance_v420.py
       - name: Verify App Install Update Center
         run: python tests/homeserver_app_update_center_v430.py
+      - name: Verify Unified Health and Repair Orchestration
+        run: python tests/homeserver_health_repair_v440.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py

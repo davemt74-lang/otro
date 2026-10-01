@@ -126,11 +126,64 @@ function ensureStorageWorkspace() {
   }
 }
 
+function ensureHealthWorkspace() {
+  if ($('view-health')) return;
+  if (!document.querySelector('link[href="/assets/health.css"]')) {
+    const stylesheet=document.createElement('link');
+    stylesheet.rel='stylesheet';
+    stylesheet.href='/assets/health.css';
+    document.head.append(stylesheet);
+  }
+  const activityNav=document.querySelector('.nav-item[data-view="activity"]');
+  if (activityNav && !document.querySelector('.nav-item[data-view="health"]')) {
+    const button=document.createElement('button');
+    button.className='nav-item';
+    button.dataset.view='health';
+    button.textContent='Health';
+    activityNav.parentNode.insertBefore(button,activityNav);
+  }
+  const activityView=$('view-activity');
+  if (activityView) {
+    const section=document.createElement('section');
+    section.className='view';
+    section.id='view-health';
+    section.innerHTML=`
+      <div class="section-intro split"><div><h2>Health</h2><p>One view of HomeServer issues and only the canonical repairs the Agent is allowed to use.</p></div><button class="button secondary" id="healthRefreshButton" type="button">Refresh</button></div>
+      <div id="healthSummary"></div>
+      <div class="health-grid">
+        <section class="panel"><div class="panel-head"><div><p class="eyebrow">ISSUES</p><h3>Needs attention</h3></div></div><div id="healthIssues" class="health-list"></div></section>
+        <section class="panel"><div class="panel-head"><div><p class="eyebrow">REPAIR PLAN</p><h3>What the Agent can actually fix</h3></div></div><div id="healthRepairs" class="health-list"></div></section>
+      </div>
+      <div class="panel health-governance"><strong>Repair boundary</strong><span>No automatic repair. The Agent may only use listed canonical actions, and owner approval remains required where the underlying action requires it.</span></div>`;
+    activityView.parentNode.insertBefore(section,activityView);
+  }
+}
+
+async function loadHealth() {
+  ensureHealthWorkspace();
+  const [status,plan]=await Promise.all([
+    api('/api/v1/control/health'),
+    api('/api/v1/control/health/repair-plan')
+  ]);
+  const counts=status.counts||{};
+  $('healthSummary').innerHTML=
+    '<div class="panel health-summary level-'+esc(status.overall)+'"><div><p class="eyebrow">HOMESERVER HEALTH</p><h3>'+esc(String(status.overall||'healthy').toUpperCase())+'</h3></div>'+
+    '<div class="health-summary-grid"><span><strong>'+Number(status.count||0)+'</strong> issues</span><span><strong>'+Number(status.agent_repairable_count||0)+'</strong> Agent-repairable</span><span><strong>'+Number(counts.failed||0)+'</strong> failed</span><span><strong>'+Number(counts.degraded||0)+'</strong> degraded</span></div></div>';
+  $('healthIssues').innerHTML=(status.issues||[]).length ? status.issues.map(item =>
+    '<article class="health-row"><div><div class="health-row-title"><strong>'+esc(item.title)+'</strong><span class="tag">'+esc(item.severity)+'</span></div><p>'+esc(item.detail)+'</p><small>'+esc(item.source)+'</small></div></article>'
+  ).join('') : '<div class="empty-state">HomeServer is healthy.</div>';
+  $('healthRepairs').innerHTML=(plan.items||[]).length ? plan.items.map(item => {
+    const repair=item.repair||{};
+    return '<article class="health-row"><div><div class="health-row-title"><strong>'+esc(item.title)+'</strong><span class="tag">'+esc(repair.class||'review')+'</span></div><p>'+esc(repair.action_key||'Owner review')+(repair.owner_approval_required?' · owner approval required':'')+'</p></div>'+
+      (repair.agent_can_execute?'<button class="button secondary" type="button" data-health-go-app="'+esc(repair.arguments?.app_key||'')+'">Open app</button>':'')+'</article>';
+  }).join('') : '<div class="empty-state">No repair actions are currently required.</div>';
+}
+
 function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach(v => v.classList.toggle('active', v.dataset.view === name));
-  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',members:'Users','homeserver-apps':'Apps',apps:'Connected Apps',backups:'Backup & Restore',storage:'Storage',ambient:'Ambient Agent',automation:'Rooms & Devices',tracky:'Tracky',federation:'Physical Network','physical-world':'Physical World',activity:'Activity'};
+  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',members:'Users','homeserver-apps':'Apps',apps:'Connected Apps',backups:'Backup & Restore',storage:'Storage',health:'Health',ambient:'Ambient Agent',automation:'Rooms & Devices',tracky:'Tracky',federation:'Physical Network','physical-world':'Physical World',activity:'Activity'};
   $('pageTitle').textContent = labels[name] || 'HomeServer';
   loadView(name).catch(err => flash(err.message, true));
 }
@@ -412,6 +465,7 @@ async function loadView(name) {
   if (name === 'apps') return loadApps();
   if (name === 'backups') return loadBackups();
   if (name === 'storage') return loadStorage();
+  if (name === 'health') return loadHealth();
   if (name === 'federation' && typeof window.loadFederationControlCenter === 'function') return window.loadFederationControlCenter();
   if (name === 'physical-world' && typeof window.loadPhysicalWorldDashboard === 'function') return window.loadPhysicalWorldDashboard();
   if (name === 'activity') return loadActivity();
@@ -420,6 +474,9 @@ async function loadView(name) {
 
 document.addEventListener('click', async (event) => {
   const nav = event.target.closest('[data-view]'); if (nav) openView(nav.dataset.view);
+  if (event.target.id==='healthRefreshButton') loadHealth().catch(err=>flash(err.message,true));
+  const healthApp=event.target.closest('[data-health-go-app]');
+  if(healthApp && healthApp.dataset.healthGoApp){location.hash='homeserver-apps';openView('homeserver-apps');}
   const go = event.target.closest('[data-go]'); if (go) openView(go.dataset.go);
   const activityFilter=event.target.closest('[data-activity-filter]');
   if (activityFilter) {
@@ -569,7 +626,8 @@ $('refreshButton').addEventListener('click', () => loadView(state.view).then(() 
 
 ensureBackupWorkspace();
 ensureStorageWorkspace();
-const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','storage','ambient','automation','federation','physical-world','activity'];
+ensureHealthWorkspace();
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','storage','health','ambient','automation','federation','physical-world','activity'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();
