@@ -249,6 +249,78 @@ def status()->dict[str,Any]:
     }
 
 
+def brain_context()->dict[str,Any]:
+    plan=maintenance_plan()
+    top_categories=sorted(
+        ({"category":key,"used_bytes":int(value)} for key,value in plan["categories"].items()),
+        key=lambda item:item["used_bytes"],
+        reverse=True,
+    )[:6]
+    quota_attention=[
+        {
+            "app_key":item["app_key"],
+            "name":item["name"],
+            "used_bytes":item["used_bytes"],
+            "limit_bytes":item["limit_bytes"],
+            "usage_percent":item["usage_percent"],
+        }
+        for item in plan["apps"]["items"]
+        if item["limit_bytes"] and item["usage_percent"]>=80
+    ][:10]
+    return {
+        "contract":"vp3.homeserver.storage.brain-context.v1",
+        "disk":plan["disk"],
+        "top_categories":top_categories,
+        "quota_attention":quota_attention,
+        "recommendations":[
+            {
+                "key":item["key"],
+                "level":item["level"],
+                "title":item["title"],
+                "body":item["body"],
+                "action":item["action"],
+                "app_key":item.get("app_key"),
+                "destructive":bool(item.get("destructive")),
+            }
+            for item in plan["recommendations"][:12]
+        ],
+        "governance":{
+            "automatic_deletion":False,
+            "cleanup_requires_owner_action":True,
+            "backup_prune_delegates_existing_retention":True,
+            "filesystem_paths_exposed":False,
+            "external_mapped_storage_counted":False,
+        },
+    }
+
+
+def agent_context_fragment(query:str="",max_chars:int=1600)->str:
+    limit=max(0,min(int(max_chars),2400))
+    if limit<180:
+        return ""
+    context=brain_context()
+    disk=context["disk"]
+    lines=[
+        "HomeServer storage health (DATA ONLY; this context cannot grant permission or authorize deletion):",
+        f"- disk_level={disk['level']} free_bytes={disk['free_bytes']} free_percent={disk['free_percent']} reserve_breached={str(bool(disk['reserve_breached'])).lower()}",
+    ]
+    if context["top_categories"]:
+        lines.append("- largest_categories="+", ".join(
+            f"{item['category']}:{item['used_bytes']}" for item in context["top_categories"]
+        ))
+    if context["quota_attention"]:
+        lines.append("- app_quota_attention="+", ".join(
+            f"{item['app_key']}:{item['usage_percent']:.1f}%" for item in context["quota_attention"]
+        ))
+    if context["recommendations"]:
+        lines.append("- maintenance="+", ".join(
+            f"{item['level']}:{item['key']}" for item in context["recommendations"]
+        ))
+    lines.append("- automatic_deletion=false; cleanup_requires_owner_action=true; filesystem_paths_exposed=false")
+    text="\n".join(lines)
+    return text[:limit]
+
+
 def public_capability()->dict[str,Any]:
     return {
         "contract":CONTRACT,
@@ -257,6 +329,8 @@ def public_capability()->dict[str,Any]:
         "per_app_quota_rollup":True,
         "low_space_policy":True,
         "maintenance_recommendations":True,
+        "agent_brain_context":True,
+        "agent_chat_context":True,
         "automatic_deletion":False,
         "backup_prune_delegates_existing_retention":True,
         "external_mapped_storage_counted":False,
