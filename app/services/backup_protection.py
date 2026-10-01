@@ -99,7 +99,7 @@ def _copy_regular(source:Path,target:Path)->None:
     shutil.copy2(source,target)
 
 
-def snapshot_app_data(target_root:Path)->dict[str,Any]:
+def snapshot_app_data(target_root:Path,database_path:Path)->dict[str,Any]:
     source_root=settings.data_dir/"app-data"
     output_root=target_root/"app-data"
     apps:list[dict[str,Any]]=[]
@@ -109,11 +109,18 @@ def snapshot_app_data(target_root:Path)->dict[str,Any]:
     if not source_root.exists():
         return {"archive_paths":[],"apps":[],"bytes":0,"files":0}
 
-    with db() as connection:
+    connection=sqlite3.connect(database_path)
+    connection.row_factory=sqlite3.Row
+    try:
+        table=connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='homeserver_apps'"
+        ).fetchone()
         rows=connection.execute(
             """SELECT app_id,app_key,name,installed_version,metadata_json
                FROM homeserver_apps ORDER BY app_key"""
-        ).fetchall()
+        ).fetchall() if table else []
+    finally:
+        connection.close()
     by_id={str(row["app_id"]):row for row in rows}
 
     for source_app_root in sorted(source_root.iterdir(),key=lambda p:p.name):
@@ -134,6 +141,12 @@ def snapshot_app_data(target_root:Path)->dict[str,Any]:
             if not source.is_file():
                 continue
             relative=source.relative_to(source_app_root)
+            if relative.parts and relative.parts[0]=="sqlite" and (
+                source.name.endswith("-wal")
+                or source.name.endswith("-shm")
+                or source.name.endswith("-journal")
+            ):
+                continue
             target=destination_root/relative
             if relative.parts and relative.parts[0]=="sqlite" and source.suffix.lower()==".db":
                 _snapshot_sqlite(source,target)
@@ -235,8 +248,12 @@ def validate_app_data(target_root:Path,database_path:Path,manifest:dict[str,Any]
     if declared is not None:
         if not isinstance(declared,list):
             raise BackupProtectionError("Backup app inventory is invalid.")
-        declared_ids={str(item.get("app_id") or "") for item in declared if isinstance(item,dict)}
-        if declared_ids!=seen_apps and any(int(item.get("files") or 0)>0 for item in declared if isinstance(item,dict)):
+        declared_nonempty_ids={
+            str(item.get("app_id") or "")
+            for item in declared
+            if isinstance(item,dict) and int(item.get("files") or 0)>0
+        }
+        if declared_nonempty_ids!=seen_apps:
             raise BackupProtectionError("Backup app inventory does not match its app-data tree.")
     return {
         "included":True,
