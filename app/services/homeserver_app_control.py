@@ -292,6 +292,25 @@ def invoke(app_key:str,action_key:str,arguments:dict[str,Any]|None=None)->dict[s
         result=_builtin(app_key,str(executor.get("provider") or ""),action_key,args)
     else:
         raise AppControlError("App action executor is unsupported.")
+    with db() as connection:
+        app_row=connection.execute(
+            "SELECT app_id FROM homeserver_apps WHERE app_key=?",
+            (app_key,),
+        ).fetchone()
+        if app_row is not None:
+            connection.execute(
+                """INSERT INTO homeserver_app_events(
+                     app_id,event_type,actor_type,actor_key,metadata_json
+                   ) VALUES (?, 'app.action.invoked','system','universal-app-control',?)""",
+                (
+                    str(app_row["app_id"]),
+                    json.dumps(
+                        {"action":action_key,"risk":str(spec["risk"])},
+                        separators=(",",":"),
+                        sort_keys=True,
+                    ),
+                ),
+            )
     return {
         "contract":"vp3.app.agent-action-result.v1",
         "app_key":app_key,
