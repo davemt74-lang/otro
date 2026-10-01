@@ -125,7 +125,7 @@ def _backup_issues()->list[dict[str,Any]]:
 
 def _bridge_issues()->list[dict[str,Any]]:
     status=_safe(remote_bridge.cloud_connection_status,{})
-    conn=status.get("connection") or {}
+    conn=status.get("cloud") or {}
     state=str(conn.get("state") or "unknown")
     paired=bool(conn.get("paired"))
     if paired and state not in {"connected","reconnecting"}:
