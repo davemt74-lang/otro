@@ -64,6 +64,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
         assert cap["per_app_quota_rollup"] is True
         assert cap["automatic_deletion"] is False
         assert cap["backup_prune_delegates_existing_retention"] is True
+        assert cap["agent_brain_context"] is True
+        assert cap["agent_chat_context"] is True
 
         # Force reserve-breach behavior without filling the disk.
         high_reserve=client.put("/api/v1/control/storage/policy",json={
@@ -79,6 +81,17 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
         plan=client.get("/api/v1/control/storage/maintenance").json()
         assert any(item["key"]=="disk.free-space" for item in plan["recommendations"])
         assert plan["automatic_deletion"] is False
+
+        brain=client.get("/api/v1/control/storage/brain-context")
+        assert brain.status_code==200,brain.text
+        brain_payload=brain.json()
+        assert brain_payload["contract"]=="vp3.homeserver.storage.brain-context.v1"
+        assert brain_payload["disk"]["level"]=="critical"
+        assert brain_payload["governance"]["automatic_deletion"] is False
+        assert brain_payload["governance"]["cleanup_requires_owner_action"] is True
+        assert brain_payload["governance"]["filesystem_paths_exposed"] is False
+        brain_text=json.dumps(brain_payload,ensure_ascii=False)
+        assert str(settings.data_dir) not in brain_text
 
         invalid=client.put("/api/v1/control/storage/policy",json={
             "warning_free_percent":5.0,
@@ -107,6 +120,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
         assert str(settings.data_dir) not in tool_text
         assert "filesystem_paths_exposed" in tool_text
         assert '"automatic_deletion": false' in tool_text.lower()
+        fragment=storage_maintenance.agent_context_fragment("What is using disk space?",max_chars=1600)
+        assert "HomeServer storage health" in fragment
+        assert "automatic_deletion=false" in fragment
+        assert "cleanup_requires_owner_action=true" in fragment
+        assert str(settings.data_dir) not in fragment
 
         # Backup pruning delegates to Section 27 retention; nothing else is deleted.
         backup_protection.update_policy({"retain_manual":100})
