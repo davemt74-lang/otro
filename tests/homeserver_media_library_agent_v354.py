@@ -111,8 +111,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-library-agent-v354-") 
             "action":"library.agent-brief",
             "arguments":{"limit":8},
         })
-        assert agent_read["contract"]=="vp3.media-library.agent-brief.v1"
-        assert any(row["type"]=="duplicate_review" for row in agent_read["suggested_next_steps"])
+        assert agent_read["contract"]=="vp3.app.agent-action-result.v1"
+        assert agent_read["app_key"]=="vp3.media-library"
+        assert agent_read["action"]=="library.agent-brief"
+        assert agent_read["risk"]=="read"
+        assert agent_read["result"]["contract"]=="vp3.media-library.agent-brief.v1"
+        assert any(row["type"]=="duplicate_review" for row in agent_read["result"]["suggested_next_steps"])
 
         # Consequential action cannot be smuggled through the read-only Agent path.
         try:
