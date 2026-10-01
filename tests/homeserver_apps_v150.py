@@ -133,8 +133,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
     ui=(ROOT/"ui"/"homeserver-apps.js").read_text(encoding="utf-8")
     assert "App Manager" in ui
     assert "VP3 Apps" in ui
-    assert "data-hs-prebuilt-install" in ui
-    assert "/catalog/prebuilt" in ui
+    assert "data-hs-update-review" in ui
+    assert "Review & Install" in ui
+    assert "/update-center/" in ui
     assert "/api/v1/control/homeserver-apps/manager" in ui
 
 print("HomeServer Apps V1 Section 6 VP3 prebuilt apps: PASS")
