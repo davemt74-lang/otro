@@ -1,0 +1,67 @@
+name: HomeServer Members v1.00
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/member_api.py'
+      - 'app/services/members.py'
+      - 'database/migrations/064_multi_user.sql'
+      - 'tests/homeserver_members_v400.py'
+      - 'tests/migrations.py'
+      - 'tests/homeserver_apps_v100.py'
+      - 'ui/index.html'
+      - 'ui/app.js'
+      - 'ui/members.css'
+      - 'ui/members.js'
+      - 'ui/member.html'
+      - 'ui/member.css'
+      - 'ui/member.js'
+      - '.github/workflows/homeserver-members-v400.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-members-v400-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  members:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile member identity runtime
+        run: >-
+          python -m py_compile
+          app/bridge.py
+          app/member_api.py
+          app/services/members.py
+          tests/homeserver_members_v400.py
+          tests/migrations.py
+      - name: Validate member JavaScript
+        run: >-
+          node --check ui/app.js &&
+          node --check ui/members.js &&
+          node --check ui/member.js
+      - name: Verify Section 26 multi-user isolation
+        run: python tests/homeserver_members_v400.py
+      - name: Verify migration chain
+        run: python tests/migrations.py
+      - name: Verify Apps registry migration baseline
+        if: runner.os == 'Linux'
+        run: python tests/homeserver_apps_v100.py
