@@ -239,6 +239,7 @@ async function loadActivity() {
       <button class="text-button" data-activity-read="${item.notification_id}" data-read-value="${item.read ? 'false' : 'true'}">${item.read ? 'Mark unread' : 'Mark read'}</button>
       <button class="text-button" data-activity-dismiss="${item.notification_id}">Dismiss</button>` : '';
     const approvalAction = item.action_payload?.type === 'approval' ? '<button class="button secondary" data-go="approvals">Open approval</button>' : '';
+    const openAction = item.action_payload?.type === 'open' && item.action_payload?.target_view ? `<button class="button secondary" data-go="${esc(item.action_payload.target_view)}">Open</button>` : '';
     const resource=[item.resource_type,item.resource_key].filter(Boolean).join(' · ');
     return `<article class="panel activity-card level-${esc(item.level)} ${item.read ? '' : 'unread'}">
       <span class="activity-card-marker" aria-hidden="true"></span>
@@ -247,7 +248,7 @@ async function loadActivity() {
         ${item.body ? `<p>${esc(item.body)}</p>` : ''}
         <div class="activity-meta"><span>${esc(fmt(item.created_at))}</span><span>${esc(item.source_key || item.actor_key || item.source_kind)}</span>${resource ? `<span>${esc(resource)}</span>` : ''}</div>
       </div>
-      <div class="activity-card-actions">${approvalAction}${notificationActions}</div>
+      <div class="activity-card-actions">${approvalAction}${openAction}${notificationActions}</div>
     </article>`;
   }).join('') : '<div class="panel empty-state">No activity matches these filters.</div>';
   document.querySelectorAll('[data-activity-filter],[data-activity-attention]').forEach(button => {
@@ -414,4 +415,5 @@ openView(viewNames.includes(initial) ? initial : 'dashboard');
 
 refreshVp3CloudState();
 setInterval(()=>{if(document.visibilityState==='visible')refreshVp3CloudState();},15000);
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshVp3CloudState();});
+setInterval(()=>{if(document.visibilityState==='visible' && state.view==='activity')loadActivity().catch(()=>{});},30000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){refreshVp3CloudState();if(state.view==='activity')loadActivity().catch(()=>{});}});
