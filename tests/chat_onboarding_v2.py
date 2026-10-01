@@ -16,9 +16,15 @@ welcome = (ROOT / "ui/welcome.js").read_text(encoding="utf-8")
 assert 'id="chatOnboardingCanvas"' in html
 assert "onboardStartCloud" in html and "onboardCloudLink" in html
 assert "device/start" in js and "device/poll" in js and "voice/start" in js
+assert "#hs_code=" in js and "encodeURIComponent(code.code)" in js
+assert "Your code will be prefilled" in html
 assert "window.location.assign('/#chat')" in welcome
 assert "control/local-apps/" not in welcome  # No onboarding outside the chat canvas.
 assert "https://vp3.me/settings-homeserver.php" in html
+assert "settings-homeserver.php#hs_code='+encodeURIComponent(code)" in js
+assert "window.open('about:blank','_blank')" in js
+assert "tab.location.replace(url)" in js
+assert "Approve in VP3 Cloud below" in js
 
 with tempfile.TemporaryDirectory(prefix="hs-chat-onboard-") as path:
     os.environ["HOMESERVER_DATA_DIR"] = path
