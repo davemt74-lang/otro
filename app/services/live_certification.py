@@ -10,6 +10,7 @@ import json
 import math
 import re
 import secrets
+import struct
 import subprocess
 import tempfile
 import threading
@@ -148,9 +149,10 @@ def _run_microphone()->tuple[str,dict[str,Any]]:
         duration=wav.getnframes()/max(1,wav.getframerate())
         pcm=wav.readframes(wav.getnframes())
     # No raw recording, transcript or device ID is retained.
-    if len(pcm)>0:
-        from audioop import rms
-        amplitude=rms(pcm,2)
+    if len(pcm)>=2:
+        values=struct.iter_unpack("<h",pcm[:len(pcm)//2*2])
+        sample_count=max(1,len(pcm)//2)
+        amplitude=math.isqrt(sum(value*value for (value,) in values)//sample_count)
     else: amplitude=0
     del pcm,recording
     passed=1.5<=duration<=3.2 and amplitude>50
