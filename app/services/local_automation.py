@@ -1055,6 +1055,135 @@ def evaluate_due_rules() -> list[dict[str, Any]]:
     return results
 
 
+def list_app_suggestions(status: str = "suggested", limit: int = 100) -> list[dict[str, Any]]:
+    state = str(status or "suggested").strip().lower()
+    if state not in {"suggested","accepted","dismissed",""}:
+        raise LocalAutomationError("Unsupported app suggestion status.")
+    bounded = max(1, min(int(limit), 500))
+    with db() as connection:
+        if state:
+            rows = connection.execute(
+                """SELECT s.*,r.routine_key,r.name AS routine_name,ar.rule_key
+                   FROM automation_app_suggestions s
+                   JOIN automation_routines r ON r.id=s.routine_id
+                   LEFT JOIN automation_rules ar ON ar.id=s.rule_id
+                   WHERE s.status=? ORDER BY s.id DESC LIMIT ?""",
+                (state, bounded),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                """SELECT s.*,r.routine_key,r.name AS routine_name,ar.rule_key
+                   FROM automation_app_suggestions s
+                   JOIN automation_routines r ON r.id=s.routine_id
+                   LEFT JOIN automation_rules ar ON ar.id=s.rule_id
+                   ORDER BY s.id DESC LIMIT ?""",
+                (bounded,),
+            ).fetchall()
+    return [{
+        **{k:v for k,v in dict(row).items() if k!="arguments_json"},
+        "arguments": _decode(row["arguments_json"], {}),
+        "arguments_exposed": True,
+    } for row in rows]
+
+
+def decide_app_suggestion(suggestion_id: int, decision: str) -> dict[str, Any]:
+    choice = str(decision or "").strip().lower()
+    if choice not in {"accept","dismiss"}:
+        raise LocalAutomationError("App suggestion decision must be accept or dismiss.")
+    with db() as connection:
+        row = connection.execute(
+            "SELECT * FROM automation_app_suggestions WHERE id=?",
+            (int(suggestion_id),),
+        ).fetchone()
+    if row is None:
+        raise LocalAutomationError("App automation suggestion not found.",404)
+    if str(row["status"])!="suggested":
+        raise LocalAutomationError("App automation suggestion has already been decided.",409)
+    request_id = ""
+    if choice=="accept":
+        try:
+            request = approvals.create_app_action_request(
+                "automation:suggestion",
+                "apps.invoke",
+                {
+                    "app_key":str(row["app_key"]),
+                    "action":str(row["action_key"]),
+                    "arguments":_decode(row["arguments_json"],{}),
+                },
+                owner=True,
+            )
+        except approvals.ApprovalError as exc:
+            raise LocalAutomationError(str(exc),exc.status_code) from exc
+        request_id=str(((request.get("result") or {}).get("request_id") or ""))
+        if not request_id:
+            raise LocalAutomationError("Accepted suggestion could not create an approval request.",500)
+    with db() as connection:
+        connection.execute(
+            """UPDATE automation_app_suggestions
+               SET status=?,decided_at=CURRENT_TIMESTAMP WHERE id=? AND status='suggested'""",
+            ("accepted" if choice=="accept" else "dismissed",int(suggestion_id)),
+        )
+    return {
+        "suggestion_id":int(suggestion_id),
+        "decision":choice,
+        "request_id":request_id or None,
+        "owner_approval_required":bool(request_id),
+        "executed":False,
+    }
+
+
+def brain_context(limit: int = 20) -> dict[str, Any]:
+    bounded=max(1,min(int(limit),50))
+    routines=list_routines()
+    rules=list_rules()
+    executions=list_executions(bounded)
+    suggestions=list_app_suggestions("suggested",bounded)
+    return {
+        "contract":"vp3.homeserver.app-orchestration.brain-context.v1",
+        "version":AUTOMATION_RULES_VERSION,
+        "routines":[{
+            "routine_key":row["routine_key"],
+            "name":row["name"],
+            "enabled":bool(row["enabled"]),
+            "approval_mode":row["approval_mode"],
+            "step_count":len(row.get("steps") or []),
+            "app_action_steps":sum(1 for step in row.get("steps") or [] if step.get("step_kind")=="app_action"),
+        } for row in routines[:bounded]],
+        "rules":[{
+            "rule_key":row["rule_key"],
+            "name":row["name"],
+            "enabled":bool(row["enabled"]),
+            "trigger_kind":row["trigger_kind"],
+            "routine_key":row["routine_key"],
+            "last_fired_at":row.get("last_fired_at"),
+        } for row in rules[:bounded]],
+        "recent_executions":[{
+            "id":row["id"],
+            "routine_key":row["routine_key"],
+            "rule_key":row.get("rule_key"),
+            "trigger_kind":row["trigger_kind"],
+            "status":row["status"],
+            "action_count":row["action_count"],
+            "created_at":row["created_at"],
+        } for row in executions[:bounded]],
+        "pending_app_suggestions":[{
+            "id":row["id"],
+            "routine_key":row["routine_key"],
+            "app_key":row["app_key"],
+            "action_key":row["action_key"],
+            "risk":row["risk"],
+            "created_at":row["created_at"],
+        } for row in suggestions[:bounded]],
+        "governance":{
+            "homeserver_execution_authority":True,
+            "app_actions_use_universal_control":True,
+            "app_actions_use_owner_approval_ledger":True,
+            "suggest_only_never_executes":True,
+            "event_metadata_exposed_to_brain":False,
+        },
+    }
+
+
 def list_executions(limit: int = 100) -> list[dict[str, Any]]:
     bounded = max(1, min(int(limit), 500))
     with db() as connection:
