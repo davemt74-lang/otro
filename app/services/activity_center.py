@@ -83,6 +83,7 @@ def _event(
     notification_id:int|None=None,read_at:str|None=None,dismissed_at:str|None=None,
     archived_at:str|None=None,title:str="",body:str="",level:str|None=None,
     priority:str="normal",action_payload:dict[str,Any]|None=None,
+    category_override:str="",
 )->dict[str,Any]:
     severity=level if level in _ALLOWED_LEVELS else _severity(action,status)
     return {
@@ -90,7 +91,7 @@ def _event(
         "source_kind":source_kind,
         "source_id":str(source_id),
         "source_key":source_key or actor_key,
-        "category":_category(source_kind,action),
+        "category":category_override or _category(source_kind,action),
         "created_at":str(created_at),
         "actor_type":actor_type,
         "actor_key":actor_key,
@@ -148,7 +149,7 @@ def list_activity(
                 notification_id=int(row["id"]),read_at=row["read_at"],dismissed_at=row["dismissed_at"],
                 archived_at=row["archived_at"],title=str(row["title"]),body=str(row["body"] or ""),
                 level=str(row["level"] or "info"),priority=str(row["priority"] or "normal"),
-                action_payload=action_payload,
+                action_payload=action_payload,category_override=str(row["category"] or "notifications"),
             ))
         for row in connection.execute(
             """SELECT e.id,e.event_type,e.actor_type,e.actor_key,e.metadata_json,e.created_at,a.app_key
@@ -217,6 +218,23 @@ def list_activity(
     return {"contract":CONTRACT,"items":result,"count":len(result)}
 
 
+def _preference_allows(source_key:str,level:str)->bool:
+    key=str(source_key or "").strip()
+    if not key:
+        return True
+    with db() as connection:
+        row=connection.execute(
+            "SELECT enabled,minimum_level FROM notification_preferences WHERE source_key=?",
+            (key,),
+        ).fetchone()
+    if row is None:
+        return True
+    if not bool(row["enabled"]):
+        return False
+    minimum=str(row["minimum_level"] or "info")
+    return _LEVEL_RANK.get(level,0)>=_LEVEL_RANK.get(minimum,0)
+
+
 def emit_notification(
     *,
     source:str,title:str,body:str="",level:str="info",priority:str="normal",
@@ -227,6 +245,9 @@ def emit_notification(
         raise ActivityCenterError("Unsupported notification level.")
     if priority not in _ALLOWED_PRIORITIES:
         raise ActivityCenterError("Unsupported notification priority.")
+    preference_key=str(source_key or source or "").strip()
+    if not _preference_allows(preference_key,level):
+        return {"suppressed":True,"source_key":preference_key,"level":level}
     safe_title=" ".join(str(title or "").split())[:240]
     if not safe_title: raise ActivityCenterError("Notification title is required.")
     safe_body=str(body or "")[:5000]
@@ -275,31 +296,31 @@ def sync_notifications(limit:int=250)->dict[str,int]:
         ).fetchall()
     for row in approvals:
         before=_notification_by_dedupe(f"approval:{row['id']}")
-        emit_notification(
+        emitted=emit_notification(
             source="approvals",title=f"Approval required: {row['action_key']}",
             body=f"Requested by {row['source_app_key']}",level="action_required",priority="high",
             category="approvals",source_kind="approval",source_key=str(row["source_app_key"]),
             event_key="action.pending",dedupe_key=f"approval:{row['id']}",
             action_payload={"type":"approval","request_id":str(row["id"])},
         )
-        created+=0 if before else 1
+        created+=0 if before or emitted.get("suppressed") else 1
     for row in failed_ai:
         before=_notification_by_dedupe(f"agent-run:{row['id']}")
-        emit_notification(
+        emitted=emit_notification(
             source="agent-runtime",title=f"Agent job failed · {row['app_key']}",
             body=f"Run {row['run_key']}",level="error",priority="high",category="agent",
             source_kind="agent",source_key=str(row["app_key"]),event_key="app.agent.failed",
             dedupe_key=f"agent-run:{row['id']}",
         )
-        created+=0 if before else 1
+        created+=0 if before or emitted.get("suppressed") else 1
     for row in failed_auto:
         before=_notification_by_dedupe(f"automation:{row['id']}")
-        emit_notification(
+        emitted=emit_notification(
             source="automation",title=f"Automation failed · {row['routine_key']}",
             level="error",priority="high",category="automations",source_kind="automation",
             source_key=str(row["routine_key"]),event_key="automation.failed",dedupe_key=f"automation:{row['id']}",
         )
-        created+=0 if before else 1
+        created+=0 if before or emitted.get("suppressed") else 1
     return {"created":created}
 
 
