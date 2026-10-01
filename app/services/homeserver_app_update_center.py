@@ -85,6 +85,13 @@ def review(app_key:str)->dict[str,Any]:
     else:
         recommended_action="current"
 
+    current_permission_rows=list((item.get("permissions") or {}).get("permissions") or [])
+    current_permissions=sorted({str(row.get("permission")) for row in current_permission_rows if row.get("permission")})
+    target_permissions=sorted({str(value) for value in (catalog or {}).get("permissions",[]) if str(value)})
+    source_permissions=list((((source or {}).get("candidate") or {}).get("manifest") or {}).get("permissions") or [])
+    candidate_permissions=target_permissions if catalog else sorted({str(value) for value in source_permissions if str(value)})
+    permission_added=sorted(set(candidate_permissions)-set(current_permissions))
+    permission_removed=sorted(set(current_permissions)-set(candidate_permissions))
     current_schema=str(((release_status or {}).get("data") or {}).get("schema_version") or "1")
     target_schema=str(((catalog or {}).get("data_migration") or {}).get("target_schema_version") or current_schema)
     schema_change=current_schema!=target_schema
@@ -129,8 +136,14 @@ def review(app_key:str)->dict[str,Any]:
         "permissions":{
             "declared_count":int((item.get("permissions") or {}).get("declared_count") or 0),
             "allowed_count":int((item.get("permissions") or {}).get("allowed_count") or 0),
+            "current":current_permissions,
+            "candidate":candidate_permissions,
+            "added":permission_added,
+            "removed":permission_removed,
+            "changed":bool(permission_added or permission_removed),
+            "new_permissions_default_denied":True,
             "catalog_package_trust":"embedded_vp3" if catalog else None,
-            "source_candidate_permissions":list((((source or {}).get("candidate") or {}).get("manifest") or {}).get("permissions") or []),
+            "source_candidate_permissions":source_permissions,
             "source_updates_require_explicit_review":bool(source_update),
         },
         "hosting":{
