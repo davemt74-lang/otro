@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, backup_protection, backups, storage_maintenance, contacts, homeserver_app_agent, homeserver_app_update_center, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
+from . import app_scopes, backup_protection, backups, storage_maintenance, contacts, health_repair, homeserver_app_agent, homeserver_app_update_center, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -38,6 +38,24 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
             "properties": {},
             "additionalProperties": False
         },
+    },
+    "health.status": {
+        "key": "health.status",
+        "name": "Read HomeServer Health",
+        "description": "Read bounded HomeServer health across apps, storage, backups, bridge, hosting, media processing and unresolved failures.",
+        "mode": "read",
+        "owner_only": True,
+        "required_permissions": [],
+        "input_schema": {"type":"object","properties":{},"additionalProperties":False},
+    },
+    "health.repair-plan": {
+        "key": "health.repair-plan",
+        "name": "Read HomeServer Repair Plan",
+        "description": "Read only canonical repair actions for current HomeServer issues. This tool does not execute repairs.",
+        "mode": "read",
+        "owner_only": True,
+        "required_permissions": [],
+        "input_schema": {"type":"object","properties":{},"additionalProperties":False},
     },
     "apps.update-center": {
         "key": "apps.update-center",
@@ -895,6 +913,12 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "description": "Review HomeServer app install, update, rollback, compatibility and recovery status before governed app changes.",
         "tools": ["apps.update-center", "apps.update.review", "apps.prebuilt.list"],
     },
+    {
+        "key": "homeserver.health",
+        "name": "HomeServer Health & Repair",
+        "description": "Diagnose HomeServer health and map issues only to existing governed repair actions.",
+        "tools": ["health.status", "health.repair-plan", "storage.status", "backups.status", "apps.status"],
+    },
 )
 
 
@@ -1567,6 +1591,21 @@ def _storage_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     return safe, {"level":safe["disk"]["level"],"recommendations":safe["recommendation_count"]}
 
 
+def _health_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if arguments:
+        raise ToolError(f"Unsupported health.status argument: {sorted(arguments)[0]}")
+    state=health_repair.status()
+    return state,{"overall":state["overall"],"count":state["count"],"repairable":state["agent_repairable_count"]}
+
+
+def _health_repair_plan(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if arguments:
+        raise ToolError(f"Unsupported health.repair-plan argument: {sorted(arguments)[0]}")
+    plan=health_repair.repair_plan()
+    return plan,{"overall":plan["overall"],"count":plan["count"],"repairable":plan["agent_repairable_count"]}
+
+
+
 def _apps_update_center(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     if arguments:
         raise ToolError(f"Unsupported apps.update-center argument: {sorted(arguments)[0]}")
@@ -2215,6 +2254,10 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _backups_status(payload)
         elif tool["key"] == "storage.status":
             result, result_meta = _storage_status(payload)
+        elif tool["key"] == "health.status":
+            result, result_meta = _health_status(payload)
+        elif tool["key"] == "health.repair-plan":
+            result, result_meta = _health_repair_plan(payload)
         elif tool["key"] == "apps.update-center":
             result, result_meta = _apps_update_center(payload)
         elif tool["key"] == "apps.update.review":
