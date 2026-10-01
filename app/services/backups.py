@@ -688,11 +688,16 @@ def apply_pending_restore() -> dict[str, Any] | None:
     pre_restore_backup: dict[str, Any] | None = None
     swapped_database = False
     swapped_knowledge = False
+    app_data_state: dict[str, Any] | None = None
+    invalidated_member_sessions = 0
     had_database = settings.db_path.exists()
     had_knowledge = settings.knowledge_files_dir.exists()
 
     try:
+        from . import backup_protection
+
         validated = _validate_staged_directory(pending)
+        app_data_state = backup_protection.prepare_app_data_restore(pending, token)
         if had_database:
             pre_restore_backup = create_backup("pre-restore")
             _checkpoint_live_database()
@@ -709,6 +714,8 @@ def apply_pending_restore() -> dict[str, Any] | None:
         os.replace(new_knowledge, settings.knowledge_files_dir)
         swapped_knowledge = True
 
+        backup_protection.swap_app_data(app_data_state)
+
         if had_database:
             os.replace(settings.db_path, old_database)
         os.replace(new_database, settings.db_path)
@@ -721,6 +728,7 @@ def apply_pending_restore() -> dict[str, Any] | None:
 
         ensure_knowledge_index()
         final_database = _validate_sqlite_database(settings.db_path)
+        invalidated_member_sessions = backup_protection.invalidate_restored_sessions()
         with db() as connection:
             connection.execute(
                 """
@@ -732,6 +740,9 @@ def apply_pending_restore() -> dict[str, Any] | None:
                     json.dumps(
                         {
                             "schema_version": final_database["schema_version"],
+                            "format_version": int(validated["manifest"].get("format_version") or 1),
+                            "app_data_restored": bool((app_data_state or {}).get("included")),
+                            "member_sessions_invalidated": invalidated_member_sessions,
                             "pre_restore_backup": pre_restore_backup["name"] if pre_restore_backup else None,
                         },
                         separators=(",", ":"),
@@ -742,12 +753,17 @@ def apply_pending_restore() -> dict[str, Any] | None:
         shutil.rmtree(pending)
         old_database.unlink(missing_ok=True)
         shutil.rmtree(old_knowledge, ignore_errors=True)
+        backup_protection.finalize_app_data(app_data_state)
         result = {
             "status": "applied",
             "applied_at": _iso_now(),
             "backup_created_at": validated["manifest"].get("created_at"),
             "backup_app_version": validated["manifest"].get("app_version"),
+            "format_version": int(validated["manifest"].get("format_version") or 1),
             "schema_version": final_database["schema_version"],
+            "app_data_restored": bool((app_data_state or {}).get("included")),
+            "app_data": validated.get("app_data"),
+            "member_sessions_invalidated": invalidated_member_sessions,
             "pre_restore_backup": pre_restore_backup["name"] if pre_restore_backup else None,
         }
         _write_restore_result(result)
@@ -760,6 +776,8 @@ def apply_pending_restore() -> dict[str, Any] | None:
                 Path(f"{settings.db_path}-shm").unlink(missing_ok=True)
             if old_database.exists():
                 os.replace(old_database, settings.db_path)
+            if app_data_state is not None:
+                backup_protection.rollback_app_data(app_data_state)
             if swapped_knowledge:
                 shutil.rmtree(settings.knowledge_files_dir, ignore_errors=True)
             if old_knowledge.exists():
@@ -770,6 +788,8 @@ def apply_pending_restore() -> dict[str, Any] | None:
             shutil.rmtree(pending, ignore_errors=True)
             new_database.unlink(missing_ok=True)
             shutil.rmtree(new_knowledge, ignore_errors=True)
+            if app_data_state is not None:
+                backup_protection.finalize_app_data(app_data_state)
         _write_restore_result(
             {
                 "status": "failed",
@@ -784,3 +804,5 @@ def apply_pending_restore() -> dict[str, Any] | None:
         shutil.rmtree(new_knowledge, ignore_errors=True)
         old_database.unlink(missing_ok=True)
         shutil.rmtree(old_knowledge, ignore_errors=True)
+        if app_data_state is not None:
+            backup_protection.finalize_app_data(app_data_state)
