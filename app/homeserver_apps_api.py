@@ -1672,6 +1672,9 @@ def app_release_promote(app_key:str,release_id:str)->dict:
 
 @router.post("/{app_key}/rollback")
 def app_release_rollback(app_key:str)->dict:
+    app=_call(homeserver_apps.get,app_key)
+    if app["app_class"]=="system":
+        return _call(homeserver_app_prebuilt.rollback,app_key,reason="owner_requested")
     return _call(homeserver_app_releases.rollback,app_key)
 
 
