@@ -1,0 +1,167 @@
+/* Section 31A — one Agent Brain, presented beside the existing Agent Chat canvas. */
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  let open = false;
+  let timer = null;
+  let previousSignature = null;
+  let requestSequence = 0;
+  const MAX_ITEMS = 8;
+  const details = new Map();
+
+  function build() {
+    if ($('agentBrainDrawer')) return;
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = '/assets/agent-brain-drawer.css';
+    document.head.appendChild(link);
+    const toggle = document.createElement('button');
+    toggle.id = 'agentBrainDrawerToggle';
+    toggle.type = 'button';
+    toggle.className = 'agent-brain-drawer-toggle';
+    toggle.setAttribute('aria-controls', 'agentBrainDrawer');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', 'Open Agent Brain');
+    toggle.innerHTML = '<span aria-hidden="true">✦</span><span class="agent-brain-toggle-label">Agent Brain</span><span id="agentBrainDrawerCount" aria-live="polite"></span>';
+    const top = document.querySelector('.topbar .top-actions') || document.querySelector('.topbar');
+    if (!top) return;
+    top.prepend(toggle);
+
+    const drawer = document.createElement('aside');
+    drawer.id = 'agentBrainDrawer';
+    drawer.className = 'agent-brain-drawer';
+    drawer.setAttribute('role', 'complementary');
+    drawer.setAttribute('aria-label', 'Agent Brain live context');
+    drawer.setAttribute('aria-hidden', 'true');
+    drawer.setAttribute('inert', '');
+    drawer.innerHTML = `
+      <header class="agent-brain-drawer-head"><div><span class="eyebrow">HOMESERVER</span><h2>Agent Brain</h2></div><button class="agent-brain-close" type="button" aria-label="Close Agent Brain">×</button></header>
+      <div class="agent-brain-drawer-body">
+        <p class="agent-brain-intro">Live system context. All instructions and approvals stay in Agent Chat and existing governed workflows.</p>
+        <section class="agent-brain-summary" aria-live="polite"><span>System health</span><strong id="agentBrainHealthState">Checking…</strong><small id="agentBrainHealthCount">Reading local health signals</small></section>
+        <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Needs attention</h3><button id="agentBrainRefresh" type="button">Refresh</button></div><div id="agentBrainIssues" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
+        <div class="agent-brain-drawer-actions"><button id="agentBrainAsk" type="button" class="button primary">Discuss in Agent Chat</button><button id="agentBrainHealth" type="button" class="button secondary">Health workspace</button></div>
+      </div>`;
+    document.body.appendChild(drawer);
+    toggle.addEventListener('click', () => setOpen(!open));
+    drawer.querySelector('.agent-brain-close').addEventListener('click', () => setOpen(false));
+    $('agentBrainRefresh').addEventListener('click', () => refresh());
+    $('agentBrainAsk').addEventListener('click', () => sendToChat('What is the current health of my HomeServer? Explain what needs attention and what actions are available. Do not repair anything without going through existing approval controls.'));
+    $('agentBrainHealth').addEventListener('click', () => {
+      setOpen(false);
+      document.querySelector('[data-view="health"]')?.click();
+    });
+    $('agentBrainIssues').addEventListener('click', e => {
+      const button = e.target.closest('button[data-issue-key]');
+      if (!button) return;
+      const issue = details.get(button.dataset.issueKey);
+      if (!issue) return;
+      const action = issue.repair?.action_key;
+      const prompt = 'Diagnose this HomeServer issue: ' + issue.title + ' (' + issue.key + '). ' +
+        (action ? 'Review whether the existing governed action ' + action + ' is appropriate; preserve owner approvals.' : 'There is no trusted automatic repair; explain safe next steps.');
+      sendToChat(prompt);
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && open) setOpen(false); });
+    document.addEventListener('pointerdown', e => {
+      if (open && !drawer.contains(e.target) && !toggle.contains(e.target)) setOpen(false);
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stop();
+      else if (open) { refresh(); start(); }
+    });
+  }
+
+  function setOpen(value) {
+    open = Boolean(value);
+    const drawer = $('agentBrainDrawer');
+    if (!drawer) return;
+    drawer.classList.toggle('is-open', open);
+    drawer.setAttribute('aria-hidden', String(!open));
+    if (open) drawer.removeAttribute('inert');
+    else drawer.setAttribute('inert', '');
+    $('agentBrainDrawerToggle')?.setAttribute('aria-expanded', String(open));
+    document.body.classList.toggle('agent-brain-drawer-open', open);
+    if (open) { refresh(); start(); drawer.querySelector('.agent-brain-close')?.focus(); }
+    else { stop(); $('agentBrainDrawerToggle')?.focus(); }
+  }
+
+  function stop() { if (timer !== null) clearInterval(timer); timer = null; requestSequence++; }
+  function start() {
+    if (timer === null) timer = setInterval(() => { if (open && !document.hidden) refresh(); }, 60000);
+  }
+  function sendToChat(prompt) {
+    setOpen(false);
+    document.querySelector('.nav [data-view="chat"]')?.click();
+    const input = $('chatInput');
+    if (!input) return;
+    const existing = input.value.trim();
+    input.value = existing ? existing + '\n\n' + prompt : prompt;
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+    input.focus();
+    // Never submit automatically; the owner decides what to send.
+  }
+
+  function render(data) {
+    const issues = Array.isArray(data.issues) ? data.issues : [];
+    const overall = String(data.overall || 'unknown');
+    $('agentBrainHealthState').textContent = overall.charAt(0).toUpperCase() + overall.slice(1);
+    $('agentBrainHealthCount').textContent = issues.length ? issues.length + ' active health issue(s)' : 'No known health issues';
+    const badge = $('agentBrainDrawerCount');
+    badge.textContent = issues.length ? String(issues.length) : '';
+    toggleSeverity(overall);
+    const signature = JSON.stringify(issues.map(i => [i.key,i.severity,i.repair?.class]));
+    if (signature === previousSignature) return;
+    previousSignature = signature;
+    details.clear();
+    const host = $('agentBrainIssues');
+    host.replaceChildren();
+    if (!issues.length) { host.textContent = 'No known issues. Agent Brain remains available in Chat.'; return; }
+    issues.slice(0, MAX_ITEMS).forEach(issue => {
+      if (!issue || typeof issue.key !== 'string') return;
+      details.set(issue.key, issue);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'agent-brain-issue';
+      button.dataset.issueKey = issue.key;
+      const tag = document.createElement('span');
+      tag.className = 'agent-brain-severity';
+      tag.textContent = String(issue.severity || 'attention');
+      const title = document.createElement('strong');
+      title.textContent = String(issue.title || 'Health issue');
+      const hint = document.createElement('small');
+      hint.textContent = issue.repair?.agent_can_execute
+        ? 'Discuss governed recovery in Chat'
+        : 'Diagnose in Chat';
+      button.append(tag,title,hint);
+      host.appendChild(button);
+    });
+    if (issues.length > MAX_ITEMS) {
+      const extra = document.createElement('p');
+      extra.textContent = '+' + (issues.length-MAX_ITEMS) + ' more in the Health workspace';
+      host.appendChild(extra);
+    }
+  }
+  function toggleSeverity(value) {
+    const toggle = $('agentBrainDrawerToggle');
+    if (toggle) toggle.dataset.health = value;
+  }
+  async function refresh() {
+    const seq = ++requestSequence;
+    try {
+      const response = await fetch('/api/v1/control/health', {credentials:'same-origin',headers:{'Accept':'application/json'}});
+      if (!response.ok) throw new Error('Health unavailable (' + response.status + ')');
+      const data = await response.json();
+      if (seq !== requestSequence) return;
+      render(data);
+    } catch (error) {
+      if (seq !== requestSequence) return;
+      $('agentBrainHealthState').textContent = 'Unavailable';
+      $('agentBrainHealthCount').textContent = 'Unable to read local health';
+      $('agentBrainIssues').textContent = 'Diagnostics are unavailable. You can still ask Agent Chat.';
+      toggleSeverity('unknown');
+      previousSignature = null;
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',build,{once:true});
+  else build();
+})();
