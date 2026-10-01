@@ -889,6 +889,12 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "description": "Read tasks and notifications and create durable reminders through explicit capabilities.",
         "tools": ["tasks.list", "notifications.list", "tasks.create"],
     },
+    {
+        "key": "app.update.manager",
+        "name": "App Update Manager",
+        "description": "Review HomeServer app install, update, rollback, compatibility and recovery status before governed app changes.",
+        "tools": ["apps.update-center", "apps.update.review", "apps.prebuilt.list"],
+    },
 )
 
 
@@ -1929,9 +1935,26 @@ def _apps_prebuilt_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict
 
 
 def _apps_prebuilt_install(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    key=_apps_key(arguments)
+    unknown=set(arguments)-{"app_key","expected_version","expected_sha256"}
+    if unknown:
+        raise ToolError(f"Unsupported Apps argument: {sorted(unknown)[0]}")
+    key=str(arguments.get("app_key") or "").strip().lower()
+    if not homeserver_apps._KEY_RE.fullmatch(key):
+        raise ToolError("A valid app_key is required.")
+    catalog={item["key"]:item for item in homeserver_app_prebuilt.catalog().get("packages",[])}
+    package=catalog.get(key)
+    if not package:
+        raise ToolError("VP3 prebuilt app not found.",404)
+    expected_version=str(arguments.get("expected_version") or package.get("version") or "")
+    expected_sha256=str(arguments.get("expected_sha256") or package.get("package_sha256") or "").lower()
+    if expected_version!=str(package.get("version") or ""):
+        raise ToolError("Reviewed VP3 app version is no longer current.",409)
+    if expected_sha256!=str(package.get("package_sha256") or "").lower():
+        raise ToolError("Reviewed VP3 app package hash is no longer current.",409)
     try:
-        result=homeserver_app_prebuilt.install(key)
+        result=homeserver_app_prebuilt.install(
+            key,expected_version=expected_version,expected_sha256=expected_sha256
+        )
     except Exception as exc:
         raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
     return {"app_key":key,"changed":bool(result.get("changed")),"app":result.get("app"),"release":result.get("release")},{"app_key":key,"changed":bool(result.get("changed"))}
