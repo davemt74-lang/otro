@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .action_policy_api import router as action_policy_router
+from .activity_center_api import router as activity_center_router
 from .ambient_orchestration_api import router as ambient_orchestration_router
 from .automation_intelligence_api import router as automation_intelligence_router
 from .agent_routing_api import router as agent_routing_router
@@ -92,6 +93,7 @@ app.include_router(workflow_resume_router)
 app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(action_policy_router)
+app.include_router(activity_center_router)
 app.include_router(approvals_router)
 app.include_router(contacts_router)
 app.include_router(tasks_router)
@@ -150,6 +152,7 @@ def capabilities() -> dict:
         "tracky_physical_context": tracky_physical_context.public_capability(),
         "vp3_os_local_automation": local_automation.public_capability(),
         "vp3_os_automation_intelligence": automation_intelligence.public_capability(),
+        "vp3_activity_center": __import__("app.services.activity_center",fromlist=["public_capability"]).public_capability(),
         "vp3_os_ambient_orchestration": ambient_orchestration.public_capability(),
         "vp3_os_release_readiness": release_readiness.public_capability(),
         "vp3_os_device_rollout": device_rollout.public_capability(),
