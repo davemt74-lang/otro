@@ -109,6 +109,15 @@ def _connect()->sqlite3.Connection:
             note TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE IF NOT EXISTS media_duplicate_groups(
+            group_key TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            scanned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_media_duplicate_groups_kind
+          ON media_duplicate_groups(kind,scanned_at DESC);
         """
     )
     return connection
@@ -823,6 +832,21 @@ def duplicate_scan(limit:int=500)->dict[str,Any]:
 
     rank={"exact":0,"same_size_candidate":1,"near_name_candidate":2}
     groups.sort(key=lambda row:(rank.get(str(row["kind"]),9),-int(row["copies"]),str(row["group_key"])))
+    connection=_connect()
+    try:
+        connection.execute("DELETE FROM media_duplicate_groups")
+        for group in groups:
+            connection.execute(
+                """INSERT INTO media_duplicate_groups(group_key,kind,confidence,payload_json,scanned_at)
+                   VALUES (?,?,?,?,CURRENT_TIMESTAMP)""",
+                (
+                    str(group["group_key"]),str(group["kind"]),str(group["confidence"]),
+                    json.dumps(group,separators=(",",":"),sort_keys=True),
+                ),
+            )
+        connection.commit()
+    finally:
+        connection.close()
     return {
         "contract":CONTRACT,
         "groups":groups,
@@ -831,20 +855,61 @@ def duplicate_scan(limit:int=500)->dict[str,Any]:
         "items_unavailable":unavailable,
         "exact_groups":sum(1 for row in groups if row["kind"]=="exact"),
         "candidate_groups":sum(1 for row in groups if row["kind"]!="exact"),
+        "snapshot_persisted":True,
         "source_files_modified":False,
         "source_files_deleted":False,
         "filesystem_paths_exposed":False,
     }
 
 
-def duplicate_groups(kind:str="",limit:int=100)->dict[str,Any]:
-    result=duplicate_scan(500)
+def duplicate_groups(kind:str="",limit:int=100,*,refresh:bool=False)->dict[str,Any]:
     wanted=str(kind or "").strip()
-    rows=result["groups"]
+    if wanted and wanted not in {"exact","same_size_candidate","near_name_candidate"}:
+        raise MediaLibraryError("Duplicate group kind is invalid.")
+    if refresh:
+        result=duplicate_scan(500)
+        rows=result["groups"]
+    else:
+        connection=_connect()
+        try:
+            query="SELECT payload_json FROM media_duplicate_groups"
+            params=[]
+            if wanted:
+                query+=" WHERE kind=?"
+                params.append(wanted)
+            query+=" ORDER BY scanned_at DESC,group_key LIMIT ?"
+            params.append(max(1,min(int(limit),500)))
+            stored=connection.execute(query,tuple(params)).fetchall()
+        finally:
+            connection.close()
+        if not stored:
+            result=duplicate_scan(500)
+            rows=result["groups"]
+        else:
+            rows=[]
+            for row in stored:
+                try:
+                    item=json.loads(str(row["payload_json"]))
+                    if isinstance(item,dict):
+                        item["review"]=_review_for(str(item.get("group_key") or ""))
+                        rows.append(item)
+                except json.JSONDecodeError:
+                    continue
+            result={
+                "contract":CONTRACT,
+                "groups":rows,
+                "count":len(rows),
+                "items_scanned":None,
+                "items_unavailable":None,
+                "exact_groups":sum(1 for row in rows if row.get("kind")=="exact"),
+                "candidate_groups":sum(1 for row in rows if row.get("kind")!="exact"),
+                "snapshot_persisted":True,
+                "source_files_modified":False,
+                "source_files_deleted":False,
+                "filesystem_paths_exposed":False,
+            }
     if wanted:
-        if wanted not in {"exact","same_size_candidate","near_name_candidate"}:
-            raise MediaLibraryError("Duplicate group kind is invalid.")
-        rows=[row for row in rows if row["kind"]==wanted]
+        rows=[row for row in rows if row.get("kind")==wanted]
     rows=rows[:max(1,min(int(limit),500))]
     return {**result,"groups":rows,"count":len(rows)}
 
@@ -894,15 +959,28 @@ def review_duplicate(
 
 
 def cleanup_status()->dict[str,Any]:
-    result=duplicate_scan(500)
-    groups=result["groups"]
+    connection=_connect()
+    try:
+        stored=connection.execute("SELECT payload_json FROM media_duplicate_groups").fetchall()
+    finally:
+        connection.close()
+    groups=[]
+    for row in stored:
+        try:
+            item=json.loads(str(row["payload_json"]))
+            if isinstance(item,dict):
+                item["review"]=_review_for(str(item.get("group_key") or ""))
+                groups.append(item)
+        except json.JSONDecodeError:
+            continue
     return {
         "contract":CONTRACT,
         "duplicate_groups":len(groups),
-        "exact_groups":sum(1 for row in groups if row["kind"]=="exact"),
-        "candidate_groups":sum(1 for row in groups if row["kind"]!="exact"),
-        "needs_review":sum(1 for row in groups if row["review"]["decision"]=="needs_review"),
-        "metadata_conflict_groups":sum(1 for row in groups if row["metadata_conflicts"]),
+        "exact_groups":sum(1 for row in groups if row.get("kind")=="exact"),
+        "candidate_groups":sum(1 for row in groups if row.get("kind")!="exact"),
+        "needs_review":sum(1 for row in groups if row.get("review",{}).get("decision")=="needs_review"),
+        "metadata_conflict_groups":sum(1 for row in groups if row.get("metadata_conflicts")),
+        "scan_required":not bool(stored),
         "automatic_source_deletion":False,
         "source_files_deleted":False,
     }
@@ -919,6 +997,8 @@ def status()->dict[str,Any]:
         smart_count=int(connection.execute("SELECT COUNT(*) FROM media_collections WHERE collection_type='smart'").fetchone()[0])
         fingerprint_count=int(connection.execute("SELECT COUNT(*) FROM media_fingerprints").fetchone()[0])
         reviewed_count=int(connection.execute("SELECT COUNT(*) FROM media_duplicate_reviews WHERE decision!='needs_review'").fetchone()[0])
+        duplicate_group_count=int(connection.execute("SELECT COUNT(*) FROM media_duplicate_groups").fetchone()[0])
+        exact_group_count=int(connection.execute("SELECT COUNT(*) FROM media_duplicate_groups WHERE kind='exact'").fetchone()[0])
     finally:
         connection.close()
     return {
@@ -931,6 +1011,8 @@ def status()->dict[str,Any]:
         "smart_collections":smart_count,
         "fingerprinted_items":fingerprint_count,
         "duplicate_reviews":reviewed_count,
+        "duplicate_groups":duplicate_group_count,
+        "exact_duplicate_groups":exact_group_count,
         "canonical_source":"vp3.media-server",
         "source_files_modified":False,
         "source_files_deleted":False,
@@ -946,6 +1028,8 @@ def status()->dict[str,Any]:
         "near_duplicate_candidates":True,
         "metadata_conflict_detection":True,
         "duplicate_review_workflow":True,
+        "persisted_duplicate_snapshot":True,
+        "explicit_duplicate_scan":True,
         "automatic_source_deletion":False,
         "homeserver_execution_authority":True,
     }
@@ -980,6 +1064,8 @@ def brain_context(limit:int=8)->dict[str,Any]:
             "smart_collections":state["smart_collections"],
             "fingerprinted_items":state["fingerprinted_items"],
             "duplicate_reviews":state["duplicate_reviews"],
+            "duplicate_groups":state["duplicate_groups"],
+            "exact_duplicate_groups":state["exact_duplicate_groups"],
         },
         "recent":recent,
         "source_files_modified":False,
@@ -1041,8 +1127,10 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
         return delete_collection(str(args.get("collection_id") or ""))
     if key=="library.smart-collections":
         return smart_collections()
+    if key=="library.duplicates.scan":
+        return duplicate_scan(int(args.get("limit",500)))
     if key=="library.duplicates":
-        return duplicate_groups(str(args.get("kind") or ""),int(args.get("limit",100)))
+        return duplicate_groups(str(args.get("kind") or ""),int(args.get("limit",100)),refresh=bool(args.get("refresh",False)))
     if key=="library.duplicate.review":
         return review_duplicate(
             str(args.get("group_key") or ""),str(args.get("decision") or ""),
