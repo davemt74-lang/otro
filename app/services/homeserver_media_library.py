@@ -7,7 +7,7 @@ import sqlite3
 import uuid
 from typing import Any
 
-from . import homeserver_app_resources, homeserver_apps, homeserver_media_server
+from . import homeserver_app_resources, homeserver_apps, homeserver_media_processor, homeserver_media_server
 
 APP_KEY="vp3.media-library"
 CONTRACT="vp3.media-library.v1"
@@ -118,6 +118,21 @@ def _connect()->sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_media_duplicate_groups_kind
           ON media_duplicate_groups(kind,scanned_at DESC);
+        CREATE TABLE IF NOT EXISTS media_artwork_assignments(
+            assignment_id TEXT PRIMARY KEY,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            source_media_id TEXT NOT NULL DEFAULT '',
+            processor_job_id TEXT NOT NULL,
+            derivative_id TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(target_type,target_id,role)
+        );
+        CREATE INDEX IF NOT EXISTS idx_media_artwork_target
+          ON media_artwork_assignments(target_type,target_id,role);
         """
     )
     return connection
@@ -972,6 +987,207 @@ def cleanup_status()->dict[str,Any]:
     }
 
 
+def _validate_artwork_target(target_type:str,target_id:str)->dict[str,Any]:
+    kind=str(target_type or "").strip().lower()
+    key=str(target_id or "").strip()
+    if kind=="media":
+        return {"target_type":"media","target_id":key,"items":[_canonical_media(key)]}
+    if kind=="collection":
+        collection=get_collection(key,500)
+        return {"target_type":"collection","target_id":key,"items":collection["items"]}
+    raise MediaLibraryError("Artwork target_type must be media or collection.")
+
+
+def _artwork_public(row:sqlite3.Row|dict[str,Any])->dict[str,Any]:
+    data=dict(row)
+    return {
+        "assignment_id":str(data["assignment_id"]),
+        "target_type":str(data["target_type"]),
+        "target_id":str(data["target_id"]),
+        "role":str(data["role"]),
+        "source_media_id":str(data.get("source_media_id") or ""),
+        "processor_job_id":str(data["processor_job_id"]),
+        "derivative_id":str(data.get("derivative_id") or ""),
+        "status":str(data["status"]),
+        "created_at":str(data["created_at"]),
+        "updated_at":str(data["updated_at"]),
+        "filesystem_path_exposed":False,
+        "source_file_modified":False,
+        "source_file_deleted":False,
+    }
+
+
+def _refresh_artwork_row(row:sqlite3.Row|dict[str,Any])->dict[str,Any]:
+    data=dict(row)
+    job_id=str(data["processor_job_id"])
+    try:
+        job=homeserver_media_processor.get_job(job_id)["job"]
+        status=str(job["status"])
+    except Exception:
+        status="failed"
+    derivative_id=str(data.get("derivative_id") or "")
+    if status=="completed" and not derivative_id:
+        source_media_id=str(data.get("source_media_id") or "")
+        derivatives=homeserver_media_processor.derivatives(source_media_id,500)["derivatives"] if source_media_id else homeserver_media_processor.derivatives("",500)["derivatives"]
+        match=next((item for item in derivatives if str(item.get("job_id") or "")==job_id),None)
+        if match:
+            derivative_id=str(match["derivative_id"])
+    mapped={"queued":"pending","processing":"processing","completed":"ready","failed":"failed","cancelled":"cancelled"}
+    public_status=mapped.get(status,status)
+    if public_status=="ready" and not derivative_id:
+        public_status="processing"
+    connection=_connect()
+    try:
+        connection.execute(
+            """UPDATE media_artwork_assignments
+               SET status=?,derivative_id=?,updated_at=CURRENT_TIMESTAMP WHERE assignment_id=?""",
+            (public_status,derivative_id,str(data["assignment_id"])),
+        )
+        connection.commit()
+        updated=connection.execute(
+            "SELECT * FROM media_artwork_assignments WHERE assignment_id=?",(str(data["assignment_id"]),)
+        ).fetchone()
+    finally:
+        connection.close()
+    return _artwork_public(updated)
+
+
+def request_artwork(
+    target_type:str,
+    target_id:str,
+    role:str,
+    *,
+    source_media_ids:list[str]|None=None,
+    preset:str="",
+)->dict[str,Any]:
+    target=_validate_artwork_target(target_type,target_id)
+    artwork_role=str(role or "").strip().lower()
+    if artwork_role not in {"thumbnail","poster","album_art","cover","contact_sheet"}:
+        raise MediaLibraryError("Unsupported artwork role.")
+    source_ids=[]
+    for raw in list(source_media_ids or []):
+        media_id=str(raw or "").strip()
+        if media_id and media_id not in source_ids:
+            _canonical_media(media_id)
+            source_ids.append(media_id)
+    if target["target_type"]=="media" and not source_ids:
+        source_ids=[target["target_id"]]
+    if target["target_type"]=="collection":
+        allowed={str(item["media_id"]) for item in target["items"]}
+        if not source_ids:
+            source_ids=list(allowed)[:16]
+        if any(media_id not in allowed for media_id in source_ids):
+            raise MediaLibraryError("Collection artwork sources must belong to the collection.",409)
+    if not source_ids:
+        raise MediaLibraryError("Artwork requires at least one source media item.")
+    if artwork_role=="contact_sheet":
+        if target["target_type"]!="collection":
+            raise MediaLibraryError("Contact sheets require a collection target.",409)
+        job=homeserver_media_processor.enqueue_contact_sheet(
+            source_ids[:16],preset=str(preset or "2x2"),output_format="jpg"
+        )["job"]
+    else:
+        source_id=source_ids[0]
+        source=_canonical_media(source_id)
+        media_type=str(source["media_type"])
+        if artwork_role in {"thumbnail","poster"}:
+            if media_type not in {"image","video"}:
+                raise MediaLibraryError("Thumbnail and poster artwork require image or video media.",409)
+            job=homeserver_media_processor.enqueue(
+                source_id,"thumbnail",str(preset or "default"),"jpg"
+            )["job"]
+        else:
+            if media_type=="image":
+                job=homeserver_media_processor.enqueue(
+                    source_id,"image.convert",str(preset or "medium"),"webp"
+                )["job"]
+            elif media_type=="video":
+                job=homeserver_media_processor.enqueue(
+                    source_id,"thumbnail",str(preset or "default"),"jpg"
+                )["job"]
+            else:
+                raise MediaLibraryError("Cover artwork requires image or video source media.",409)
+    assignment_id="art_"+uuid.uuid4().hex
+    connection=_connect()
+    try:
+        connection.execute(
+            """INSERT INTO media_artwork_assignments(
+                 assignment_id,target_type,target_id,role,source_media_id,processor_job_id,status
+               ) VALUES (?,?,?,?,?,?,'pending')
+               ON CONFLICT(target_type,target_id,role) DO UPDATE SET
+                 assignment_id=excluded.assignment_id,source_media_id=excluded.source_media_id,
+                 processor_job_id=excluded.processor_job_id,derivative_id='',status='pending',
+                 updated_at=CURRENT_TIMESTAMP""",
+            (
+                assignment_id,target["target_type"],target["target_id"],artwork_role,
+                source_ids[0],str(job["job_id"]),
+            ),
+        )
+        connection.commit()
+        row=connection.execute(
+            "SELECT * FROM media_artwork_assignments WHERE target_type=? AND target_id=? AND role=?",
+            (target["target_type"],target["target_id"],artwork_role),
+        ).fetchone()
+    finally:
+        connection.close()
+    return {
+        "contract":CONTRACT,
+        "artwork":_artwork_public(row),
+        "processor":"vp3.media-processor",
+        "processor_operation":str(job["operation"]),
+        "derivative_owned_by_processor":True,
+        "source_files_modified":False,
+    }
+
+
+def artwork(target_type:str,target_id:str)->dict[str,Any]:
+    target=_validate_artwork_target(target_type,target_id)
+    connection=_connect()
+    try:
+        rows=connection.execute(
+            """SELECT * FROM media_artwork_assignments
+               WHERE target_type=? AND target_id=? ORDER BY role""",
+            (target["target_type"],target["target_id"]),
+        ).fetchall()
+    finally:
+        connection.close()
+    items=[_refresh_artwork_row(row) for row in rows]
+    return {
+        "contract":CONTRACT,
+        "target_type":target["target_type"],
+        "target_id":target["target_id"],
+        "artwork":items,
+        "count":len(items),
+        "derivative_owned_by_processor":True,
+        "filesystem_paths_exposed":False,
+    }
+
+
+def remove_artwork(target_type:str,target_id:str,role:str)->dict[str,Any]:
+    target=_validate_artwork_target(target_type,target_id)
+    artwork_role=str(role or "").strip().lower()
+    connection=_connect()
+    try:
+        cur=connection.execute(
+            "DELETE FROM media_artwork_assignments WHERE target_type=? AND target_id=? AND role=?",
+            (target["target_type"],target["target_id"],artwork_role),
+        )
+        if cur.rowcount<1:
+            raise MediaLibraryError("Artwork assignment not found.",404)
+        connection.commit()
+    finally:
+        connection.close()
+    return {
+        "contract":CONTRACT,
+        "removed":True,
+        "target_type":target["target_type"],
+        "target_id":target["target_id"],
+        "role":artwork_role,
+        "processor_derivative_deleted":False,
+        "source_files_deleted":False,
+    }
+
+
 def status()->dict[str,Any]:
     connection=_connect()
     try:
@@ -985,6 +1201,8 @@ def status()->dict[str,Any]:
         reviewed_count=int(connection.execute("SELECT COUNT(*) FROM media_duplicate_reviews WHERE decision!='needs_review'").fetchone()[0])
         duplicate_group_count=int(connection.execute("SELECT COUNT(*) FROM media_duplicate_groups").fetchone()[0])
         exact_group_count=int(connection.execute("SELECT COUNT(*) FROM media_duplicate_groups WHERE kind='exact'").fetchone()[0])
+        artwork_count=int(connection.execute("SELECT COUNT(*) FROM media_artwork_assignments").fetchone()[0])
+        artwork_ready=int(connection.execute("SELECT COUNT(*) FROM media_artwork_assignments WHERE status='ready'").fetchone()[0])
     finally:
         connection.close()
     return {
@@ -999,6 +1217,8 @@ def status()->dict[str,Any]:
         "duplicate_reviews":reviewed_count,
         "duplicate_groups":duplicate_group_count,
         "exact_duplicate_groups":exact_group_count,
+        "artwork_assignments":artwork_count,
+        "artwork_ready":artwork_ready,
         "canonical_source":"vp3.media-server",
         "source_files_modified":False,
         "source_files_deleted":False,
@@ -1016,6 +1236,10 @@ def status()->dict[str,Any]:
         "duplicate_review_workflow":True,
         "persisted_duplicate_snapshot":True,
         "explicit_duplicate_scan":True,
+        "processor_backed_artwork":True,
+        "artwork_roles":["thumbnail","poster","album_art","cover","contact_sheet"],
+        "contact_sheets":True,
+        "derivative_owned_by_processor":True,
         "automatic_source_deletion":False,
         "homeserver_execution_authority":True,
     }
@@ -1052,6 +1276,8 @@ def brain_context(limit:int=8)->dict[str,Any]:
             "duplicate_reviews":state["duplicate_reviews"],
             "duplicate_groups":state["duplicate_groups"],
             "exact_duplicate_groups":state["exact_duplicate_groups"],
+            "artwork_assignments":state["artwork_assignments"],
+            "artwork_ready":state["artwork_ready"],
         },
         "recent":recent,
         "source_files_modified":False,
@@ -1124,6 +1350,18 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
         )
     if key=="library.cleanup.status":
         return cleanup_status()
+    if key=="library.artwork.generate":
+        return request_artwork(
+            str(args.get("target_type") or ""),str(args.get("target_id") or ""),
+            str(args.get("role") or ""),source_media_ids=list(args.get("source_media_ids") or []),
+            preset=str(args.get("preset") or "")
+        )
+    if key=="library.artwork":
+        return artwork(str(args.get("target_type") or ""),str(args.get("target_id") or ""))
+    if key=="library.artwork.remove":
+        return remove_artwork(
+            str(args.get("target_type") or ""),str(args.get("target_id") or ""),str(args.get("role") or "")
+        )
     if key=="library.brain-context":
         return brain_context(int(args.get("limit",8)))
     raise MediaLibraryError("Unsupported Media Library action.",404)
