@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/assets/room-device-automation.css">
   <link rel="stylesheet" href="/assets/tools.css">
   <link rel="stylesheet" href="/assets/approvals.css">
+  <link rel="stylesheet" href="/assets/activity-center.css">
   <link rel="stylesheet" href="/assets/contacts.css">
   <link rel="stylesheet" href="/assets/local-apps.css">
   <link rel="stylesheet" href="/assets/homeserver-apps.css">
@@ -640,8 +641,26 @@
       </section>
 
       <section class="view" id="view-activity">
-        <div class="section-intro"><div><h2>Activity</h2><p>A local audit trail of meaningful HomeServer actions.</p></div></div>
-        <div class="panel table-wrap"><table><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th></tr></thead><tbody id="activityTable"></tbody></table></div>
+        <div class="section-intro split"><div><h2>Activity</h2><p>Notifications, approvals, automations, Agent work, app events, and system activity in one local feed.</p></div><button class="button secondary" id="activityRefresh" type="button">Refresh</button></div>
+        <div class="activity-summary-grid">
+          <div class="panel compact-stat"><span>Unread</span><strong id="activityUnread">0</strong></div>
+          <div class="panel compact-stat"><span>Needs attention</span><strong id="activityAttention">0</strong></div>
+          <div class="panel compact-stat"><span>Pending approvals</span><strong id="activityApprovals">0</strong></div>
+          <div class="panel compact-stat"><span>Failed jobs</span><strong id="activityFailures">0</strong></div>
+        </div>
+        <div class="activity-toolbar panel">
+          <div class="activity-filters" id="activityFilters">
+            <button class="button secondary active" data-activity-filter="">All</button>
+            <button class="button secondary" data-activity-attention="1">Needs Attention</button>
+            <button class="button secondary" data-activity-filter="apps">Apps</button>
+            <button class="button secondary" data-activity-filter="automations">Automations</button>
+            <button class="button secondary" data-activity-filter="agent">Agent</button>
+            <button class="button secondary" data-activity-filter="approvals">Approvals</button>
+            <button class="button secondary" data-activity-filter="system">System</button>
+          </div>
+          <label class="activity-unread-toggle"><input type="checkbox" id="activityUnreadOnly"> Unread only</label>
+        </div>
+        <div id="activityFeed" class="activity-feed"><div class="panel empty-state">Loading activity…</div></div>
       </section>
     </main>
   </div>

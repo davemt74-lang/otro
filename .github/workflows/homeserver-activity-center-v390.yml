@@ -1,0 +1,62 @@
+name: HomeServer Activity Center v0.90
+
+on:
+  pull_request:
+    paths:
+      - 'app/main.py'
+      - 'app/bridge.py'
+      - 'app/activity_center_api.py'
+      - 'app/services/activity_center.py'
+      - 'database/migrations/063_activity_center.sql'
+      - 'tests/homeserver_activity_center_v390.py'
+      - 'tests/migrations.py'
+      - 'tests/homeserver_apps_v100.py'
+      - 'ui/index.html'
+      - 'ui/app.js'
+      - 'ui/activity-center.css'
+      - '.github/workflows/homeserver-activity-center-v390.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-activity-center-v390-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  activity-center:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Activity Center runtime
+        run: >-
+          python -m py_compile
+          app/main.py
+          app/bridge.py
+          app/activity_center_api.py
+          app/services/activity_center.py
+          tests/homeserver_activity_center_v390.py
+          tests/migrations.py
+      - name: Validate Activity Center JavaScript
+        run: node --check ui/app.js
+      - name: Verify Section 25 Activity Center
+        run: python tests/homeserver_activity_center_v390.py
+      - name: Verify migration chain
+        run: python tests/migrations.py
+      - name: Verify Apps registry migration baseline
+        if: runner.os == 'Linux'
+        run: python tests/homeserver_apps_v100.py

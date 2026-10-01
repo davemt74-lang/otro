@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from .config import settings
 from .database import db, initialize_database
-from .services import ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, homeserver_app_runtime, hosting_health_recovery, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federated_automation, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
+from .services import activity_center, ambient_agent, ambient_orchestration, app_scopes, automation_intelligence, device_rollout, federated_data, hardware_adapters, hardware_experience, homeserver_app_runtime, hosting_health_recovery, local_automation, memory_continuity, physical_agent, physical_meeting, tracky_cross_site_presence, tracky_federated_automation, tracky_federation_access_operations, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_operations, tracky_physical_world_dashboard, tracky_sync_visibility
 from .services.knowledge import (
     KnowledgeImportError,
     create_knowledge_item,
@@ -663,23 +663,31 @@ def control_app_scope(app_id: int, payload: AppScopeUpdate) -> dict:
 
 
 @app.get("/api/v1/control/activity")
-def control_activity(limit: int = Query(default=100, ge=1, le=500)) -> dict:
-    with db() as connection:
-        rows = connection.execute("SELECT id, actor_type, actor_key, action, resource_type, resource_key, metadata_json, created_at FROM activity_log ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-    items = []
-    for row in rows:
-        item = dict(row)
-        try:
-            item["metadata"] = json.loads(item.pop("metadata_json") or "{}")
-        except json.JSONDecodeError:
-            item["metadata"] = {}
-            item.pop("metadata_json", None)
-        items.append(item)
-    return {"items": items}
+def control_activity(
+    limit: int = Query(default=100, ge=1, le=500),
+    category: str = Query(default="", max_length=40),
+    needs_attention: bool = False,
+    unread_only: bool = False,
+) -> dict:
+    return activity_center.list_activity(
+        limit=limit,
+        category=category,
+        needs_attention=needs_attention,
+        unread_only=unread_only,
+    )
 
 
 @app.get("/api/v1/control/notifications")
-def control_notifications() -> dict:
-    with db() as connection:
-        rows = connection.execute("SELECT id, source, title, body, level, read_at, created_at FROM notifications ORDER BY id DESC LIMIT 100").fetchall()
-    return {"items": [dict(row) for row in rows]}
+def control_notifications(
+    unread_only: bool = False,
+    needs_attention: bool = False,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    activity_center.sync_notifications()
+    feed=activity_center.list_activity(
+        limit=limit,
+        category="notifications",
+        needs_attention=needs_attention,
+        unread_only=unread_only,
+    )
+    return {"items":feed["items"],"count":feed["count"]}
