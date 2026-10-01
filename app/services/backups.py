@@ -513,9 +513,21 @@ def _extract_and_validate_archive(archive_path: Path, target_root: Path) -> dict
     for stored_name in database_summary["referenced_files"]:
         if not (target_root / "knowledge" / "files" / stored_name).is_file():
             raise BackupError("Backup is missing a knowledge file referenced by its database.")
+    try:
+        from . import backup_protection
+        app_data = backup_protection.validate_app_data(
+            target_root,
+            target_root / "database" / "homeserver.db",
+            manifest,
+        )
+    except Exception as exc:
+        if hasattr(exc, "status_code"):
+            raise BackupError(str(exc), int(getattr(exc, "status_code", 422))) from exc
+        raise
     return {
         "manifest": manifest,
         "database": database_summary,
+        "app_data": app_data,
         "file_count": len(entries),
     }
 
@@ -540,8 +552,15 @@ def stage_restore(source: BinaryIO, original_name: str = "backup.zip") -> dict[s
             "upload_sha256": upload_sha256,
             "backup_created_at": validated["manifest"].get("created_at"),
             "backup_app_version": validated["manifest"].get("app_version"),
+            "format_version": int(validated["manifest"].get("format_version") or 1),
             "schema_version": validated["database"]["schema_version"],
             "file_count": validated["file_count"],
+            "app_data": validated["app_data"],
+            "coverage": validated["manifest"].get("coverage") or {
+                "database": True,
+                "knowledge_files": True,
+                "app_data": False,
+            },
         }
         (candidate / RESTORE_STATE_NAME).write_text(
             json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True),
@@ -586,7 +605,24 @@ def _validate_staged_directory(root: Path) -> dict[str, Any]:
     for stored_name in database["referenced_files"]:
         if not (root / "knowledge" / "files" / stored_name).is_file():
             raise BackupError("Pending restore is missing a referenced knowledge file.")
-    return {"manifest": manifest, "state": state, "database": database, "file_count": len(entries)}
+    try:
+        from . import backup_protection
+        app_data = backup_protection.validate_app_data(
+            root,
+            root / "database" / "homeserver.db",
+            manifest,
+        )
+    except Exception as exc:
+        if hasattr(exc, "status_code"):
+            raise BackupError(str(exc), int(getattr(exc, "status_code", 422))) from exc
+        raise
+    return {
+        "manifest": manifest,
+        "state": state,
+        "database": database,
+        "app_data": app_data,
+        "file_count": len(entries),
+    }
 
 
 def pending_restore_info() -> dict[str, Any] | None:
