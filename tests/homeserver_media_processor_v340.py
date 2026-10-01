@@ -87,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-processor-v340-") as data_di
             assert response.status_code==200,response.text
 
         assert homeserver_apps.get("vp3.media-server")["installed_version"]=="1.2.0"
-        assert homeserver_apps.get("vp3.media-processor")["installed_version"]=="1.0.0"
+        assert homeserver_apps.get("vp3.media-processor")["installed_version"]=="1.1.0"
         assert homeserver_apps.get("vp3.download-manager")["installed_version"]=="1.1.0"
         assert homeserver_apps.get("vp3.video-editor")["installed_version"]=="1.1.0"
 
