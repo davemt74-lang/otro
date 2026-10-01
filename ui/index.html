@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="/assets/approvals.css">
   <link rel="stylesheet" href="/assets/activity-center.css">
   <link rel="stylesheet" href="/assets/contacts.css">
+  <link rel="stylesheet" href="/assets/members.css">
   <link rel="stylesheet" href="/assets/local-apps.css">
   <link rel="stylesheet" href="/assets/homeserver-apps.css">
   <link rel="stylesheet" href="/assets/shell.css">
@@ -42,6 +43,7 @@
         <button class="nav-item" data-view="knowledge">Knowledge</button>
         <button class="nav-item" data-view="memory">Memory</button>
         <button class="nav-item" data-view="contacts">Contacts</button>
+        <button class="nav-item" data-view="members">Users</button>
         <button class="nav-item" data-view="apps">Connected Apps</button>
         <button class="nav-item" data-view="ambient">Ambient Agent</button>
         <button class="nav-item" data-view="automation">Rooms & Devices</button>
@@ -186,6 +188,26 @@
         </form>
         <div class="contact-toolbar"><input id="contactsSearch" type="search" placeholder="Search names, organizations, email, phone, relationships or notes"><span id="contactsCount" class="muted"></span></div>
         <div id="contactsList" class="contact-grid"><div class="panel empty-state">No contacts yet.</div></div>
+      </section>
+
+      <section class="view" id="view-members">
+        <div class="section-intro split"><div><h2>Users</h2><p>Local HomeServer members have separate sign-in sessions, private Agent context, and explicit app access. Owner control is never inherited.</p></div><button class="button primary" id="showMemberForm" type="button">Add user</button></div>
+        <form id="memberForm" class="panel form-panel hidden">
+          <div class="panel-head"><div><p class="eyebrow">LOCAL USER</p><h3>Create user</h3></div></div>
+          <div class="form-grid">
+            <label>Username<input id="memberUsername" minlength="3" maxlength="40" required placeholder="alex"></label>
+            <label>Display name<input id="memberDisplayName" maxlength="120" required placeholder="Alex"></label>
+          </div>
+          <div class="form-grid">
+            <label>Role<select id="memberRole"><option value="member">Member</option><option value="admin">Admin</option><option value="guest">Guest</option></select></label>
+            <label>Password<input id="memberPassword" type="password" minlength="10" maxlength="256" required autocomplete="new-password"></label>
+          </div>
+          <div class="form-actions"><button class="button secondary" type="button" id="cancelMemberForm">Cancel</button><button class="button primary" type="submit">Create user</button></div>
+        </form>
+        <div class="members-layout">
+          <div id="membersList" class="cards-list"><div class="panel empty-state">Loading users…</div></div>
+          <aside id="memberDetail" class="panel member-detail"><div class="empty-state">Select a user to manage role, status, password, and app access.</div></aside>
+        </div>
       </section>
 
       <section class="view" id="view-apps">
@@ -675,6 +697,7 @@
   <script src="/assets/tools.js" defer></script>
   <script src="/assets/approvals.js" defer></script>
   <script src="/assets/contacts.js" defer></script>
+  <script src="/assets/members.js" defer></script>
   <script src="/assets/knowledge-sources.js" defer></script>
   <script src="/assets/local-apps.js" defer></script>
   <script src="/assets/homeserver-apps.js" defer></script>
