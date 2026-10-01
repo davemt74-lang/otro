@@ -349,16 +349,21 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         entry=(content/Path(*_safe_rel(manifest["entrypoint"]).parts)).resolve()
         if not entry.is_file():
             raise AppPackageError("App entrypoint was not extracted.")
-        from . import homeserver_app_control
+        from . import homeserver_app_agent_runtime, homeserver_app_control
         try:
             homeserver_app_runtime.validate_release_contracts(app_key,content)
+            homeserver_app_agent_runtime.validate_release_contract(app_key,content)
             agent_actions_path=str(manifest.get("agent_actions") or "").strip()
             settings_schema_path=str(manifest.get("settings_schema") or "").strip()
             if agent_actions_path:
                 homeserver_app_control.validate_action_manifest(content,app_key,agent_actions_path)
             if settings_schema_path:
                 homeserver_app_control.validate_settings_schema(content,app_key,settings_schema_path)
-        except (homeserver_app_runtime.AppRuntimeError,homeserver_app_control.AppControlError) as exc:
+        except (
+            homeserver_app_runtime.AppRuntimeError,
+            homeserver_app_control.AppControlError,
+            homeserver_app_agent_runtime.AppAgentRuntimeError,
+        ) as exc:
             raise AppPackageError(str(exc),getattr(exc,"status_code",400)) from exc
         homeserver_apps.transition(
             app_key,transition_target,
