@@ -63,12 +63,14 @@ const document={
   readyState:'complete',body,hidden:false,head:new Element('head'),
   createElement:type=>new Element(type),
   getElementById:id=>registry.get(id)||null,
-  querySelector:sel=>({
+  querySelector:sel=>{
+    if (!registry.has('chatInput') && (sel==='[data-view="health"]'||sel==='[data-view="activity"]')) return null;
+    return ({
     '.topbar .top-actions':top,
     '.nav [data-view="chat"]':nav,
     '[data-view="health"]':health,
     '[data-view="activity"]':activity,
-  })[sel]||null,
+  })[sel]||null; },
   addEventListener:(event,fn)=>handlers.set(event,fn)
 };
 let healthRequests=0,activityRequests=0,manualSyncs=0;
