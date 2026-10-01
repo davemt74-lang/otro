@@ -131,14 +131,7 @@ def app_usage()->dict[str,Any]:
     items=[]
     for row in rows:
         key=str(row["app_key"])
-        try:
-            resources=homeserver_app_resources.resource_status(key)
-        except Exception:
-            resources={
-                "storage_used_bytes":0,"sqlite_used_bytes":0,
-                "storage_limit_bytes":0,"sqlite_limit_bytes":0,
-                "storage_remaining_bytes":0,"sqlite_remaining_bytes":0,
-            }
+        resources=homeserver_app_resources.resource_status(key)
         used=int(resources["storage_used_bytes"])+int(resources["sqlite_used_bytes"])
         limit=int(resources["storage_limit_bytes"])+int(resources["sqlite_limit_bytes"])
         items.append({
