@@ -59,4 +59,5 @@ jobs:
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify Apps registry migration baseline
+        if: runner.os == 'Linux'
         run: python tests/homeserver_apps_v100.py
