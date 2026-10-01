@@ -91,9 +91,12 @@ class SaveRecordingRequest(BaseModel):
 def _local_capture_request(request: Request, requested_with: str | None) -> None:
     if requested_with != "XMLHttpRequest":
         raise HTTPException(403, detail="Use the local owner recording interface.")
-    hostname = (request.url.hostname or "").lower()
-    if hostname not in ("localhost", "127.0.0.1", "::1"):
-        raise HTTPException(403, detail="Capture must be started on the local HomeServer.")
+    # Owner may open this HomeServer over its LAN hostname. Keep capture local
+    # to the server process and reject cross-site browser submissions instead
+    # of incorrectly insisting that the BROWSER itself uses localhost.
+    site = (request.headers.get("sec-fetch-site") or "").lower()
+    if site and site not in ("same-origin", "none"):
+        raise HTTPException(403, detail="Cross-site recording request blocked.")
     origin = request.headers.get("origin")
     if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
         raise HTTPException(403, detail="Recording origin mismatch.")
