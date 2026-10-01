@@ -249,6 +249,15 @@ def execute(test_key:str,*,consent:bool,physical_capture_ack:bool=False)->dict[s
             status,evidence="failed",{"reason":"invalid_test_result"}
         # Allowlist only known, non-sensitive, scalar evidence. No raw media,
         # model responses, provider URLs, device identifiers or transcripts.
+        allowed_reasons=frozenset({
+            "ollama_not_configured","ollama_generation_unavailable",
+            "local_voice_models_not_installed","piper_not_installed",
+            "microphone_backend_unavailable","managed_ffmpeg_unavailable",
+            "synthetic_encoder_failed","synthetic_encode_or_probe_failed",
+            "perception_provider_unavailable","camera_not_ready",
+            "owner_review_of_visual_result_required","provider_did_not_complete",
+            "test_failed_review_local_logs","invalid_test_result",
+        })
         allowed={
             "reason","response_valid","output_tokens","local_only",
             "generated_pcm_wav","transcription_matches_fixture","raw_audio_retained",
@@ -260,7 +269,7 @@ def execute(test_key:str,*,consent:bool,physical_capture_ack:bool=False)->dict[s
         }
         clean={k:v for k,v in evidence.items()
                if k in allowed and (isinstance(v,bool) or isinstance(v,(int,float))
-                                      or (isinstance(v,str) and len(v)<=72 and re.fullmatch(r"[a-z0-9_]+",v)))}
+                                      or (k=="reason" and isinstance(v,str) and v in allowed_reasons))}
         elapsed=min(300000,max(0,round((time.monotonic()-started)*1000)))
         result={
             "id":secrets.token_hex(12),"test_key":test_key,"status":status,
