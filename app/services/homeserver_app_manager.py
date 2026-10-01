@@ -12,6 +12,7 @@ from . import (
     homeserver_apps,
     homeserver_download_manager,
     homeserver_media_library,
+    homeserver_media_player,
     homeserver_media_processor,
     homeserver_media_tools,
     homeserver_media_server,
@@ -79,6 +80,7 @@ def inventory()->dict[str,Any]:
         photo_state=_safe(homeserver_photo_library.status) if key==homeserver_photo_library.APP_KEY and installed else None
         download_state=_safe(homeserver_download_manager.status) if key==homeserver_download_manager.APP_KEY and installed else None
         library_state=_safe(homeserver_media_library.status) if key==homeserver_media_library.APP_KEY and installed else None
+        player_state=_safe(homeserver_media_player.status) if key==homeserver_media_player.APP_KEY and installed else None
         processor_state=_safe(homeserver_media_processor.status) if key==homeserver_media_processor.APP_KEY and installed else None
         video_state=_safe(homeserver_video_editor.status) if key==homeserver_video_editor.APP_KEY and installed else None
         control_compat=_safe(lambda:homeserver_app_control.compatibility(key)) if installed else None
@@ -110,6 +112,7 @@ def inventory()->dict[str,Any]:
             "photo_library":photo_state,
             "download_manager":download_state,
             "media_library":library_state,
+            "media_player":player_state,
             "media_processor":processor_state,
             "media_tools":homeserver_media_tools.public_capability() if key==homeserver_media_processor.APP_KEY else None,
             "video_editor":video_state,
