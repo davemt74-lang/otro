@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -44,6 +44,16 @@ class SampleDataSettingsRequest(BaseModel):
 class AppEventRequest(BaseModel):
     topic:str=Field(min_length=1,max_length=160)
     payload:dict=Field(default_factory=dict)
+
+
+class AppAgentPolicyRequest(BaseModel):
+    values:dict=Field(default_factory=dict)
+
+
+class AppAgentPromptRequest(BaseModel):
+    prompt:str=Field(min_length=1,max_length=32000)
+    context_keys:list[str]=Field(default_factory=list,max_length=16)
+    system_prompt:str=Field(default="",max_length=4000)
 
 
 class GitSourceInspectRequest(BaseModel):
@@ -298,6 +308,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_control.AppControlError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_agent_runtime.AppAgentRuntimeError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_security.AppSecurityError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_resources.AppResourceError as exc:
@@ -339,7 +351,52 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_player":homeserver_media_player.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"agent_runtime":homeserver_app_agent_runtime.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_player":homeserver_media_player.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+
+
+@router.get("/agent-runtime/capability")
+def app_agent_runtime_capability()->dict:
+    return homeserver_app_agent_runtime.public_capability()
+
+
+@router.get("/agent-runtime/brain-context")
+def app_agent_runtime_brain_context(limit:int=Query(default=30,ge=1,le=100))->dict:
+    return _call(homeserver_app_agent_runtime.brain_context,limit)
+
+
+@router.get("/{app_key}/agent-runtime/policy")
+def app_agent_runtime_policy(app_key:str)->dict:
+    return _call(homeserver_app_agent_runtime.policy,app_key)
+
+
+@router.put("/{app_key}/agent-runtime/policy")
+def app_agent_runtime_update_policy(app_key:str,payload:AppAgentPolicyRequest)->dict:
+    return _call(homeserver_app_agent_runtime.update_policy,app_key,payload.values)
+
+
+@router.get("/{app_key}/agent-runtime/context-providers")
+def app_agent_runtime_context_providers(app_key:str)->dict:
+    return _call(homeserver_app_agent_runtime.context_providers,app_key)
+
+
+@router.get("/{app_key}/agent-runtime/context")
+def app_agent_runtime_context(app_key:str,key:list[str]=Query(default=[]))->dict:
+    return _call(homeserver_app_agent_runtime.collect_context,app_key,key or None)
+
+
+@router.post("/{app_key}/agent-runtime/prompt")
+def app_agent_runtime_prompt(app_key:str,payload:AppAgentPromptRequest)->dict:
+    return _call(
+        homeserver_app_agent_runtime.run_prompt,
+        app_key,payload.prompt,
+        context_keys=payload.context_keys or None,
+        system_prompt=payload.system_prompt,
+    )
+
+
+@router.get("/{app_key}/agent-runtime/runs")
+def app_agent_runtime_runs(app_key:str,limit:int=Query(default=50,ge=1,le=200))->dict:
+    return _call(homeserver_app_agent_runtime.recent_runs,app_key,limit)
 
 
 @router.get("/platform")
