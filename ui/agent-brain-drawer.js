@@ -119,7 +119,7 @@
     const badge = $('agentBrainDrawerCount');
     badge.textContent = issues.length ? String(issues.length) : '';
     toggleSeverity(overall);
-    const signature = JSON.stringify(issues.map(i => [i.key,i.severity,i.repair?.class]));
+    const signature = JSON.stringify(issues.map(i => [i.key,i.title,i.severity,i.repair?.class,i.repair?.action_key,i.repair?.agent_can_execute]));
     if (signature === previousSignature) return;
     previousSignature = signature;
     details.clear();
