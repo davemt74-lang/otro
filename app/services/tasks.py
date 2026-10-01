@@ -409,11 +409,23 @@ class TaskScheduler:
             self._thread.join(timeout=5)
 
     def _run(self) -> None:
+        cycle = 0
         while not self._stop.is_set():
             try:
                 run_due_reminders()
             except Exception:
                 pass
+            cycle += 1
+            if cycle % 4 == 0 and not self._stop.is_set():
+                # Reuse the existing local scheduler; do not create another
+                # daemon or require the Brain drawer to be open.
+                try:
+                    from . import activity_center, health_maintenance
+                    activity_center.sync_notifications()
+                    health_maintenance.sync_health_notifications()
+                except Exception:
+                    # Scheduler survives a failed probe; the next cycle retries.
+                    pass
             self._stop.wait(self.interval_seconds)
 
 

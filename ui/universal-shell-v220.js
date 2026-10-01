@@ -43,7 +43,7 @@
         <nav class="hs-v220-nav">
           <div class="hs-v220-nav-label">Agent</div>
           ${navLink('/#chat','Agent Chat','✦','home')}
-          ${navLink('/#agent','Agent Brain','◈','agent')}
+          ${navLink('/#agent','Agent settings','◈','agent')}
           <div class="hs-v220-nav-label">Workspace</div>
           ${navLink('/#approvals','Approvals','✓','approvals')}
           ${navLink('/#knowledge','Knowledge','◇','knowledge')}
