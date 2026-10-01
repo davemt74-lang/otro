@@ -163,25 +163,45 @@
 
   function render(){
     const grid=document.getElementById('hsAppsGrid');
-    if(!grid||!state.manager) return;
-    const counts=state.manager.counts||{};
-    const items=(state.manager.items||[]).filter(app=>{
+    if(!grid||!state.manager||!state.center) return;
+    const counts=state.center.counts||{};
+    const centerByKey=new Map((state.center.items||[]).map(row=>[row.app_key,row]));
+    const items=(state.manager.items||[]).map(app=>({...app,center:centerByKey.get(app.app_key)||{}})).filter(app=>{
+      const center=app.center||{};
+      const query=state.query.trim().toLowerCase();
+      if(query && !String(center.search_text||[app.name,app.app_key,app.description,app.category].join(' ')).toLowerCase().includes(query)) return false;
+      if(state.category && String(app.category||'')!==state.category) return false;
       if(state.filter==='all') return true;
-      if(state.filter==='available') return !app.installed&&app.available;
-      if(state.filter==='system') return app.app_class==='system';
-      if(state.filter==='user') return app.app_class==='user';
-      if(state.filter==='shared') return !!app.distribution;
+      if(state.filter==='discover') return !app.installed&&app.available;
+      if(state.filter==='installed') return !!app.installed;
       if(state.filter==='updates') return !!app.update_available;
+      if(state.filter==='attention') return !!(center.attention||[]).length;
+      if(state.filter==='vp3') return app.product_type==='vp3_optional_app';
+      if(state.filter==='user') return app.app_class==='user';
+      if(state.filter==='shared') return app.product_type==='private_shared_app';
       if(state.filter==='hosted') return !!app.hosting?.bound;
       return true;
     });
-    document.getElementById('hsAppsSummary').textContent=`${counts.installed||0} installed · ${counts.available||0} available · ${counts.updates||0} updates`;
+    document.getElementById('hsAppsSummary').textContent=`${counts.installed||0} installed · ${counts.discover||0} discover · ${counts.updates||0} updates · ${counts.attention||0} attention`;
     const summary=document.getElementById('hsAppManagerSummary');
     if(summary){
-      const values=[counts.installed||0,counts.available||0,counts.updates||0,counts.running||0,counts.hosted||0];
+      const managerCounts=state.manager.counts||{};
+      const values=[counts.installed||0,counts.discover||0,counts.updates||0,managerCounts.running||0,counts.hosted||0];
       summary.querySelectorAll('strong').forEach((node,i)=>node.textContent=String(values[i]??0));
     }
-    grid.innerHTML=items.length?items.map(card).join(''):'<div class="panel empty-state">No Apps match this filter.</div>';
+    const category=document.getElementById('hsAppCategory');
+    if(category){
+      const selected=state.category;
+      category.innerHTML='<option value="">All categories</option>'+((state.center.categories||[]).map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join(''));
+      category.value=(state.center.categories||[]).includes(selected)?selected:'';
+    }
+    const plan=document.getElementById('hsAppUpdatePlan');
+    if(plan){
+      const updates=state.updatePlan?.updates||[];
+      plan.classList.toggle('hidden',!updates.length);
+      plan.innerHTML=updates.length?`<div class="panel"><div><p class="eyebrow">UPDATE CENTER</p><h3>${updates.length} update${updates.length===1?'':'s'} available</h3><p class="muted">${state.updatePlan.ready_count||0} ready · ${state.updatePlan.warning_count||0} need review · ${state.updatePlan.blocked_count||0} blocked. Updates are applied one app at a time through the verified HomeServer installer.</p></div><button class="button secondary" type="button" data-hs-app-filter-jump="updates">Review updates</button></div>`:'';
+    }
+    grid.innerHTML=items.length?items.map(card).join(''):'<div class="panel empty-state">No Apps match this view.</div>';
     renderPermissionChoices();
   }
 
@@ -189,12 +209,16 @@
     if(state.loading) return;
     state.loading=true;
     try{
-      if(force||!state.manager||!state.permissionCatalog){
+      if(force||!state.manager||!state.center||!state.permissionCatalog){
         const loaded=await Promise.all([
           window.api('/api/v1/control/homeserver-apps/manager'),
+          window.api('/api/v1/control/homeserver-apps/app-center'),
+          window.api('/api/v1/control/homeserver-apps/app-center/update-plan'),
           window.api('/api/v1/control/homeserver-apps/permissions/catalog')
         ]);
         state.manager=loaded[0];
+        state.center=loaded[1];
+        state.updatePlan=loaded[2];
         state.data={
           apps:(loaded[0].items||[]).filter(x=>x.installed).map(x=>({
             app_key:x.app_key,name:x.name,app_class:x.app_class,lifecycle_state:x.lifecycle_state,
@@ -202,7 +226,7 @@
           })),
           counts:{system:loaded[0].counts?.system||0,user:loaded[0].counts?.user||0}
         };
-        state.permissionCatalog=loaded[1];
+        state.permissionCatalog=loaded[3];
       }
       render();
     }catch(error){
