@@ -308,6 +308,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_control.AppControlError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_center.AppCenterError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_agent_runtime.AppAgentRuntimeError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_security.AppSecurityError as exc:
