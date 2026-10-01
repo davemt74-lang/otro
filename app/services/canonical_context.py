@@ -14,6 +14,7 @@ from . import (
     shared_agent_context,
     hosting_runtime,
     storage_maintenance,
+    homeserver_app_update_center,
 )
 
 CANONICAL_CONTEXT_VERSION = "v4.30"
@@ -33,6 +34,7 @@ class CanonicalContext:
     surface_fragment: str
     hosting_fragment: str
     storage_fragment: str
+    app_update_fragment: str
     budget: dict[str, int | str]
     effective_settings: dict[str, Any]
     model_tool_permissions: set[str]
@@ -293,6 +295,7 @@ def _safe_provenance(
     surface_context: dict[str, Any] | None,
     surface_fragment: str,
     storage_fragment: str,
+    app_update_fragment: str,
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for ref in bundle.sources:
@@ -338,6 +341,14 @@ def _safe_provenance(
                 "layer": "storage_health",
                 "source_app_key": "homeserver:storage",
                 "chars": len(storage_fragment),
+            }
+        )
+    if app_update_fragment:
+        result.append(
+            {
+                "layer": "app_update_center",
+                "source_app_key": "homeserver:apps",
+                "chars": len(app_update_fragment),
             }
         )
     return result
@@ -393,6 +404,9 @@ def build_authorized_context(
     desired_storage = requested_budget // 12 if owner or source_app_key == "app:vp3" else 0
     storage_limit = min(desired_storage, overlay_pool, 1600)
     overlay_pool -= storage_limit
+    desired_app_updates = requested_budget // 14 if owner or source_app_key == "app:vp3" else 0
+    app_update_limit = min(desired_app_updates, overlay_pool, 1500)
+    overlay_pool -= app_update_limit
     desired_hosting = requested_budget // 12 if owner or source_app_key == "app:vp3" else 0
     hosting_limit = min(desired_hosting, overlay_pool, 1800)
 
@@ -437,12 +451,14 @@ def build_authorized_context(
 
     storage_fragment = storage_maintenance.agent_context_fragment(query, max_chars=storage_limit) if storage_limit >= MIN_FRAGMENT_CHARS else ""
     storage_used = len(storage_fragment)
+    app_update_fragment = homeserver_app_update_center.agent_context_fragment(query, max_chars=app_update_limit) if app_update_limit >= MIN_FRAGMENT_CHARS else ""
+    app_update_used = len(app_update_fragment)
     hosting_fragment = hosting_runtime.agent_context_fragment(query, max_chars=hosting_limit) if hosting_limit >= MIN_FRAGMENT_CHARS else ""
     hosting_used = len(hosting_fragment)
 
     base_budget = max(
         context_engine.MIN_CONTEXT_CHARS,
-        requested_budget - collaboration_used - surface_used - awareness_used - storage_used - hosting_used,
+        requested_budget - collaboration_used - surface_used - awareness_used - storage_used - app_update_used - hosting_used,
     )
     base_settings = {**effective, "max_context_chars": base_budget}
     bundle = _base_context(
@@ -453,7 +469,7 @@ def build_authorized_context(
         source_app_key=source_app_key,
         owner=owner,
     )
-    used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used + storage_used + hosting_used
+    used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used + storage_used + app_update_used + hosting_used
     if used > requested_budget:
         raise context_engine.ContextError("Canonical context budget exceeded.", 500)
 
@@ -467,6 +483,7 @@ def build_authorized_context(
         surface_context,
         surface_fragment,
         storage_fragment,
+        app_update_fragment,
     )
     budget = {
         "version": CANONICAL_CONTEXT_VERSION,
@@ -481,6 +498,8 @@ def build_authorized_context(
         "awareness_used_chars": awareness_used,
         "storage_limit_chars": storage_limit,
         "storage_used_chars": storage_used,
+        "app_update_limit_chars": app_update_limit,
+        "app_update_used_chars": app_update_used,
         "hosting_limit_chars": hosting_limit,
         "hosting_used_chars": hosting_used,
         "used_chars": used,
@@ -498,6 +517,7 @@ def build_authorized_context(
         surface_fragment=surface_fragment,
         hosting_fragment=hosting_fragment,
         storage_fragment=storage_fragment,
+        app_update_fragment=app_update_fragment,
         budget=budget,
         effective_settings=effective,
         model_tool_permissions=model_tool_permissions,
@@ -513,6 +533,7 @@ def system_prompt(agent: dict[str, Any], context: CanonicalContext) -> str:
         str(context.collaboration.get("fragment") or ""),
         context.surface_fragment,
         context.storage_fragment,
+        context.app_update_fragment,
         context.hosting_fragment,
     ):
         if fragment:
