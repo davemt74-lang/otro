@@ -331,6 +331,27 @@ def set_app_access(member_id:str,app_key:str,allowed:bool)->dict[str,Any]:
     return {"member_id":member_id,"app_key":key,"allowed":bool(allowed)}
 
 
+def app_access_matrix(member_id:str)->dict[str,Any]:
+    get_member(member_id)
+    with db() as connection:
+        rows=connection.execute(
+            """SELECT a.app_key,a.name,a.installed_version,a.lifecycle_state,
+                      COALESCE(x.allowed,0) AS allowed
+               FROM homeserver_apps a
+               LEFT JOIN homeserver_member_app_access x
+                 ON x.app_key=a.app_key AND x.member_id=?
+               WHERE a.installed_version IS NOT NULL
+               ORDER BY a.name""",
+            (member_id,),
+        ).fetchall()
+    return {
+        "contract":CONTRACT,
+        "member_id":member_id,
+        "items":[{**dict(row),"allowed":bool(row["allowed"])} for row in rows],
+        "count":len(rows),
+    }
+
+
 def assigned_apps(member_id:str)->dict[str,Any]:
     get_member(member_id)
     with db() as connection:
