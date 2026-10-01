@@ -119,7 +119,7 @@ with tempfile.TemporaryDirectory(prefix="hs-live-cert-v501-") as data:
         assert client.get("/api/v1/control/runtime-certification").status_code==200
         def invoke(body,headers=None):
             return client.post("/api/v1/control/runtime-certification/run",
-                json=body,headers=headers or {"X-Requested-With":"XMLHttpRequest"})
+                json=body,headers={"X-Requested-With":"XMLHttpRequest"} if headers is None else headers)
         assert invoke({"test_key":"ollama_generation","consent":True},headers={}).status_code==403
         assert invoke({"test_key":"ollama_generation","consent":False}).status_code==403
         assert invoke({"test_key":"agent_eyes","consent":True}).status_code==403
