@@ -604,6 +604,7 @@ def create_app_action_request(
     arguments:dict[str,Any]|None,
     *,
     owner:bool=False,
+    maintenance_issue_key:str|None=None,
 )->dict[str,Any]:
     source=source_app_key.strip() or ("owner" if owner else "app:unknown")
     actor_type="owner" if owner else "app"
@@ -615,6 +616,14 @@ def create_app_action_request(
     except homeserver_app_agent.AppAgentError as exc:
         run_id=_record_failed_proposal(source,actor_type,action_key,[],raw_meta,str(exc))
         raise ApprovalError(f"{exc} Run {run_id} was recorded.",exc.status_code) from exc
+
+    if maintenance_issue_key is not None:
+        from . import maintenance_conversation
+        try:
+            maintenance_conversation.validate_execution(maintenance_issue_key,action_key,normalized)
+        except maintenance_conversation.MaintenanceError as exc:
+            raise ApprovalError(str(exc),exc.status_code) from exc
+        raw_meta["maintenance_issue_key"]=maintenance_issue_key
 
     request_id=uuid.uuid4().hex
     expires_at=(_now()+timedelta(hours=24)).isoformat()
