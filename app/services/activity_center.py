@@ -227,6 +227,8 @@ def list_activity(
 
 
 def _preference_allows(source_key:str,level:str)->bool:
+    if level=="action_required":
+        return True
     key=str(source_key or "").strip()
     if not key:
         return True
@@ -425,8 +427,16 @@ def summary()->dict[str,Any]:
         unread=int(connection.execute("SELECT COUNT(*) FROM notifications WHERE read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL").fetchone()[0])
         attention=int(connection.execute("""SELECT COUNT(*) FROM notifications WHERE level IN ('error','action_required') AND dismissed_at IS NULL AND archived_at IS NULL""").fetchone()[0])
         pending=int(connection.execute("SELECT COUNT(*) FROM action_requests WHERE status='pending'").fetchone()[0])
-        failed_auto=int(connection.execute("SELECT COUNT(*) FROM automation_rule_executions WHERE status='failed'").fetchone()[0])
-        failed_agent=int(connection.execute("SELECT COUNT(*) FROM homeserver_app_ai_runs WHERE status='failed'").fetchone()[0])
+        failed_auto=int(connection.execute(
+            """SELECT COUNT(*) FROM notifications
+               WHERE source_kind='automation' AND level='error'
+                 AND dismissed_at IS NULL AND archived_at IS NULL"""
+        ).fetchone()[0])
+        failed_agent=int(connection.execute(
+            """SELECT COUNT(*) FROM notifications
+               WHERE source_kind='agent' AND level='error'
+                 AND dismissed_at IS NULL AND archived_at IS NULL"""
+        ).fetchone()[0])
     return {
         "contract":CONTRACT,"unread":unread,"needs_attention":attention,"pending_approvals":pending,
         "failed_automations":failed_auto,"failed_agent_runs":failed_agent,
