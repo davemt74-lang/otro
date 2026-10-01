@@ -10,7 +10,7 @@ from ..database import db
 from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.09.30.17"
+CATALOG_VERSION = "2026.09.30.18"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -288,6 +288,41 @@ CATALOG = {
             {"key":"processor.destination.remove","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"destination_id":{"type":"string","minLength":1,"maxLength":80}},"required":["destination_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
             {"key":"processor.settings","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
             {"key":"processor.settings.update","risk":"admin","requires_confirmation":True,"input_schema":{"type":"object","properties":{"values":{"type":"object"}},"required":["values"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}}
+        ],
+    },
+    "vp3.media-player": {
+        "key": "vp3.media-player",
+        "name": "VP3 Media Player",
+        "version": "1.0.0",
+        "sdk_version": "1.2",
+        "release_channel": "stable",
+        "min_homeserver_version": "2.4",
+        "release_notes": [
+            "Adds HomeServer-authoritative playback sessions with persistent resume and watched state.",
+            "Adds direct-play selection with Media Processor transcode fallback for incompatible sources.",
+            "Adds playback devices, cross-device handoff, Continue Watching, history, and Agent Brain context."
+        ],
+        "category": "Media",
+        "kind": "media_player",
+        "description": "Play and resume HomeServer media across local devices with governed transcoding and Agent control.",
+        "sample": [],
+        "permissions": [],
+        "routes": {"local": True, "private_remote": False, "public": False},
+        "agent_actions": [
+            {"key":"player.status","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.devices","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.device.register","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":120},"kind":{"type":"string","enum":["browser","tv","mobile","speaker","homeserver"]},"capabilities":{"type":"object"},"device_id":{"type":"string","maxLength":120}},"required":["name"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.session.get","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":100}},"required":["session_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.play","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"media_id":{"type":"string","minLength":1,"maxLength":100},"device_id":{"type":"string","minLength":1,"maxLength":120},"position_seconds":{"type":["number","null"],"minimum":0}},"required":["media_id","device_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.pause","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":100},"position_seconds":{"type":["number","null"],"minimum":0},"duration_seconds":{"type":["number","null"],"minimum":0}},"required":["session_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.resume","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":100},"position_seconds":{"type":["number","null"],"minimum":0},"duration_seconds":{"type":["number","null"],"minimum":0}},"required":["session_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.seek","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":100},"position_seconds":{"type":"number","minimum":0},"duration_seconds":{"type":["number","null"],"minimum":0}},"required":["session_id","position_seconds"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.stop","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":100},"position_seconds":{"type":["number","null"],"minimum":0},"duration_seconds":{"type":["number","null"],"minimum":0}},"required":["session_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.complete","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":100},"position_seconds":{"type":["number","null"],"minimum":0},"duration_seconds":{"type":["number","null"],"minimum":0}},"required":["session_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.handoff","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"session_id":{"type":"string","minLength":1,"maxLength":100},"device_id":{"type":"string","minLength":1,"maxLength":120}},"required":["session_id","device_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.continue-watching","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.recent","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":200}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}},
+            {"key":"player.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_player"}}
         ],
     },
     "vp3.media-library": {
