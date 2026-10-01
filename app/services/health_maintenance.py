@@ -6,15 +6,27 @@ from __future__ import annotations
 
 from . import health_repair, activity_center
 from ..database import db
+from threading import Lock
+
+_SYNC_LOCK=Lock()
 
 PREFIX = "health:"
 MAX_ISSUES = 60
 
 
 def sync_health_notifications() -> dict[str, int]:
+    # Serialize recurring background and concurrent owner-triggered syncs.
+    with _SYNC_LOCK:
+        return _sync_locked()
+
+
+def _sync_locked() -> dict[str, int]:
     # Health is already the canonical projection; never run repairs here.
-    issues = health_repair.status()["issues"][:MAX_ISSUES]
-    current = {PREFIX + str(item["key"]) for item in issues}
+    snapshot=health_repair.status()
+    all_issues=snapshot["issues"]
+    complete=bool(snapshot.get("snapshot_complete",True)) and len(all_issues)<=MAX_ISSUES
+    issues=all_issues[:MAX_ISSUES]
+    current={PREFIX+str(item["key"]) for item in all_issues}
     created = 0
     resolved = 0
     updated = 0
@@ -66,11 +78,11 @@ def sync_health_notifications() -> dict[str, int]:
         else:
             created += 1
     for key, old in existing.items():
-        if key not in current and old["archived_at"] is None:
+        if complete and key not in current and old["archived_at"] is None:
             with db() as connection:
                 connection.execute(
                     "UPDATE notifications SET archived_at=CURRENT_TIMESTAMP WHERE id=? AND archived_at IS NULL",
                     (int(old["id"]),),
                 )
             resolved += 1
-    return {"created": created, "updated": updated, "resolved": resolved}
+    return {"created": created, "updated": updated, "resolved": resolved, "snapshot_complete":bool(complete)}
