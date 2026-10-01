@@ -448,13 +448,27 @@ def upsert_rule(
         raise LocalAutomationError("cooldown_seconds must be between 0 and 86400.")
     safe_trigger, next_run = _validate_trigger(kind, trigger or {})
     safe_conditions = _validate_conditions(conditions or [])
+    initial_event_id = None
+    if kind == "app_event":
+        with db() as connection:
+            app_row = connection.execute(
+                "SELECT app_id FROM homeserver_apps WHERE app_key=?",
+                (str(safe_trigger["app_key"]),),
+            ).fetchone()
+            if app_row is not None:
+                latest = connection.execute(
+                    """SELECT MAX(id) AS id FROM homeserver_app_events
+                       WHERE app_id=? AND event_type=?""",
+                    (str(app_row["app_id"]),str(safe_trigger["event_type"])),
+                ).fetchone()
+                initial_event_id = int(latest["id"] or 0)
     with db() as connection:
         connection.execute(
             """
             INSERT INTO automation_rules(
                 rule_key,name,description,enabled,trigger_kind,trigger_json,conditions_json,
-                routine_id,cooldown_seconds,next_run_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?)
+                routine_id,cooldown_seconds,last_event_id,next_run_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(rule_key) DO UPDATE SET
                 name=excluded.name,
                 description=excluded.description,
@@ -466,6 +480,10 @@ def upsert_rule(
                 cooldown_seconds=excluded.cooldown_seconds,
                 next_run_at=excluded.next_run_at,
                 last_condition=NULL,
+                last_event_id=CASE
+                    WHEN excluded.trigger_kind='app_event' THEN excluded.last_event_id
+                    ELSE NULL
+                END,
                 updated_at=CURRENT_TIMESTAMP
             """,
             (
@@ -478,6 +496,7 @@ def upsert_rule(
                 json.dumps(safe_conditions, separators=(",", ":")),
                 int(routine["id"]),
                 int(cooldown_seconds),
+                initial_event_id,
                 next_run,
             ),
         )
