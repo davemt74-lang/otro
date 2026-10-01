@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from . import (
     device_audio, homeserver_media_tools, local_voice, physical_meeting,
-    providers, tracky_physical_context, vp3_os,
+    providers, tracky_physical_context, vp3_os, tracky_native_camera,
 )
 
 CONTRACT = "vp3.homeserver.runtime-diagnostics.v1"
@@ -124,7 +124,9 @@ def inventory(*, probe: bool = False) -> dict[str, Any]:
     # would make an ostensibly read-only diagnosis mutate Tracky state.
     tracky_provider, tracky_capabilities, provider_name = tracky_physical_context._provider_snapshot()
     browser_provider = bool(tracky_provider and tracky_capabilities.get("surface") == "owner_browser")
-    eyes_ready = bool(camera_ready and tracky_provider is not None and not browser_provider)
+    native_status = _observe("native_tracky", tracky_native_camera.status)
+    native_provider = bool(tracky_provider and tracky_capabilities.get("surface") == "native_owner_on_demand")
+    eyes_ready = bool(camera_ready and tracky_provider is not None and not browser_provider and not native_provider)
     checks.append(_entry(
         "agent_eyes", "not_verified" if eyes_ready else "missing",
         "Camera and Tracky perception provider are registered." if eyes_ready else
@@ -143,6 +145,18 @@ def inventory(*, probe: bool = False) -> dict[str, Any]:
         if browser_provider else "No consented owner browser perception session attached.",
         "Owner can run the one-shot visual test inside HomeServer Agent Chat.",
         session_active=browser_provider, hardware_certified=False, face_identity_verified=False,
+    ))
+    checks.append(_entry(
+        "tracky_native_camera",
+        "not_verified" if native_status.get("native_dependency", {}).get("installed") else "missing",
+        "Native OpenCV detector installed; actual camera test is owner-approved and not hardware-certified."
+        if native_status.get("native_dependency", {}).get("installed")
+        else "Native OpenCV runtime/model missing on this installed HomeServer.",
+        "Run the owner-only native camera test in Agent Chat on this actual device.",
+        dependency_installed=bool(native_status.get("native_dependency", {}).get("installed")),
+        local_test_status=(native_status.get("last_test") or {}).get("status", ""),
+        active=bool(native_status.get("running")),
+        hardware_certified=False, identity_recognition=False, continuous_tracking=False,
     ))
     local = next((row for row in inference.get("providers", [])
         if isinstance(row, dict) and row.get("provider_key") == "ollama"), {})
