@@ -46,6 +46,11 @@ def control_storage_prune_backups()->dict:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
+@router.get("/api/v1/control/storage/brain-context")
+def control_storage_brain_context()->dict:
+    return storage_maintenance.brain_context()
+
+
 @router.get("/api/v1/control/storage/capability")
 def control_storage_capability()->dict:
     return storage_maintenance.public_capability()
