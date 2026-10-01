@@ -109,6 +109,22 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-center-v420-") as data_d
         finally:
             definition["data_migration_reversible"]=original_reversible
 
+        # Catalog HomeServer version bounds are enforced as install/update blockers.
+        original_min=definition.get("min_homeserver_version")
+        try:
+            definition["min_homeserver_version"]="999.0"
+            blocked=homeserver_app_center.item(app_key)
+            assert blocked["readiness"]["blocked"] is True
+            assert any(
+                issue["code"]=="homeserver_version_too_old"
+                for issue in blocked["readiness"]["issues"]
+            )
+        finally:
+            if original_min is None:
+                definition.pop("min_homeserver_version",None)
+            else:
+                definition["min_homeserver_version"]=original_min
+
         updates=client.get("/api/v1/control/homeserver-apps/app-center",params={"view":"updates"}).json()["items"]
         assert updates
         assert all(row["update_available"] for row in updates)
@@ -135,6 +151,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-center-v420-") as data_d
         assert cap["update_plan"] is True
         assert cap["agent_brain_context"] is True
         assert cap["batch_update_execution"] is False
+        agent_cap=client.get("/api/v1/control/homeserver-apps/capability").json()["agent"]
+        assert agent_cap["app_center_brain_context"] is True
+        assert agent_cap["app_center_contract"]=="vp3.homeserver.app-center.brain-context.v1"
         assert cap["public_app_store"] is False
 
         ui=(ROOT/"ui"/"homeserver-apps.js").read_text(encoding="utf-8")
