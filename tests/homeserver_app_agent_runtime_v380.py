@@ -52,6 +52,16 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-agent-v380-") as data_di
                 "executor":{"type":"runtime.status"},
             }],
         },indent=2)+"\n",encoding="utf-8")
+        # Install-time validation must reject context providers that point
+        # at undeclared or mutating actions.
+        (project/"agent"/"context.json").write_text(json.dumps({
+            "contract":"vp3.app.agent-context.v1",
+            "providers":[{"key":"bad","action":"demo.missing"}],
+        },indent=2)+"\n",encoding="utf-8")
+        invalid=client.post("/api/v1/control/homeserver-apps/ai.demo/build-install")
+        assert invalid.status_code==400,invalid.text
+        assert "undeclared app action" in invalid.text
+
         (project/"agent"/"context.json").write_text(json.dumps({
             "contract":"vp3.app.agent-context.v1",
             "providers":[{
@@ -80,6 +90,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-agent-v380-") as data_di
 
         installed=client.post("/api/v1/control/homeserver-apps/ai.demo/build-install")
         assert installed.status_code==200,installed.text
+        sdk_js=(project/"assets"/"vp3-sdk.js").read_text(encoding="utf-8")
+        assert "async agentPolicy()" in sdk_js
+        assert "async agentContext(" in sdk_js
+        assert "async agentPrompt(" in sdk_js
 
         policy=client.get("/api/v1/control/homeserver-apps/ai.demo/agent-runtime/policy")
         assert policy.status_code==200,policy.text
