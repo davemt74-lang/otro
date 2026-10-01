@@ -130,6 +130,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-members-v400-") as data_dir:
         assert client.get("/api/v1/member/apps").json()["items"]==[]
         bob_ctx=client.get("/api/v1/member/context").json()
         assert bob_ctx["items"]==[]
+        guest_write=client.put("/api/v1/member/context/preferences.note",json={"value":"guest-private"})
+        assert guest_write.status_code==403
         bob_brain_text=json.dumps(client.get("/api/v1/member/agent-context").json(),ensure_ascii=False)
         assert alice_private not in bob_brain_text
         assert owner_secret not in bob_brain_text
@@ -198,6 +200,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-members-v400-") as data_dir:
         assert capability["private_member_context"] is True
         assert capability["member_agent_context_isolation"] is True
         assert capability["member_admin_is_not_owner"] is True
+        assert capability["role_semantics"]["guest"]=="read-only-no-context-write"
         assert capability["owner_control_inherited_by_members"] is False
 
         ui=(ROOT/"ui"/"index.html").read_text(encoding="utf-8")
