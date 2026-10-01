@@ -533,6 +533,11 @@ def media_library_collection_delete(collection_id:str)->dict:
     return _call(homeserver_media_library.delete_collection,collection_id)
 
 
+@router.post("/media-library/duplicates/scan")
+def media_library_duplicate_scan(limit:int=Query(default=500,ge=1,le=500))->dict:
+    return _call(homeserver_media_library.duplicate_scan,limit)
+
+
 @router.get("/media-library/duplicates")
 def media_library_duplicates(
     kind:str=Query(default="",pattern="^(|exact|same_size_candidate|near_name_candidate)$"),
