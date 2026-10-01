@@ -97,6 +97,12 @@ class MediaProcessorCreateRequest(BaseModel):
     destination_id:str=Field(default="app-storage",max_length=80)
 
 
+class MediaProcessorDestinationRequest(BaseModel):
+    path:str=Field(min_length=1,max_length=2000)
+    label:str=Field(default="",max_length=120)
+    destination_kind:str=Field(default="mapped_folder",pattern="^(mapped_folder|network_share|local_folder)$")
+
+
 class MediaProcessorSettingsRequest(BaseModel):
     values:dict=Field(default_factory=dict)
 
