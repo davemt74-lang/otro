@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 62))
+        assert versions == list(range(1, 63))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -297,6 +297,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ("tasks.list", 1),
             ("tasks.update", 1),
         ]
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='homeserver_app_ai_policies'"
+        ).fetchone() is not None
+        assert migrated.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='homeserver_app_ai_runs'"
+        ).fetchone() is not None
         step_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(automation_routine_steps)").fetchall()}
         assert {"step_kind","device_id","command","app_key","action_key","arguments_json"}.issubset(step_columns)
         rule_columns = {row["name"] for row in migrated.execute("PRAGMA table_info(automation_rules)").fetchall()}
@@ -570,7 +576,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 62))
+        assert versions_again == list(range(1, 63))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
