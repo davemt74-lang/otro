@@ -48,7 +48,7 @@
     document.body.appendChild(drawer);
     toggle.addEventListener('click', () => setOpen(!open));
     drawer.querySelector('.agent-brain-close').addEventListener('click', () => setOpen(false));
-    $('agentBrainRefresh').addEventListener('click', () => { refresh(); refreshAlerts(); });
+    $('agentBrainRefresh').addEventListener('click', () => explicitRefresh());
     $('agentBrainActivity').addEventListener('click', () => { setOpen(false); document.querySelector('[data-view="activity"]')?.click(); });
     $('agentBrainAlerts').addEventListener('click', e => {
       const button = e.target.closest('button[data-alert-key]');
@@ -199,6 +199,23 @@
       previousSignature = null;
     }
   }
+  async function explicitRefresh() {
+    const button=$('agentBrainRefresh');
+    if(button) button.disabled=true;
+    try {
+      const response=await fetch('/api/v1/control/activity-center/sync',{
+        method:'POST',credentials:'same-origin',headers:{'Accept':'application/json'}
+      });
+      if(!response.ok) throw new Error('Maintenance refresh unavailable');
+    } catch (_) {
+      if(open && $('agentBrainAlerts'))
+        $('agentBrainAlerts').textContent='Could not synchronize maintenance notifications.';
+    } finally {
+      if(button) button.disabled=false;
+      if(open) { await refresh(); await refreshAlerts(); }
+    }
+  }
+
   async function refreshAlerts() {
     const seq=++alertSequence;
     try {
