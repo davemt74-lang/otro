@@ -204,6 +204,10 @@ async function start() {
     const started=await api('start',{consent:true,scope:SCOPE});
     session=started.session;
     visual=started.visual;
+    if(generation!==epoch || !el('onboardVisualConsent').checked){
+      await api('cancel',{}).catch(()=>{});
+      return;
+    }
     if(localOwner && localOwner.embeddings?.length>=MAX_ANGLES){
       message('Recovering your existing local Tracky profile without reopening the camera…');
       await reportLocal(localOwner,session);
@@ -273,6 +277,16 @@ async function remove() {
 function init() {
   if(!el('onboardVisual'))return;
   window.HomeServerVisualEnrollment={render};
+  el('onboardVisualConsent').addEventListener('change',()=>{
+    if(el('onboardVisualConsent').checked)return;
+    // Unchecking revokes the session even during async model initialization.
+    closeCamera();
+    void api('cancel',{}).catch(()=>{});
+    message(localOwner
+      ? 'Local enrollment stopped. Your existing local profile remains until you explicitly delete it.'
+      : 'Visual consent withdrawn and camera stopped.');
+    render();
+  });
   el('onboardVisualStart').addEventListener('click',()=>{void start();});
   el('onboardVisualStop').addEventListener('click',()=>{void stop();});
   el('onboardVisualDelete').addEventListener('click',()=>{void remove();});

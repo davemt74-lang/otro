@@ -39,6 +39,8 @@ const reportBody=source.slice(source.indexOf('async function reportLocal('),sour
 assert.match(reportBody, /participant_id:record\.id,samples:record\.embeddings\.length/);
 assert.doesNotMatch(reportBody, /embeddings\s*:/, 'semantic report cannot transmit face descriptors');
 assert.match(source, /state\.privacy_engaged/, 'capture must observe the physical privacy switch');
+assert.match(source,/onboardVisualConsent'\)\.addEventListener\('change'/,'Unchecking consent must stop any in-progress session');
+assert.match(source,/if\(generation!==epoch \|\| !el\('onboardVisualConsent'\)\.checked\)/,'Async enrollment cannot restart after consent withdrawal');
 assert.match(html,/id="onboardVisualConsent"/);
 assert.match(html,/No other person is enrolled/);
 console.log('Bundled Tracky browser module, local sample/consent gating and non-biometric reporting PASS');
