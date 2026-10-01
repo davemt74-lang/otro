@@ -165,7 +165,7 @@ def validate_release_contracts(app_key:str,content_root:Path)->dict[str,Any]:
             if not isinstance(action,dict):
                 raise AppRuntimeError("App job action must be an object.")
             kind=str(action.get("type") or "")
-            if kind not in {"event.emit","php.script"}:
+            if kind not in {"event.emit","php.script","agent.prompt"}:
                 raise AppRuntimeError("App job action type is unsupported.")
             if kind=="event.emit":
                 topic=str(action.get("topic") or "")
@@ -174,6 +174,18 @@ def validate_release_contracts(app_key:str,content_root:Path)->dict[str,Any]:
                 raw_payload=json.dumps(action.get("payload") if isinstance(action.get("payload"),dict) else {},separators=(",",":"),sort_keys=True)
                 if len(raw_payload.encode("utf-8"))>MAX_EVENT_BYTES:
                     raise AppRuntimeError("App job event payload exceeds the size limit.")
+            if kind=="agent.prompt":
+                prompt=str(action.get("prompt") or "").strip()
+                if not prompt or len(prompt)>32000:
+                    raise AppRuntimeError("App Agent job prompt is invalid.")
+                system_prompt=str(action.get("system_prompt") or "")
+                if len(system_prompt)>4000:
+                    raise AppRuntimeError("App Agent job system prompt is too long.")
+                context_keys=action.get("context_keys") or []
+                if not isinstance(context_keys,list) or len(context_keys)>16 or any(
+                    not isinstance(value,str) or not value.strip() or len(value)>80 for value in context_keys
+                ):
+                    raise AppRuntimeError("App Agent job context_keys are invalid.")
             if kind=="php.script":
                 script=_safe_rel(str(action.get("script") or ""))
                 target=(root/Path(*script.parts)).resolve()
@@ -334,6 +346,27 @@ def _run_action(app_key:str,action:dict[str,Any])->dict[str,Any]:
     if kind=="event.emit":
         event=publish_event(app_key,str(action.get("topic") or ""),action.get("payload") if isinstance(action.get("payload"),dict) else {},source="job")
         return {"event_id":event["id"],"topic":event["topic"]}
+    if kind=="agent.prompt":
+        from . import homeserver_app_agent_runtime
+        try:
+            result=homeserver_app_agent_runtime.run_prompt(
+                app_key,
+                str(action.get("prompt") or ""),
+                context_keys=list(action.get("context_keys") or []),
+                system_prompt=str(action.get("system_prompt") or ""),
+                job_id=str(action.get("job_id") or ""),
+            )
+        except homeserver_app_agent_runtime.AppAgentRuntimeError as exc:
+            raise AppRuntimeError(str(exc),exc.status_code) from exc
+        return {
+            "run_key":result["run_key"],
+            "status":result["status"],
+            "compute_source":result["compute_source"],
+            "provider_key":result["provider_key"],
+            "model":result["model"],
+            "usage":result["usage"],
+            "content":result["content"],
+        }
     if kind=="php.script":
         root=_app_runtime_root(app_key)
         rel=_safe_rel(str(action.get("script") or ""))
@@ -377,6 +410,7 @@ def run_job(app_key:str,job_id:str)->dict[str,Any]:
         run_id=int(cursor.lastrowid)
         connection.commit()
         action=json.loads(row["action_json"])
+        action["job_id"]=job_id
         try:
             output=_run_action(app_key,action)
             status="succeeded"
@@ -408,7 +442,9 @@ def run_due_jobs()->int:
     from ..database import db
     with db() as central:
         rows=central.execute(
-            "SELECT app_key FROM homeserver_apps WHERE app_class='user' AND lifecycle_state='running' ORDER BY app_key"
+            """SELECT app_key FROM homeserver_apps
+               WHERE installed_version IS NOT NULL AND lifecycle_state='running'
+               ORDER BY app_key"""
         ).fetchall()
     now=int(time.time())
     count=0
@@ -580,7 +616,7 @@ def public_capability()->dict[str,Any]:
         "php_dangerous_functions_disabled":True,
         "durable_app_events":True,
         "interval_jobs":True,
-        "job_action_types":["event.emit","php.script"],
+        "job_action_types":["event.emit","php.script","agent.prompt"],
         "arbitrary_shell_commands":False,
         "max_event_bytes":MAX_EVENT_BYTES,
         "minimum_job_interval_seconds":60,

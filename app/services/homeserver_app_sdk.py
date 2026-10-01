@@ -45,7 +45,10 @@ async readFile(path){const r=await fetch(this.base()+"/data/file?path="+encodeUR
 async deleteFile(path){const r=await fetch(this.base()+"/data/file?path="+encodeURIComponent(path),{method:"DELETE"});if(!r.ok)throw new Error(await r.text());return r.json();},
 async permissions(){const r=await fetch(this.base()+"/permissions");if(!r.ok)throw new Error(await r.text());return r.json();},
 async resources(){const r=await fetch(this.base()+"/resources");if(!r.ok)throw new Error(await r.text());return r.json();},
-async runtime(){const r=await fetch(this.base()+"/runtime/services");if(!r.ok)throw new Error(await r.text());return r.json();}
+async runtime(){const r=await fetch(this.base()+"/runtime/services");if(!r.ok)throw new Error(await r.text());return r.json();},
+async agentPolicy(){const r=await fetch(this.base()+"/agent-runtime/policy");if(!r.ok)throw new Error(await r.text());return r.json();},
+async agentContext(keys=[]){const q=new URLSearchParams();for(const key of keys)q.append("key",key);const r=await fetch(this.base()+"/agent-runtime/context?"+q);if(!r.ok)throw new Error(await r.text());return r.json();},
+async agentPrompt(prompt,{contextKeys=[],systemPrompt=""}={}){const r=await fetch(this.base()+"/agent-runtime/prompt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,context_keys:contextKeys,system_prompt:systemPrompt})});if(!r.ok)throw new Error(await r.text());return r.json();}
 };"""
 APP_JS="""VP3App.ready(()=>{console.log("VP3 app ready",VP3App.health());});"""
 
@@ -111,6 +114,7 @@ def scaffold(app_key:str,name:str,*,runtime:str="static",permissions:list[str]|N
             "settings_schema":"settings.schema.json",
             "database_migrations":"database/migrations",
             "agent_actions":"agent/actions.json",
+            "agent_context":"agent/context.json",
             "jobs":"runtime/jobs.json",
             "events":"runtime/events.json",
             "sample_data":"sample/data.json",
@@ -131,6 +135,7 @@ def scaffold(app_key:str,name:str,*,runtime:str="static",permissions:list[str]|N
         (staging/"assets"/"app.js").write_text(APP_JS+"\n",encoding="utf-8")
         (staging/"settings.schema.json").write_text(json.dumps({"contract":"vp3.app.settings-schema.v1","fields":[]},indent=2)+"\n",encoding="utf-8")
         (staging/"agent"/"actions.json").write_text(json.dumps({"contract":"vp3.app.agent-actions.v2","actions":[]},indent=2)+"\n",encoding="utf-8")
+        (staging/"agent"/"context.json").write_text(json.dumps({"contract":"vp3.app.agent-context.v1","providers":[]},indent=2)+"\n",encoding="utf-8")
         (staging/"runtime"/"jobs.json").write_text(json.dumps({"contract":"vp3.app.jobs.v1","jobs":[]},indent=2)+"\n",encoding="utf-8")
         (staging/"runtime"/"events.json").write_text(json.dumps({"contract":"vp3.app.events.v1","subscriptions":[]},indent=2)+"\n",encoding="utf-8")
         (staging/"sample"/"data.json").write_text(json.dumps({"contract":"vp3.app.sample-data.v1","items":[{"id":"welcome","title":"Sample item","description":"Replace this with app-specific demo data."}]},indent=2)+"\n",encoding="utf-8")
@@ -149,7 +154,8 @@ def scaffold(app_key:str,name:str,*,runtime:str="static",permissions:list[str]|N
             "- Permission declarations are reviewed by HomeServer and default to denied.\n"
             "- Data schema changes create recovery snapshots before activation.\n"
             "- User-app schema execution remains app-managed; HomeServer never executes arbitrary package SQL.\n"
-            "- Runtime events/jobs, Agent action declarations, release history, rollback, ZIP/Git source, and Hosting use canonical HomeServer services.\n",
+            "- Runtime events/jobs, Agent action declarations, Agent context providers, release history, rollback, ZIP/Git source, and Hosting use canonical HomeServer services.\n"
+            "- Agent jobs use HomeServer-brokered inference; apps never receive model-provider credentials.\n",
             encoding="utf-8",
         )
         os.replace(staging,target)

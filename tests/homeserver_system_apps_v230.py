@@ -49,6 +49,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
         assert manifest["data_migration_reversible"] is True
         assert manifest["permissions"]==["network.external","notifications.write"]
         assert (project/"database"/"migrations"/"README.md").is_file()
+        assert (project/"agent"/"context.json").is_file()
+        assert manifest["agent_context"]=="agent/context.json"
+        assert json.loads((project/"agent"/"context.json").read_text(encoding="utf-8"))["contract"]=="vp3.app.agent-context.v1"
         assert "app-managed" in (project/"database"/"migrations"/"README.md").read_text(encoding="utf-8")
 
         first=client.post("/api/v1/control/homeserver-apps/starter.notes/build-install")
@@ -108,6 +111,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
         assert "async permissions()" in runtime_js
         assert "async resources()" in runtime_js
         assert "async runtime()" in runtime_js
+        assert "async agentPolicy()" in runtime_js
+        assert "async agentContext(" in runtime_js
+        assert "async agentPrompt(" in runtime_js
 
         ui=(ROOT/"ui"/"homeserver-apps.js").read_text(encoding="utf-8")
         assert "/api/v1/control/homeserver-apps/permissions/catalog" in ui
@@ -127,6 +133,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-sdk-v230-") as data_dir, tem
     assert cli_manifest["permissions"]==["notifications.write"]
     assert cli_manifest["data_schema_version"]=="1"
     assert cli_manifest["release_channel"]=="stable"
+    assert cli_manifest["agent_context"]=="agent/context.json"
+    assert (cli_project/"agent"/"context.json").is_file()
+    cli_runtime_js=(cli_project/"assets"/"vp3-sdk.js").read_text(encoding="utf-8")
+    assert "async agentPolicy()" in cli_runtime_js
+    assert "async agentContext(" in cli_runtime_js
+    assert "async agentPrompt(" in cli_runtime_js
     assert (cli_project/"database"/"migrations"/"README.md").is_file()
 
 print("HomeServer System Apps Section 9 user app SDK starter runtime integration: PASS")

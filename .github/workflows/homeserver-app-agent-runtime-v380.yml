@@ -1,0 +1,63 @@
+name: HomeServer App Agent Runtime v0.80
+
+on:
+  pull_request:
+    paths:
+      - 'app/services/homeserver_app_agent_runtime.py'
+      - 'app/services/homeserver_app_runtime.py'
+      - 'app/services/homeserver_app_packages.py'
+      - 'app/services/homeserver_app_sdk.py'
+      - 'app/services/homeserver_app_manager.py'
+      - 'app/homeserver_apps_api.py'
+      - 'app/bridge.py'
+      - 'database/migrations/062_app_agent_runtime.sql'
+      - 'tests/homeserver_app_agent_runtime_v380.py'
+      - 'tests/migrations.py'
+      - 'tests/homeserver_apps_v100.py'
+      - '.github/workflows/homeserver-app-agent-runtime-v380.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-app-agent-runtime-v380-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app-agent-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile app Agent runtime
+        run: >-
+          python -m py_compile
+          app/bridge.py
+          app/homeserver_apps_api.py
+          app/services/providers.py
+          app/services/usage.py
+          app/services/homeserver_app_agent_runtime.py
+          app/services/homeserver_app_runtime.py
+          app/services/homeserver_app_packages.py
+          app/services/homeserver_app_sdk.py
+          app/services/homeserver_app_manager.py
+          tests/homeserver_app_agent_runtime_v380.py
+          tests/migrations.py
+          tests/homeserver_apps_v100.py
+      - name: Verify Section 24 Local AI / Agent Runtime
+        run: python tests/homeserver_app_agent_runtime_v380.py
+      - name: Verify migration chain
+        run: python tests/migrations.py
+      - name: Verify Apps registry migration baseline
+        if: runner.os == 'Linux'
+        run: python tests/homeserver_apps_v100.py
