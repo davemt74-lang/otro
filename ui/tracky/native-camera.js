@@ -21,14 +21,17 @@ async function call(path,body){
   return result;
 }
 async function refresh(){
-  const current=await call('status');
-  const ready=Boolean(current.native_dependency?.installed);
+  const current=await call('diagnose');
+  const ready=Boolean(current.model?.installed&&current.model?.model_present);
+  const recovery=current.issues?.map(issue=>issue.code).join(', ')||'';
   label(current.running?'Native camera test running':ready?'Native detector installed · not certified':'Local detector unavailable');
   if(!running){
-    if(!ready)say('The pinned native runtime or model is missing. Repair or upgrade HomeServer to continue.');
+    if(!ready)say('Runtime or model missing. Install the signed HomeServer upgrade, then rerun diagnosis.');
     else if(current.last_test?.status==='native_detector_completed')
       say('Previous local test completed; on-device owner review is still required for hardware certification.');
-    else say('Optional · HomeServer will not open any camera until you approve a test.');
+    else say(recovery
+      ? 'Diagnosis: '+recovery+'. The Agent can explain safe repair steps; camera testing still requires your approval.'
+      : 'Ready for your owner-approved test. Hardware certification requires installed-device review.');
   }
 }
 async function run(){
@@ -76,10 +79,24 @@ async function cancel(){
   catch(error){say('Cancellation needs attention: '+String(error.message));}
   finally{$('onboardNativeCancel').disabled=false;}
 }
+async function checkPrivacy(){
+  if(!window.confirm('Engage your HomeServer physical privacy disconnect before proceeding. This check will NOT open the camera. Confirm you want to inspect its reported state.'))return;
+  const button=$('onboardNativePrivacy');
+  button.disabled=true;
+  try{
+    const review=await call('privacy-review',{consent:true});
+    if(review.privacy_check==='locally_reported_blocked')
+      say('HomeServer reports its physical privacy disconnect engaged. No camera was opened; installed-device certification still requires your review.');
+    else say(review.instruction||'Privacy switch not verified. Engage it, then retry this read-only check.');
+    await refresh();
+  }catch(error){say('Privacy review unavailable: '+String(error.message));}
+  finally{button.disabled=false;}
+}
 async function init(){
   if(!$('onboardNativeCamera'))return;
   $('onboardNativeStart').addEventListener('click',()=>{void run();});
   $('onboardNativeCancel').addEventListener('click',()=>{void cancel();});
+  $('onboardNativePrivacy').addEventListener('click',()=>{void checkPrivacy();});
   $('onboardNativeConsent').addEventListener('change',()=>{
     if(!$('onboardNativeConsent').checked && running)void cancel();
   });

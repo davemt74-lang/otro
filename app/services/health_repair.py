@@ -12,6 +12,7 @@ from . import (
     hosting_runtime,
     remote_bridge,
     storage_maintenance,
+    tracky_native_diagnosis,
 )
 
 CONTRACT="vp3.homeserver.health-repair.v1"
@@ -198,6 +199,43 @@ def _media_issues()->list[dict[str,Any]]:
     return issues
 
 
+def _native_tracky_issues()->list[dict[str,Any]]:
+    """Optional native Tracky problems enter the canonical Agent repair ledger.
+
+    Avoid flagging every new installation that has not chosen any camera work.
+    Never invent a command that installs drivers or bypasses owner approval.
+    """
+    record=tracky_native_diagnosis._saved()
+    if not record or record.get("phase") not in {"running", "failed", "completed", "privacy_reviewed"}:
+        return []
+    report=_safe(tracky_native_diagnosis.diagnose,{})
+    issues=[]
+    for row in report.get("issues") or []:
+        code=str(row.get("code") or "")
+        if code in {"opencv_missing","opencv_unavailable","face_model_missing"}:
+            issues.append(_issue(
+                "tracky:native-runtime-missing",source="tracky_native",severity="failed",
+                title="Native Tracky detector or its bundled model is unavailable",
+                detail="The installed detector is incomplete. Obtain and install the signed HomeServer upgrade, then re-run local diagnosis.",
+                repair_class="owner_review",owner_approval_required=True,
+            ))
+        elif code=="interrupted_prior_attempt":
+            issues.append(_issue(
+                "tracky:native-test-interrupted",source="tracky_native",severity="attention",
+                title="Native camera test was interrupted",
+                detail="The Agent can show diagnostics, but a new owner-approved camera test is required after restart.",
+                repair_class="owner_review",owner_approval_required=True,
+            ))
+        elif code=="last_capture_failed":
+            issues.append(_issue(
+                "tracky:native-camera-test-failed",source="tracky_native",severity="attention",
+                title="Native camera did not pass its previous local test",
+                detail="Confirm camera permissions and selected index, then approve another one-shot test.",
+                repair_class="owner_review",owner_approval_required=True,
+            ))
+    return issues
+
+
 def _activity_issues()->list[dict[str,Any]]:
     summary=_safe(activity_center.failure_counts,{})
     issues=[]
@@ -234,6 +272,7 @@ def status()->dict[str,Any]:
             *_hosting_issues(),
             *_media_issues(),
             *_activity_issues(),
+            *_native_tracky_issues(),
         ]
     finally:
         _PROBE_FAILURES.reset(token)
@@ -338,6 +377,7 @@ def public_capability()->dict[str,Any]:
         "hosting_health":True,
         "media_processor_health":True,
         "activity_failure_health":True,
+        "tracky_native_camera_diagnosis":True,
         "repair_planning":True,
         "canonical_actions_only":True,
         "automatic_repair":False,

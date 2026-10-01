@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -213,12 +213,50 @@ def native_camera_status() -> dict:
 def native_camera_test(payload: NativeCameraTest,
                        x_requested_with: str | None = Header(default=None)) -> dict:
     _require_ui(x_requested_with)
-    return _native_call(lambda: tracky_native_camera.test(
-        consent=payload.consent, scope=payload.scope, camera_index=payload.camera_index
-    ))
+    def run():
+        # Preserve validation without recording a phantom started attempt.
+        if payload.consent is not True or payload.scope != tracky_native_camera.SCOPE:
+            raise tracky_native_camera.NativeCameraError("Explicit native-camera consent is required.",403)
+        state=tracky_native_camera.status()
+        if state["running"] or state["provider_conflict"] or state["privacy_engaged"]:
+            return tracky_native_camera.test(consent=payload.consent,scope=payload.scope,
+                                            camera_index=payload.camera_index)
+        tracky_native_diagnosis.before_test()
+        try:
+            result=tracky_native_camera.test(
+                consent=payload.consent,scope=payload.scope,camera_index=payload.camera_index
+            )
+            phase="completed" if result.get("request",{}).get("status")=="completed" else "failed"
+            tracky_native_diagnosis.after_test(status=phase)
+            return result
+        except Exception:
+            tracky_native_diagnosis.after_test(status="failed")
+            raise
+    return _native_call(run)
 
 
 @router.post("/visual/native/cancel")
 def native_camera_cancel(x_requested_with: str | None = Header(default=None)) -> dict:
     _require_ui(x_requested_with)
     return tracky_native_camera.cancel()
+
+
+
+class NativePrivacyReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool
+
+
+@router.get("/visual/native/diagnose")
+def native_camera_diagnose() -> dict:
+    return tracky_native_diagnosis.diagnose()
+
+
+@router.post("/visual/native/privacy-review")
+def native_camera_privacy_review(
+    payload: NativePrivacyReview, x_requested_with: str | None = Header(default=None)
+) -> dict:
+    _require_ui(x_requested_with)
+    if payload.consent is not True:
+        raise HTTPException(status_code=403,detail="Explicit owner approval is required.")
+    return tracky_native_diagnosis.privacy_review(consent=True)

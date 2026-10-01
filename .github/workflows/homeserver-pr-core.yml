@@ -48,6 +48,8 @@ jobs:
           python tests/tracky_native_camera_v1.py
           node tests/tracky_native_camera_ui_v1.mjs
           node --check ui/tracky/native-camera.js
+          python tests/tracky_native_live_diagnosis_v1c.py
+          node tests/tracky_native_live_diagnosis_ui_v1c.mjs
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify API smoke contract
