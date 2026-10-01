@@ -67,6 +67,15 @@ def _copy_knowledge_snapshot(target: Path) -> bool:
     return True
 
 
+def _copy_app_data_snapshot(target: Path) -> bool:
+    source = settings.data_dir / "app-data"
+    if not source.is_dir():
+        return False
+    destination = target / "app-data"
+    shutil.copytree(source, destination, symlinks=True)
+    return True
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -125,6 +134,7 @@ def apply_pending_restore_for_startup() -> dict[str, Any] | None:
         quarantine.mkdir(parents=True, exist_ok=False)
         moved_database = _move_database_family(quarantine)
         knowledge_copied = _copy_knowledge_snapshot(quarantine)
+        app_data_copied = _copy_app_data_snapshot(quarantine)
         _write_snapshot_metadata(
             quarantine,
             {
@@ -132,6 +142,7 @@ def apply_pending_restore_for_startup() -> dict[str, Any] | None:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "database_files": moved_database,
                 "knowledge_copied": knowledge_copied,
+                "app_data_copied": app_data_copied,
                 "warning": "This is a raw safety snapshot of unreadable pre-restore data, not a validated HomeServer backup archive.",
             },
         )

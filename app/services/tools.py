@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, contacts, homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
+from . import app_scopes, backup_protection, backups, contacts, homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -13,6 +13,19 @@ from .tasks import TaskError, create_task, list_notifications, list_tasks
 TOOL_EXECUTE_PERMISSION = "tools.execute"
 
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "backups.status": {
+        "key": "backups.status",
+        "name": "Read Backup Protection Status",
+        "description": "Read bounded HomeServer backup health, coverage, retention policy and restore status without exposing archive paths, secrets or backup contents.",
+        "mode": "read",
+        "owner_only": True,
+        "required_permissions": [],
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        },
+    },
     "apps.list": {
         "key": "apps.list",
         "name": "List HomeServer Apps",
@@ -857,6 +870,8 @@ def _policy_map() -> dict[str, bool]:
 def _missing_permissions(tool: dict[str, Any], granted_permissions: set[str], owner: bool) -> list[str]:
     if owner:
         return []
+    if bool(tool.get("owner_only")):
+        return ["owner.control"]
     required = {TOOL_EXECUTE_PERMISSION, *tool["required_permissions"]}
     return sorted(required - granted_permissions)
 
@@ -1424,6 +1439,50 @@ def _tasks_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
     except (TaskError, continuity.TaskCalendarContinuityError) as exc:
         raise ToolError(str(exc), getattr(exc, "status_code", 422)) from exc
     return {"items": items, "count": len(items)}, {"count": len(items)}
+
+
+def _backups_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if arguments:
+        raise ToolError(f"Unsupported backups.status argument: {sorted(arguments)[0]}")
+    items=backups.list_backups()
+    pending=backups.pending_restore_info()
+    last=backups.last_restore_result()
+    status=backup_protection.health(items,last,pending)
+    safe={
+        "contract":status["contract"],
+        "backup_format_current":status["backup_format_current"],
+        "legacy_v1_restore_supported":status["legacy_v1_restore_supported"],
+        "backup_count":status["backup_count"],
+        "invalid_backup_count":status["invalid_backup_count"],
+        "latest_backup":None if status["latest_backup"] is None else {
+            "created_at":status["latest_backup"].get("created_at"),
+            "format_version":status["latest_backup"].get("format_version",1),
+            "reason":status["latest_backup"].get("reason"),
+            "app_count":status["latest_backup"].get("app_count",0),
+            "app_data_files":status["latest_backup"].get("app_data_files",0),
+        },
+        "pending_restore":None if pending is None else {
+            "status":pending.get("status"),
+            "valid":pending.get("valid"),
+            "format_version":pending.get("format_version",1),
+            "app_data_included":bool((pending.get("app_data") or {}).get("included")),
+        },
+        "last_restore":None if last is None else {
+            "status":last.get("status"),
+            "applied_at":last.get("applied_at"),
+            "failed_at":last.get("failed_at"),
+            "app_data_restored":bool(last.get("app_data_restored")),
+            "member_sessions_invalidated":int(last.get("member_sessions_invalidated") or 0),
+        },
+        "policy":status["policy"],
+        "coverage":status["coverage"],
+    }
+    return safe, {
+        "backup_count":safe["backup_count"],
+        "invalid_backup_count":safe["invalid_backup_count"],
+        "app_data_enabled":bool(safe["policy"].get("include_app_data")),
+        "pending_restore":bool(safe["pending_restore"]),
+    }
 
 
 def _notifications_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -1998,6 +2057,8 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _calendar_list(payload)
         elif tool["key"] == "notifications.list":
             result, result_meta = _notifications_list(payload)
+        elif tool["key"] == "backups.status":
+            result, result_meta = _backups_status(payload)
         elif tool["key"] == "devices.list":
             result, result_meta = _devices_list(payload)
         elif tool["key"] == "devices.command":

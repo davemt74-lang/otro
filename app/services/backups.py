@@ -18,7 +18,8 @@ from ..config import settings
 from ..database import connect, db, initialize_database, migration_files
 
 BACKUP_FORMAT = "homeserver-backup-v1"
-BACKUP_FORMAT_VERSION = 1
+BACKUP_FORMAT_VERSION = 2
+SUPPORTED_BACKUP_FORMAT_VERSIONS = {1, 2}
 BACKUP_PREFIX = "HomeServer-Backup-"
 BACKUP_SUFFIX = ".zip"
 MANIFEST_NAME = "manifest.json"
@@ -172,6 +173,8 @@ def _manifest_file_entry(root: Path, relative_path: str) -> dict[str, Any]:
 
 
 def create_backup(reason: str = "manual") -> dict[str, Any]:
+    from . import backup_protection
+
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.backups_dir.mkdir(parents=True, exist_ok=True)
     if not settings.db_path.exists():
@@ -190,14 +193,20 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
         knowledge_root = root / "knowledge" / "files"
         copied_files = _copy_knowledge_files(knowledge_root)
 
+        protection_policy = backup_protection.policy()
+        app_snapshot = {"archive_paths": [], "apps": [], "bytes": 0, "files": 0}
+        if protection_policy["include_app_data"]:
+            app_snapshot = backup_protection.snapshot_app_data(root,database_path)
+
         archive_paths = ["database/homeserver.db"]
         archive_paths.extend(
             f"knowledge/files/{path.relative_to(knowledge_root).as_posix()}"
             for path in copied_files
         )
+        archive_paths.extend(app_snapshot["archive_paths"])
         archive_paths = [_safe_member_name(path) for path in archive_paths]
         if len({path.casefold() for path in archive_paths}) != len(archive_paths):
-            raise BackupError("Knowledge storage contains file names that collide on Windows.")
+            raise BackupError("Backup storage contains file names that collide on Windows.")
         file_entries = [_manifest_file_entry(root, path) for path in sorted(archive_paths)]
         manifest = {
             "format": BACKUP_FORMAT,
@@ -206,6 +215,20 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
             "app_version": settings.version,
             "schema_version": schema_version,
             "reason": reason_text,
+            "coverage": {
+                "database": True,
+                "knowledge_files": True,
+                "app_data": bool(protection_policy["include_app_data"]),
+                "member_data": "database",
+                "security_secrets": False,
+                "runtime_state": False,
+                "backup_archives": False,
+                "restore_staging": False,
+                "app_recovery_snapshots": False,
+            },
+            "apps": app_snapshot["apps"],
+            "app_data_bytes": app_snapshot["bytes"],
+            "app_data_files": app_snapshot["files"],
             "files": file_entries,
         }
         (root / MANIFEST_NAME).write_text(
@@ -228,6 +251,14 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
         finally:
             temporary_archive.unlink(missing_ok=True)
 
+    if final_path.stat().st_size > settings.max_backup_upload_bytes:
+        final_path.unlink(missing_ok=True)
+        raise BackupError(
+            "Backup archive exceeds this HomeServer's restore-upload safety limit. "
+            "Reduce backup coverage or app data before creating another archive.",
+            413,
+        )
+
     result = {
         "name": filename,
         "path": str(final_path),
@@ -235,10 +266,21 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
         "app_version": manifest["app_version"],
         "schema_version": manifest["schema_version"],
         "reason": manifest["reason"],
+        "format_version": manifest["format_version"],
         "file_count": len(file_entries),
+        "app_count": len(manifest["apps"]),
+        "app_data_files": manifest["app_data_files"],
+        "app_data_bytes": manifest["app_data_bytes"],
+        "coverage": manifest["coverage"],
         "size_bytes": final_path.stat().st_size,
         "sha256": _sha256_path(final_path),
     }
+    try:
+        retention = backup_protection.prune_backups(list_backups(), delete_backup, protect_name=filename)
+        result["retention_deleted_count"] = retention["deleted_count"]
+    except Exception as exc:
+        result["retention_deleted_count"] = 0
+        result["retention_warning"] = f"Backup succeeded but retention cleanup failed: {type(exc).__name__}"
     return result
 
 
@@ -274,14 +316,24 @@ def _read_manifest_from_archive(path: Path) -> dict[str, Any]:
 
 def _backup_summary(path: Path) -> dict[str, Any]:
     manifest = _read_manifest_from_archive(path)
+    _validate_manifest_shape(manifest)
     return {
         "name": path.name,
         "size_bytes": path.stat().st_size,
         "created_at": manifest.get("created_at"),
         "app_version": manifest.get("app_version"),
         "schema_version": manifest.get("schema_version"),
+        "format_version": int(manifest.get("format_version") or 1),
         "reason": manifest.get("reason", "manual"),
         "file_count": len(manifest.get("files") or []),
+        "app_count": len(manifest.get("apps") or []),
+        "app_data_files": int(manifest.get("app_data_files") or 0),
+        "app_data_bytes": int(manifest.get("app_data_bytes") or 0),
+        "coverage": manifest.get("coverage") or {
+            "database": True,
+            "knowledge_files": True,
+            "app_data": False,
+        },
     }
 
 
@@ -336,8 +388,14 @@ def _is_symlink(info: zipfile.ZipInfo) -> bool:
 
 
 def _validate_manifest_shape(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    if manifest.get("format") != BACKUP_FORMAT or manifest.get("format_version") != BACKUP_FORMAT_VERSION:
+    if manifest.get("format") != BACKUP_FORMAT:
         raise BackupError("Unsupported HomeServer backup format.")
+    try:
+        format_version = int(manifest.get("format_version") or 1)
+    except (TypeError, ValueError) as exc:
+        raise BackupError("Backup manifest has an invalid format version.") from exc
+    if format_version not in SUPPORTED_BACKUP_FORMAT_VERSIONS:
+        raise BackupError("Unsupported HomeServer backup format version.")
     try:
         manifest_schema = int(manifest.get("schema_version"))
     except (TypeError, ValueError) as exc:
@@ -362,7 +420,12 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             raise BackupError("Backup manifest contains duplicate or Windows-colliding file paths.")
         seen.add(path)
         seen_casefold.add(folded)
-        if path != "database/homeserver.db" and not path.startswith("knowledge/files/"):
+        allowed = (
+            path == "database/homeserver.db"
+            or path.startswith("knowledge/files/")
+            or (format_version >= 2 and path.startswith("app-data/"))
+        )
+        if not allowed:
             raise BackupError("Backup manifest contains a file outside the HomeServer backup allowlist.")
         try:
             size = int(raw.get("size"))
@@ -374,6 +437,15 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         entries.append({"path": path, "size": size, "sha256": digest})
     if "database/homeserver.db" not in seen:
         raise BackupError("Backup manifest does not include the HomeServer database.")
+    if format_version == 1 and any(path.startswith("app-data/") for path in seen):
+        raise BackupError("Legacy v1 backup unexpectedly contains app data.")
+    if format_version >= 2:
+        coverage = manifest.get("coverage")
+        if not isinstance(coverage, dict):
+            raise BackupError("Backup manifest is missing its coverage declaration.")
+        for excluded in ("security_secrets","runtime_state","backup_archives","restore_staging","app_recovery_snapshots"):
+            if bool(coverage.get(excluded)):
+                raise BackupError("Backup manifest declares unsupported protected data coverage.")
     return entries
 
 
@@ -455,9 +527,21 @@ def _extract_and_validate_archive(archive_path: Path, target_root: Path) -> dict
     for stored_name in database_summary["referenced_files"]:
         if not (target_root / "knowledge" / "files" / stored_name).is_file():
             raise BackupError("Backup is missing a knowledge file referenced by its database.")
+    try:
+        from . import backup_protection
+        app_data = backup_protection.validate_app_data(
+            target_root,
+            target_root / "database" / "homeserver.db",
+            manifest,
+        )
+    except Exception as exc:
+        if hasattr(exc, "status_code"):
+            raise BackupError(str(exc), int(getattr(exc, "status_code", 422))) from exc
+        raise
     return {
         "manifest": manifest,
         "database": database_summary,
+        "app_data": app_data,
         "file_count": len(entries),
     }
 
@@ -482,8 +566,15 @@ def stage_restore(source: BinaryIO, original_name: str = "backup.zip") -> dict[s
             "upload_sha256": upload_sha256,
             "backup_created_at": validated["manifest"].get("created_at"),
             "backup_app_version": validated["manifest"].get("app_version"),
+            "format_version": int(validated["manifest"].get("format_version") or 1),
             "schema_version": validated["database"]["schema_version"],
             "file_count": validated["file_count"],
+            "app_data": validated["app_data"],
+            "coverage": validated["manifest"].get("coverage") or {
+                "database": True,
+                "knowledge_files": True,
+                "app_data": False,
+            },
         }
         (candidate / RESTORE_STATE_NAME).write_text(
             json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True),
@@ -528,7 +619,24 @@ def _validate_staged_directory(root: Path) -> dict[str, Any]:
     for stored_name in database["referenced_files"]:
         if not (root / "knowledge" / "files" / stored_name).is_file():
             raise BackupError("Pending restore is missing a referenced knowledge file.")
-    return {"manifest": manifest, "state": state, "database": database, "file_count": len(entries)}
+    try:
+        from . import backup_protection
+        app_data = backup_protection.validate_app_data(
+            root,
+            root / "database" / "homeserver.db",
+            manifest,
+        )
+    except Exception as exc:
+        if hasattr(exc, "status_code"):
+            raise BackupError(str(exc), int(getattr(exc, "status_code", 422))) from exc
+        raise
+    return {
+        "manifest": manifest,
+        "state": state,
+        "database": database,
+        "app_data": app_data,
+        "file_count": len(entries),
+    }
 
 
 def pending_restore_info() -> dict[str, Any] | None:
@@ -594,11 +702,16 @@ def apply_pending_restore() -> dict[str, Any] | None:
     pre_restore_backup: dict[str, Any] | None = None
     swapped_database = False
     swapped_knowledge = False
+    app_data_state: dict[str, Any] | None = None
+    invalidated_member_sessions = 0
     had_database = settings.db_path.exists()
     had_knowledge = settings.knowledge_files_dir.exists()
 
     try:
+        from . import backup_protection
+
         validated = _validate_staged_directory(pending)
+        app_data_state = backup_protection.prepare_app_data_restore(pending, token)
         if had_database:
             pre_restore_backup = create_backup("pre-restore")
             _checkpoint_live_database()
@@ -615,6 +728,8 @@ def apply_pending_restore() -> dict[str, Any] | None:
         os.replace(new_knowledge, settings.knowledge_files_dir)
         swapped_knowledge = True
 
+        backup_protection.swap_app_data(app_data_state)
+
         if had_database:
             os.replace(settings.db_path, old_database)
         os.replace(new_database, settings.db_path)
@@ -627,6 +742,7 @@ def apply_pending_restore() -> dict[str, Any] | None:
 
         ensure_knowledge_index()
         final_database = _validate_sqlite_database(settings.db_path)
+        invalidated_member_sessions = backup_protection.invalidate_restored_sessions()
         with db() as connection:
             connection.execute(
                 """
@@ -638,6 +754,9 @@ def apply_pending_restore() -> dict[str, Any] | None:
                     json.dumps(
                         {
                             "schema_version": final_database["schema_version"],
+                            "format_version": int(validated["manifest"].get("format_version") or 1),
+                            "app_data_restored": bool((app_data_state or {}).get("included")),
+                            "member_sessions_invalidated": invalidated_member_sessions,
                             "pre_restore_backup": pre_restore_backup["name"] if pre_restore_backup else None,
                         },
                         separators=(",", ":"),
@@ -648,12 +767,17 @@ def apply_pending_restore() -> dict[str, Any] | None:
         shutil.rmtree(pending)
         old_database.unlink(missing_ok=True)
         shutil.rmtree(old_knowledge, ignore_errors=True)
+        backup_protection.finalize_app_data(app_data_state)
         result = {
             "status": "applied",
             "applied_at": _iso_now(),
             "backup_created_at": validated["manifest"].get("created_at"),
             "backup_app_version": validated["manifest"].get("app_version"),
+            "format_version": int(validated["manifest"].get("format_version") or 1),
             "schema_version": final_database["schema_version"],
+            "app_data_restored": bool((app_data_state or {}).get("included")),
+            "app_data": validated.get("app_data"),
+            "member_sessions_invalidated": invalidated_member_sessions,
             "pre_restore_backup": pre_restore_backup["name"] if pre_restore_backup else None,
         }
         _write_restore_result(result)
@@ -666,6 +790,8 @@ def apply_pending_restore() -> dict[str, Any] | None:
                 Path(f"{settings.db_path}-shm").unlink(missing_ok=True)
             if old_database.exists():
                 os.replace(old_database, settings.db_path)
+            if app_data_state is not None:
+                backup_protection.rollback_app_data(app_data_state)
             if swapped_knowledge:
                 shutil.rmtree(settings.knowledge_files_dir, ignore_errors=True)
             if old_knowledge.exists():
@@ -676,6 +802,8 @@ def apply_pending_restore() -> dict[str, Any] | None:
             shutil.rmtree(pending, ignore_errors=True)
             new_database.unlink(missing_ok=True)
             shutil.rmtree(new_knowledge, ignore_errors=True)
+            if app_data_state is not None:
+                backup_protection.finalize_app_data(app_data_state)
         _write_restore_result(
             {
                 "status": "failed",
@@ -690,3 +818,5 @@ def apply_pending_restore() -> dict[str, Any] | None:
         shutil.rmtree(new_knowledge, ignore_errors=True)
         old_database.unlink(missing_ok=True)
         shutil.rmtree(old_knowledge, ignore_errors=True)
+        if app_data_state is not None:
+            backup_protection.finalize_app_data(app_data_state)
