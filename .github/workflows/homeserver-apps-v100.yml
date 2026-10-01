@@ -26,6 +26,8 @@ on:
       - 'tests/homeserver_members_v400.py'
       - 'tests/homeserver_backup_protection_v410.py'
       - 'tests/homeserver_storage_maintenance_v420.py'
+      - 'tests/homeserver_app_update_center_v430.py'
+      - 'app/services/homeserver_app_update_center.py'
       - 'app/services/storage_maintenance.py'
       - 'app/storage_api.py'
       - 'database/migrations/066_storage_maintenance.sql'
@@ -224,6 +226,8 @@ jobs:
           tests/homeserver_members_v400.py
           tests/homeserver_backup_protection_v410.py
           tests/homeserver_storage_maintenance_v420.py
+          tests/homeserver_app_update_center_v430.py
+          app/services/homeserver_app_update_center.py
           app/services/storage_maintenance.py
           app/services/backup_protection.py
           app/services/members.py
@@ -363,5 +367,7 @@ jobs:
         run: python tests/homeserver_backup_protection_v410.py
       - name: Verify Storage Quotas and Maintenance
         run: python tests/homeserver_storage_maintenance_v420.py
+      - name: Verify App Install Update Center
+        run: python tests/homeserver_app_update_center_v430.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py

@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, backup_protection, backups, storage_maintenance, contacts, homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
+from . import app_scopes, backup_protection, backups, storage_maintenance, contacts, homeserver_app_agent, homeserver_app_update_center, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -36,6 +36,33 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "input_schema": {
             "type": "object",
             "properties": {},
+            "additionalProperties": False
+        },
+    },
+    "apps.update-center": {
+        "key": "apps.update-center",
+        "name": "Read App Update Center",
+        "description": "Read bounded HomeServer app install, update, recovery and rollback attention without exposing package contents or changing apps.",
+        "mode": "read",
+        "owner_only": True,
+        "required_permissions": [],
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        },
+    },
+    "apps.update.review": {
+        "key": "apps.update.review",
+        "name": "Review App Update",
+        "description": "Read one app's version, release notes, compatibility, schema migration, rollback, hosting and Agent-control preflight before a governed install or update.",
+        "mode": "read",
+        "owner_only": True,
+        "required_permissions": [],
+        "input_schema": {
+            "type": "object",
+            "properties": {"app_key": {"type": "string", "minLength": 1, "maxLength": 80}},
+            "required": ["app_key"],
             "additionalProperties": False
         },
     },
@@ -274,7 +301,11 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "required_permissions": ["apps.manage"],
         "input_schema": {
             "type": "object",
-            "properties": {"app_key": {"type": "string", "maxLength": 80}},
+            "properties": {
+                "app_key": {"type": "string", "maxLength": 80},
+                "expected_version": {"type": "string", "maxLength": 80},
+                "expected_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+            },
             "required": ["app_key"],
             "additionalProperties": False
         },
@@ -857,6 +888,12 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "name": "Task & Reminder Manager",
         "description": "Read tasks and notifications and create durable reminders through explicit capabilities.",
         "tools": ["tasks.list", "notifications.list", "tasks.create"],
+    },
+    {
+        "key": "app.update.manager",
+        "name": "App Update Manager",
+        "description": "Review HomeServer app install, update, rollback, compatibility and recovery status before governed app changes.",
+        "tools": ["apps.update-center", "apps.update.review", "apps.prebuilt.list"],
     },
 )
 
@@ -1530,6 +1567,61 @@ def _storage_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     return safe, {"level":safe["disk"]["level"],"recommendations":safe["recommendation_count"]}
 
 
+def _apps_update_center(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if arguments:
+        raise ToolError(f"Unsupported apps.update-center argument: {sorted(arguments)[0]}")
+    state=homeserver_app_update_center.status()
+    safe={
+        "contract":state["contract"],
+        "catalog_version":state["catalog_version"],
+        "counts":state["counts"],
+        "attention":[
+            row for row in state["items"]
+            if row["recommended_action"] in {"recover","update","review_source_update","install"}
+        ][:25],
+        "automatic_updates":False,
+        "app_store":False,
+        "governed_agent_actions":True,
+    }
+    return safe, {"updates":safe["counts"]["updates"],"attention":safe["counts"]["attention"]}
+
+
+def _apps_update_review(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    unknown=set(arguments)-{"app_key"}
+    if unknown:
+        raise ToolError(f"Unsupported apps.update.review argument: {sorted(unknown)[0]}")
+    key=str(arguments.get("app_key") or "").strip().lower()
+    if not key:
+        raise ToolError("apps.update.review requires app_key.")
+    try:
+        review=homeserver_app_update_center.review(key)
+    except homeserver_app_update_center.AppUpdateCenterError as exc:
+        raise ToolError(str(exc),exc.status_code) from exc
+    safe={
+        "contract":review["contract"],
+        "app_key":review["app_key"],
+        "name":review["name"],
+        "installed_version":review["installed_version"],
+        "available_version":review["available_version"],
+        "lifecycle_state":review["lifecycle_state"],
+        "recommended_action":review["recommended_action"],
+        "release_channel":review["release_channel"],
+        "release_notes":review["release_notes"],
+        "compatibility":review["compatibility"],
+        "integrity":review["integrity"],
+        "data":review["data"],
+        "rollback":review["rollback"],
+        "permissions":review["permissions"],
+        "hosting":review["hosting"],
+        "agent_control":review["agent_control"],
+        "actions":review["actions"],
+        "automatic_update":False,
+        "owner_approval_required":True,
+    }
+    return safe, {"app_key":key,"recommended_action":safe["recommended_action"]}
+
+
+
 def _notifications_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     unknown = set(arguments) - {"unread_only", "limit"}
     if unknown:
@@ -1843,9 +1935,26 @@ def _apps_prebuilt_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict
 
 
 def _apps_prebuilt_install(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    key=_apps_key(arguments)
+    unknown=set(arguments)-{"app_key","expected_version","expected_sha256"}
+    if unknown:
+        raise ToolError(f"Unsupported Apps argument: {sorted(unknown)[0]}")
+    key=str(arguments.get("app_key") or "").strip().lower()
+    if not homeserver_apps._KEY_RE.fullmatch(key):
+        raise ToolError("A valid app_key is required.")
+    catalog={item["key"]:item for item in homeserver_app_prebuilt.catalog().get("packages",[])}
+    package=catalog.get(key)
+    if not package:
+        raise ToolError("VP3 prebuilt app not found.",404)
+    expected_version=str(arguments.get("expected_version") or package.get("version") or "")
+    expected_sha256=str(arguments.get("expected_sha256") or package.get("package_sha256") or "").lower()
+    if expected_version!=str(package.get("version") or ""):
+        raise ToolError("Reviewed VP3 app version is no longer current.",409)
+    if expected_sha256!=str(package.get("package_sha256") or "").lower():
+        raise ToolError("Reviewed VP3 app package hash is no longer current.",409)
     try:
-        result=homeserver_app_prebuilt.install(key)
+        result=homeserver_app_prebuilt.install(
+            key,expected_version=expected_version,expected_sha256=expected_sha256
+        )
     except Exception as exc:
         raise ToolError(str(exc),getattr(exc,"status_code",400)) from exc
     return {"app_key":key,"changed":bool(result.get("changed")),"app":result.get("app"),"release":result.get("release")},{"app_key":key,"changed":bool(result.get("changed"))}
@@ -2106,6 +2215,10 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _backups_status(payload)
         elif tool["key"] == "storage.status":
             result, result_meta = _storage_status(payload)
+        elif tool["key"] == "apps.update-center":
+            result, result_meta = _apps_update_center(payload)
+        elif tool["key"] == "apps.update.review":
+            result, result_meta = _apps_update_review(payload)
         elif tool["key"] == "devices.list":
             result, result_meta = _devices_list(payload)
         elif tool["key"] == "devices.command":

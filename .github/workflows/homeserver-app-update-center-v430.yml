@@ -1,0 +1,65 @@
+name: HomeServer App Update Center v1.30
+
+on:
+  pull_request:
+    paths:
+      - 'app/homeserver_apps_api.py'
+      - 'app/services/homeserver_app_update_center.py'
+      - 'app/services/homeserver_app_agent.py'
+      - 'app/services/homeserver_app_prebuilt.py'
+      - 'app/services/canonical_context.py'
+      - 'app/services/tools.py'
+      - 'tests/homeserver_app_update_center_v430.py'
+      - 'tests/canonical_agent_context_v430.py'
+      - 'tests/smoke.py'
+      - 'ui/homeserver-apps.js'
+      - 'ui/homeserver-apps.css'
+      - '.github/workflows/homeserver-app-update-center-v430.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-app-update-center-v430-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update-center:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Update Center runtime
+        run: >-
+          python -m py_compile
+          app/homeserver_apps_api.py
+          app/services/homeserver_app_update_center.py
+          app/services/homeserver_app_agent.py
+          app/services/homeserver_app_prebuilt.py
+          app/services/canonical_context.py
+          app/services/tools.py
+          tests/homeserver_app_update_center_v430.py
+          tests/canonical_agent_context_v430.py
+          tests/smoke.py
+      - name: Validate Apps UI JavaScript
+        run: node --check ui/homeserver-apps.js
+      - name: Verify Section 29 Update Center
+        run: python tests/homeserver_app_update_center_v430.py
+      - name: Verify canonical Agent Chat/Brain Update Center integration
+        run: python tests/canonical_agent_context_v430.py
+      - name: Verify smoke contract
+        if: runner.os == 'Linux'
+        run: python tests/smoke.py

@@ -435,7 +435,8 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
             raise AppAgentError(str(exc),exc.status_code) from exc
         return {"source_id":source["source_id"]}
 
-    unknown=set(args)-{"app_key"}
+    allowed={"app_key","expected_version","expected_sha256"} if action=="apps.prebuilt.install" else {"app_key"}
+    unknown=set(args)-allowed
     if unknown:
         raise AppAgentError(f"Unsupported {action} argument: {sorted(unknown)[0]}")
     key=str(args.get("app_key") or "").strip().lower()
@@ -444,9 +445,16 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
 
     if action=="apps.prebuilt.install":
         catalog={item["key"]:item for item in homeserver_app_prebuilt.catalog()["packages"]}
-        if key not in catalog:
+        package=catalog.get(key)
+        if not package:
             raise AppAgentError("VP3 prebuilt app not found.",404)
-        return {"app_key":key}
+        expected_version=str(args.get("expected_version") or package.get("version") or "")
+        expected_sha256=str(args.get("expected_sha256") or package.get("package_sha256") or "").lower()
+        if expected_version!=str(package.get("version") or ""):
+            raise AppAgentError("Reviewed VP3 app version is no longer current.",409)
+        if expected_sha256!=str(package.get("package_sha256") or "").lower():
+            raise AppAgentError("Reviewed VP3 app package hash is no longer current.",409)
+        return {"app_key":key,"expected_version":expected_version,"expected_sha256":expected_sha256}
 
     try:
         app=homeserver_apps.get(key)
@@ -500,7 +508,11 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
             return homeserver_app_control.invoke(args["app_key"],args["action"],args["arguments"])
         key=args["app_key"]
         if action_key=="apps.prebuilt.install":
-            return homeserver_app_prebuilt.install(key)
+            return homeserver_app_prebuilt.install(
+                key,
+                expected_version=args["expected_version"],
+                expected_sha256=args["expected_sha256"],
+            )
         if action_key=="apps.build_install":
             from . import homeserver_app_packages
             return {"release":homeserver_app_packages.install_project(key)}

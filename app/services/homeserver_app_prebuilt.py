@@ -650,6 +650,7 @@ def _public(definition: dict[str, Any]) -> dict[str, Any]:
         "description": definition["description"],
         "release_channel": definition.get("release_channel", "stable"),
         "release_notes": list(definition.get("release_notes") or []),
+        "permissions": sorted({str(value) for value in definition.get("permissions",[]) if str(value)}),
         "data_migration": {
             "target_schema_version": str(definition.get("data_schema_version") or "1"),
             "reversible": bool(definition.get("data_migration_reversible", True)),

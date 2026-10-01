@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_update_center, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -278,6 +278,11 @@ class VideoRenderRequest(BaseModel):
     format:str=Field(default="mp4",pattern="^(mp4|webm)$")
 
 
+class UpdateCenterApplyRequest(BaseModel):
+    expected_version:str=Field(min_length=1,max_length=80)
+    expected_sha256:str=Field(min_length=64,max_length=64,pattern="^[a-fA-F0-9]{64}$")
+
+
 class AppControlInvokeRequest(BaseModel):
     action:str=Field(min_length=1,max_length=120)
     arguments:dict=Field(default_factory=dict)
@@ -320,6 +325,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_releases.AppReleaseError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_app_update_center.AppUpdateCenterError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_sources.AppSourceError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_app_workspace.AppWorkspaceError as exc:
@@ -351,7 +358,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"agent_runtime":homeserver_app_agent_runtime.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_player":homeserver_media_player.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"update_center":homeserver_app_update_center.public_capability(),"control":homeserver_app_control.public_capability(),"agent_runtime":homeserver_app_agent_runtime.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_player":homeserver_media_player.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/agent-runtime/capability")
@@ -412,6 +419,30 @@ def app_manager_inventory()->dict:
 @router.get("/manager/{app_key}")
 def app_manager_item(app_key:str)->dict:
     return {"app":_call(homeserver_app_manager.app,app_key)}
+
+
+@router.get("/update-center")
+def app_update_center_status()->dict:
+    return _call(homeserver_app_update_center.status)
+
+
+@router.get("/update-center/brain-context")
+def app_update_center_brain_context(limit:int=Query(default=20,ge=1,le=50))->dict:
+    return _call(homeserver_app_update_center.brain_context,limit)
+
+
+@router.get("/update-center/{app_key}")
+def app_update_center_review(app_key:str)->dict:
+    return {"review":_call(homeserver_app_update_center.review,app_key)}
+
+
+@router.post("/update-center/{app_key}/apply")
+def app_update_center_apply(app_key:str,payload:UpdateCenterApplyRequest)->dict:
+    return _call(
+        homeserver_app_update_center.apply_prebuilt,app_key,
+        expected_version=payload.expected_version,
+        expected_sha256=payload.expected_sha256,
+    )
 
 
 @router.get("/media-server/capability")
@@ -1641,6 +1672,9 @@ def app_release_promote(app_key:str,release_id:str)->dict:
 
 @router.post("/{app_key}/rollback")
 def app_release_rollback(app_key:str)->dict:
+    app=_call(homeserver_apps.get,app_key)
+    if app["app_class"]=="system":
+        return _call(homeserver_app_prebuilt.rollback,app_key,reason="owner_requested")
     return _call(homeserver_app_releases.rollback,app_key)
 
 
