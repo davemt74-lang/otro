@@ -1,0 +1,35 @@
+name: HomeServer Section 31D Maintenance Workspace
+on:
+  pull_request:
+    paths:
+      - 'ui/index.html'
+      - 'ui/app.js'
+      - 'ui/maintenance-workspace.js'
+      - 'ui/maintenance-workspace.css'
+      - 'tests/maintenance_workspace_v454.cjs'
+      - '.github/workflows/homeserver-maintenance-workspace-v454.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: hs-maintenance-workspace-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  maintenance-workspace:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check JS syntax
+        run: node --check ui/maintenance-workspace.js
+      - name: Check existing owner canvas syntax
+        run: node --check ui/app.js
+      - name: Real Health workspace interaction test
+        run: node tests/maintenance_workspace_v454.cjs
