@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from .services import activity_center
+from .services import activity_center, health_maintenance
 
 router=APIRouter()
 
@@ -45,7 +45,10 @@ def brain_context(limit:int=Query(default=20,ge=1,le=50))->dict:
 
 @router.post("/api/v1/control/activity-center/sync")
 def sync()->dict:
-    return _call(activity_center.sync_notifications)
+    # Explicit owner refresh scans health before projecting Activity Center events.
+    health=_call(health_maintenance.sync_health_notifications)
+    events=_call(activity_center.sync_notifications)
+    return {**events,"health":health}
 
 
 @router.patch("/api/v1/control/activity-center/notifications/{notification_id}")
