@@ -12,6 +12,12 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
     from app.services import local_transcription_sessions as tx, remote_bridge
     from app.services.tasks import scheduler
 
+    from app.bridge import capabilities
+    published=capabilities()
+    transcript_caps=published["local_transcriptions"]
+    assert transcript_caps["explicit_owner_share"] is True
+    assert transcript_caps["raw_audio_relay"] is False
+    assert "transcription.shared.fetch" in transcript_caps["operations"]
     with TestClient(app) as client:
         scheduler.stop()
         base="/api/v1/control/transcription-sessions"
