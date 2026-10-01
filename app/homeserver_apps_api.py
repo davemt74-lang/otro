@@ -469,6 +469,21 @@ def media_library_brain_context(limit:int=Query(default=8,ge=1,le=20))->dict:
     return _call(homeserver_media_library.brain_context,limit)
 
 
+@router.get("/media-library/needs-metadata")
+def media_library_needs_metadata(limit:int=Query(default=100,ge=1,le=500))->dict:
+    return _call(homeserver_media_library.needs_metadata,limit)
+
+
+@router.get("/media-library/recent-changes")
+def media_library_recent_changes(limit:int=Query(default=20,ge=1,le=100))->dict:
+    return _call(homeserver_media_library.recent_changes,limit)
+
+
+@router.get("/media-library/agent-brief")
+def media_library_agent_brief(limit:int=Query(default=8,ge=1,le=20))->dict:
+    return _call(homeserver_media_library.agent_brief,limit)
+
+
 @router.get("/media-library/search")
 def media_library_search(
     q:str=Query(default="",max_length=200),
