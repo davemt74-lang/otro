@@ -15,6 +15,9 @@ assert 'ValueName: "HomeServer"' in text
 assert '{userstartup}' not in text
 assert re.search(r'\[UninstallRun\][\s\S]*reg delete HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', text)
 assert 'HomeServer\\Data' not in text, "Installer must never package or delete the user's private data directory"
+spec_text = (ROOT_DIR / "HomeServer.spec").read_text(encoding="utf-8")
+for schema in ("runtime_certification.sql", "governed_recordings.sql", "local_transcription_sessions.sql"):
+    assert f"('database/{schema}', 'database')" in spec_text, f"Installer excludes required {schema}"
 assert 'dist\\tools\\ffmpeg\\*' in text
 assert '{app}\\tools\\ffmpeg' in text
 stage = (ROOT_DIR / "scripts" / "stage_ffmpeg_windows.ps1").read_text(encoding="utf-8")
