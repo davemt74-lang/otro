@@ -55,7 +55,7 @@ function ensureBackupWorkspace() {
     section.id = 'view-backups';
     section.innerHTML = `
       <div class="section-intro split">
-        <div><h2>Backup & Restore</h2><p>Create portable local snapshots of your HomeServer brain, contacts, memory, permissions and imported knowledge files.</p></div>
+        <div><h2>Backup & Restore</h2><p>Create portable local snapshots of HomeServer data, users, permissions, knowledge, and installed-app data.</p></div>
         <div class="backup-actions"><button class="button secondary" id="stageRestoreButton" type="button">Stage restore</button><button class="button primary" id="createBackupButton" type="button">Create backup</button><input class="hidden" id="restoreBackupFile" type="file" accept=".zip,application/zip"></div>
       </div>
       <div class="backup-warning"><strong>Private archive:</strong> backup ZIPs contain private HomeServer data and are not encrypted by the ZIP format. Keep exported copies somewhere you control and protect.</div>
@@ -69,7 +69,7 @@ function ensureBackupWorkspace() {
         <label>Pre-restore backups <input id="backupRetainPreRestore" type="number" min="1" max="20"></label>
         <button class="button secondary" type="submit">Save policy</button>
       </form>
-      <div class="panel backup-explainer"><div><span>1</span><p><strong>Consistent snapshot</strong><small>SQLite's backup API captures a coherent database even while HomeServer is running.</small></p></div><div><span>2</span><p><strong>Integrity manifest</strong><small>Every database and knowledge file is SHA-256 checked before a restore can be staged.</small></p></div><div><span>3</span><p><strong>Restart-safe restore</strong><small>HomeServer makes a pre-restore backup and applies the validated stage before the API starts.</small></p></div></div>
+      <div class="panel backup-explainer"><div><span>1</span><p><strong>Consistent snapshot</strong><small>HomeServer and installed-app SQLite databases use SQLite's backup API; app files are captured from isolated app storage.</small></p></div><div><span>2</span><p><strong>Integrity manifest</strong><small>Every protected database, knowledge file, and app-data file is SHA-256 checked before restore can be staged.</small></p></div><div><span>3</span><p><strong>Restart-safe restore</strong><small>HomeServer makes a pre-restore backup, swaps protected app data atomically, and revokes restored member sessions before serving requests.</small></p></div></div>
       <div class="panel-head backup-list-head"><div><p class="eyebrow">LOCAL ARCHIVES</p><h3>Backups</h3></div><span id="backupCount" class="muted"></span></div>
       <div id="backupList" class="backup-list"><div class="panel empty-state">No backups yet.</div></div>`;
     activityView.parentNode.insertBefore(section, activityView);
@@ -273,7 +273,7 @@ function restoreStatusMarkup(data) {
   const parts = [];
   if (pending) {
     if (pending.valid) {
-      parts.push(`<div class="panel restore-state pending"><div><p class="eyebrow">RESTORE STAGED</p><h3>Restart required</h3><p>${esc(pending.original_name || 'HomeServer backup')} passed integrity validation and will be applied before the server starts next time.</p><div class="item-meta"><span>Backup ${esc(fmt(pending.backup_created_at))}</span><span>schema v${esc(pending.schema_version)}</span><span>${esc(formatBytes(pending.upload_size_bytes))}</span></div></div><button class="button secondary danger" id="cancelRestoreButton" type="button">Cancel restore</button></div>`);
+      parts.push(`<div class="panel restore-state pending"><div><p class="eyebrow">RESTORE STAGED</p><h3>Restart required</h3><p>${esc(pending.original_name || 'HomeServer backup')} passed integrity validation and will be applied before the server starts next time.</p><div class="item-meta"><span>Backup ${esc(fmt(pending.backup_created_at))}</span><span>format v${esc(pending.format_version || 1)}</span><span>schema v${esc(pending.schema_version)}</span><span>${pending.app_data?.included ? esc(String(pending.app_data.files || 0)) + ' app files' : 'app data preserved from current system'}</span><span>${esc(formatBytes(pending.upload_size_bytes))}</span></div>${pending.app_data?.warning ? `<p class="muted">${esc(pending.app_data.warning)}</p>` : ''}</div><button class="button secondary danger" id="cancelRestoreButton" type="button">Cancel restore</button></div>`);
     } else {
       parts.push(`<div class="panel restore-state failed"><div><p class="eyebrow">RESTORE INVALID</p><h3>Staged restore needs attention</h3><p>${esc(pending.error || 'The staged restore could not be revalidated.')}</p></div><button class="button secondary danger" id="cancelRestoreButton" type="button">Clear staged restore</button></div>`);
     }
