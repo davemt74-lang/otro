@@ -381,13 +381,18 @@ def _validate_trigger(kind: str, trigger: dict[str, Any]) -> tuple[dict[str, Any
     if kind == "app_event":
         app_key = str(safe.get("app_key") or "").strip().lower()
         event_type = _text(safe.get("event_type"), 160, required=True, label="trigger event_type")
+        action_key = _text(safe.get("action_key"), 120)
         if not app_key:
             raise LocalAutomationError("App-event trigger requires app_key.")
         try:
             homeserver_apps.get(app_key)
         except homeserver_apps.HomeServerAppError as exc:
             raise LocalAutomationError(str(exc), exc.status_code) from exc
-        return {"app_key": app_key, "event_type": event_type}, None
+        return {
+            "app_key": app_key,
+            "event_type": event_type,
+            "action_key": action_key or None,
+        }, None
     raise LocalAutomationError("Unsupported trigger kind.")
 
 
@@ -993,24 +998,35 @@ def evaluate_rule(rule_key: str, *, force_manual: bool = False) -> dict[str, Any
     elif rule["trigger_kind"] == "app_event":
         app_key = str(rule["trigger"].get("app_key") or "")
         event_type = str(rule["trigger"].get("event_type") or "")
+        action_filter = str(rule["trigger"].get("action_key") or "")
+        event = None
         with db() as connection:
             app_row = connection.execute(
                 "SELECT app_id FROM homeserver_apps WHERE app_key=?",
                 (app_key,),
             ).fetchone()
-            event = None
+            candidates = []
             if app_row is not None:
-                event = connection.execute(
-                    """SELECT id,event_type,actor_type,actor_key,created_at
+                candidates = connection.execute(
+                    """SELECT id,event_type,actor_type,actor_key,metadata_json,created_at
                        FROM homeserver_app_events
                        WHERE app_id=? AND event_type=? AND id>?
-                       ORDER BY id ASC LIMIT 1""",
+                       ORDER BY id ASC LIMIT 50""",
                     (str(app_row["app_id"]), event_type, int(rule.get("last_event_id") or 0)),
-                ).fetchone()
-            if event is not None:
+                ).fetchall()
+            cursor = int(rule.get("last_event_id") or 0)
+            for candidate in candidates:
+                cursor = max(cursor,int(candidate["id"]))
+                if action_filter:
+                    metadata = _decode(candidate["metadata_json"],{})
+                    if str(metadata.get("action") or "") != action_filter:
+                        continue
+                event = candidate
+                break
+            if cursor > int(rule.get("last_event_id") or 0):
                 connection.execute(
                     "UPDATE automation_rules SET last_event_id=? WHERE id=?",
-                    (int(event["id"]), int(rule["id"])),
+                    (cursor, int(rule["id"])),
                 )
         if event is not None:
             triggered = True
@@ -1018,6 +1034,7 @@ def evaluate_rule(rule_key: str, *, force_manual: bool = False) -> dict[str, Any
                 "event_id": int(event["id"]),
                 "app_key": app_key,
                 "event_type": str(event["event_type"]),
+                "action_key": action_filter or None,
                 "actor_type": str(event["actor_type"]),
                 "actor_key": str(event["actor_key"]),
                 "created_at": str(event["created_at"]),
