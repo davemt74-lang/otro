@@ -142,9 +142,12 @@ with tempfile.TemporaryDirectory(prefix="hs-maintenance-31b-") as temp:
             def wait(self,_seconds): self.waits+=1
         local=task_service.TaskScheduler(interval_seconds=1)
         local._stop=FourCycles()
-        with patch.object(task_service,"run_due_reminders") as reminders, patch.object(health_maintenance,"sync_health_notifications") as maintenance:
+        with patch.object(task_service,"run_due_reminders") as reminders, \
+             patch.object(activity_center,"sync_notifications") as notifications, \
+             patch.object(health_maintenance,"sync_health_notifications") as maintenance:
             local._run()
             assert reminders.call_count==4
+            notifications.assert_called_once_with()
             maintenance.assert_called_once_with()
     finally:
         health_repair.status=original
