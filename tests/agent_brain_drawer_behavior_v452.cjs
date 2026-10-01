@@ -156,6 +156,16 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   handlers.get('window:load')();
   assert.ok(input.value.includes('storage:disk-pressure'));
   assert.equal(stored.size,0,'Draft is consumed exactly once');
+  // Standalone Health action uses canonical owner workspace after navigation.
+  registry.delete('chatInput');
+  toggle.fire('click');
+  registry.get('agentBrainHealth').fire('click');
+  assert.equal(lastRoute,'/#chat');
+  assert.equal(stored.get('homeserver:agent-brain:workspace-v1'),'health');
+  registry.set('chatInput',input);
+  handlers.get('window:load')();
+  assert.equal(healthNavClicks,2,'Standalone Health button opens existing owner workspace');
+  assert.equal(stored.size,0,'Workspace route is consumed once');
   assert.match(css,/position:fixed/);
   assert.match(css,/max-width:100vw/);
   console.log('Section 31: real drawer interactions, warning handoff and governance PASS');
