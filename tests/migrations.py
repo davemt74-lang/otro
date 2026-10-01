@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 64))
+        assert versions == list(range(1, 65))
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -297,6 +297,18 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
             ("tasks.list", 1),
             ("tasks.update", 1),
         ]
+        member_columns={row["name"] for row in migrated.execute("PRAGMA table_info(homeserver_members)").fetchall()}
+        assert {"member_id","username","display_name","role","status","password_salt","password_hash","failed_attempts","locked_until"}.issubset(member_columns)
+        for table_name in (
+            "homeserver_member_sessions",
+            "homeserver_member_app_access",
+            "homeserver_member_context",
+            "homeserver_member_activity",
+        ):
+            assert migrated.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            ).fetchone() is not None
         notification_columns={row["name"] for row in migrated.execute("PRAGMA table_info(notifications)").fetchall()}
         assert {"category","priority","source_kind","source_key","event_key","dedupe_key","action_json","archived_at","last_seen_at","occurrence_count"}.issubset(notification_columns)
         assert migrated.execute(
@@ -584,7 +596,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 64))
+        assert versions_again == list(range(1, 65))
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1
