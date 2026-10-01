@@ -343,7 +343,6 @@ def sync_notifications(limit:int=250)->dict[str,int]:
             """SELECT id,action_key,source_app_key,created_at FROM action_requests
                WHERE status='pending' ORDER BY created_at DESC LIMIT ?""",(bounded,)
         ).fetchall()
-    app_approvals=homeserver_app_approvals.list_rows(status="pending",limit=bounded)
         failed_ai=connection.execute(
             """SELECT r.id,r.run_key,r.job_id,r.created_at,a.app_key
                FROM homeserver_app_ai_runs r JOIN homeserver_apps a ON a.app_id=r.app_id
@@ -354,6 +353,7 @@ def sync_notifications(limit:int=250)->dict[str,int]:
                JOIN automation_routines ru ON ru.id=x.routine_id
                WHERE x.status='failed' ORDER BY x.id DESC LIMIT ?""",(bounded,)
         ).fetchall()
+    app_approvals=homeserver_app_approvals.list_rows(status="pending",limit=bounded)
     for row in approvals:
         before=_notification_by_dedupe(f"approval:{row['id']}")
         emitted=emit_notification(
