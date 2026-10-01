@@ -6,9 +6,12 @@ import time
 from typing import Any
 
 from ..database import db
-from . import action_policy, approvals, app_scopes, plugins, tools
+from . import action_policy, approvals, app_scopes, maintenance_conversation, plugins, tools
 
 MODEL_TOOL_NAMES = {
+    "homeserver_health_status": "health.status",
+    "homeserver_health_issue": "health.issue",
+    "homeserver_health_repair_plan": "health.repair-plan",
     "homeserver_contacts_search": "contacts.search",
     "homeserver_devices_list": "devices.list",
     "homeserver_knowledge_search": "knowledge.search",
@@ -33,6 +36,7 @@ MEMORY_DELETE_PROPOSAL_TOOL_NAME = "homeserver_memory_delete_request"
 MEMORY_DELETE_PROPOSAL_TOOL_KEY = "memory.delete"
 TASK_PROPOSAL_TOOL_NAME = "homeserver_task_create_request"
 TASK_PROPOSAL_TOOL_KEY = "tasks.create"
+MAINTENANCE_PROPOSAL_TOOL_NAME="homeserver_maintenance_repair_request"
 DEVICE_PROPOSAL_TOOL_NAME = "homeserver_device_command_request"
 DEVICE_PROPOSAL_TOOL_KEY = "devices.command"
 
@@ -264,6 +268,17 @@ def model_tool_schemas(
                 }
             )
 
+        recovery=by_key.get("apps.recover")
+        diagnosis=by_key.get("health.issue")
+        if owner and recovery and recovery.get("available") and diagnosis and diagnosis.get("available"):
+            schemas.append({
+                "type":"function",
+                "function":{
+                    "name":MAINTENANCE_PROPOSAL_TOOL_NAME,
+                    "description":"Request governed recovery of a CURRENT health issue by issue_key. This rechecks health, derives a canonical action and only creates a pending owner approval. Never executes immediately.",
+                    "parameters":{"type":"object","properties":{"issue_key":{"type":"string","minLength":1,"maxLength":160}},"required":["issue_key"],"additionalProperties":False},
+                },
+            })
         for model_name, tool_key in APP_ACTION_MODEL_TOOLS.items():
             app_tool=by_key.get(tool_key)
             if not app_tool or not app_tool.get("available") or not owner:
@@ -397,6 +412,16 @@ def execute_model_tool(
         if item.get("available")
     }
     args = arguments or {}
+
+    if model_tool_name == MAINTENANCE_PROPOSAL_TOOL_NAME:
+        policy=get_policy()
+        if (not owner or not policy["enabled"] or not policy["allow_write_proposals"]
+                or not available.get("apps.recover") or not available.get("health.issue")):
+            raise _deny_unavailable(source_app_key,owner)
+        try:
+            return maintenance_conversation.propose_repair(args,source_app_key=source_app_key,owner=True)
+        except (maintenance_conversation.MaintenanceError,approvals.ApprovalError) as exc:
+            raise AgentToolError(str(exc)) from exc
 
     if model_tool_name in {
         MEMORY_PROPOSAL_TOOL_NAME,
