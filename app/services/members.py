@@ -387,7 +387,9 @@ def context(member_id:str)->dict[str,Any]:
 
 
 def set_context(member_id:str,context_key:str,value:Any)->dict[str,Any]:
-    get_member(member_id)
+    member=get_member(member_id)
+    if member["role"]=="guest":
+        raise MemberError("Guest accounts cannot persist Agent context.",403)
     key=str(context_key or "").strip().lower()
     if not _CONTEXT_KEY.fullmatch(key):
         raise MemberError("Context key is invalid.")
@@ -417,7 +419,9 @@ def set_context(member_id:str,context_key:str,value:Any)->dict[str,Any]:
 
 
 def delete_context(member_id:str,context_key:str)->bool:
-    get_member(member_id)
+    member=get_member(member_id)
+    if member["role"]=="guest":
+        raise MemberError("Guest accounts cannot modify Agent context.",403)
     key=str(context_key or "").strip().lower()
     with db() as connection:
         cursor=connection.execute(
@@ -481,6 +485,7 @@ def public_capability()->dict[str,Any]:
         "contract":CONTRACT,
         "implicit_owner_principal":True,
         "member_roles":["admin","member","guest"],
+        "role_semantics":{"admin":"member-with-persistent-context","member":"standard-persistent-context","guest":"read-only-no-context-write"},
         "member_admin_is_not_owner":True,
         "hashed_credentials":True,
         "scrypt":True,
