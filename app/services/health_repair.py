@@ -7,7 +7,6 @@ from . import (
     backup_protection,
     backups,
     homeserver_app_manager,
-    homeserver_app_update_center,
     homeserver_media_processor,
     hosting_runtime,
     remote_bridge,
@@ -218,30 +217,6 @@ def _activity_issues()->list[dict[str,Any]]:
     return issues
 
 
-def _update_issues()->list[dict[str,Any]]:
-    state=_safe(homeserver_app_update_center.status,{"items":[]})
-    issues=[]
-    for item in state.get("items") or []:
-        if item.get("recommended_action")!="recover":
-            continue
-        key=str(item.get("app_key") or "")
-        if any(issue["key"].startswith(f"app:{key}:") for issue in _app_issues()):
-            continue
-        issues.append(_issue(
-            f"update-center:{key}:recover",
-            source="update_center",
-            severity="degraded",
-            title=f"{item.get('name') or key} requires recovery",
-            detail="Update Center reports recovery attention for this app.",
-            repair_class="governed_repair",
-            action_key="apps.recover",
-            arguments={"app_key":key},
-            owner_approval_required=True,
-            agent_can_execute=True,
-        ))
-    return issues
-
-
 def status()->dict[str,Any]:
     issues=[
         *_app_issues(),
@@ -251,7 +226,6 @@ def status()->dict[str,Any]:
         *_hosting_issues(),
         *_media_issues(),
         *_activity_issues(),
-        *_update_issues(),
     ]
     deduped={}
     for issue in issues:
