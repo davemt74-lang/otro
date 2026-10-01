@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="no-referrer">
+  <title>Welcome to VP3 HomeServer</title>
+  <link rel="stylesheet" href="/assets/welcome.css">
+  <script src="/assets/welcome.js" defer></script>
+</head>
+<body>
+  <div class="welcome-shell">
+    <header class="welcome-header">
+      <a class="welcome-brand" href="/" aria-label="HomeServer dashboard">
+        <span class="brand-glyph" aria-hidden="true"><span></span></span>
+        <span>VP3 <b>HomeServer</b></span>
+      </a>
+      <a class="quiet-link" href="/system">Advanced setup <span aria-hidden="true">↗</span></a>
+    </header>
+    <main>
+      <section class="hero" aria-labelledby="welcome-title">
+        <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span> YOUR PERSONAL INTELLIGENCE, AT HOME</p>
+        <div class="agent-presence" aria-hidden="true"><div class="agent-orb"><div class="agent-core"></div></div></div>
+        <h1 id="welcome-title">Welcome to your<br><em>new home for AI.</em></h1>
+        <p class="hero-description">An intelligent workspace that runs on your computer. We'll prepare the essentials, then introduce you to your Agent.</p>
+        <div class="hero-actions"><button class="primary-button" id="startSetup" type="button" disabled>Prepare my HomeServer <span aria-hidden="true">→</span></button><a class="secondary-button" href="/#chat">Chat with my Agent</a></div>
+        <p class="hero-footnote" id="setupIntroduction" aria-live="polite">Checking your HomeServer installation…</p>
+      </section>
+      <section class="journey" aria-labelledby="journey-title">
+        <div class="journey-heading"><div><p class="eyebrow">YOUR SETUP</p><h2 id="journey-title">Ready when you are.</h2><p>Everything you need for a great first conversation. You're in control of optional features.</p></div><span id="overallState" class="status-pill">Checking</span></div>
+        <div class="journey-grid">
+          <article class="journey-card"><span class="step-number">01 <span class="step-rule"></span> INCLUDED</span><div class="step-symbol" aria-hidden="true">✦</div><h3>Agent &amp; workspace</h3><p>Your HomeServer and Agent are installed together. No extra accounts or configuration for the local workspace.</p><span class="component-status ready" id="runtimeState">Included</span></article>
+          <article class="journey-card"><span class="step-number">02 <span class="step-rule"></span> RECOMMENDED</span><div class="step-symbol" aria-hidden="true">◉</div><h3>Voice essentials</h3><p>Securely download verified Whisper and Piper packages so your Agent can hear and speak locally.</p><span class="component-status" id="voiceState" aria-live="polite">Checking</span><p class="package-detail" id="packageDetail"></p></article>
+          <article class="journey-card"><span class="step-number">03 <span class="step-rule"></span> YOUR CHOICE</span><div class="step-symbol" aria-hidden="true">⌘</div><h3>Make it yours</h3><p>Connect VP3 Cloud or configure a local AI model. Microphone, camera, and proactive speech remain your choice.</p><a class="card-link" href="/#agent">Configure AI <span aria-hidden="true">→</span></a></article>
+        </div>
+        <div id="installFeedback" class="install-feedback" role="status" aria-live="polite" hidden></div>
+        <div class="journey-bottom"><div><strong>Privacy is built in.</strong><p>We won't activate your microphone, camera, ongoing listening, or paid services during setup.</p></div><button id="enterAgent" type="button" class="text-action" disabled>Continue to Agent Chat <span aria-hidden="true">→</span></button></div>
+      </section>
+      <section class="next-steps"><div><p class="eyebrow">EXPLORE AT YOUR PACE</p><h2>Your space. Your rules.</h2><p>Apps, backups, cameras, local models and VP3 Cloud can be added whenever you're ready.</p></div><a href="/system">Explore settings <span aria-hidden="true">↗</span></a></section>
+    </main>
+    <footer><span>VP3 HomeServer · Local-first by design</span><a href="/system">Diagnostics &amp; recovery</a></footer>
+  </div>
+</body>
+</html>

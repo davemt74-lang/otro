@@ -40,6 +40,16 @@ def _audit(action: str, metadata: dict | None = None) -> None:
         )
 
 
+@router.get("/welcome", include_in_schema=False)
+def welcome_page():
+    path = UI_DIR / "welcome.html"
+    if not path.is_file():
+        raise HTTPException(status_code=503, detail="Welcome assets are unavailable")
+    response = FileResponse(path)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @router.get("/system", include_in_schema=False)
 def system_page():
     path = UI_DIR / "system.html"
