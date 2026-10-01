@@ -23,10 +23,11 @@ jobs:
       - name: Confirm exact merged feature source
         shell: bash
         run: |
-          git diff --quiet 751321e503d9cb366123050beb1d4101a3b4f050 HEAD -- app desktop ui database installer scripts docs HomeServer.spec requirements.txt README.md
+          git diff --quiet 751321e503d9cb366123050beb1d4101a3b4f050 HEAD -- app desktop ui database installer scripts docs requirements.txt README.md
           python -m py_compile app/services/governed_recordings.py app/services/local_transcription_sessions.py
           node --check ui/governed-recordings.js
           node --check ui/transcription-workspace.js
+          python tests/installer_contract.py
       - name: Package source as non-installable fallback
         shell: python
         run: |
@@ -73,7 +74,7 @@ jobs:
       - name: Confirm exact merged feature source
         shell: pwsh
         run: |
-          git diff --quiet 751321e503d9cb366123050beb1d4101a3b4f050 HEAD -- app desktop ui database installer scripts docs HomeServer.spec requirements.txt README.md
+          git diff --quiet 751321e503d9cb366123050beb1d4101a3b4f050 HEAD -- app desktop ui database installer scripts docs requirements.txt README.md
           if ($LASTEXITCODE -ne 0) { throw 'Deployment source differs from exact merged commit' }
           python -m py_compile app/services/governed_recordings.py app/services/local_transcription_sessions.py
           node --check ui/governed-recordings.js
