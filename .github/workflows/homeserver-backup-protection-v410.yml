@@ -7,6 +7,9 @@ on:
       - 'app/backup_models.py'
       - 'app/services/backups.py'
       - 'app/services/backup_protection.py'
+      - 'app/services/restore_runtime.py'
+      - 'app/services/tools.py'
+      - 'app/bridge.py'
       - 'database/migrations/065_backup_protection.sql'
       - 'tests/homeserver_backup_protection_v410.py'
       - 'tests/backups.py'
@@ -49,6 +52,9 @@ jobs:
           app/backup_models.py
           app/services/backups.py
           app/services/backup_protection.py
+          app/services/restore_runtime.py
+          app/services/tools.py
+          app/bridge.py
           tests/homeserver_backup_protection_v410.py
           tests/migrations.py
       - name: Validate Backup UI JavaScript
