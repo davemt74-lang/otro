@@ -204,14 +204,17 @@ def validate_app_data(target_root:Path,database_path:Path,manifest:dict[str,Any]
         }
 
     app_root=target_root/"app-data"
-    with sqlite3.connect(database_path) as connection:
-        connection.row_factory=sqlite3.Row
+    connection=sqlite3.connect(database_path)
+    connection.row_factory=sqlite3.Row
+    try:
         table=connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='homeserver_apps'"
         ).fetchone()
         rows=connection.execute(
             "SELECT app_id,app_key,installed_version FROM homeserver_apps"
         ).fetchall() if table else []
+    finally:
+        connection.close()
     known={str(row["app_id"]):dict(row) for row in rows}
 
     files=0
