@@ -346,7 +346,7 @@
                 <label>Name<input id="automationRoutineName" maxlength="160" placeholder="Workday Start" required></label>
                 <label>Approval mode<select id="automationRoutineApproval"><option value="ask_every_time">Ask every time</option><option value="suggest_only">Suggest only</option></select></label>
               </div>
-              <label>Steps JSON<textarea id="automationRoutineSteps" rows="5" placeholder='[{"device_key":"desk-light","command":"on","arguments":{}}]' required></textarea></label>
+              <label>Steps JSON<textarea id="automationRoutineSteps" rows="6" placeholder='[{"device_key":"desk-light","command":"on","arguments":{}},{"step_kind":"app_action","app_key":"vp3.media-player","action_key":"player.status","arguments":{}}]' required></textarea></label>
               <button class="button secondary" type="submit">Save routine</button>
             </form>
             <div id="automationRoutines" class="automation-rules-list"><div class="empty-state">No routines yet.</div></div>
@@ -359,7 +359,7 @@
                 <label>Rule key<input id="automationRuleKey" maxlength="80" placeholder="weekday-start" required></label>
                 <label>Name<input id="automationRuleName" maxlength="160" placeholder="Weekday Start" required></label>
                 <label>Routine key<input id="automationRuleRoutine" maxlength="80" placeholder="workday-start" required></label>
-                <label>Trigger<select id="automationRuleTriggerKind"><option value="manual">Manual</option><option value="daily">Daily UTC</option><option value="device_state">Device state</option></select></label>
+                <label>Trigger<select id="automationRuleTriggerKind"><option value="manual">Manual</option><option value="daily">Daily UTC</option><option value="device_state">Device state</option><option value="app_event">App event</option></select></label>
                 <label>Cooldown seconds<input id="automationRuleCooldown" type="number" min="0" max="86400" value="60"></label>
               </div>
               <label>Trigger JSON<textarea id="automationRuleTrigger" rows="4" placeholder='{"hour":15,"minute":0,"weekdays":[0,1,2,3,4]}'></textarea></label>
@@ -437,6 +437,9 @@
           <section class="panel">
             <div class="panel-head"><div><p class="eyebrow">SUGGESTIONS</p><h3>Proposed physical actions</h3></div></div>
             <div id="automationSuggestions" class="automation-suggestions"><div class="empty-state">No pending suggestions.</div></div>
+             <h4>App orchestration suggestions</h4>
+             <p class="muted">App actions never execute from a suggestion. Accepting one creates the normal HomeServer owner approval request.</p>
+             <div id="automationAppSuggestions" class="automation-suggestions"><div class="empty-state">No pending app suggestions.</div></div>
           </section>
           <section class="panel">
             <div class="panel-head"><div><p class="eyebrow">AUDIT</p><h3>Recent device actions</h3></div></div>
