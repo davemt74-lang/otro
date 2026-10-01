@@ -1223,7 +1223,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             # Cloud can only pull completed transcript text the HomeServer owner
             # explicitly marked shareable. No raw audio or private sessions.
             _vp3_system_apps_identity(token)
-            _direct_identity(token,{"knowledge.read"})
+            _direct_identity(token,{"knowledge.search"})
             try:
                 if op == "transcription.shared.list":
                     payload_out=local_transcription_sessions.list_sessions(
