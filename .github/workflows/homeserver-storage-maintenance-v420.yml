@@ -1,0 +1,66 @@
+name: HomeServer Storage Maintenance v1.20
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/storage_api.py'
+      - 'app/services/storage_maintenance.py'
+      - 'app/services/tools.py'
+      - 'database/migrations/066_storage_maintenance.sql'
+      - 'tests/homeserver_storage_maintenance_v420.py'
+      - 'tests/migrations.py'
+      - 'tests/homeserver_apps_v100.py'
+      - 'tests/smoke.py'
+      - 'ui/app.js'
+      - 'ui/storage.css'
+      - '.github/workflows/homeserver-storage-maintenance-v420.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-storage-maintenance-v420-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  storage:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile storage maintenance runtime
+        run: >-
+          python -m py_compile
+          app/bridge.py
+          app/storage_api.py
+          app/services/storage_maintenance.py
+          app/services/tools.py
+          tests/homeserver_storage_maintenance_v420.py
+          tests/migrations.py
+          tests/smoke.py
+      - name: Validate Storage UI JavaScript
+        run: node --check ui/app.js
+      - name: Verify Section 28 storage maintenance
+        run: python tests/homeserver_storage_maintenance_v420.py
+      - name: Verify migration chain
+        run: python tests/migrations.py
+      - name: Verify smoke contract
+        if: runner.os == 'Linux'
+        run: python tests/smoke.py
+      - name: Verify Apps registry migration baseline
+        if: runner.os == 'Linux'
+        run: python tests/homeserver_apps_v100.py
