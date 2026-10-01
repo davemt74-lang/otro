@@ -1,0 +1,53 @@
+name: HomeServer App Center v1.20
+
+on:
+  pull_request:
+    paths:
+      - 'app/homeserver_apps_api.py'
+      - 'app/services/homeserver_app_center.py'
+      - 'app/services/homeserver_app_manager.py'
+      - 'app/services/homeserver_app_prebuilt.py'
+      - 'tests/homeserver_app_center_v420.py'
+      - 'ui/homeserver-apps.js'
+      - 'ui/homeserver-apps.css'
+      - '.github/workflows/homeserver-app-center-v420.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-app-center-v420-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app-center:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile App Center runtime
+        run: >-
+          python -m py_compile
+          app/homeserver_apps_api.py
+          app/services/homeserver_app_center.py
+          tests/homeserver_app_center_v420.py
+      - name: Validate App Center JavaScript
+        run: node --check ui/homeserver-apps.js
+      - name: Verify Section 28 App Center
+        run: python tests/homeserver_app_center_v420.py
+      - name: Verify canonical Apps registry
+        if: runner.os == 'Linux'
+        run: python tests/homeserver_apps_v100.py
