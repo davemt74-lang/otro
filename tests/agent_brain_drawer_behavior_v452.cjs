@@ -18,6 +18,8 @@ class Element {
       toggle:(x,force)=>{if(force===undefined)force=!classes.has(x);if(force)classes.add(x);else classes.delete(x);return force;}
     };
   }
+  set id(value) { this._id=value;registry.set(value,this); }
+  get id() { return this._id; }
   set innerHTML(value) {
     this.html=value;
     for(const match of value.matchAll(/id="([^"]+)"/g)) registry.set(match[1],new Element(match[1]));
