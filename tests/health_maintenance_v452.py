@@ -58,6 +58,11 @@ with tempfile.TemporaryDirectory(prefix="hs-maintenance-31b-") as temp:
                 assert row[0]==1 and row[1] is None and row[2]==3,row
             projection=activity_center.brain_context()
             assert any(x["title"]=="Disk pressure" for x in projection["attention"])
+            # Exercise the real health/activity coupling, not just a mocked projection.
+            health_repair.status=original
+            real=client.get("/api/v1/control/activity-center/summary")
+            assert real.status_code==200,real.text
+            assert health_repair.status()["contract"]=="vp3.homeserver.health-repair.v1"
     finally:
         health_repair.status=original
 print("Section 31B health notification lifecycle PASS")
