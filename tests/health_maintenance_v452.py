@@ -125,8 +125,14 @@ with tempfile.TemporaryDirectory(prefix="hs-maintenance-31b-") as temp:
             assert broken["unavailable_check_count"]>=1
             assert any(x["key"]=="health:incomplete-probes" for x in broken["issues"])
             assert "SECRET_PATH_123" not in repr(broken)
-            real=client.get("/api/v1/control/activity-center/summary")
+            # Ordinary Activity reads must not perform costly health scans.
+            with patch.object(health_maintenance,"sync_health_notifications",side_effect=AssertionError("Unexpected health scan")):
+                regular=client.get("/api/v1/control/activity-center/summary")
+            assert regular.status_code==200,regular.text
+            # Explicit owner refresh does perform the scan and retains existing approvals.
+            real=client.post("/api/v1/control/activity-center/sync")
             assert real.status_code==200,real.text
+            assert "health" in real.json()
             assert health_repair.status()["contract"]=="vp3.homeserver.health-repair.v1"
 
         # Existing task scheduler runs maintenance without opening the Brain drawer.
