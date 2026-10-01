@@ -251,6 +251,14 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
         finally:
             temporary_archive.unlink(missing_ok=True)
 
+    if final_path.stat().st_size > settings.max_backup_upload_bytes:
+        final_path.unlink(missing_ok=True)
+        raise BackupError(
+            "Backup archive exceeds this HomeServer's restore-upload safety limit. "
+            "Reduce backup coverage or app data before creating another archive.",
+            413,
+        )
+
     result = {
         "name": filename,
         "path": str(final_path),
