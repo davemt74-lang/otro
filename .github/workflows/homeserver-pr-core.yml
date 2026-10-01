@@ -43,6 +43,11 @@ jobs:
           python tests/tracky_owner_perception_v1.py
           node tests/tracky_owner_perception_ui_v1.mjs
           node --check ui/tracky/eyes-runtime.js
+      - name: Native owner-approved Tracky camera runtime
+        run: |
+          python tests/tracky_native_camera_v1.py
+          node tests/tracky_native_camera_ui_v1.mjs
+          node --check ui/tracky/native-camera.js
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify API smoke contract

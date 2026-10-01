@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -188,3 +188,37 @@ def visual_eyes_test(payload: EyesSession, x_requested_with: str | None = Header
 def visual_eyes_close(payload: EyesSession, x_requested_with: str | None = Header(default=None)) -> dict:
     _require_ui(x_requested_with)
     return _eyes_call(lambda: tracky_owner_perception.close(session=payload.session))
+
+
+class NativeCameraTest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool
+    scope: str = Field(max_length=80)
+    camera_index: int = Field(strict=True, ge=0, le=2)
+
+
+def _native_call(fn):
+    try:
+        return fn()
+    except tracky_native_camera.NativeCameraError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/visual/native/status")
+def native_camera_status() -> dict:
+    return tracky_native_camera.status()
+
+
+@router.post("/visual/native/test")
+def native_camera_test(payload: NativeCameraTest,
+                       x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _native_call(lambda: tracky_native_camera.test(
+        consent=payload.consent, scope=payload.scope, camera_index=payload.camera_index
+    ))
+
+
+@router.post("/visual/native/cancel")
+def native_camera_cancel(x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return tracky_native_camera.cancel()

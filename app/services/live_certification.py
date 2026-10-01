@@ -203,6 +203,8 @@ def _run_eyes()->tuple[str,dict[str,Any]]:
     # HomeServer-native camera. Its test is initiated within Agent Chat.
     if caps.get("surface") == "owner_browser":
         return "unsupported", {"reason": "owner_browser_requires_chat_test"}
+    if caps.get("surface") == "native_owner_on_demand":
+        return "unsupported", {"reason": "native_owner_test_requires_agent_chat"}
     camera=vp3_os.hardware_inventory().get("camera",{})
     if caps.get("requires_camera",True) and not camera.get("ready"):
         return "unsupported",{"reason":"camera_not_ready"}
@@ -259,7 +261,7 @@ def execute(test_key:str,*,consent:bool,physical_capture_ack:bool=False)->dict[s
             "microphone_backend_unavailable","managed_ffmpeg_unavailable",
             "synthetic_encoder_failed","synthetic_encode_or_probe_failed",
             "perception_provider_unavailable","camera_not_ready",
-            "owner_browser_requires_chat_test",
+            "owner_browser_requires_chat_test","native_owner_test_requires_agent_chat",
             "owner_review_of_visual_result_required","provider_did_not_complete",
             "test_failed_review_local_logs","invalid_test_result",
         })
