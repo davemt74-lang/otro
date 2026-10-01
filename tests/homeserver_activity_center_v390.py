@@ -151,6 +151,24 @@ with tempfile.TemporaryDirectory(prefix="homeserver-activity-center-v390-") as d
         )
         assert urgent.get("suppressed") is not True
 
+        # Governance notifications cannot be hidden by source preferences.
+        client.put("/api/v1/control/activity-center/preferences/activity-test",json={
+            "enabled":False,"minimum_level":"action_required"
+        })
+        second_approval=approvals.create_app_action_request(
+            "activity-test",
+            "apps.invoke",
+            {"app_key":"vp3.media-player","action":"player.status","arguments":{}},
+            owner=True,
+        )
+        second_request_id=second_approval["result"]["request_id"]
+        client.post("/api/v1/control/activity-center/sync")
+        approval_items=client.get("/api/v1/control/activity",params={"category":"approvals","limit":250}).json()["items"]
+        assert any(
+            row["source_kind"]=="notification" and row["action_payload"].get("request_id")==second_request_id
+            for row in approval_items
+        )
+
         notification_id=next(
             row["notification_id"] for row in items
             if row["source_kind"]=="notification" and row["notification_id"]
