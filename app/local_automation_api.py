@@ -42,6 +42,10 @@ class EnabledUpdate(BaseModel):
     enabled: bool
 
 
+class AppSuggestionDecision(BaseModel):
+    decision: str = Field(pattern="^(accept|dismiss)$")
+
+
 def _call(fn, *args, **kwargs):
     try:
         return fn(*args, **kwargs)
@@ -60,6 +64,9 @@ def owner_rules_overview() -> dict:
         "governance": {
             "direct_physical_execution": False,
             "device_commands_require_local_owner_approval": True,
+            "app_actions_use_universal_control": True,
+            "app_actions_require_owner_approval": True,
+            "app_event_metadata_exposed": False,
             "approval_modes": ["suggest_only", "ask_every_time"],
         },
     }
@@ -144,3 +151,22 @@ def owner_rules_settings(payload: RuntimeSettingsUpdate) -> dict:
 @router.get("/api/v1/control/vp3-os/automation/rules-runtime/executions")
 def owner_rule_executions(limit: int = Query(default=100, ge=1, le=500)) -> dict:
     return {"items": _call(local_automation.list_executions, limit)}
+
+
+@router.get("/api/v1/control/vp3-os/automation/app-suggestions")
+def owner_app_suggestions(
+    status: str = Query(default="suggested", pattern="^(suggested|accepted|dismissed|)$"),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    items=_call(local_automation.list_app_suggestions,status,limit)
+    return {"items":items,"count":len(items)}
+
+
+@router.post("/api/v1/control/vp3-os/automation/app-suggestions/{suggestion_id}/decision")
+def owner_app_suggestion_decision(suggestion_id: int, payload: AppSuggestionDecision) -> dict:
+    return _call(local_automation.decide_app_suggestion,suggestion_id,payload.decision)
+
+
+@router.get("/api/v1/control/vp3-os/automation/brain-context")
+def owner_automation_brain_context(limit: int = Query(default=20, ge=1, le=50)) -> dict:
+    return _call(local_automation.brain_context,limit)

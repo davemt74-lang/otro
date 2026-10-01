@@ -214,19 +214,31 @@
     }).join('') : '<div class="empty-state">No learned opportunities yet. VP3 needs repeated completed device actions before it proposes anything.</div>';
   }
 
+  function renderAppSuggestions(items) {
+    const target=$('automationAppSuggestions');
+    if (!target) return;
+    target.innerHTML = items.length ? items.map(item =>
+      '<div class="automation-suggestion"><strong>' + esc(item.routine_name || item.routine_key) + '</strong><p>' +
+      esc(item.app_key) + ' · ' + esc(item.action_key) + ' · risk ' + esc(item.risk || 'write') +
+      '</p><div class="automation-suggestion-actions"><button class="button secondary" data-app-suggestion-accept="' + item.id + '">Request approval</button><button class="text-button danger" data-app-suggestion-dismiss="' + item.id + '">Dismiss</button></div></div>'
+    ).join('') : '<div class="empty-state">No pending app suggestions.</div>';
+  }
+
   async function load() {
     if (!$('automationDevices')) return;
     try {
-      const [devices, rules, intelligence, orchestration] = await Promise.all([
+      const [devices, rules, intelligence, orchestration, appSuggestions] = await Promise.all([
         request('/api/v1/control/vp3-os/automation'),
         request('/api/v1/control/vp3-os/automation/rules-runtime'),
         request('/api/v1/control/vp3-os/automation/intelligence'),
         request('/api/v1/control/vp3-os/orchestration'),
+        request('/api/v1/control/vp3-os/automation/app-suggestions?status=suggested&limit=50'),
       ]);
       render(devices);
       renderRules(rules);
       renderIntelligence(intelligence);
       renderOrchestration(orchestration);
+      renderAppSuggestions(appSuggestions.items || []);
       $('automationFeedback').textContent = '';
     } catch (error) {
       $('automationFeedback').textContent = error.message;
@@ -544,6 +556,28 @@
       if (requestSuggestion) suggestionAction(requestSuggestion.dataset.suggestionRequest, 'request');
       const dismissSuggestion = event.target.closest('[data-suggestion-dismiss]');
       if (dismissSuggestion) suggestionAction(dismissSuggestion.dataset.suggestionDismiss, 'dismiss');
+      const appSuggestionAccept = event.target.closest('[data-app-suggestion-accept]');
+      if (appSuggestionAccept) {
+        request('/api/v1/control/vp3-os/automation/app-suggestions/' + encodeURIComponent(appSuggestionAccept.dataset.appSuggestionAccept) + '/decision', {
+          method:'POST',
+          body:JSON.stringify({decision:'accept'})
+        }).then(result => {
+          $('automationFeedback').textContent = result.request_id ? 'Owner approval request created: ' + result.request_id : 'Suggestion accepted.';
+          load();
+        }).catch(error => $('automationFeedback').textContent = error.message);
+        return;
+      }
+      const appSuggestionDismiss = event.target.closest('[data-app-suggestion-dismiss]');
+      if (appSuggestionDismiss) {
+        request('/api/v1/control/vp3-os/automation/app-suggestions/' + encodeURIComponent(appSuggestionDismiss.dataset.appSuggestionDismiss) + '/decision', {
+          method:'POST',
+          body:JSON.stringify({decision:'dismiss'})
+        }).then(() => {
+          $('automationFeedback').textContent = 'App suggestion dismissed.';
+          load();
+        }).catch(error => $('automationFeedback').textContent = error.message);
+        return;
+      }
       const routineRun = event.target.closest('[data-routine-run]');
       if (routineRun) runRoutine(routineRun.dataset.routineRun);
       const ruleRun = event.target.closest('[data-rule-run]');
