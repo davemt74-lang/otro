@@ -1,0 +1,63 @@
+name: HomeServer Health Repair v1.40
+
+on:
+  pull_request:
+    paths:
+      - 'app/bridge.py'
+      - 'app/health_api.py'
+      - 'app/services/health_repair.py'
+      - 'app/services/canonical_context.py'
+      - 'app/services/tools.py'
+      - 'tests/homeserver_health_repair_v440.py'
+      - 'tests/canonical_agent_context_v430.py'
+      - 'tests/smoke.py'
+      - 'ui/app.js'
+      - 'ui/health.css'
+      - '.github/workflows/homeserver-health-repair-v440.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-health-repair-v440-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  health-repair:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Health runtime
+        run: >-
+          python -m py_compile
+          app/bridge.py
+          app/health_api.py
+          app/services/health_repair.py
+          app/services/canonical_context.py
+          app/services/tools.py
+          tests/homeserver_health_repair_v440.py
+          tests/canonical_agent_context_v430.py
+          tests/smoke.py
+      - name: Validate Health UI JavaScript
+        run: node --check ui/app.js
+      - name: Verify Section 30 health and repair orchestration
+        run: python tests/homeserver_health_repair_v440.py
+      - name: Verify canonical Agent Chat/Brain health integration
+        run: python tests/canonical_agent_context_v430.py
+      - name: Verify smoke contract
+        if: runner.os == 'Linux'
+        run: python tests/smoke.py
