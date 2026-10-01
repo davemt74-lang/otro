@@ -8,6 +8,7 @@
   let requestSequence = 0;
   let alertSequence = 0;
   const MAX_ITEMS = 8;
+  const CHAT_DRAFT_KEY = 'homeserver:agent-brain:chat-draft-v1';
   const details = new Map();
   const alerts = new Map();
 
@@ -25,7 +26,7 @@
     toggle.setAttribute('aria-expanded', 'false');
     toggle.setAttribute('aria-label', 'Open Agent Brain');
     toggle.innerHTML = '<span aria-hidden="true">✦</span><span class="agent-brain-toggle-label">Agent Brain</span><span id="agentBrainDrawerCount" aria-live="polite"></span>';
-    const top = document.querySelector('.topbar .top-actions') || document.querySelector('.topbar');
+    const top = document.querySelector('.topbar .top-actions') || document.querySelector('.hs-v220-topbar .hs-v220-topbar-actions') || document.querySelector('.topbar');
     if (!top) return;
     top.prepend(toggle);
 
@@ -75,6 +76,7 @@
     document.addEventListener('pointerdown', e => {
       if (open && !drawer.contains(e.target) && !toggle.contains(e.target)) setOpen(false,false);
     });
+    if ($('chatInput') && typeof window !== 'undefined') window.addEventListener('load', consumePendingDraft, {once:true});
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) stop();
       else if (open) { refresh(); refreshAlerts(); start(); }
@@ -101,14 +103,34 @@
   }
   function sendToChat(prompt) {
     setOpen(false,false);
-    document.querySelector('.nav [data-view="chat"]')?.click();
     const input = $('chatInput');
-    if (!input) return;
+    if (!input) {
+      // Standalone owner workspaces use canonical Chat; never a second composer.
+      try { sessionStorage.setItem(CHAT_DRAFT_KEY, prompt.slice(0,2000)); } catch (_) {}
+      window.location.assign('/#chat');
+      return;
+    }
+    document.querySelector('.nav [data-view="chat"]')?.click();
     const existing = input.value.trim();
     input.value = existing ? existing + '\n\n' + prompt : prompt;
     input.dispatchEvent(new Event('input', {bubbles:true}));
     input.focus();
     // Never submit automatically; the owner decides what to send.
+  }
+
+  function consumePendingDraft() {
+    const input=$('chatInput');
+    if(!input) return;
+    let draft='';
+    try {
+      draft=sessionStorage.getItem(CHAT_DRAFT_KEY) || '';
+      sessionStorage.removeItem(CHAT_DRAFT_KEY);
+    } catch (_) { return; }
+    if(!draft.trim()) return;
+    document.querySelector('.nav [data-view="chat"]')?.click();
+    input.value=input.value.trim() ? input.value.trim() + '\\n\\n' + draft : draft;
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    input.focus();
   }
 
   function render(data) {
