@@ -151,6 +151,20 @@ with tempfile.TemporaryDirectory(prefix="homeserver-update-center-v430-") as dat
         assert review_tool["result"]["owner_approval_required"] is True
 
         # Existing Agent write contract is still the execution authority.
+        pinned_action=homeserver_app_agent.normalize_action("apps.prebuilt.install",{"app_key":"vp3.notes"})
+        catalog_notes={row["key"]:row for row in homeserver_app_prebuilt.catalog()["packages"]}["vp3.notes"]
+        assert pinned_action["expected_version"]==catalog_notes["version"]
+        assert pinned_action["expected_sha256"]==catalog_notes["package_sha256"]
+        try:
+            homeserver_app_agent.normalize_action("apps.prebuilt.install",{
+                "app_key":"vp3.notes",
+                "expected_version":"0.0.0",
+                "expected_sha256":catalog_notes["package_sha256"],
+            })
+            raise AssertionError("Stale Agent update pin should fail")
+        except homeserver_app_agent.AppAgentError as exc:
+            assert exc.status_code==409
+
         capability=homeserver_app_agent.public_capability()
         assert "apps.prebuilt.install" in capability["write_actions"]
         assert "apps.rollback" in capability["write_actions"]
