@@ -7,7 +7,7 @@
     while(n>=1024 && i<units.length-1){ n/=1024; i++; }
     return `${n.toFixed(i===0?0:n>=10?1:2)} ${units[i]}`;
   };
-  const state={data:null,manager:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null,pendingDistribution:null};
+  const state={data:null,manager:null,center:null,updatePlan:null,permissionCatalog:null,filter:'all',query:'',category:'',loading:false,pendingSource:null,pendingDistribution:null};
 
   function ensureWorkspace(){
     if(document.getElementById('view-homeserver-apps')) return;
@@ -26,7 +26,7 @@
     section.id='view-homeserver-apps';
     section.innerHTML=`
       <div class="section-intro split hs-apps-intro">
-        <div><p class="eyebrow">HOMESERVER APPS</p><h2>App Manager</h2><p>Installed Apps, available VP3 Apps, shared apps, hosted apps, and user-created apps are managed from one place.</p></div>
+        <div><p class="eyebrow">HOMESERVER APPS</p><h2>Install & Update Center</h2><p>Discover VP3 Apps, review compatibility and release notes, install safely, and manage every local or hosted app from one place.</p></div>
         <div class="hs-app-intro-actions"><button class="button secondary" type="button" data-hs-app-import>Import App</button><button class="button primary" type="button" data-hs-app-create>Create App</button></div>
       </div>
       <section class="hs-app-manager-summary" id="hsAppManagerSummary">
@@ -36,13 +36,20 @@
         <div class="panel hs-app-kpi"><span>Running</span><strong>—</strong></div>
         <div class="panel hs-app-kpi"><span>Hosted</span><strong>—</strong></div>
       </section>
+      <div class="hs-app-center-controls panel">
+        <label class="hs-app-search"><span>Search apps</span><input id="hsAppSearch" type="search" maxlength="160" placeholder="Media, photos, notes…"></label>
+        <label><span>Category</span><select id="hsAppCategory"><option value="">All categories</option></select></label>
+      </div>
+      <div id="hsAppUpdatePlan" class="hs-app-update-plan hidden"></div>
       <div class="hs-apps-toolbar">
         <button class="button secondary active" type="button" data-hs-app-filter="all">All</button>
-        <button class="button secondary" type="button" data-hs-app-filter="available">Available</button>
-        <button class="button secondary" type="button" data-hs-app-filter="system">VP3 Apps</button>
+        <button class="button secondary" type="button" data-hs-app-filter="discover">Discover</button>
+        <button class="button secondary" type="button" data-hs-app-filter="installed">Installed</button>
+        <button class="button secondary" type="button" data-hs-app-filter="updates">Updates</button>
+        <button class="button secondary" type="button" data-hs-app-filter="attention">Needs Attention</button>
+        <button class="button secondary" type="button" data-hs-app-filter="vp3">VP3 Apps</button>
         <button class="button secondary" type="button" data-hs-app-filter="user">My Apps</button>
         <button class="button secondary" type="button" data-hs-app-filter="shared">Shared</button>
-        <button class="button secondary" type="button" data-hs-app-filter="updates">Updates</button>
         <button class="button secondary" type="button" data-hs-app-filter="hosted">Hosted</button>
         <span class="muted" id="hsAppsSummary">Loading…</span>
       </div>
