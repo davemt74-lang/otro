@@ -40,6 +40,12 @@ def _connect()->sqlite3.Connection:
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_processor_jobs ON processor_jobs(status,priority DESC,created_at);
+    CREATE TABLE IF NOT EXISTS processor_job_sources(
+      job_id TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      media_id TEXT NOT NULL,
+      PRIMARY KEY(job_id,position)
+    );
     CREATE TABLE IF NOT EXISTS processor_derivatives(
       derivative_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, media_id TEXT NOT NULL, kind TEXT NOT NULL,
       preset TEXT NOT NULL, format TEXT NOT NULL, destination_id TEXT NOT NULL DEFAULT 'app-storage',
@@ -206,7 +212,7 @@ def capability()->dict[str,Any]:
     return {"contract":CONTRACT,"ffmpeg_available":available,"ffprobe_available":bool(tools["ffprobe_available"]),
       "ffmpeg_managed_by_homeserver":True,"ffmpeg_version":tools["ffmpeg_version"],
       "video_transcode":available,"audio_convert":available,"image_convert":available,
-      "thumbnail_generation":available,"proxy_generation":available,
+      "thumbnail_generation":available,"proxy_generation":available,"contact_sheet_generation":available,
       "source_media_owned":False,"source_media_deleted":False,"homeserver_execution_authority":True,
       "private_hosted_access_key":True,
       "resource_limits":True,"atomic_derivatives":True,"restart_recovery":True,
@@ -263,6 +269,22 @@ def derivatives(media_id:str="",limit:int=200)->dict[str,Any]:
     for r in rows:
       d=dict(r); d.pop("relative_path",None); d["filesystem_path_exposed"]=False; out.append(d)
     return {"contract":CONTRACT,"derivatives":out,"count":len(out)}
+
+def derivative_for_job(job_id:str)->dict[str,Any]|None:
+    c=_connect()
+    try:
+      row=c.execute(
+        "SELECT * FROM processor_derivatives WHERE job_id=? ORDER BY created_at DESC LIMIT 1",
+        (str(job_id),),
+      ).fetchone()
+    finally:c.close()
+    if not row:
+      return None
+    data=dict(row)
+    data.pop("relative_path",None)
+    data["filesystem_path_exposed"]=False
+    return data
+
 
 def _probe_duration(path:Path)->float|None:
     try:
@@ -403,6 +425,111 @@ def enqueue(media_id:str,operation:str,preset:str="default",output_format:str=""
     _ensure_worker()
     return get_job(jid)
 
+def enqueue_contact_sheet(
+    media_ids:list[str],
+    preset:str="2x2",
+    output_format:str="jpg",
+    priority:int=0,
+    destination_id:str="app-storage",
+)->dict[str,Any]:
+    values=[]
+    for raw in list(media_ids or [])[:16]:
+      media_id=str(raw or "").strip()
+      if media_id and media_id not in values:
+        values.append(media_id)
+    if len(values)<2:
+      raise MediaProcessorError("Contact sheets require at least two unique media items.")
+    if len(values)>16:
+      raise MediaProcessorError("Contact sheets support at most 16 media items.")
+    if str(preset or "2x2") not in {"2x2","3x3","4x4"}:
+      raise MediaProcessorError("Unsupported contact sheet preset.")
+    fmt=str(output_format or "jpg").lower()
+    if fmt not in {"jpg","jpeg","png","webp"}:
+      raise MediaProcessorError("Unsupported contact sheet output format.")
+    if not capability()["ffmpeg_available"]:
+      raise MediaProcessorError("The HomeServer managed FFmpeg runtime is unavailable or unhealthy.",409)
+    for media_id in values:
+      item=homeserver_media_server.item(media_id)["item"]
+      if str(item["media_type"]) not in {"image","video"}:
+        raise MediaProcessorError("Contact sheets support image and video media only.",409)
+    _destination_path(str(destination_id or "app-storage"))
+    jid="proc_"+uuid.uuid4().hex
+    c=_connect()
+    try:
+      c.execute(
+        "INSERT INTO processor_jobs(job_id,media_id,operation,preset,output_format,destination_id,status,priority) VALUES (?,?,?,?,?,?,'queued',?)",
+        (jid,values[0],"contact_sheet",str(preset or "2x2"),fmt,str(destination_id or "app-storage"),max(-100,min(100,int(priority))))
+      )
+      for position,media_id in enumerate(values):
+        c.execute("INSERT INTO processor_job_sources(job_id,position,media_id) VALUES (?,?,?)",(jid,position,media_id))
+      c.commit()
+    finally:
+      c.close()
+    homeserver_app_runtime.publish_event(
+      APP_KEY,"processor.queued",
+      {"job_id":jid,"media_id":values[0],"operation":"contact_sheet","source_count":len(values)},
+      source="media-processor"
+    )
+    _ensure_worker()
+    result=get_job(jid)
+    result["job"]["source_count"]=len(values)
+    return result
+
+
+def _contact_sheet_sources(job_id:str)->list[tuple[Path,dict[str,Any]]]:
+    c=_connect()
+    try:
+      rows=c.execute(
+        "SELECT media_id FROM processor_job_sources WHERE job_id=? ORDER BY position",(job_id,)
+      ).fetchall()
+    finally:
+      c.close()
+    out=[]
+    for row in rows:
+      path,_mime,item=homeserver_media_server.resolve_stream(str(row["media_id"]))
+      out.append((path,item))
+    return out
+
+
+def _contact_sheet_command(
+    job_id:str,
+    sources:list[tuple[Path,dict[str,Any]]],
+    preset:str,
+    fmt:str,
+    tmp:Path,
+    threads:int,
+)->list[str]:
+    grid={"2x2":(2,2),"3x3":(3,3),"4x4":(4,4)}.get(str(preset or "2x2"),(2,2))
+    cols,rows=grid
+    max_items=cols*rows
+    selected=sources[:max_items]
+    if len(selected)<2:
+      raise MediaProcessorError("Contact sheet source media is unavailable.",404)
+    tools=homeserver_media_tools.require()
+    cmd=[str(tools["ffmpeg"]),"-y","-threads",str(threads)]
+    for path,_item in selected:
+      cmd.extend(["-i",str(path)])
+    filters=[]
+    labels=[]
+    for idx,_ in enumerate(selected):
+      label=f"s{idx}"
+      filters.append(
+        f"[{idx}:v]scale=640:360:force_original_aspect_ratio=decrease,"
+        f"pad=640:360:(ow-iw)/2:(oh-ih)/2[{label}]"
+      )
+      labels.append(f"[{label}]")
+    layout=[]
+    for idx in range(len(selected)):
+      x=(idx%cols)*640
+      y=(idx//cols)*360
+      layout.append(f"{x}_{y}")
+    filters.append(
+      "".join(labels)+f"xstack=inputs={len(selected)}:layout={'|'.join(layout)}[sheet]"
+    )
+    cmd.extend(["-filter_complex",";".join(filters),"-map","[sheet]","-frames:v","1",str(tmp)])
+    return cmd
+
+
 def get_job(job_id:str)->dict[str,Any]:
     c=_connect()
     try:r=c.execute("SELECT * FROM processor_jobs WHERE job_id=?",(job_id,)).fetchone()
@@ -438,20 +565,33 @@ def _run(job_id:str)->None:
       c.commit(); job=dict(r)
     finally:c.close()
     try:
-      src,mime,item=homeserver_media_server.resolve_stream(job["media_id"])
-      args,fmt,kind=_spec(job["operation"],job["preset"],job["output_format"],item["media_type"])
       root,destination_kind=_destination_path(str(job.get("destination_id") or "app-storage"))
-      name=f"{job_id}.{fmt}"
-      tmp=(root/f".{job_id}.tmp.{fmt}").resolve()
-      final=(root/name).resolve()
-      if tmp.parent!=root or final.parent!=root:
-        raise MediaProcessorError("Processor output path escaped its destination.",500)
-      tools=homeserver_media_tools.require()
       limits=settings()["settings"]
-      duration=_probe_duration(src)
-      _update_progress(job_id,0.01,None,duration)
-      cmd=[str(tools["ffmpeg"]),"-y","-threads",str(limits["max_threads"]),"-i",str(src),*args,str(tmp)]
-      _run_ffmpeg(job_id,cmd,duration)
+      if str(job["operation"])=="contact_sheet":
+        fmt=str(job.get("output_format") or "jpg").lower()
+        kind="contact_sheet"
+        sources=_contact_sheet_sources(job_id)
+        name=f"{job_id}.{fmt}"
+        tmp=(root/f".{job_id}.tmp.{fmt}").resolve()
+        final=(root/name).resolve()
+        if tmp.parent!=root or final.parent!=root:
+          raise MediaProcessorError("Processor output path escaped its destination.",500)
+        _update_progress(job_id,0.01,None,None)
+        cmd=_contact_sheet_command(job_id,sources,str(job.get("preset") or "2x2"),fmt,tmp,int(limits["max_threads"]))
+        _run_ffmpeg(job_id,cmd,None)
+      else:
+        src,mime,item=homeserver_media_server.resolve_stream(job["media_id"])
+        args,fmt,kind=_spec(job["operation"],job["preset"],job["output_format"],item["media_type"])
+        name=f"{job_id}.{fmt}"
+        tmp=(root/f".{job_id}.tmp.{fmt}").resolve()
+        final=(root/name).resolve()
+        if tmp.parent!=root or final.parent!=root:
+          raise MediaProcessorError("Processor output path escaped its destination.",500)
+        tools=homeserver_media_tools.require()
+        duration=_probe_duration(src)
+        _update_progress(job_id,0.01,None,duration)
+        cmd=[str(tools["ffmpeg"]),"-y","-threads",str(limits["max_threads"]),"-i",str(src),*args,str(tmp)]
+        _run_ffmpeg(job_id,cmd,duration)
       if not tmp.is_file():
         raise MediaProcessorError("FFmpeg did not create the expected derivative.",502)
       size=tmp.stat().st_size
@@ -594,6 +734,11 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
     if k=="processor.cancel": return cancel(str(a.get("job_id") or ""))
     if k=="processor.retry": return retry(str(a.get("job_id") or ""))
     if k=="processor.derivatives": return derivatives(str(a.get("media_id") or ""),int(a.get("limit",200)))
+    if k=="processor.contact-sheet": return enqueue_contact_sheet(
+        list(a.get("media_ids") or []),preset=str(a.get("preset") or "2x2"),
+        output_format=str(a.get("output_format") or "jpg"),priority=int(a.get("priority",0)),
+        destination_id=str(a.get("destination_id") or "app-storage")
+    )
     if k=="processor.brain-context": return brain_context(int(a.get("limit",8)))
     if k=="processor.destinations": return destinations()
     if k=="processor.destination.add": return add_destination(

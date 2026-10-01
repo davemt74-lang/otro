@@ -15,6 +15,12 @@ on:
       - 'tests/homeserver_photo_library_v320.py'
       - 'tests/homeserver_download_manager_v330.py'
       - 'tests/homeserver_media_processor_v340.py'
+      - 'tests/homeserver_media_library_v350.py'
+      - 'tests/homeserver_media_library_collections_v351.py'
+      - 'tests/homeserver_media_library_duplicates_v352.py'
+      - 'tests/homeserver_media_library_artwork_v353.py'
+      - 'tests/homeserver_media_library_agent_v354.py'
+      - 'app/services/homeserver_media_library.py'
       - 'app/services/homeserver_download_manager.py'
       - 'app/services/homeserver_media_processor.py'
       - 'app/services/homeserver_media_tools.py'
@@ -124,6 +130,12 @@ on:
       - 'app/services/homeserver_media_tools.py'
       - 'scripts/stage_ffmpeg_windows.ps1'
       - 'installer/HomeServer.iss'
+      - 'tests/homeserver_media_library_v350.py'
+      - 'app/services/homeserver_media_library.py'
+      - 'tests/homeserver_media_library_collections_v351.py'
+      - 'tests/homeserver_media_library_duplicates_v352.py'
+      - 'tests/homeserver_media_library_artwork_v353.py'
+      - 'tests/homeserver_media_library_agent_v354.py'
   workflow_dispatch:
 
 permissions:
@@ -167,6 +179,12 @@ jobs:
           tests/homeserver_photo_library_v320.py
           tests/homeserver_download_manager_v330.py
           tests/homeserver_media_processor_v340.py
+          tests/homeserver_media_library_v350.py
+          tests/homeserver_media_library_collections_v351.py
+          tests/homeserver_media_library_duplicates_v352.py
+          tests/homeserver_media_library_artwork_v353.py
+          tests/homeserver_media_library_agent_v354.py
+          app/services/homeserver_media_library.py
           app/services/homeserver_download_manager.py
           app/services/homeserver_media_processor.py
           app/services/homeserver_media_tools.py
@@ -275,5 +293,15 @@ jobs:
         run: python tests/homeserver_download_manager_v330.py
       - name: Verify Media Processor
         run: python tests/homeserver_media_processor_v340.py
+      - name: Verify Media Library metadata core
+        run: python tests/homeserver_media_library_v350.py
+      - name: Verify Media Library collections and smart libraries
+        run: python tests/homeserver_media_library_collections_v351.py
+      - name: Verify Media Library duplicate cleanup center
+        run: python tests/homeserver_media_library_duplicates_v352.py
+      - name: Verify Media Library artwork posters and thumbnails
+        run: python tests/homeserver_media_library_artwork_v353.py
+      - name: Verify Media Library Agent Chat and Brain intelligence
+        run: python tests/homeserver_media_library_agent_v354.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
