@@ -173,6 +173,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-media-library-artwork-v353-"
         assert actions["library.artwork.remove"]["risk"]=="destructive"
         assert actions["library.artwork.remove"]["requires_confirmation"] is True
 
+        processor_actions={row["key"]:row for row in homeserver_app_control.manifest("vp3.media-processor")["actions"]}
+        assert processor_actions["processor.contact-sheet"]["risk"]=="consequential"
+        assert processor_actions["processor.contact-sheet"]["requires_confirmation"] is True
+
         blocked=client.post("/api/v1/control/homeserver-apps/vp3.media-library/control/invoke",json={
             "action":"library.artwork.remove",
             "arguments":{"target_type":"media","target_id":video_id,"role":"poster"},
