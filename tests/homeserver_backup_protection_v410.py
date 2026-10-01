@@ -28,6 +28,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-backup-protection-v410-") as
         homeserver_app_prebuilt,
         homeserver_app_resources,
         members,
+        tools,
     )
     from app.services.tasks import scheduler as task_scheduler
 
@@ -133,6 +134,17 @@ with tempfile.TemporaryDirectory(prefix="homeserver-backup-protection-v410-") as
         # Health reports intentional exclusions and v2 protection.
         listing=client.get("/api/v1/control/backups")
         assert listing.status_code==200,listing.text
+        owner_tool={row["key"]:row for row in tools.list_tools(owner=True)}["backups.status"]
+        assert owner_tool["available"] is True
+        app_tool={row["key"]:row for row in tools.list_tools({"tools.execute"},owner=False)}["backups.status"]
+        assert app_tool["available"] is False
+        assert "owner.control" in app_tool["missing_permissions"]
+        tool_run=tools.execute_tool("owner","backups.status",{},set(),owner=True)
+        assert tool_run["status"]=="completed"
+        tool_text=json.dumps(tool_run,ensure_ascii=False)
+        assert str(settings.data_dir) not in tool_text
+        assert "owner-bootstrap" not in tool_text
+
         health=listing.json()["health"]
         assert health["backup_format_current"]==2
         assert health["coverage"]["app_data"] is True
