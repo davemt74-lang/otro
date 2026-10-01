@@ -1027,9 +1027,7 @@ def _refresh_artwork_row(row:sqlite3.Row|dict[str,Any])->dict[str,Any]:
         status="failed"
     derivative_id=str(data.get("derivative_id") or "")
     if status=="completed" and not derivative_id:
-        source_media_id=str(data.get("source_media_id") or "")
-        derivatives=homeserver_media_processor.derivatives(source_media_id,500)["derivatives"] if source_media_id else homeserver_media_processor.derivatives("",500)["derivatives"]
-        match=next((item for item in derivatives if str(item.get("job_id") or "")==job_id),None)
+        match=homeserver_media_processor.derivative_for_job(job_id)
         if match:
             derivative_id=str(match["derivative_id"])
     mapped={"queued":"pending","processing":"processing","completed":"ready","failed":"failed","cancelled":"cancelled"}
