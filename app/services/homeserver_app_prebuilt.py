@@ -10,7 +10,7 @@ from ..database import db
 from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.09.30.15"
+CATALOG_VERSION = "2026.09.30.16"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -292,14 +292,14 @@ CATALOG = {
     "vp3.media-library": {
         "key": "vp3.media-library",
         "name": "VP3 Media Library",
-        "version": "1.2.0",
+        "version": "1.3.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Adds SHA-256 verified duplicate groups, explicit likely/near candidates, metadata-conflict detection, and durable cleanup review decisions.",
-            "Cleanup review never deletes source media; candidate evidence clearly distinguishes verified from heuristic matches.",
-            "Retains metadata history, collections, SDK 1.2 / Agent Actions v2, and Agent Brain awareness."
+            "Adds Media Processor-backed thumbnails, posters, album art, covers, and multi-source collection contact sheets.",
+            "Media Library owns semantic artwork assignments only; derivatives remain owned by Media Processor and originals remain untouched.",
+            "Retains metadata, collections, cleanup review, SDK 1.2 / Agent Actions v2, and Agent Brain awareness."
         ],
         "category": "Media",
         "kind": "media_library",
@@ -325,6 +325,9 @@ CATALOG = {
             {"key":"library.duplicates","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"kind":{"type":"string","enum":["","exact","same_size_candidate","near_name_candidate"]},"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.duplicate.review","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"group_key":{"type":"string","minLength":1,"maxLength":200},"decision":{"type":"string","enum":["needs_review","keep_both","ignore","resolved"]},"primary_media_id":{"type":"string","maxLength":100},"note":{"type":"string","maxLength":1000}},"required":["group_key","decision"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.cleanup.status","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.artwork.generate","risk":"consequential","requires_confirmation":True,"input_schema":{"type":"object","properties":{"target_type":{"type":"string","enum":["media","collection"]},"target_id":{"type":"string","minLength":1,"maxLength":100},"role":{"type":"string","enum":["thumbnail","poster","album_art","cover","contact_sheet"]},"source_media_ids":{"type":"array","items":{"type":"string","minLength":1,"maxLength":100},"maxItems":16},"preset":{"type":"string","maxLength":40}},"required":["target_type","target_id","role"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.artwork","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"target_type":{"type":"string","enum":["media","collection"]},"target_id":{"type":"string","minLength":1,"maxLength":100}},"required":["target_type","target_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.artwork.remove","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"target_type":{"type":"string","enum":["media","collection"]},"target_id":{"type":"string","minLength":1,"maxLength":100},"role":{"type":"string","enum":["thumbnail","poster","album_art","cover","contact_sheet"]}},"required":["target_type","target_id","role"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}}
         ],
     },
