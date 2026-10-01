@@ -72,7 +72,7 @@ def _copy_app_data_snapshot(target: Path) -> bool:
     if not source.is_dir():
         return False
     destination = target / "app-data"
-    shutil.copytree(source, destination, symlinks=False)
+    shutil.copytree(source, destination, symlinks=True)
     return True
 
 
