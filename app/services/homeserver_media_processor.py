@@ -270,6 +270,22 @@ def derivatives(media_id:str="",limit:int=200)->dict[str,Any]:
       d=dict(r); d.pop("relative_path",None); d["filesystem_path_exposed"]=False; out.append(d)
     return {"contract":CONTRACT,"derivatives":out,"count":len(out)}
 
+def derivative_for_job(job_id:str)->dict[str,Any]|None:
+    c=_connect()
+    try:
+      row=c.execute(
+        "SELECT * FROM processor_derivatives WHERE job_id=? ORDER BY created_at DESC LIMIT 1",
+        (str(job_id),),
+      ).fetchone()
+    finally:c.close()
+    if not row:
+      return None
+    data=dict(row)
+    data.pop("relative_path",None)
+    data["filesystem_path_exposed"]=False
+    return data
+
+
 def _probe_duration(path:Path)->float|None:
     try:
         tools=homeserver_media_tools.require()
