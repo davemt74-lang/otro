@@ -29,6 +29,11 @@ assert "Canonical context budget exceeded." in canonical
 assert '"sha256"' in canonical
 assert '"layer": "shared_wrapper"' in canonical
 assert '"layer": "surface_workspace"' in canonical
+assert "storage_maintenance.agent_context_fragment(" in canonical
+assert '"layer": "storage_health"' in canonical
+assert '"storage_limit_chars"' in canonical
+assert '"storage_used_chars"' in canonical
+assert "context.storage_fragment" in canonical
 
 # Stateful owner + paired-app text chat and delegated/streamed VP3 chat both
 # enter the same builder. The old delegated duplicate collector is gone.
