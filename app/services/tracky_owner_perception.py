@@ -52,8 +52,9 @@ def _close_locked() -> None:
     _PENDING = None
     _RESULT = None
     _ALLOWED_REQUEST = ""
-    if _our_provider():
-        tracky.unregister_provider()
+    # Atomically detach only our own browser callback; an independent native
+    # provider can register at any time without being inadvertently removed.
+    tracky.unregister_provider(expected=_provider)
     _COND.notify_all()
 
 
@@ -143,6 +144,7 @@ def open_session(*, consent: bool, scope: str,
                     "server_native_camera": False,
                     "background_tracking": False,
                 },
+                replace=False,
             )
         except Exception:
             _close_locked()

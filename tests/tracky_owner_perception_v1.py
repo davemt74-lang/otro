@@ -112,6 +112,30 @@ with tempfile.TemporaryDirectory(prefix="tracky-owner-perception-v1-") as data:
         # Cancellation/heartbeat expiry detach only this provider, never a foreign one.
         assert client.post(base+"close",headers=hdr,json={"session":token}).status_code==200
         assert tracky._provider_snapshot()[0] is None
+
+        # Pending work is also revoked immediately when hardware privacy
+        # engages; a result cannot be accepted after that point.
+        token=client.post(base+"open",headers=hdr,json=consent).json()["session"]
+        revoked={}
+        def revoked_test():
+            revoked["response"]=client.post(base+"test",headers=hdr,json={"session":token})
+        worker=threading.Thread(target=revoked_test,daemon=True);worker.start()
+        for _ in range(55):
+            check=client.post(base+"next",headers=hdr,json={"session":token}).json()
+            if check.get("pending"):break
+            time.sleep(.06)
+        assert check.get("pending"),"The governed owner-only request must become pending"
+        with patch.object(eyes,"_privacy",return_value=True):
+            assert client.get(base+"status").json()["active"] is False
+        worker.join(4)
+        assert not worker.is_alive()
+        assert revoked["response"].json()["request"]["status"]=="failed"
+        assert tracky._provider_snapshot()[0] is None
+        assert client.post(base+"submit",headers=hdr,json={
+            "session":token,"request_id":check["request_id"],"face_count":1,
+            "confidence":.9,"model_ready":True,"camera_ready":True
+        }).status_code==403
+
         opened=client.post(base+"open",headers=hdr,json=consent)
         token=opened.json()["session"]
         with eyes._COND:
@@ -132,6 +156,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-owner-perception-v1-") as data:
         tracky.register_provider(another_provider,name="existing-Tracky-provider")
         assert client.post(base+"open",headers=hdr,json=consent).status_code==409
         assert tracky._provider_snapshot()[0] is another_provider
-        tracky.unregister_provider()
+        assert tracky.unregister_provider(expected=eyes._provider) is False
+        assert tracky._provider_snapshot()[0] is another_provider
+        assert tracky.unregister_provider(expected=another_provider) is True
 
 print("TRACKY_OWNER_PERCEPTION_V1: owner gate, governed provider, private detection, live test, expiry and privacy PASS")

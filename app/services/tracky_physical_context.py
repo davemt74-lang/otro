@@ -418,6 +418,7 @@ def register_provider(
     *,
     name: str,
     capabilities: dict[str, Any] | None = None,
+    replace: bool = True,
 ) -> None:
     if not callable(callback):
         raise TrackyPhysicalError("Tracky perception provider must be callable.")
@@ -426,17 +427,25 @@ def register_provider(
     _assert_governed(safe_caps, "provider_capabilities")
     with _PROVIDER_LOCK:
         global _PROVIDER, _PROVIDER_CAPABILITIES, _PROVIDER_NAME
+        if not replace and _PROVIDER is not None:
+            raise TrackyPhysicalError("Another Tracky perception provider is already registered.", 409)
         _PROVIDER = callback
         _PROVIDER_CAPABILITIES = json.loads(_json(safe_caps))
         _PROVIDER_NAME = safe_name
 
 
-def unregister_provider() -> None:
+def unregister_provider(
+    *, expected: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+) -> bool | None:
+    """Atomically detach only the expected callback when specified."""
     with _PROVIDER_LOCK:
         global _PROVIDER, _PROVIDER_CAPABILITIES, _PROVIDER_NAME
+        if expected is not None and _PROVIDER is not expected:
+            return False
         _PROVIDER = None
         _PROVIDER_CAPABILITIES = {}
         _PROVIDER_NAME = ""
+        return True if expected is not None else None
 
 
 def canonical_rooms() -> list[dict[str, Any]]:
