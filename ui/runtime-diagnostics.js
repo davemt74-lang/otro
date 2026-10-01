@@ -26,7 +26,9 @@
     refresh.type='button';refresh.textContent='Check installed software';
     const probe=document.createElement('button');probe.className='button secondary';
     probe.type='button';probe.textContent='Test Ollama connection';
-    actions.append(refresh,probe);header.appendChild(actions);
+    const discuss=document.createElement('button');discuss.className='button primary';
+    discuss.type='button';discuss.textContent='Discuss diagnostics in Agent Chat';
+    actions.append(refresh,probe,discuss);header.appendChild(actions);
     const status=document.createElement('p');status.className='runtime-diagnostics-summary';
     status.id='runtimeDiagnosticsSummary';status.setAttribute('aria-live','polite');
     status.textContent='Inventory not yet checked.';
@@ -39,6 +41,15 @@
     else health.appendChild(section);
     refresh.addEventListener('click',()=>load(false));
     probe.addEventListener('click',()=>load(true));
+    discuss.addEventListener('click',()=>{
+      const input=get('chatInput');if(!input)return;
+      const prompt='Read the current HomeServer runtime.diagnostics tool and explain which AI, voice, recording, video and Agent Eyes capabilities need attention. Do not claim end-to-end certification or execute repairs; propose safe owner-approved next steps.';
+      document.querySelector('.nav-item[data-view="chat"]')?.click();
+      const prior=input.value.trim();
+      input.value=prior?prior+'\n\n'+prompt:prompt;
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.focus();
+    });
     document.querySelectorAll('[data-view="health"],[data-go="health"]').forEach(node=>node.addEventListener('click',()=>{
       if(!loaded)load(false);
     }));

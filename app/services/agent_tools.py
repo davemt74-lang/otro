@@ -11,6 +11,7 @@ from . import action_policy, approvals, app_scopes, maintenance_conversation, pl
 MODEL_TOOL_NAMES = {
     "homeserver_health_status": "health.status",
     "homeserver_health_issue": "health.issue",
+    "homeserver_runtime_diagnostics": "runtime.diagnostics",
     "homeserver_health_repair_plan": "health.repair-plan",
     "homeserver_contacts_search": "contacts.search",
     "homeserver_devices_list": "devices.list",

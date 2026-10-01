@@ -14,6 +14,7 @@ with tempfile.TemporaryDirectory(prefix="hs-runtime-diagnostics-") as data:
     from app.runtime import app
     from app.security import OWNER_CONTROL_TOKEN
     from app.services import runtime_diagnostics as diag
+    from app.services import tools, agent_tools
 
     # Preserve unrelated hardware fields used by the actual HomeServer startup.
     hardware={**diag.vp3_os.hardware_inventory(),"camera":{"present":True,"ready":True}}
@@ -57,6 +58,16 @@ with tempfile.TemporaryDirectory(prefix="hs-runtime-diagnostics-") as data:
         assert not checks["agent_eyes"]["frame_inference_tested"]
         assert not checks["microphone_capture"]["recording_tested"]
         assert "SECRET_NEVER_EXPORT" not in json.dumps(overview)
+        discover.assert_not_called()
+        model_names={entry["function"]["name"] for entry in
+                     agent_tools.model_tool_schemas(set(),owner=True)}
+        assert "homeserver_runtime_diagnostics" in model_names
+        assert "homeserver_runtime_diagnostics" not in {
+            entry["function"]["name"] for entry in
+            agent_tools.model_tool_schemas(set(),owner=False)
+        }
+        tool_result=tools._runtime_diagnostics({})
+        assert tool_result[0]["read_only"] is True
         discover.assert_not_called()
         probe=diag.inventory(probe=True)
         discover.assert_called_once()
