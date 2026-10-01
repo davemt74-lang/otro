@@ -284,8 +284,36 @@ def emit_notification(
     return dict(row)
 
 
+def prune_notifications(retention_days:int=90,max_rows:int=5000)->dict[str,int]:
+    days=max(7,min(int(retention_days),3650))
+    cap=max(500,min(int(max_rows),50000))
+    deleted=0
+    with db() as connection:
+        cursor=connection.execute(
+            """DELETE FROM notifications
+               WHERE (dismissed_at IS NOT NULL OR archived_at IS NOT NULL)
+                 AND created_at < datetime('now', ?)""",
+            (f"-{days} days",),
+        )
+        deleted+=max(0,int(cursor.rowcount or 0))
+        count=int(connection.execute("SELECT COUNT(*) FROM notifications").fetchone()[0])
+        if count>cap:
+            overflow=count-cap
+            cursor=connection.execute(
+                """DELETE FROM notifications WHERE id IN (
+                     SELECT id FROM notifications
+                     WHERE dismissed_at IS NOT NULL OR archived_at IS NOT NULL
+                     ORDER BY id ASC LIMIT ?
+                   )""",
+                (overflow,),
+            )
+            deleted+=max(0,int(cursor.rowcount or 0))
+    return {"deleted":deleted}
+
+
 def sync_notifications(limit:int=250)->dict[str,int]:
     created=0
+    pruned=prune_notifications()
     bounded=max(1,min(int(limit),1000))
     with db() as connection:
         approvals=connection.execute(
@@ -319,6 +347,7 @@ def sync_notifications(limit:int=250)->dict[str,int]:
             body=f"Run {row['run_key']}",level="error",priority="high",category="agent",
             source_kind="agent",source_key=str(row["app_key"]),event_key="app.agent.failed",
             dedupe_key=f"agent-run:{row['id']}",
+            action_payload={"type":"open","target_view":"homeserver-apps"},
         )
         created+=0 if before or emitted.get("suppressed") else 1
     for row in failed_auto:
@@ -327,9 +356,10 @@ def sync_notifications(limit:int=250)->dict[str,int]:
             source="automation",title=f"Automation failed · {row['routine_key']}",
             level="error",priority="high",category="automations",source_kind="automation",
             source_key=str(row["routine_key"]),event_key="automation.failed",dedupe_key=f"automation:{row['id']}",
+            action_payload={"type":"open","target_view":"automation"},
         )
         created+=0 if before or emitted.get("suppressed") else 1
-    return {"created":created}
+    return {"created":created,"pruned":pruned["deleted"]}
 
 
 def _notification_by_dedupe(key:str)->dict[str,Any]|None:
@@ -424,6 +454,7 @@ def brain_context(limit:int=20)->dict[str,Any]:
 def public_capability()->dict[str,Any]:
     return {
         "contract":CONTRACT,"unified_activity_feed":True,"notifications":True,"dedupe":True,
+        "bounded_retention":True,"default_retention_days":90,"notification_cap":5000,
         "read_dismiss_archive":True,"preferences":True,"actionable_approvals":True,
         "agent_brain_context":True,"bounded_projection":True,"raw_secrets_exposed":False,
         "homeserver_execution_authority":True,
