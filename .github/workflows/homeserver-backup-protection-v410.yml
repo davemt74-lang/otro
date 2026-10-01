@@ -1,0 +1,64 @@
+name: HomeServer Backup Protection v1.10
+
+on:
+  pull_request:
+    paths:
+      - 'app/backups_api.py'
+      - 'app/backup_models.py'
+      - 'app/services/backups.py'
+      - 'app/services/backup_protection.py'
+      - 'database/migrations/065_backup_protection.sql'
+      - 'tests/homeserver_backup_protection_v410.py'
+      - 'tests/backups.py'
+      - 'tests/migrations.py'
+      - 'tests/homeserver_apps_v100.py'
+      - 'ui/app.js'
+      - 'ui/backups.css'
+      - '.github/workflows/homeserver-backup-protection-v410.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homeserver-backup-protection-v410-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backup-protection:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile backup protection runtime
+        run: >-
+          python -m py_compile
+          app/backups_api.py
+          app/backup_models.py
+          app/services/backups.py
+          app/services/backup_protection.py
+          tests/homeserver_backup_protection_v410.py
+          tests/migrations.py
+      - name: Validate Backup UI JavaScript
+        run: node --check ui/app.js
+      - name: Verify Section 27 backup protection
+        run: python tests/homeserver_backup_protection_v410.py
+      - name: Verify legacy backup regression
+        run: python tests/backups.py
+      - name: Verify migration chain
+        run: python tests/migrations.py
+      - name: Verify Apps registry migration baseline
+        if: runner.os == 'Linux'
+        run: python tests/homeserver_apps_v100.py
