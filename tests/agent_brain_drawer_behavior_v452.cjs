@@ -62,6 +62,7 @@ const document={
   addEventListener:(event,fn)=>handlers.set(event,fn)
 };
 let healthRequests=0,activityRequests=0,manualSyncs=0;
+let healthTitle='Disk pressure';
 const fetch=(url,options)=>{
   assert.equal(options.credentials,'same-origin');
   if(url==='/api/v1/control/activity-center/sync') {
@@ -74,7 +75,7 @@ const fetch=(url,options)=>{
   if(url==='/api/v1/control/health') {
     healthRequests++;
     return Promise.resolve({ok:true,json:async()=>({
-      overall:'attention',issues:[{key:'storage:disk-pressure',title:'Disk pressure',
+      overall:'attention',issues:[{key:'storage:disk-pressure',title:healthTitle,
         severity:'warning',repair:{action_key:null,agent_can_execute:false}}]
     })});
   }
@@ -124,6 +125,11 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   assert.equal(drawer.attributes['aria-hidden'],'true');
   assert.ok(Object.hasOwn(drawer.attributes,'inert'),'Closed sidebar must be inert');
   toggle.fire('click');
+  healthTitle='Storage needs owner review';
+  registry.get('agentBrainRefresh').fire('click');
+  await flush();
+  assert.equal(issues.children[0].children[1].textContent,healthTitle,
+    'Same-severity issue detail changes refresh the Brain sidebar');
   registry.get('agentBrainHealth').fire('click');
   assert.equal(healthNavClicks,1,'Health action uses existing workspace');
   assert.ok(healthRequests>=2&&activityRequests>=2);
