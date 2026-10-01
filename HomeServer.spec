@@ -13,15 +13,11 @@ a = Analysis(
     ['desktop/launcher.py'],
     pathex=['.'],
     binaries=livekit_binaries + sounddevice_binaries,
+    # Every SQLite feature schema, including recordings/transcriptions and the
+    # versioned migrations, must be available inside the packaged application.
+    # Do not enumerate only old schema filenames: that silently breaks upgrades.
     datas=[
-        ('database/schema.sql', 'database'),
-        ('database/knowledge_collections.sql', 'database'),
-        ('database/agent_voice_profiles.sql', 'database'),
-        ('database/agent_routing.sql', 'database'),
-        ('database/agent_delegation_workflows.sql', 'database'),
-        ('database/agent_workflow_supervision.sql', 'database'),
-        ('database/agent_workflow_automation.sql', 'database'),
-        ('database/migrations', 'database/migrations'),
+        ('database', 'database'),
         ('ui', 'ui'),
     ] + livekit_datas + sounddevice_datas,
     hiddenimports=hiddenimports,
