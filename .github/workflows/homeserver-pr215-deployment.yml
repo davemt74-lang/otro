@@ -1,0 +1,127 @@
+name: HomeServer PR215 Deployment Packages
+on:
+  push:
+    branches: [release/homeserver-pr215-deploy]
+    paths:
+      - .github/workflows/homeserver-pr215-deployment.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Confirm exact merged feature source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^)" = "751321e503d9cb366123050beb1d4101a3b4f050"
+          python -m py_compile app/services/governed_recordings.py app/services/local_transcription_sessions.py
+          node --check ui/governed-recordings.js
+          node --check ui/transcription-workspace.js
+      - name: Package source as non-installable fallback
+        shell: python
+        run: |
+          import hashlib
+          import pathlib
+          import zipfile
+          dirs = ['app', 'desktop', 'ui', 'database', 'installer', 'scripts', 'docs']
+          files = ['HomeServer.spec', 'requirements.txt', 'README.md']
+          targets = []
+          for folder in dirs:
+              root = pathlib.Path(folder)
+              if root.exists():
+                  targets += [p for p in root.rglob('*') if p.is_file() and '__pycache__' not in p.parts and '.pyc' != p.suffix]
+          targets += [pathlib.Path(p) for p in files if pathlib.Path(p).is_file()]
+          out = pathlib.Path('HomeServer_PR215_SOURCE_ONLY.zip')
+          with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=8) as z:
+              for path in sorted(targets):
+                  z.write(path, path.as_posix())
+          digest = hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path('HomeServer_PR215_SOURCE_ONLY.zip.sha256').write_text(digest+'  '+out.name+'\n')
+          print('SOURCE_ONLY_ZIP_SHA256', digest)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homeserver-pr215-source-only
+          path: |
+            HomeServer_PR215_SOURCE_ONLY.zip
+            HomeServer_PR215_SOURCE_ONLY.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Confirm exact merged feature source
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD^) -ne '751321e503d9cb366123050beb1d4101a3b4f050') { throw 'Unexpected base commit' }
+          python -m py_compile app/services/governed_recordings.py app/services/local_transcription_sessions.py
+          node --check ui/governed-recordings.js
+          node --check ui/transcription-workspace.js
+      - name: Install packaging dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run targeted release safety tests
+        run: |
+          python tests/governed_recordings_v502.py
+          python tests/local_transcription_sessions_v503.py
+          python tests/installer_contract.py
+      - name: Build HomeServer executable
+        run: python -m PyInstaller --clean --noconfirm HomeServer.spec
+      - name: Stage and verify managed FFmpeg
+        shell: pwsh
+        run: ./scripts/stage_ffmpeg_windows.ps1
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+          }
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup was not available' }
+          & $iscc installer/HomeServer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed' }
+          if (-not (Test-Path dist/HomeServerSetup.exe)) { throw 'No installer produced' }
+          if (-not (Test-Path dist/HomeServer.exe)) { throw 'No standalone executable produced' }
+      - name: Assemble installable ZIP and checksums
+        shell: python
+        run: |
+          import hashlib
+          import pathlib
+          import zipfile
+          dist=pathlib.Path('dist')
+          include=[dist/'HomeServerSetup.exe',dist/'HomeServer.exe']+list((dist/'tools'/'ffmpeg').rglob('*'))
+          include=[p for p in include if p.is_file()]
+          manifest=[]
+          for path in include:
+              manifest.append(hashlib.sha256(path.read_bytes()).hexdigest()+'  '+path.relative_to(dist).as_posix())
+          (dist/'SHA256SUMS.txt').write_text('\n'.join(manifest)+'\n')
+          out=pathlib.Path('HomeServer_PR215_Windows_Deploy.zip')
+          with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
+              for p in include+[dist/'SHA256SUMS.txt']:
+                  z.write(p,p.relative_to(dist).as_posix())
+          digest=hashlib.sha256(out.read_bytes()).hexdigest()
+          pathlib.Path('HomeServer_PR215_Windows_Deploy.zip.sha256').write_text(digest+'  '+out.name+'\n')
+          print('WINDOWS_DEPLOY_ZIP_SHA256',digest)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homeserver-pr215-windows-deploy
+          path: |
+            HomeServer_PR215_Windows_Deploy.zip
+            HomeServer_PR215_Windows_Deploy.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
