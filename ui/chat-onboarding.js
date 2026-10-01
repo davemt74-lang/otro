@@ -44,7 +44,7 @@
       el('onboardCodeText').textContent=code.code;
       const expiry=Date.parse(code.expires_at||'');
       el('onboardCodeExpiry').textContent=Number.isNaN(expiry)?'Valid for 15 minutes':('Expires '+new Date(expiry).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}));
-      if(snapshot.cloud_url==='https://vp3.me/settings-homeserver.php')el('onboardCloudLink').href=snapshot.cloud_url;
+      if(snapshot.cloud_url==='https://vp3.me/settings-homeserver.php')el('onboardCloudLink').href=snapshot.cloud_url+'#hs_code='+encodeURIComponent(code.code);
     }
     el('onboardStartCloud').hidden=hasCode||paired;
     el('onboardResetCode').hidden=!hasCode;
