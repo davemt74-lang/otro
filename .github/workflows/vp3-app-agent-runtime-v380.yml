@@ -1,0 +1,64 @@
+name: VP3 Apps Section 24 Agent Runtime
+
+on:
+  pull_request:
+    paths:
+      - 'app/homeserver_apps_api.py'
+      - 'app/services/homeserver_app_agent_runtime.py'
+      - 'app/services/homeserver_app_runtime.py'
+      - 'app/services/homeserver_app_packages.py'
+      - 'app/services/homeserver_app_manager.py'
+      - 'app/services/homeserver_app_sdk.py'
+      - 'app/services/homeserver_app_control.py'
+      - 'app/services/providers.py'
+      - 'app/services/usage.py'
+      - 'app/bridge.py'
+      - 'database/migrations/062_app_agent_runtime.sql'
+      - 'tests/homeserver_app_agent_runtime_v380.py'
+      - 'tests/migrations.py'
+      - 'tests/homeserver_apps_v100.py'
+      - 'sdk/homeserver-app/create_app.py'
+      - '.github/workflows/vp3-app-agent-runtime-v380.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vp3-app-agent-runtime-v380-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  agent-runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Section 24 runtime
+        run: >-
+          python -m py_compile
+          app/homeserver_apps_api.py
+          app/services/homeserver_app_agent_runtime.py
+          app/services/homeserver_app_runtime.py
+          app/services/homeserver_app_packages.py
+          app/services/homeserver_app_manager.py
+          app/services/homeserver_app_sdk.py
+          app/services/homeserver_app_control.py
+          sdk/homeserver-app/create_app.py
+          tests/homeserver_app_agent_runtime_v380.py
+          tests/migrations.py
+      - name: Verify migration chain
+        run: python tests/migrations.py
+      - name: Verify Apps registry migration baseline
+        run: python tests/homeserver_apps_v100.py
+      - name: Verify Section 24 Local AI and Agent runtime
+        run: python tests/homeserver_app_agent_runtime_v380.py
