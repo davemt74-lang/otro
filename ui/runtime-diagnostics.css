@@ -1,0 +1,11 @@
+.runtime-diagnostics{margin:26px 0;padding:22px;border:1px solid #dce4ed;border-radius:16px;background:var(--panel,#fff)}
+.runtime-diagnostics-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.runtime-diagnostics-head h3{margin:0 0 7px}.runtime-diagnostics-head p{margin:0;color:var(--muted,#536477)}
+.runtime-diagnostics-actions{display:flex;gap:9px;flex-wrap:wrap}.runtime-diagnostics-actions button{cursor:pointer}
+.runtime-diagnostics-summary{margin:15px 0;font-size:13px}.runtime-diagnostics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px}
+.runtime-diagnostic-item{border:1px solid #dce4ed;border-radius:11px;padding:13px;min-width:0}
+.runtime-diagnostic-item h4{font-size:15px;margin:7px 0}.runtime-diagnostic-item p{font-size:13px;margin:8px 0;line-height:1.5}
+.runtime-diagnostic-item small{color:var(--muted,#536477)}.runtime-diagnostic-state{font-weight:700;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#4b5869}
+.runtime-diagnostic-item[data-state=missing] .runtime-diagnostic-state,.runtime-diagnostic-item[data-state=degraded] .runtime-diagnostic-state{color:#a33830}
+.runtime-diagnostic-item[data-state=operational] .runtime-diagnostic-state{color:#28643a}
+.runtime-diagnostics-boundary{font-size:12px;line-height:1.6;margin:17px 0 0;color:var(--muted,#536477)}
