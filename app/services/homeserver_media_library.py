@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import sqlite3
 import uuid
 from typing import Any
@@ -93,6 +95,20 @@ def _connect()->sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_media_collection_items_order
           ON media_collection_items(collection_id,position,created_at);
+        CREATE TABLE IF NOT EXISTS media_fingerprints(
+            media_id TEXT PRIMARY KEY,
+            size_bytes INTEGER NOT NULL,
+            mtime_ns INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS media_duplicate_reviews(
+            group_key TEXT PRIMARY KEY,
+            decision TEXT NOT NULL DEFAULT 'needs_review',
+            primary_media_id TEXT NOT NULL DEFAULT '',
+            note TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         """
     )
     return connection
@@ -633,6 +649,265 @@ def smart_collections()->dict[str,Any]:
     return {"contract":CONTRACT,"collections":items,"count":len(items)}
 
 
+
+def _normalized_title(value:str)->str:
+    text=re.sub(r"\s+"," ",str(value or "").strip().lower())
+    text=re.sub(r"\s*\(\d+\)$","",text)
+    text=re.sub(r"[_-]+"," ",text)
+    return re.sub(r"\s+"," ",text).strip()
+
+
+def _sha256_file(path)->str:
+    digest=hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda:handle.read(1024*1024),b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _fingerprint(media_id:str)->dict[str,Any]:
+    path,_mime,item=homeserver_media_server.resolve_stream(media_id)
+    stat=path.stat()
+    size=int(stat.st_size)
+    mtime=int(stat.st_mtime_ns)
+    connection=_connect()
+    try:
+        row=connection.execute(
+            "SELECT * FROM media_fingerprints WHERE media_id=?",(media_id,)
+        ).fetchone()
+        if row and int(row["size_bytes"])==size and int(row["mtime_ns"])==mtime:
+            sha=str(row["sha256"])
+            cached=True
+        else:
+            sha=_sha256_file(path)
+            connection.execute(
+                """INSERT INTO media_fingerprints(media_id,size_bytes,mtime_ns,sha256,updated_at)
+                   VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+                   ON CONFLICT(media_id) DO UPDATE SET
+                     size_bytes=excluded.size_bytes,mtime_ns=excluded.mtime_ns,
+                     sha256=excluded.sha256,updated_at=CURRENT_TIMESTAMP""",
+                (media_id,size,mtime,sha),
+            )
+            connection.commit()
+            cached=False
+    finally:
+        connection.close()
+    return {
+        "media_id":media_id,
+        "size_bytes":size,
+        "mtime_ns":mtime,
+        "sha256":sha,
+        "cached":cached,
+        "item":item,
+    }
+
+
+def _metadata_conflicts(media_ids:list[str])->list[str]:
+    if len(media_ids)<2:
+        return []
+    states=[]
+    for media_id in media_ids:
+        try:
+            states.append(get(media_id)["item"]["metadata"])
+        except MediaLibraryError:
+            continue
+    if len(states)<2:
+        return []
+    fields=("title","description","rating","favorite","taken_at","location_name","custom_fields","tags","relations")
+    conflicts=[]
+    for field in fields:
+        normalized={json.dumps(state.get(field),sort_keys=True,separators=(",",":"),default=str) for state in states}
+        if len(normalized)>1:
+            conflicts.append(field)
+    return conflicts
+
+
+def _review_for(group_key:str)->dict[str,Any]:
+    connection=_connect()
+    try:
+        row=connection.execute(
+            "SELECT * FROM media_duplicate_reviews WHERE group_key=?",(group_key,)
+        ).fetchone()
+    finally:
+        connection.close()
+    if not row:
+        return {"decision":"needs_review","primary_media_id":"","note":"","updated_at":None}
+    return {
+        "decision":str(row["decision"]),
+        "primary_media_id":str(row["primary_media_id"]),
+        "note":str(row["note"]),
+        "updated_at":str(row["updated_at"]),
+    }
+
+
+def duplicate_scan(limit:int=500)->dict[str,Any]:
+    source=homeserver_media_server.library(limit=max(1,min(int(limit),500)),offset=0)
+    fingerprints=[]
+    unavailable=0
+    for row in source["items"]:
+        try:
+            fingerprints.append(_fingerprint(str(row["media_id"])))
+        except Exception:
+            unavailable+=1
+
+    exact_map={}
+    size_map={}
+    name_map={}
+    for fp in fingerprints:
+        item=fp["item"]
+        exact_map.setdefault(fp["sha256"],[]).append(fp)
+        size_key=(fp["size_bytes"],str(item.get("extension") or "").lower())
+        size_map.setdefault(size_key,[]).append(fp)
+        title_key=(str(item.get("media_type") or ""),_normalized_title(str(item.get("title") or item.get("name") or "")))
+        if title_key[1]:
+            name_map.setdefault(title_key,[]).append(fp)
+
+    groups=[]
+    exact_members=set()
+    for sha,rows in exact_map.items():
+        if len(rows)<2:
+            continue
+        media_ids=sorted(str(row["media_id"]) for row in rows)
+        exact_members.update(media_ids)
+        key="exact:"+sha
+        groups.append({
+            "group_key":key,
+            "kind":"exact",
+            "confidence":"verified",
+            "content_hash_verified":True,
+            "sha256":sha,
+            "copies":len(media_ids),
+            "media_ids":media_ids,
+            "metadata_conflicts":_metadata_conflicts(media_ids),
+            "review":_review_for(key),
+        })
+
+    for (size,extension),rows in size_map.items():
+        if len(rows)<2:
+            continue
+        unique_hashes={str(row["sha256"]) for row in rows}
+        if len(unique_hashes)<2:
+            continue
+        media_ids=sorted(str(row["media_id"]) for row in rows)
+        key="size:"+hashlib.sha256(f"{size}:{extension}:{'|'.join(media_ids)}".encode()).hexdigest()[:24]
+        groups.append({
+            "group_key":key,
+            "kind":"same_size_candidate",
+            "confidence":"candidate",
+            "content_hash_verified":False,
+            "signature":{"size_bytes":size,"extension":extension},
+            "copies":len(media_ids),
+            "media_ids":media_ids,
+            "metadata_conflicts":_metadata_conflicts(media_ids),
+            "review":_review_for(key),
+        })
+
+    for (media_type,title),rows in name_map.items():
+        if len(rows)<2:
+            continue
+        media_ids=sorted(str(row["media_id"]) for row in rows)
+        if all(media_id in exact_members for media_id in media_ids):
+            continue
+        key="name:"+hashlib.sha256(f"{media_type}:{title}:{'|'.join(media_ids)}".encode()).hexdigest()[:24]
+        groups.append({
+            "group_key":key,
+            "kind":"near_name_candidate",
+            "confidence":"candidate",
+            "content_hash_verified":False,
+            "signature":{"media_type":media_type,"normalized_title":title},
+            "copies":len(media_ids),
+            "media_ids":media_ids,
+            "metadata_conflicts":_metadata_conflicts(media_ids),
+            "review":_review_for(key),
+        })
+
+    rank={"exact":0,"same_size_candidate":1,"near_name_candidate":2}
+    groups.sort(key=lambda row:(rank.get(str(row["kind"]),9),-int(row["copies"]),str(row["group_key"])))
+    return {
+        "contract":CONTRACT,
+        "groups":groups,
+        "count":len(groups),
+        "items_scanned":len(fingerprints),
+        "items_unavailable":unavailable,
+        "exact_groups":sum(1 for row in groups if row["kind"]=="exact"),
+        "candidate_groups":sum(1 for row in groups if row["kind"]!="exact"),
+        "source_files_modified":False,
+        "source_files_deleted":False,
+        "filesystem_paths_exposed":False,
+    }
+
+
+def duplicate_groups(kind:str="",limit:int=100)->dict[str,Any]:
+    result=duplicate_scan(500)
+    wanted=str(kind or "").strip()
+    rows=result["groups"]
+    if wanted:
+        if wanted not in {"exact","same_size_candidate","near_name_candidate"}:
+            raise MediaLibraryError("Duplicate group kind is invalid.")
+        rows=[row for row in rows if row["kind"]==wanted]
+    rows=rows[:max(1,min(int(limit),500))]
+    return {**result,"groups":rows,"count":len(rows)}
+
+
+def review_duplicate(
+    group_key:str,
+    decision:str,
+    *,
+    primary_media_id:str="",
+    note:str="",
+)->dict[str,Any]:
+    key=str(group_key or "").strip()
+    choice=str(decision or "").strip().lower()
+    if not key:
+        raise MediaLibraryError("Duplicate group key is required.")
+    if choice not in {"needs_review","keep_both","ignore","resolved"}:
+        raise MediaLibraryError("Duplicate review decision is invalid.")
+    current=duplicate_scan(500)
+    group=next((row for row in current["groups"] if row["group_key"]==key),None)
+    if not group:
+        raise MediaLibraryError("Duplicate group no longer exists.",404)
+    primary=str(primary_media_id or "")
+    if primary and primary not in set(group["media_ids"]):
+        raise MediaLibraryError("Primary media item must belong to the duplicate group.")
+    connection=_connect()
+    try:
+        connection.execute(
+            """INSERT INTO media_duplicate_reviews(group_key,decision,primary_media_id,note,updated_at)
+               VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+               ON CONFLICT(group_key) DO UPDATE SET
+                 decision=excluded.decision,primary_media_id=excluded.primary_media_id,
+                 note=excluded.note,updated_at=CURRENT_TIMESTAMP""",
+            (key,choice,primary,str(note or "")[:1000]),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return {
+        "contract":CONTRACT,
+        "group_key":key,
+        "decision":choice,
+        "primary_media_id":primary,
+        "note":str(note or "")[:1000],
+        "source_files_deleted":False,
+        "metadata_deleted":False,
+    }
+
+
+def cleanup_status()->dict[str,Any]:
+    result=duplicate_scan(500)
+    groups=result["groups"]
+    return {
+        "contract":CONTRACT,
+        "duplicate_groups":len(groups),
+        "exact_groups":sum(1 for row in groups if row["kind"]=="exact"),
+        "candidate_groups":sum(1 for row in groups if row["kind"]!="exact"),
+        "needs_review":sum(1 for row in groups if row["review"]["decision"]=="needs_review"),
+        "metadata_conflict_groups":sum(1 for row in groups if row["metadata_conflicts"]),
+        "automatic_source_deletion":False,
+        "source_files_deleted":False,
+    }
+
+
 def status()->dict[str,Any]:
     connection=_connect()
     try:
@@ -642,6 +917,8 @@ def status()->dict[str,Any]:
         history_count=int(connection.execute("SELECT COUNT(*) FROM media_metadata_history").fetchone()[0])
         collection_count=int(connection.execute("SELECT COUNT(*) FROM media_collections").fetchone()[0])
         smart_count=int(connection.execute("SELECT COUNT(*) FROM media_collections WHERE collection_type='smart'").fetchone()[0])
+        fingerprint_count=int(connection.execute("SELECT COUNT(*) FROM media_fingerprints").fetchone()[0])
+        reviewed_count=int(connection.execute("SELECT COUNT(*) FROM media_duplicate_reviews WHERE decision!='needs_review'").fetchone()[0])
     finally:
         connection.close()
     return {
@@ -652,6 +929,8 @@ def status()->dict[str,Any]:
         "history_entries":history_count,
         "collections":collection_count,
         "smart_collections":smart_count,
+        "fingerprinted_items":fingerprint_count,
+        "duplicate_reviews":reviewed_count,
         "canonical_source":"vp3.media-server",
         "source_files_modified":False,
         "source_files_deleted":False,
@@ -662,6 +941,12 @@ def status()->dict[str,Any]:
         "smart_collections":True,
         "saved_filters":True,
         "cross_media_collections":True,
+        "exact_sha256_duplicates":True,
+        "likely_duplicate_candidates":True,
+        "near_duplicate_candidates":True,
+        "metadata_conflict_detection":True,
+        "duplicate_review_workflow":True,
+        "automatic_source_deletion":False,
         "homeserver_execution_authority":True,
     }
 
@@ -693,6 +978,8 @@ def brain_context(limit:int=8)->dict[str,Any]:
             "history_entries":state["history_entries"],
             "collections":state["collections"],
             "smart_collections":state["smart_collections"],
+            "fingerprinted_items":state["fingerprinted_items"],
+            "duplicate_reviews":state["duplicate_reviews"],
         },
         "recent":recent,
         "source_files_modified":False,
@@ -754,6 +1041,15 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
         return delete_collection(str(args.get("collection_id") or ""))
     if key=="library.smart-collections":
         return smart_collections()
+    if key=="library.duplicates":
+        return duplicate_groups(str(args.get("kind") or ""),int(args.get("limit",100)))
+    if key=="library.duplicate.review":
+        return review_duplicate(
+            str(args.get("group_key") or ""),str(args.get("decision") or ""),
+            primary_media_id=str(args.get("primary_media_id") or ""),note=str(args.get("note") or "")
+        )
+    if key=="library.cleanup.status":
+        return cleanup_status()
     if key=="library.brain-context":
         return brain_context(int(args.get("limit",8)))
     raise MediaLibraryError("Unsupported Media Library action.",404)
