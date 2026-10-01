@@ -23,6 +23,15 @@ on:
       - 'tests/homeserver_media_player_v360.py'
       - 'tests/homeserver_app_agent_runtime_v380.py'
       - 'tests/homeserver_activity_center_v390.py'
+      - 'tests/homeserver_members_v400.py'
+      - 'app/services/members.py'
+      - 'app/member_api.py'
+      - 'database/migrations/064_multi_user.sql'
+      - 'ui/members.css'
+      - 'ui/members.js'
+      - 'ui/member.css'
+      - 'ui/member.js'
+      - 'ui/member.html'
       - 'app/services/activity_center.py'
       - 'app/activity_center_api.py'
       - 'database/migrations/063_activity_center.sql'
@@ -200,6 +209,9 @@ jobs:
           tests/homeserver_media_player_v360.py
           tests/homeserver_app_agent_runtime_v380.py
           tests/homeserver_activity_center_v390.py
+          tests/homeserver_members_v400.py
+          app/services/members.py
+          app/member_api.py
           app/services/activity_center.py
           app/activity_center_api.py
           app/services/homeserver_app_agent_runtime.py
@@ -329,5 +341,7 @@ jobs:
         run: python tests/homeserver_app_agent_runtime_v380.py
       - name: Verify Unified Notifications and Activity Center
         run: python tests/homeserver_activity_center_v390.py
+      - name: Verify Multi-user HomeServer and context isolation
+        run: python tests/homeserver_members_v400.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py

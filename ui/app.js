@@ -76,7 +76,7 @@ function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach(v => v.classList.toggle('active', v.dataset.view === name));
-  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts','homeserver-apps':'Apps',apps:'Connected Apps',backups:'Backup & Restore',ambient:'Ambient Agent',automation:'Rooms & Devices',tracky:'Tracky',federation:'Physical Network','physical-world':'Physical World',activity:'Activity'};
+  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',members:'Users','homeserver-apps':'Apps',apps:'Connected Apps',backups:'Backup & Restore',ambient:'Ambient Agent',automation:'Rooms & Devices',tracky:'Tracky',federation:'Physical Network','physical-world':'Physical World',activity:'Activity'};
   $('pageTitle').textContent = labels[name] || 'HomeServer';
   loadView(name).catch(err => flash(err.message, true));
 }
@@ -294,6 +294,7 @@ async function loadView(name) {
   if (name === 'knowledge') return loadKnowledge();
   if (name === 'memory') return loadMemory();
   if (name === 'contacts' && typeof window.loadHomeServerContacts === 'function') return window.loadHomeServerContacts();
+  if (name === 'members' && typeof window.loadHomeServerMembers === 'function') return window.loadHomeServerMembers();
   if (name === 'homeserver-apps' && typeof window.loadHomeServerApps === 'function') return window.loadHomeServerApps();
   if (name === 'tracky' && typeof window.loadTrackyOverview === 'function') return window.loadTrackyOverview();
   if (name === 'apps') return loadApps();
@@ -406,7 +407,7 @@ $('knowledgeSearch').addEventListener('input', () => { clearTimeout(state.search
 $('refreshButton').addEventListener('click', () => loadView(state.view).then(() => flash('HomeServer refreshed.')).catch(err => flash(err.message, true)));
 
 ensureBackupWorkspace();
-const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','homeserver-apps','apps','backups','ambient','automation','federation','physical-world','activity'];
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','ambient','automation','federation','physical-world','activity'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();

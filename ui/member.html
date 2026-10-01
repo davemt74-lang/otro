@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HomeServer User</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/member.css">
+</head>
+<body class="member-page">
+  <main class="member-shell">
+    <section id="memberLogin" class="member-login panel">
+      <p class="eyebrow">HOMESERVER USER</p>
+      <h1>Sign in</h1>
+      <p class="muted">Your account has separate private context and only the apps the HomeServer owner assigned to you.</p>
+      <form id="memberLoginForm">
+        <label>Username<input id="loginUsername" autocomplete="username" minlength="3" maxlength="40" required></label>
+        <label>Password<input id="loginPassword" type="password" autocomplete="current-password" minlength="1" maxlength="256" required></label>
+        <button class="button primary" type="submit">Sign in</button>
+      </form>
+      <p id="loginError" class="member-error" role="alert"></p>
+    </section>
+
+    <section id="memberWorkspace" class="hidden">
+      <header class="member-header">
+        <div><p class="eyebrow">LOCAL USER</p><h1 id="memberName">HomeServer</h1><p id="memberIdentity" class="muted"></p></div>
+        <button class="button secondary" id="memberSignOut" type="button">Sign out</button>
+      </header>
+
+      <div class="member-grid">
+        <section class="panel">
+          <div class="panel-head"><div><h2>My apps</h2><p class="muted">Only apps explicitly assigned to your account appear here.</p></div></div>
+          <div id="memberApps" class="member-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><div><h2>My Agent context</h2><p class="muted">Private context stored only for your HomeServer user.</p></div></div>
+          <form id="memberContextForm" class="member-context-form">
+            <label>Key<input id="contextKey" placeholder="preferences.theme" maxlength="80" required></label>
+            <label>Value<textarea id="contextValue" rows="4" maxlength="16000" required placeholder='"dark" or {"timezone":"local"}'></textarea></label>
+            <button class="button primary" type="submit">Save context</button>
+          </form>
+          <div id="memberContext" class="member-list"></div>
+        </section>
+
+        <section class="panel member-wide">
+          <div class="panel-head"><div><h2>My activity</h2><p class="muted">Only activity recorded for this user account.</p></div></div>
+          <div id="memberActivity" class="member-list"></div>
+        </section>
+      </div>
+
+      <div class="member-boundary panel">
+        <strong>Privacy boundary</strong>
+        <span>Owner controls, other users' context, and unassigned apps are not available from this session.</span>
+      </div>
+    </section>
+  </main>
+  <script src="/assets/member.js" defer></script>
+</body>
+</html>
