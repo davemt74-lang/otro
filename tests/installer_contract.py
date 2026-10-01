@@ -29,4 +29,8 @@ assert 'GPLv3' in stage
 assert 'FFMPEG_BUILD_README.txt' in stage
 assert '9.0.2' in stage
 
-print("HomeServer installer upgrade contract test passed")
+spec = (ROOT_DIR / "HomeServer.spec").read_text(encoding="utf-8")
+for schema in ("runtime_certification.sql", "governed_recordings.sql", "local_transcription_sessions.sql"):
+    assert "('database/" + schema + "', 'database')" in spec, schema
+assert "('ui', 'ui')" in spec, "Chat onboarding assets must be bundled"
+print("HomeServer installer upgrade and current schemas contract test passed")

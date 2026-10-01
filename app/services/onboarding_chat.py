@@ -76,6 +76,7 @@ def provision_status() -> dict[str, Any]:
         ],
         "all_ready": bool(supported) and all(_healthy(x) for x in supported),
         "unsupported_count": len(items) - len(supported),
+        "supported_count": len(supported),
         "updated_at": str(row.get("updated_at") or ""),
     }
 
@@ -155,7 +156,7 @@ def _read_device() -> dict[str, Any] | None:
         if len(str(state.get("verifier") or "")) < 40:
             return None
         return state
-    except (OSError, ValueError, KeyError, TypeError):
+    except Exception:
         return None
 
 

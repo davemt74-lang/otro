@@ -49,13 +49,14 @@
     el('onboardStartCloud').hidden=hasCode||paired;
     el('onboardResetCode').hidden=!hasCode;
     el('onboardStartCloud').disabled=busy;el('onboardResetCode').disabled=busy;
+    el('onboardLegacyPairForm').hidden=paired;
     const packages=Array.isArray(voice.packages)?voice.packages:[];
     el('onboardVoicePackages').textContent=packages.length?packages.map(itemText).join('  ·  '):'No compatible voice packages detected.';
     const active=voice.phase==='running';
-    el('onboardVoiceState').textContent=active?'Installing…':voice.all_ready?'Installed & verified ✓':
+    el('onboardVoiceState').textContent=voice.supported_count===0?'Not supported on this computer':active?'Installing…':voice.all_ready?'Installed & verified ✓':
       voice.phase==='attention'?'Needs attention':voice.phase==='interrupted'?'Resuming':'Optional setup';
     el('onboardVoice').dataset.complete=voice.all_ready?'true':'false';
-    el('onboardInstallVoice').disabled=busy||active||Boolean(voice.all_ready);
+    el('onboardInstallVoice').disabled=busy||active||Boolean(voice.all_ready)||voice.supported_count===0;
     el('onboardInstallVoice').textContent=active?'Preparing securely…':voice.all_ready?'Voice ready ✓':
       voice.phase==='attention'?'Retry voice preparation →':'Prepare local voice →';
     el('onboardFinish').disabled=busy;
@@ -102,6 +103,14 @@
   el('onboardCopyCode').addEventListener('click',async()=>{
     try{await navigator.clipboard.writeText(el('onboardCodeText').textContent||'');feedback('Pairing code copied.');}
     catch(_){feedback('Select the visible code to copy it manually.',true);}
+  });
+  el('onboardLegacyPairForm').addEventListener('submit',event=>{
+    event.preventDefault();
+    const input=el('onboardLegacyPairToken');
+    const token=String(input.value||'').trim();
+    input.value='';
+    act(()=>api('/api/v1/control/cloud-connection/pair','POST',{pairing_token:token}),
+      'Cloud pairing saved. The secure connection is starting.');
   });
   el('onboardLater').addEventListener('click',hide);
   el('onboardFinish').addEventListener('click',()=>act(async()=>{
