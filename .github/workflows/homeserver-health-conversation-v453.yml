@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'app/services/maintenance_conversation.py'
+      - 'app/services/approvals.py'
+      - 'app/services/homeserver_app_approvals.py'
       - 'app/services/agent_tools.py'
       - 'app/services/tools.py'
       - 'app/health_api.py'
@@ -37,12 +39,17 @@ jobs:
         run: >-
           python -m py_compile
           app/services/maintenance_conversation.py
+          app/services/approvals.py
+          app/services/homeserver_app_approvals.py
           app/services/agent_tools.py
           app/services/tools.py
           app/health_api.py
           tests/health_conversation_v453.py
       - name: Verify Section 31C owner-only diagnosis and governed proposal lifecycle
         run: python tests/health_conversation_v453.py
+      - name: Regression - existing Agent Tool inventory and write policy
+        if: runner.os == 'Linux'
+        run: python tests/agent_tools.py
       - name: Regression - canonical health and repair orchestration
         if: runner.os == 'Linux'
         run: python tests/homeserver_health_repair_v440.py

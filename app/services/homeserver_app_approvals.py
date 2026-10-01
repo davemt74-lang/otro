@@ -152,6 +152,25 @@ def approve(request_id:str)->dict[str,Any]:
     if reserved is None:
         raise AppApprovalStoreError("Apps approval request is no longer pending.")
     item=_decode(reserved)
+    issue_key=(item.get("arguments_meta") or {}).get("maintenance_issue_key")
+    if issue_key is not None:
+        from . import maintenance_conversation
+        try:
+            maintenance_conversation.validate_execution(
+                issue_key,str(item.get("action_key") or ""),dict(item.get("arguments") or {}),
+            )
+        except maintenance_conversation.MaintenanceError as exc:
+            reason="Maintenance issue changed or resolved; obtain new diagnostics."
+            update_if_status(
+                request_id,"executing",status="denied",error=reason,
+                executed_at=datetime.now(timezone.utc).isoformat(),
+            )
+            with db() as connection:
+                connection.execute(
+                    "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) VALUES ('owner','control-center','action.denied','action_request',?,?)",
+                    (request_id,json.dumps({"homeserver_app":True,"reason":"stale_health_issue"},separators=(",",":"))),
+                )
+            raise AppApprovalStoreError(reason) from exc
     try:
         execution=tools.execute_tool(
             str(item.get("source_app_key") or "owner"),

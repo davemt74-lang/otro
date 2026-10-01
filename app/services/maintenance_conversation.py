@@ -55,6 +55,25 @@ def issue_detail(arguments: dict[str, Any]) -> dict[str, Any]:
         "automatic_execution":False,
     }
 
+def validate_execution(issue_key:str, action_key:str, action_arguments:dict[str,Any])->None:
+    """Approval-time revalidation prevents executing a now-stale issue proposal."""
+    key=_validate({"issue_key":issue_key})
+    state=health_repair.status()
+    if not state.get("snapshot_complete",True):
+        raise MaintenanceError("Health snapshot is incomplete; approval requires new diagnostics.",409)
+    issue=next((item for item in state["issues"] if item["key"]==key),None)
+    if issue is None:
+        raise MaintenanceError("Health issue resolved or changed; obtain a new proposal.",409)
+    repair=issue.get("repair") or {}
+    if (
+        action_key not in _ALLOWED or repair.get("action_key")!=action_key
+        or not repair.get("agent_can_execute")
+        or not repair.get("owner_approval_required")
+        or repair.get("arguments")!=action_arguments
+    ):
+        raise MaintenanceError("Health recovery eligibility changed; obtain a new proposal.",409)
+
+
 def propose_repair(arguments: dict[str,Any], *, source_app_key: str, owner: bool) -> dict[str,Any]:
     if not owner:
         raise MaintenanceError("Only the HomeServer owner Agent can propose repairs.",403)
@@ -86,8 +105,9 @@ def propose_repair(arguments: dict[str,Any], *, source_app_key: str, owner: bool
             try:
                 expires=datetime.fromisoformat(str(pending.get("expires_at") or ""))
                 arguments_json=json.loads(str(pending.get("arguments_json") or "{}"))
+                meta=json.loads(str(pending.get("arguments_meta_json") or "{}"))
                 if (expires.tzinfo is not None and expires > datetime.now(timezone.utc)
-                        and arguments_json==args):
+                        and arguments_json==args and meta.get("maintenance_issue_key")==key):
                     result={
                         "tool":f"{action}.request",
                         "run_id":pending.get("request_tool_run_id"),
@@ -105,7 +125,7 @@ def propose_repair(arguments: dict[str,Any], *, source_app_key: str, owner: bool
             except (TypeError,ValueError,KeyError):
                 continue
         else:
-            result=approvals.create_app_action_request(source_app_key,action,args,owner=True)
+            result=approvals.create_app_action_request(source_app_key,action,args,owner=True,maintenance_issue_key=key)
     return {
         **result,
         "maintenance":{

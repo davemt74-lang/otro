@@ -197,6 +197,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "files.list",
             "files.read",
             "files.update",
+            "health.issue",
             "health.repair-plan",
             "health.status",
             "knowledge.create",

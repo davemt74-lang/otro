@@ -99,8 +99,23 @@ with tempfile.TemporaryDirectory(prefix="hs-31c-") as data_dir:
             except maintenance.MaintenanceError as exc: assert exc.status_code==409
             else: raise AssertionError("Unsupported repair action accepted")
             assert len(homeserver_app_approvals.list_rows(status="pending"))==1
-            # The owner can reject an existing proposal without running recovery.
-            result=approvals.deny_request(rid)
+            # Approval-time revalidation: the owner cannot execute a stale request,
+            # even if the Agent created it while the issue was active.
+            issue["repair"]["action_key"]="apps.recover"
+            current["issues"]=[]
+            with patch.object(tools,"execute_tool",side_effect=AssertionError("Stale approval must not execute")):
+                try: approvals.approve_request(rid)
+                except approvals.ApprovalError: pass
+                else: raise AssertionError("Stale owner approval executed")
+            assert homeserver_app_approvals.get(rid)["status"]=="denied"
+            assert not homeserver_app_approvals.list_rows(status="pending")
+
+            # Fresh current issue can produce a new proposal, which the owner may deny.
+            current["issues"]=[issue]
+            fresh=maintenance.propose_repair({"issue_key":issue["key"]},source_app_key="owner-agent",owner=True)
+            new_id=fresh["result"]["request_id"]
+            assert new_id!=rid
+            result=approvals.deny_request(new_id)
             assert (result.get("request") or result).get("status")=="denied",result
             assert not homeserver_app_approvals.list_rows(status="pending")
 print("Section 31C issue-bound health tools, owner approval, stale rejection and no execution PASS")
