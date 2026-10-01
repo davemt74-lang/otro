@@ -25,6 +25,8 @@ on:
       - 'tests/homeserver_activity_center_v390.py'
       - 'tests/homeserver_members_v400.py'
       - 'tests/homeserver_backup_protection_v410.py'
+      - 'tests/homeserver_app_center_v420.py'
+      - 'app/services/homeserver_app_center.py'
       - 'app/services/backup_protection.py'
       - 'app/backup_models.py'
       - 'app/backups_api.py'
@@ -218,6 +220,8 @@ jobs:
           tests/homeserver_activity_center_v390.py
           tests/homeserver_members_v400.py
           tests/homeserver_backup_protection_v410.py
+          tests/homeserver_app_center_v420.py
+          app/services/homeserver_app_center.py
           app/services/backup_protection.py
           app/services/members.py
           app/member_api.py
@@ -354,5 +358,7 @@ jobs:
         run: python tests/homeserver_members_v400.py
       - name: Verify Backup Restore and App Data Protection
         run: python tests/homeserver_backup_protection_v410.py
+      - name: Verify App Install Update Center and Catalog Experience
+        run: python tests/homeserver_app_center_v420.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
