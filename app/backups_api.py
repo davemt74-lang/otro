@@ -8,7 +8,8 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from .database import db
-from .services import backups
+from .backup_models import BackupPolicyUpdate
+from .services import backups, backup_protection
 
 router = APIRouter()
 
@@ -40,11 +41,40 @@ def _revalidate_created_backup(path: Path) -> None:
 
 @router.get("/api/v1/control/backups")
 def control_backups() -> dict:
+    items=backups.list_backups()
+    pending=backups.pending_restore_info()
+    last=backups.last_restore_result()
     return {
-        "items": backups.list_backups(),
-        "pending_restore": backups.pending_restore_info(),
-        "last_restore": backups.last_restore_result(),
+        "items": items,
+        "pending_restore": pending,
+        "last_restore": last,
+        "health": backup_protection.health(items,last,pending),
     }
+
+
+@router.get("/api/v1/control/backups/policy")
+def control_backup_policy() -> dict:
+    return backup_protection.policy()
+
+
+@router.put("/api/v1/control/backups/policy")
+def control_backup_policy_update(payload: BackupPolicyUpdate) -> dict:
+    try:
+        policy=backup_protection.update_policy(payload.model_dump(exclude_none=True))
+    except backup_protection.BackupProtectionError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    _audit("backup.policy.updated",metadata={
+        "include_app_data":policy["include_app_data"],
+        "retain_manual":policy["retain_manual"],
+        "retain_automatic":policy["retain_automatic"],
+        "retain_pre_restore":policy["retain_pre_restore"],
+    })
+    return policy
+
+
+@router.get("/api/v1/control/backups/capability")
+def control_backup_capability() -> dict:
+    return backup_protection.public_capability()
 
 
 @router.post("/api/v1/control/backups/create")
