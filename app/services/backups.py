@@ -374,8 +374,14 @@ def _is_symlink(info: zipfile.ZipInfo) -> bool:
 
 
 def _validate_manifest_shape(manifest: dict[str, Any]) -> list[dict[str, Any]]:
-    if manifest.get("format") != BACKUP_FORMAT or manifest.get("format_version") != BACKUP_FORMAT_VERSION:
+    if manifest.get("format") != BACKUP_FORMAT:
         raise BackupError("Unsupported HomeServer backup format.")
+    try:
+        format_version = int(manifest.get("format_version") or 1)
+    except (TypeError, ValueError) as exc:
+        raise BackupError("Backup manifest has an invalid format version.") from exc
+    if format_version not in SUPPORTED_BACKUP_FORMAT_VERSIONS:
+        raise BackupError("Unsupported HomeServer backup format version.")
     try:
         manifest_schema = int(manifest.get("schema_version"))
     except (TypeError, ValueError) as exc:
@@ -400,7 +406,12 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             raise BackupError("Backup manifest contains duplicate or Windows-colliding file paths.")
         seen.add(path)
         seen_casefold.add(folded)
-        if path != "database/homeserver.db" and not path.startswith("knowledge/files/"):
+        allowed = (
+            path == "database/homeserver.db"
+            or path.startswith("knowledge/files/")
+            or (format_version >= 2 and path.startswith("app-data/"))
+        )
+        if not allowed:
             raise BackupError("Backup manifest contains a file outside the HomeServer backup allowlist.")
         try:
             size = int(raw.get("size"))
@@ -412,6 +423,15 @@ def _validate_manifest_shape(manifest: dict[str, Any]) -> list[dict[str, Any]]:
         entries.append({"path": path, "size": size, "sha256": digest})
     if "database/homeserver.db" not in seen:
         raise BackupError("Backup manifest does not include the HomeServer database.")
+    if format_version == 1 and any(path.startswith("app-data/") for path in seen):
+        raise BackupError("Legacy v1 backup unexpectedly contains app data.")
+    if format_version >= 2:
+        coverage = manifest.get("coverage")
+        if not isinstance(coverage, dict):
+            raise BackupError("Backup manifest is missing its coverage declaration.")
+        for excluded in ("security_secrets","runtime_state","backup_archives","restore_staging","app_recovery_snapshots"):
+            if bool(coverage.get(excluded)):
+                raise BackupError("Backup manifest declares unsupported protected data coverage.")
     return entries
 
 
