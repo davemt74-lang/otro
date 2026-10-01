@@ -24,6 +24,13 @@ on:
       - 'tests/homeserver_app_agent_runtime_v380.py'
       - 'tests/homeserver_activity_center_v390.py'
       - 'tests/homeserver_members_v400.py'
+      - 'tests/homeserver_backup_protection_v410.py'
+      - 'app/services/backup_protection.py'
+      - 'app/backup_models.py'
+      - 'app/backups_api.py'
+      - 'app/services/backups.py'
+      - 'database/migrations/065_backup_protection.sql'
+      - 'ui/backups.css'
       - 'app/services/members.py'
       - 'app/member_api.py'
       - 'database/migrations/064_multi_user.sql'
@@ -210,6 +217,8 @@ jobs:
           tests/homeserver_app_agent_runtime_v380.py
           tests/homeserver_activity_center_v390.py
           tests/homeserver_members_v400.py
+          tests/homeserver_backup_protection_v410.py
+          app/services/backup_protection.py
           app/services/members.py
           app/member_api.py
           app/services/activity_center.py
@@ -343,5 +352,7 @@ jobs:
         run: python tests/homeserver_activity_center_v390.py
       - name: Verify Multi-user HomeServer and context isolation
         run: python tests/homeserver_members_v400.py
+      - name: Verify Backup Restore and App Data Protection
+        run: python tests/homeserver_backup_protection_v410.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
