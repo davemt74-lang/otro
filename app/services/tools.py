@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, backup_protection, backups, contacts, homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
+from . import app_scopes, backup_protection, backups, storage_maintenance, contacts, homeserver_app_agent, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -17,6 +17,19 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "key": "backups.status",
         "name": "Read Backup Protection Status",
         "description": "Read bounded HomeServer backup health, coverage, retention policy and restore status without exposing archive paths, secrets or backup contents.",
+        "mode": "read",
+        "owner_only": True,
+        "required_permissions": [],
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False
+        },
+    },
+    "storage.status": {
+        "key": "storage.status",
+        "name": "Read HomeServer Storage Status",
+        "description": "Read bounded HomeServer disk health, category usage, app quota rollups and maintenance recommendations without exposing filesystem paths.",
         "mode": "read",
         "owner_only": True,
         "required_permissions": [],
@@ -1485,6 +1498,37 @@ def _backups_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     }
 
 
+def _storage_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if arguments:
+        raise ToolError(f"Unsupported storage.status argument: {sorted(arguments)[0]}")
+    status=storage_maintenance.status()
+    safe={
+        "contract":status["contract"],
+        "disk":status["disk"],
+        "categories":status["categories"],
+        "apps":{
+            "count":status["apps"]["count"],
+            "total_used_bytes":status["apps"]["total_used_bytes"],
+            "items":[
+                {
+                    "app_key":item["app_key"],
+                    "name":item["name"],
+                    "used_bytes":item["used_bytes"],
+                    "limit_bytes":item["limit_bytes"],
+                    "remaining_bytes":item["remaining_bytes"],
+                    "usage_percent":item["usage_percent"],
+                }
+                for item in status["apps"]["items"][:25]
+            ],
+        },
+        "recommendation_count":status["recommendation_count"],
+        "policy":status["policy"],
+        "automatic_deletion":False,
+        "filesystem_paths_exposed":False,
+    }
+    return safe, {"level":safe["disk"]["level"],"recommendations":safe["recommendation_count"]}
+
+
 def _notifications_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     unknown = set(arguments) - {"unread_only", "limit"}
     if unknown:
@@ -2059,6 +2103,8 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _notifications_list(payload)
         elif tool["key"] == "backups.status":
             result, result_meta = _backups_status(payload)
+        elif tool["key"] == "storage.status":
+            result, result_meta = _storage_status(payload)
         elif tool["key"] == "devices.list":
             result, result_meta = _devices_list(payload)
         elif tool["key"] == "devices.command":
