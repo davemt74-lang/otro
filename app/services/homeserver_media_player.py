@@ -281,9 +281,16 @@ def continue_watching(limit:int=24)->dict[str,Any]:
     c=_connect()
     try:
         rows=c.execute(
-            """SELECT media_id,MAX(updated_at) AS updated_at FROM playback_sessions
-               WHERE position_seconds>0 AND state!='completed'
-               GROUP BY media_id ORDER BY updated_at DESC LIMIT ?""",(limit,)
+            """SELECT ps.media_id,ps.updated_at
+               FROM playback_sessions ps
+               WHERE ps.rowid IN (
+                 SELECT MAX(rowid) FROM playback_sessions GROUP BY media_id
+               )
+                 AND ps.position_seconds>0
+                 AND ps.state!='completed'
+               ORDER BY ps.updated_at DESC
+               LIMIT ?""",
+            (limit,),
         ).fetchall()
     finally:
         c.close()
