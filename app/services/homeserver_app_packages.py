@@ -23,7 +23,7 @@ MAX_FILES=5000
 _ALLOWED_RUNTIMES={"static","php"}
 _ALLOWED_KEYS={
     "contract","app_key","name","version","runtime","entrypoint","sdk_version",
-    "permissions","settings_schema","database_migrations","agent_actions","routes","jobs","events","sample_data",
+    "permissions","settings_schema","database_migrations","agent_actions","agent_context","routes","jobs","events","sample_data",
     "release_channel","min_homeserver_version","max_homeserver_version","release_notes",
     "data_schema_version","data_migration_reversible",
 }
@@ -143,7 +143,7 @@ def _manifest_from_archive(archive:zipfile.ZipFile)->dict[str,Any]:
             raise AppPackageError("App routes are invalid.")
         if any(not isinstance(v,bool) for v in routes.values()):
             raise AppPackageError("App route flags must be booleans.")
-    for field in ("settings_schema","database_migrations","agent_actions","jobs","events","sample_data"):
+    for field in ("settings_schema","database_migrations","agent_actions","agent_context","jobs","events","sample_data"):
         if manifest.get(field):
             _safe_rel(str(manifest[field]))
     channel=str(manifest.get("release_channel") or "stable").strip().lower()
@@ -208,7 +208,7 @@ def validate_package(package:bytes,*,expected_app_key:str|None=None)->dict[str,A
         if expected_app_key and manifest["app_key"]!=str(expected_app_key).strip().lower():
             raise AppPackageError("App package identity does not match the target app.",409)
         required=[manifest["entrypoint"]]
-        for field in ("settings_schema","agent_actions","jobs","events","sample_data"):
+        for field in ("settings_schema","agent_actions","agent_context","jobs","events","sample_data"):
             if manifest.get(field):
                 required.append(_safe_rel(str(manifest[field])).as_posix())
         for path in required:
