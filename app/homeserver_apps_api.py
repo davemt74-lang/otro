@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -214,6 +214,30 @@ class MediaPlaybackRequest(BaseModel):
     completed:bool=False
 
 
+class MediaPlayerDeviceRequest(BaseModel):
+    name:str=Field(min_length=1,max_length=120)
+    kind:str=Field(default="browser",pattern="^(browser|tv|mobile|speaker|homeserver)$")
+    capabilities:dict=Field(default_factory=dict)
+    device_id:str=Field(default="",max_length=120)
+
+
+class MediaPlayerSessionRequest(BaseModel):
+    media_id:str=Field(min_length=1,max_length=100)
+    device_id:str=Field(min_length=1,max_length=120)
+    position_seconds:float|None=Field(default=None,ge=0)
+    autoplay:bool=True
+
+
+class MediaPlayerControlRequest(BaseModel):
+    command:str=Field(pattern="^(play|pause|stop|seek|complete)$")
+    position_seconds:float|None=Field(default=None,ge=0)
+    duration_seconds:float|None=Field(default=None,ge=0)
+
+
+class MediaPlayerHandoffRequest(BaseModel):
+    device_id:str=Field(min_length=1,max_length=120)
+
+
 class VideoProjectRequest(BaseModel):
     name:str=Field(min_length=1,max_length=160)
     width:int=Field(default=1920,ge=320,le=7680)
@@ -302,6 +326,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_media_library.MediaLibraryError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_media_player.MediaPlayerError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_video_editor.VideoEditorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
@@ -313,7 +339,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_library":homeserver_media_library.public_capability(),"media_player":homeserver_media_player.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -452,6 +478,70 @@ def media_server_remote_disable()->dict:
 
 
 
+
+
+@router.get("/media-player/capability")
+def media_player_capability()->dict:
+    return homeserver_media_player.public_capability()
+
+
+@router.get("/media-player/status")
+def media_player_status()->dict:
+    return _call(homeserver_media_player.status)
+
+
+@router.get("/media-player/devices")
+def media_player_devices()->dict:
+    return _call(homeserver_media_player.devices)
+
+
+@router.post("/media-player/devices")
+def media_player_register_device(payload:MediaPlayerDeviceRequest)->dict:
+    return _call(
+        homeserver_media_player.register_device,
+        payload.name,payload.kind,payload.capabilities,payload.device_id
+    )
+
+
+@router.post("/media-player/sessions")
+def media_player_create_session(payload:MediaPlayerSessionRequest)->dict:
+    return _call(
+        homeserver_media_player.create_session,
+        payload.media_id,payload.device_id,payload.position_seconds,payload.autoplay
+    )
+
+
+@router.get("/media-player/sessions/{session_id}")
+def media_player_session(session_id:str)->dict:
+    return _call(homeserver_media_player.session,session_id)
+
+
+@router.put("/media-player/sessions/{session_id}")
+def media_player_control(session_id:str,payload:MediaPlayerControlRequest)->dict:
+    return _call(
+        homeserver_media_player.control,
+        session_id,payload.command,payload.position_seconds,payload.duration_seconds
+    )
+
+
+@router.post("/media-player/sessions/{session_id}/handoff")
+def media_player_handoff(session_id:str,payload:MediaPlayerHandoffRequest)->dict:
+    return _call(homeserver_media_player.handoff,session_id,payload.device_id)
+
+
+@router.get("/media-player/continue-watching")
+def media_player_continue_watching(limit:int=Query(default=24,ge=1,le=100))->dict:
+    return _call(homeserver_media_player.continue_watching,limit)
+
+
+@router.get("/media-player/recent")
+def media_player_recent(limit:int=Query(default=50,ge=1,le=200))->dict:
+    return _call(homeserver_media_player.recent,limit)
+
+
+@router.get("/media-player/brain-context")
+def media_player_brain_context(limit:int=Query(default=8,ge=1,le=20))->dict:
+    return _call(homeserver_media_player.brain_context,limit)
 
 
 @router.get("/media-library/capability")
