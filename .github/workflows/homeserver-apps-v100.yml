@@ -21,6 +21,10 @@ on:
       - 'tests/homeserver_media_library_artwork_v353.py'
       - 'tests/homeserver_media_library_agent_v354.py'
       - 'tests/homeserver_media_player_v360.py'
+      - 'tests/homeserver_app_agent_runtime_v380.py'
+      - 'app/services/homeserver_app_agent_runtime.py'
+      - 'database/migrations/061_app_orchestration.sql'
+      - 'database/migrations/062_app_agent_runtime.sql'
       - 'app/services/homeserver_media_player.py'
       - 'app/services/homeserver_media_library.py'
       - 'app/services/homeserver_download_manager.py'
@@ -189,6 +193,8 @@ jobs:
           tests/homeserver_media_library_artwork_v353.py
           tests/homeserver_media_library_agent_v354.py
           tests/homeserver_media_player_v360.py
+          tests/homeserver_app_agent_runtime_v380.py
+          app/services/homeserver_app_agent_runtime.py
           app/services/homeserver_media_player.py
           app/services/homeserver_media_library.py
           app/services/homeserver_download_manager.py
@@ -311,5 +317,7 @@ jobs:
         run: python tests/homeserver_media_library_agent_v354.py
       - name: Verify Media Playback and Home Theater core
         run: python tests/homeserver_media_player_v360.py
+      - name: Verify Local AI and installed-app Agent runtime
+        run: python tests/homeserver_app_agent_runtime_v380.py
       - name: Verify hosted system app target bridge
         run: python tests/hosting_system_app_target_v250.py
