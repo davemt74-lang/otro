@@ -28,6 +28,11 @@ jobs:
         run: |
           python tests/first_run_v2.py
           node --check ui/welcome.js
+      - name: Agent-first cloud onboarding contract
+        run: |
+          python tests/chat_onboarding_v2.py
+          node --check ui/chat-onboarding.js
+          node --check ui/welcome.js
       - name: Verify migration chain
         run: python tests/migrations.py
       - name: Verify API smoke contract

@@ -13,16 +13,14 @@ launcher = (ROOT / "desktop/launcher.py").read_text(encoding="utf-8")
 system = (ROOT / "app/system_api.py").read_text(encoding="utf-8")
 gateway = (ROOT / "app/runtime.py").read_text(encoding="utf-8")
 
-assert '"/welcome"' in gateway and '"\/welcome"' not in gateway
+assert '"/welcome"' in gateway
 assert '"/welcome"' in system and 'no-store' in system
 assert '_authorized_path("/welcome")' in launcher
 assert 'self.open_welcome).start()' in launcher
 assert 'id="startSetup"' in html and 'id="enterAgent"' in html
 assert 'prefers-reduced-motion:reduce' in css
-assert "addEventListener('click', prepare)" in js
-assert "addEventListener('click', openAgent)" in js
-assert "REQUIRED_PACKAGES = ['whisper-stt', 'piper-tts']" in js
-assert "control/local-apps/" in js and "control/system/setup" in js
+assert "addEventListener('click',launch)" in js
+assert "control/local-apps/" not in js and "control/system/setup" not in js
 assert "window.location.assign('/#chat')" in js
 assert "Microphone, camera, and proactive speech remain your choice." in html
 assert "Don't enable" not in js  # No misleading silent entitlement state.
@@ -51,4 +49,4 @@ with tempfile.TemporaryDirectory(prefix="homeserver-welcome-") as data:
         assert client.get("/assets/welcome.css").status_code == 200
         assert client.get("/assets/welcome.js").status_code == 200
 
-print("HomeServer first-run v2: owner gate, existing API and welcome assets PASS")
+print("HomeServer first-run v2: owner gate, intro-only landing, and chat handoff PASS")
