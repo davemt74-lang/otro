@@ -15,6 +15,8 @@ with tempfile.TemporaryDirectory(prefix="hs-runtime-diagnostics-") as data:
     from app.security import OWNER_CONTROL_TOKEN
     from app.services import runtime_diagnostics as diag
 
+    # Preserve unrelated hardware fields used by the actual HomeServer startup.
+    hardware={**diag.vp3_os.hardware_inventory(),"camera":{"present":True,"ready":True}}
     stt={"stt":{"available":True,"model":"en"},"tts":{"available":True,"voice":"en"}}
     audio={"available":True,"default_input_index":0,"default_output_index":1}
     media={"healthy":True,"ffmpeg_available":True,"ffprobe_available":True,
@@ -33,9 +35,7 @@ with tempfile.TemporaryDirectory(prefix="hs-runtime-diagnostics-") as data:
          patch.object(diag.physical_meeting,"public_capability",return_value={
              "local_streaming_stt":"whisper.cpp","raw_audio_persisted":False
          }), \
-         patch.object(diag.vp3_os,"hardware_inventory",return_value={
-             "camera":{"present":True,"ready":True}
-         }), \
+         patch.object(diag.vp3_os,"hardware_inventory",return_value=hardware), \
          patch.object(diag.tracky_physical_context,"sync_status",return_value={
              "consecutive_failures":0
          }), \
