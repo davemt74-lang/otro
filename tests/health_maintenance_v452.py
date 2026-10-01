@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory(prefix="hs-maintenance-31b-") as temp:
             }
             state["issues"]=[issue]
             first=health_maintenance.sync_health_notifications()
-            assert first=={"created":1,"updated":0,"resolved":0,"snapshot_complete":True},first
+            assert first=={"created":1,"updated":0,"resolved":0,"snapshot_complete":True,"refreshed":0},first
             second=health_maintenance.sync_health_notifications()
             assert second["created"]==second["updated"]==second["resolved"]==0,second
             with db() as conn:
@@ -116,6 +116,15 @@ with tempfile.TemporaryDirectory(prefix="hs-maintenance-31b-") as temp:
                 assert row["dismissed_at"] is None and row["read_at"] is None
                 assert row["level"]=="error" and int(row["occurrence_count"])==2
             assert any(x["title"]=="Media runtime degraded" for x in activity_center.brain_context()["attention"])
+            # Fresh diagnosis can change labels or repair options without a new event.
+            new_issue["title"]="Media runtime still degraded"
+            new_issue["repair"]["agent_can_execute"]=True
+            details=health_maintenance.sync_health_notifications()
+            assert details["refreshed"]==1 and details["updated"]==0,details
+            with db() as conn:
+                row=conn.execute("SELECT title,body,occurrence_count FROM notifications WHERE id=?",(new_id,)).fetchone()
+                assert row["title"]=="Media runtime still degraded"
+                assert "governed recovery" in row["body"] and int(row["occurrence_count"])==2
 
             # A real probe failure reports incomplete, without leaking exception text.
             health_repair.status=original
