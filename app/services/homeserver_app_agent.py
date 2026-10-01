@@ -547,6 +547,8 @@ def public_capability()->dict[str,Any]:
     return {
         "contract":CONTRACT,
         "agent_brain_context":True,
+        "app_center_brain_context":True,
+        "app_center_contract":"vp3.homeserver.app-center.brain-context.v1",
         "agent_chat_tools":True,
         "read_actions":sorted(READ_ACTIONS),
         "write_actions":sorted(WRITE_ACTIONS),

@@ -7,7 +7,7 @@
     while(n>=1024 && i<units.length-1){ n/=1024; i++; }
     return `${n.toFixed(i===0?0:n>=10?1:2)} ${units[i]}`;
   };
-  const state={data:null,manager:null,permissionCatalog:null,filter:'all',loading:false,pendingSource:null,pendingDistribution:null};
+  const state={data:null,manager:null,center:null,updatePlan:null,permissionCatalog:null,filter:'all',query:'',category:'',loading:false,pendingSource:null,pendingDistribution:null};
 
   function ensureWorkspace(){
     if(document.getElementById('view-homeserver-apps')) return;
@@ -26,7 +26,7 @@
     section.id='view-homeserver-apps';
     section.innerHTML=`
       <div class="section-intro split hs-apps-intro">
-        <div><p class="eyebrow">HOMESERVER APPS</p><h2>App Manager</h2><p>Installed Apps, available VP3 Apps, shared apps, hosted apps, and user-created apps are managed from one place.</p></div>
+        <div><p class="eyebrow">HOMESERVER APPS</p><h2>Install & Update Center</h2><p>Discover VP3 Apps, review compatibility and release notes, install safely, and manage every local or hosted app from one place.</p></div>
         <div class="hs-app-intro-actions"><button class="button secondary" type="button" data-hs-app-import>Import App</button><button class="button primary" type="button" data-hs-app-create>Create App</button></div>
       </div>
       <section class="hs-app-manager-summary" id="hsAppManagerSummary">
@@ -36,13 +36,20 @@
         <div class="panel hs-app-kpi"><span>Running</span><strong>—</strong></div>
         <div class="panel hs-app-kpi"><span>Hosted</span><strong>—</strong></div>
       </section>
+      <div class="hs-app-center-controls panel">
+        <label class="hs-app-search"><span>Search apps</span><input id="hsAppSearch" type="search" maxlength="160" placeholder="Media, photos, notes…"></label>
+        <label><span>Category</span><select id="hsAppCategory"><option value="">All categories</option></select></label>
+      </div>
+      <div id="hsAppUpdatePlan" class="hs-app-update-plan hidden"></div>
       <div class="hs-apps-toolbar">
         <button class="button secondary active" type="button" data-hs-app-filter="all">All</button>
-        <button class="button secondary" type="button" data-hs-app-filter="available">Available</button>
-        <button class="button secondary" type="button" data-hs-app-filter="system">VP3 Apps</button>
+        <button class="button secondary" type="button" data-hs-app-filter="discover">Discover</button>
+        <button class="button secondary" type="button" data-hs-app-filter="installed">Installed</button>
+        <button class="button secondary" type="button" data-hs-app-filter="updates">Updates</button>
+        <button class="button secondary" type="button" data-hs-app-filter="attention">Needs Attention</button>
+        <button class="button secondary" type="button" data-hs-app-filter="vp3">VP3 Apps</button>
         <button class="button secondary" type="button" data-hs-app-filter="user">My Apps</button>
         <button class="button secondary" type="button" data-hs-app-filter="shared">Shared</button>
-        <button class="button secondary" type="button" data-hs-app-filter="updates">Updates</button>
         <button class="button secondary" type="button" data-hs-app-filter="hosted">Hosted</button>
         <span class="muted" id="hsAppsSummary">Loading…</span>
       </div>
@@ -92,6 +99,8 @@
 
   function card(app){
     const meta=app.metadata||{};
+    const center=app.center||{};
+    const readiness=center.readiness||{};
     const system=app.app_class==='system';
     const installed=!!app.installed;
     const canOpen=app.actions?.open;
@@ -102,9 +111,9 @@
     const shared=!!app.distribution;
     const status=installed?(app.lifecycle_state||'installed'):'available';
     const primary=!installed
-      ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}">Install</button>`
+      ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}" ${readiness.blocked?'disabled':''}>Install</button>`
       : app.update_available
-        ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}">Update</button>`
+        ? `<button class="button primary" type="button" data-hs-prebuilt-install="${esc(app.app_key)}" ${readiness.blocked?'disabled':''}>Update</button>`
         : canOpen
           ? `<a class="button primary" href="/api/v1/control/homeserver-apps/${encodeURIComponent(app.app_key)}/preview/" target="_blank" rel="noreferrer">Open</a>`
           : '';
@@ -120,6 +129,9 @@
           ${shared?'<span>Private Share</span>':''}
           ${hosted?'<span>Hosted</span>':''}
           ${app.update_available?'<span>Update Available</span>':''}
+          ${readiness.blocked?'<span class="hs-app-tag-danger">Blocked</span>':''}
+          ${readiness.warnings?.length?'<span class="hs-app-tag-warn">Review update</span>':''}
+          ${app.installed&&app.agent_control?.complete?'<span>Agent Ready</span>':''}
         </div>
         <dl class="hs-app-meta">
           <div><dt>Installed</dt><dd>${esc(app.installed_version||'—')}</dd></div>
@@ -127,6 +139,9 @@
           <div><dt>Permissions</dt><dd>${permissionCount?`${allowedCount}/${permissionCount}`:'—'}</dd></div>
           <div><dt>Storage</dt><dd>${installed?bytes(storage):'—'}</dd></div>
         </dl>
+        ${center.release_notes?.length?`<div class="hs-app-release-note"><strong>What’s new</strong><span>${esc(center.release_notes[0])}</span></div>`:''}
+        ${readiness.issues?.length?`<div class="hs-app-readiness danger"><strong>Not ready</strong><span>${esc(readiness.issues[0].message)}</span></div>`:''}
+        ${readiness.warnings?.length?`<div class="hs-app-readiness warning"><strong>Review before ${esc(readiness.operation||'update')}</strong><span>${esc(readiness.warnings[0].message)}</span></div>`:''}
         <div class="hs-app-actions">
           ${primary}
           ${installed?`<button class="button secondary" type="button" data-hs-app-details="${esc(app.app_key)}">Manage</button>`:''}
@@ -148,25 +163,45 @@
 
   function render(){
     const grid=document.getElementById('hsAppsGrid');
-    if(!grid||!state.manager) return;
-    const counts=state.manager.counts||{};
-    const items=(state.manager.items||[]).filter(app=>{
+    if(!grid||!state.manager||!state.center) return;
+    const counts=state.center.counts||{};
+    const centerByKey=new Map((state.center.items||[]).map(row=>[row.app_key,row]));
+    const items=(state.manager.items||[]).map(app=>({...app,center:centerByKey.get(app.app_key)||{}})).filter(app=>{
+      const center=app.center||{};
+      const query=state.query.trim().toLowerCase();
+      if(query && !String(center.search_text||[app.name,app.app_key,app.description,app.category].join(' ')).toLowerCase().includes(query)) return false;
+      if(state.category && String(app.category||'')!==state.category) return false;
       if(state.filter==='all') return true;
-      if(state.filter==='available') return !app.installed&&app.available;
-      if(state.filter==='system') return app.app_class==='system';
-      if(state.filter==='user') return app.app_class==='user';
-      if(state.filter==='shared') return !!app.distribution;
+      if(state.filter==='discover') return !app.installed&&app.available;
+      if(state.filter==='installed') return !!app.installed;
       if(state.filter==='updates') return !!app.update_available;
+      if(state.filter==='attention') return !!(center.attention||[]).length;
+      if(state.filter==='vp3') return app.product_type==='vp3_optional_app';
+      if(state.filter==='user') return app.app_class==='user';
+      if(state.filter==='shared') return app.product_type==='private_shared_app';
       if(state.filter==='hosted') return !!app.hosting?.bound;
       return true;
     });
-    document.getElementById('hsAppsSummary').textContent=`${counts.installed||0} installed · ${counts.available||0} available · ${counts.updates||0} updates`;
+    document.getElementById('hsAppsSummary').textContent=`${counts.installed||0} installed · ${counts.discover||0} discover · ${counts.updates||0} updates · ${counts.attention||0} attention`;
     const summary=document.getElementById('hsAppManagerSummary');
     if(summary){
-      const values=[counts.installed||0,counts.available||0,counts.updates||0,counts.running||0,counts.hosted||0];
+      const managerCounts=state.manager.counts||{};
+      const values=[counts.installed||0,counts.discover||0,counts.updates||0,managerCounts.running||0,counts.hosted||0];
       summary.querySelectorAll('strong').forEach((node,i)=>node.textContent=String(values[i]??0));
     }
-    grid.innerHTML=items.length?items.map(card).join(''):'<div class="panel empty-state">No Apps match this filter.</div>';
+    const category=document.getElementById('hsAppCategory');
+    if(category){
+      const selected=state.category;
+      category.innerHTML='<option value="">All categories</option>'+((state.center.categories||[]).map(value=>`<option value="${esc(value)}">${esc(value)}</option>`).join(''));
+      category.value=(state.center.categories||[]).includes(selected)?selected:'';
+    }
+    const plan=document.getElementById('hsAppUpdatePlan');
+    if(plan){
+      const updates=state.updatePlan?.updates||[];
+      plan.classList.toggle('hidden',!updates.length);
+      plan.innerHTML=updates.length?`<div class="panel"><div><p class="eyebrow">UPDATE CENTER</p><h3>${updates.length} update${updates.length===1?'':'s'} available</h3><p class="muted">${state.updatePlan.ready_count||0} ready · ${state.updatePlan.warning_count||0} need review · ${state.updatePlan.blocked_count||0} blocked. Updates are applied one app at a time through the verified HomeServer installer.</p></div><button class="button secondary" type="button" data-hs-app-filter-jump="updates">Review updates</button></div>`:'';
+    }
+    grid.innerHTML=items.length?items.map(card).join(''):'<div class="panel empty-state">No Apps match this view.</div>';
     renderPermissionChoices();
   }
 
@@ -174,12 +209,16 @@
     if(state.loading) return;
     state.loading=true;
     try{
-      if(force||!state.manager||!state.permissionCatalog){
+      if(force||!state.manager||!state.center||!state.permissionCatalog){
         const loaded=await Promise.all([
           window.api('/api/v1/control/homeserver-apps/manager'),
+          window.api('/api/v1/control/homeserver-apps/app-center'),
+          window.api('/api/v1/control/homeserver-apps/app-center/update-plan'),
           window.api('/api/v1/control/homeserver-apps/permissions/catalog')
         ]);
         state.manager=loaded[0];
+        state.center=loaded[1];
+        state.updatePlan=loaded[2];
         state.data={
           apps:(loaded[0].items||[]).filter(x=>x.installed).map(x=>({
             app_key:x.app_key,name:x.name,app_class:x.app_class,lifecycle_state:x.lifecycle_state,
@@ -187,7 +226,7 @@
           })),
           counts:{system:loaded[0].counts?.system||0,user:loaded[0].counts?.user||0}
         };
-        state.permissionCatalog=loaded[1];
+        state.permissionCatalog=loaded[3];
       }
       render();
     }catch(error){
@@ -400,6 +439,12 @@
       document.querySelectorAll('[data-hs-app-filter]').forEach(n=>n.classList.toggle('active',n===filter));
       render(); return;
     }
+    const jump=event.target.closest('[data-hs-app-filter-jump]');
+    if(jump){
+      state.filter=jump.dataset.hsAppFilterJump||'all';
+      document.querySelectorAll('[data-hs-app-filter]').forEach(n=>n.classList.toggle('active',n.dataset.hsAppFilter===state.filter));
+      render(); return;
+    }
     if(event.target.closest('[data-hs-app-create]')) document.getElementById('hsAppsCreate')?.classList.remove('hidden');
     if(event.target.closest('[data-hs-app-import]')) document.getElementById('hsAppsImport')?.classList.remove('hidden');
     if(event.target.closest('[data-hs-app-create-cancel]')) document.getElementById('hsAppsCreate')?.classList.add('hidden');
@@ -410,13 +455,20 @@
     const prebuilt=event.target.closest('[data-hs-prebuilt-install]');
     if(prebuilt){
       const key=prebuilt.dataset.hsPrebuiltInstall;
+      const center=(state.center?.items||[]).find(item=>item.app_key===key)||{};
+      const readiness=center.readiness||{};
+      if(readiness.blocked){window.flash(readiness.issues?.[0]?.message||'This app is not ready to install or update.',true);return;}
+      const verb=center.update_available?'Update':'Install';
+      const warning=readiness.warnings?.[0]?.message||'';
+      const message=warning?`${warning}\n\nContinue with ${verb.toLowerCase()}?`:`${verb} ${center.name||key} through the verified HomeServer installer?`;
+      if(!confirm(message)) return;
       prebuilt.disabled=true;
       const original=prebuilt.textContent;
-      prebuilt.textContent=original==='Update'?'Updating…':'Installing…';
+      prebuilt.textContent=verb==='Update'?'Updating…':'Installing…';
       post('/api/v1/control/homeserver-apps/catalog/prebuilt/'+encodeURIComponent(key)+'/install')
-        .then(async()=>{await load(true);window.flash('VP3 app installed.');})
-        .catch(error=>window.flash(error.message||'VP3 app install failed.',true))
-        .finally(()=>{prebuilt.disabled=false;});
+        .then(async()=>{await load(true);window.flash(verb==='Update'?'VP3 app updated.':'VP3 app installed.');})
+        .catch(error=>window.flash(error.message||`VP3 app ${verb.toLowerCase()} failed.`,true))
+        .finally(()=>{prebuilt.disabled=false;prebuilt.textContent=original;});
       return;
     }
     const distributionInstall=event.target.closest('[data-hs-distribution-install]');
@@ -509,7 +561,15 @@
     if(action) act(action);
   });
 
+  let appSearchTimer=null;
+  document.addEventListener('input',(event)=>{
+    if(event.target.id!=='hsAppSearch') return;
+    clearTimeout(appSearchTimer);
+    appSearchTimer=setTimeout(()=>{state.query=event.target.value||'';render();},180);
+  });
+
   document.addEventListener('change',async(event)=>{
+    if(event.target.id==='hsAppCategory'){state.category=event.target.value||'';render();return;}
     const input=event.target.closest('[data-hs-app-permission]');
     if(!input) return;
     try{
