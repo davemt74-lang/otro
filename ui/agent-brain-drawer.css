@@ -1,0 +1,26 @@
+/* Slide-out overlay: never widens the document or competes with Agent Chat. */
+.agent-brain-drawer-toggle{display:inline-flex;align-items:center;gap:8px;border:1px solid #c9d1dc;border-radius:12px;padding:9px 12px;background:var(--panel,#fff);color:inherit;cursor:pointer;font:inherit}
+.agent-brain-drawer-toggle[data-health="failed"] #agentBrainDrawerCount,.agent-brain-drawer-toggle[data-health="degraded"] #agentBrainDrawerCount{color:#a12626}
+#agentBrainDrawerCount:not(:empty){border-radius:99px;background:#f3e7e2;padding:0 6px;font-size:12px}
+.agent-brain-drawer{position:fixed;z-index:1100;inset:0 0 0 auto;width:min(410px,100vw);max-width:100vw;height:100dvh;background:var(--panel,#fff);color:var(--text,#182334);border-left:1px solid #d9e0e8;box-shadow:-16px 0 35px #17243824;transform:translateX(105%);visibility:hidden;transition:transform .2s ease,visibility .2s;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box}
+.agent-brain-drawer.is-open{transform:translateX(0);visibility:visible}
+.agent-brain-drawer-head{display:flex;align-items:start;justify-content:space-between;padding:22px 22px 15px;border-bottom:1px solid #e1e4e9;flex-shrink:0}
+.agent-brain-drawer-head h2{font-size:22px;margin:5px 0 0}
+.agent-brain-close{font-size:26px;line-height:1;border:0;background:transparent;cursor:pointer;color:inherit;padding:3px 10px}
+.agent-brain-drawer-body{overflow-y:auto;padding:20px 22px 26px;min-height:0;overscroll-behavior:contain}
+.agent-brain-intro{font-size:13px;line-height:1.5;color:var(--muted,#697687)}
+.agent-brain-summary{display:grid;gap:5px;padding:16px;border-radius:12px;border:1px solid #dae3ee;margin:18px 0}
+.agent-brain-summary strong{font-size:21px}
+.agent-brain-summary small{color:var(--muted,#697687)}
+.agent-brain-section-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.agent-brain-section-head h3{font-size:15px}
+.agent-brain-section-head button{border:0;background:transparent;cursor:pointer;color:inherit;text-decoration:underline}
+.agent-brain-issues{display:grid;gap:8px}
+.agent-brain-issue{display:grid;gap:5px;text-align:left;white-space:normal;padding:13px;border-radius:10px;border:1px solid #dfe4eb;color:inherit;background:transparent;cursor:pointer}
+.agent-brain-issue:hover,.agent-brain-issue:focus-visible{border-color:#829fbe}
+.agent-brain-severity{text-transform:uppercase;letter-spacing:.05em;font-size:10px;color:var(--muted,#697687)}
+.agent-brain-issue small{color:var(--muted,#697687)}
+.agent-brain-drawer-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.agent-brain-drawer-actions button{flex:1}
+@media (max-width:600px){.agent-brain-toggle-label{display:none}.agent-brain-drawer-head{padding:16px}.agent-brain-drawer-body{padding:16px}}
+@media (prefers-reduced-motion:reduce){.agent-brain-drawer{transition:none}}
