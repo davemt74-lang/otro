@@ -5,7 +5,21 @@ import json
 import os
 import sys
 import tempfile
+import errno
+import time
 from pathlib import Path
+
+class QuiescentTestDataDirectory(tempfile.TemporaryDirectory):
+    """Wait briefly for a retiring test writer rather than silently ignoring leaks."""
+    def cleanup(self):
+        for attempt in range(12):
+            try:
+                return super().cleanup()
+            except OSError as exc:
+                if exc.errno not in (errno.ENOTEMPTY, errno.EACCES) or attempt == 11:
+                    raise
+                time.sleep(0.1)
+
 
 from fastapi.testclient import TestClient
 
@@ -13,7 +27,7 @@ ROOT=Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 
-with tempfile.TemporaryDirectory(prefix="homeserver-processor-v340-") as data_dir, tempfile.TemporaryDirectory(prefix="vp3-media-source-") as source_dir, tempfile.TemporaryDirectory(prefix="vp3-processor-output-") as output_dir, tempfile.TemporaryDirectory(prefix="vp3-media-tools-") as tools_dir:
+with QuiescentTestDataDirectory(prefix="homeserver-processor-v340-") as data_dir, tempfile.TemporaryDirectory(prefix="vp3-media-source-") as source_dir, tempfile.TemporaryDirectory(prefix="vp3-processor-output-") as output_dir, tempfile.TemporaryDirectory(prefix="vp3-media-tools-") as tools_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
     os.environ["HOMESERVER_MEDIA_TOOLS_DIR"]=tools_dir
 
