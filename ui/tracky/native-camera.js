@@ -85,8 +85,8 @@ async function checkPrivacy(){
   button.disabled=true;
   try{
     const review=await call('privacy-review',{consent:true});
-    if(review.privacy_check==='locally_reported_blocked')
-      say('HomeServer reports its physical privacy disconnect engaged. No camera was opened; installed-device certification still requires your review.');
+    if(review.privacy_check==='reported_software_gate_engaged')
+      say('HomeServer reports its camera software gate engaged by the privacy switch. No camera was opened; physical camera disconnect and installed-device certification remain unverified.');
     else say(review.instruction||'Privacy switch not verified. Engage it, then retry this read-only check.');
     await refresh();
   }catch(error){say('Privacy review unavailable: '+String(error.message));}

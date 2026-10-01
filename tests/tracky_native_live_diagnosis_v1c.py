@@ -82,12 +82,12 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-diagnosis-v1c-") as root:
         # Privacy review is never a camera-open challenge; only reported
         # physical-disconnect evidence may be acknowledged.
         assert client.post(base+"privacy-review",headers=headers,json={"consent":True}).json()["privacy_check"]=="not_verified"
-        vp3_os.report_hardware("privacy_switch",present=True,ready=True,metadata={
-            "engaged":True,"physical_disconnect":True,"microphone_powered":False
+        vp3_os.report_hardware_state("privacy_switch",present=True,ready=True,metadata={
+            "engaged":True,"physical_disconnect":False,"microphone_powered":True
         })
         approved=client.post(base+"privacy-review",headers=headers,json={"consent":True})
         assert approved.status_code==200,approved.text
-        assert approved.json()["privacy_check"]=="locally_reported_blocked"
+        assert approved.json()["privacy_check"]=="reported_software_gate_engaged"
         assert approved.json()["hardware_certified"] is False
         assert approved.json()["camera_opened"] is False
         assert not native.status()["hardware_certified"]

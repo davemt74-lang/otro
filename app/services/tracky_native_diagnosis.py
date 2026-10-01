@@ -126,14 +126,18 @@ def privacy_review(*, consent: bool) -> dict[str, Any]:
     if consent is not True:
         raise ValueError("Explicit owner approval required for privacy review.")
     hardware = vp3_os.hardware_inventory().get("privacy_switch") or {}
+    # VP3 OS physical_disconnect currently describes the microphone power
+    # circuit. It does NOT prove the camera is physically disconnected.
+    # Validate only the software camera gate controlled by the reported
+    # privacy switch. Installed-device physical camera proof is separate.
     engaged = bool(hardware.get("present") and hardware.get("ready")
-                   and hardware.get("engaged") and hardware.get("physical_disconnect"))
+                   and hardware.get("engaged"))
     if not engaged or not native.status()["privacy_engaged"]:
         return {"privacy_check": "not_verified",
-                "instruction": "Engage the reported physical privacy disconnect, then retry.",
+                "instruction": "Engage the hardware-reported privacy switch, then retry. This check never opens the camera.",
                 "camera_opened": False, "hardware_certified": False}
     _save({"phase": "privacy_reviewed", "boot_id": _BOOT,
            "privacy_reviewed_at": datetime.now(timezone.utc).isoformat()})
-    return {"privacy_check": "locally_reported_blocked",
+    return {"privacy_check": "reported_software_gate_engaged",
             "camera_opened": False, "hardware_certified": False,
-            "instruction": "Physical privacy was reported engaged. Full hardware certification still requires the installed-device acceptance procedure."}
+            "instruction": "Reported privacy switch engages HomeServer's camera software gate; physical camera disconnect and on-device acceptance remain unverified."}
