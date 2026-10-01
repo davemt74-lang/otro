@@ -10,7 +10,7 @@ from ..database import db
 from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.09.30.13"
+CATALOG_VERSION = "2026.09.30.14"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -176,7 +176,7 @@ CATALOG = {
     "vp3.photo-library": {
         "key": "vp3.photo-library",
         "name": "VP3 Photo Library",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
@@ -297,9 +297,9 @@ CATALOG = {
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Adds canonical metadata overlays keyed by Media Server media IDs.",
-            "Adds tags, ratings, favorites, custom fields, relations, provenance, history, and undo without modifying source files.",
-            "Ships with SDK 1.2 / Agent Actions v2 and Agent Brain context."
+            "Adds manual cross-media collections and smart collections powered by saved metadata filters.",
+            "Retains canonical Media Server IDs, metadata provenance/history, and non-destructive source handling.",
+            "Ships with SDK 1.2 / Agent Actions v2 and Agent Brain collection awareness."
         ],
         "category": "Media",
         "kind": "media_library",
@@ -314,6 +314,13 @@ CATALOG = {
             {"key":"library.history","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"media_id":{"type":"string","minLength":1,"maxLength":100},"limit":{"type":"integer","minimum":1,"maximum":500}},"required":["media_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.undo","risk":"write","requires_confirmation":True,"input_schema":{"type":"object","properties":{"history_id":{"type":"string","minLength":1,"maxLength":100},"actor":{"type":"string","maxLength":120}},"required":["history_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.search","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"query":{"type":"string","maxLength":200},"media_type":{"type":"string","enum":["","video","audio","image"]},"tag":{"type":"string","maxLength":80},"favorite":{"type":["boolean","null"]},"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.collections","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.collection.get","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"collection_id":{"type":"string","minLength":1,"maxLength":100},"limit":{"type":"integer","minimum":1,"maximum":500}},"required":["collection_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.collection.create","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"name":{"type":"string","minLength":1,"maxLength":160},"description":{"type":"string","maxLength":2000},"collection_type":{"type":"string","enum":["manual","smart"]},"rules":{"type":"object"}},"required":["name"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.collection.add","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"collection_id":{"type":"string","minLength":1,"maxLength":100},"media_id":{"type":"string","minLength":1,"maxLength":100},"position":{"type":"integer","minimum":-1000000,"maximum":1000000}},"required":["collection_id","media_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.collection.remove","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"collection_id":{"type":"string","minLength":1,"maxLength":100},"media_id":{"type":"string","minLength":1,"maxLength":100}},"required":["collection_id","media_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.collection.delete","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"collection_id":{"type":"string","minLength":1,"maxLength":100}},"required":["collection_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
+            {"key":"library.smart-collections","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}},
             {"key":"library.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_library"}}
         ],
     },
