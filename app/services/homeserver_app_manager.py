@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import (
+    homeserver_app_agent_runtime,
     homeserver_app_control,
     homeserver_app_distribution,
     homeserver_app_prebuilt,
@@ -84,6 +85,11 @@ def inventory()->dict[str,Any]:
         processor_state=_safe(homeserver_media_processor.status) if key==homeserver_media_processor.APP_KEY and installed else None
         video_state=_safe(homeserver_video_editor.status) if key==homeserver_video_editor.APP_KEY and installed else None
         control_compat=_safe(lambda:homeserver_app_control.compatibility(key)) if installed else None
+        agent_runtime_state=_safe(lambda:{
+            "policy":homeserver_app_agent_runtime.policy(key).get("policy"),
+            "context":homeserver_app_agent_runtime.context_providers(key),
+            "recent_runs":homeserver_app_agent_runtime.recent_runs(key,5).get("runs",[]),
+        }) if installed else None
         control_manifest=_safe(lambda:homeserver_app_control.manifest(key)) if installed else None
         item={
             "app_key":key,
@@ -116,6 +122,7 @@ def inventory()->dict[str,Any]:
             "media_processor":processor_state,
             "media_tools":homeserver_media_tools.public_capability() if key==homeserver_media_processor.APP_KEY else None,
             "video_editor":video_state,
+            "agent_runtime":agent_runtime_state,
             "agent_control":{
                 "complete":bool(installed and control_compat and control_compat.get("compatible")),
                 "compatible":bool(control_compat and control_compat.get("compatible")),
