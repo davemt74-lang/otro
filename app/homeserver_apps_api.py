@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_server, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -79,6 +79,32 @@ class MediaMappedRootRequest(BaseModel):
     computer_name:str=Field(default="",max_length=120)
     source_hint:str=Field(default="",max_length=240)
     source_kind:str=Field(default="computer_folder",pattern="^(computer_folder|network_share|local_folder)$")
+
+
+class MediaProcessRequest(BaseModel):
+    operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
+    preset:str=Field(default="default",max_length=80)
+    output_format:str=Field(default="",pattern="^(|jpg|jpeg|png|webp|mp4|mp3)$")
+    priority:int=Field(default=0,ge=-100,le=100)
+
+
+class MediaProcessorCreateRequest(BaseModel):
+    media_id:str=Field(min_length=1,max_length=100)
+    operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
+    preset:str=Field(default="default",max_length=80)
+    output_format:str=Field(default="",pattern="^(|jpg|jpeg|png|webp|mp4|mp3)$")
+    priority:int=Field(default=0,ge=-100,le=100)
+    destination_id:str=Field(default="app-storage",max_length=80)
+
+
+class MediaProcessorDestinationRequest(BaseModel):
+    path:str=Field(min_length=1,max_length=2000)
+    label:str=Field(default="",max_length=120)
+    destination_kind:str=Field(default="mapped_folder",pattern="^(mapped_folder|network_share|local_folder)$")
+
+
+class MediaProcessorSettingsRequest(BaseModel):
+    values:dict=Field(default_factory=dict)
 
 
 class DownloadCreateRequest(BaseModel):
@@ -239,6 +265,8 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_download_manager.DownloadManagerError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    except homeserver_media_processor.MediaProcessorError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_video_editor.VideoEditorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
@@ -250,7 +278,7 @@ def list_apps()->dict:
 
 @router.get("/capability")
 def apps_capability()->dict:
-    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
+    return {**homeserver_apps.public_capability(),"platform":homeserver_app_platform.capability(),"manager":homeserver_app_manager.public_capability(),"control":homeserver_app_control.public_capability(),"media_server":homeserver_media_server.public_capability(),"music_server":homeserver_music_server.public_capability(),"photo_library":homeserver_photo_library.public_capability(),"download_manager":homeserver_download_manager.public_capability(),"media_processor":homeserver_media_processor.capability(),"media_tools":homeserver_media_tools.public_capability(),"video_editor":homeserver_video_editor.public_capability(),"packages":homeserver_app_packages.public_capability(),"security":homeserver_app_security.public_capability(),"resources":homeserver_app_resources.public_capability(),"runtime_services":homeserver_app_runtime.public_capability(),"sample_data":homeserver_app_sample_data.public_capability(),"prebuilt":homeserver_app_prebuilt.public_capability(),"agent":homeserver_app_agent.public_capability(),"releases":homeserver_app_releases.public_capability(),"sources":homeserver_app_sources.public_capability(),"workspace":homeserver_app_workspace.public_capability(),"distribution":homeserver_app_distribution.public_capability()}
 
 
 @router.get("/platform")
@@ -331,6 +359,14 @@ def media_server_item(media_id:str)->dict:
     return _call(homeserver_media_server.item,media_id)
 
 
+@router.post("/media-server/item/{media_id}/process")
+def media_server_process(media_id:str,payload:MediaProcessRequest)->dict:
+    return _call(
+        homeserver_media_server.process_media,media_id,payload.operation,
+        payload.preset,payload.output_format,payload.priority
+    )
+
+
 @router.get("/media-server/stream/{media_id}")
 def media_server_stream(media_id:str):
     path,mime,item=_call(homeserver_media_server.resolve_stream,media_id)
@@ -381,6 +417,121 @@ def media_server_remote_disable()->dict:
 
 
 
+
+
+@router.get("/media-processor/capability")
+def media_processor_capability()->dict:
+    return homeserver_media_processor.capability()
+
+
+@router.get("/media-processor/tools")
+def media_processor_tools()->dict:
+    return homeserver_media_tools.public_capability()
+
+
+@router.get("/media-processor/status")
+def media_processor_status()->dict:
+    return _call(homeserver_media_processor.status)
+
+
+@router.get("/media-processor/brain-context")
+def media_processor_brain_context(limit:int=Query(default=8,ge=1,le=20))->dict:
+    return _call(homeserver_media_processor.brain_context,limit)
+
+
+@router.get("/media-processor/jobs")
+def media_processor_jobs(limit:int=Query(default=100,ge=1,le=500))->dict:
+    return _call(homeserver_media_processor.list_jobs,limit)
+
+
+@router.post("/media-processor/jobs")
+def media_processor_enqueue(payload:MediaProcessorCreateRequest)->dict:
+    return _call(
+        homeserver_media_processor.enqueue,payload.media_id,payload.operation,
+        payload.preset,payload.output_format,payload.priority,payload.destination_id
+    )
+
+
+@router.get("/media-processor/jobs/{job_id}")
+def media_processor_job(job_id:str)->dict:
+    return _call(homeserver_media_processor.get_job,job_id)
+
+
+@router.delete("/media-processor/jobs/{job_id}")
+def media_processor_cancel(job_id:str)->dict:
+    return _call(homeserver_media_processor.cancel,job_id)
+
+
+@router.post("/media-processor/jobs/{job_id}/retry")
+def media_processor_retry(job_id:str)->dict:
+    return _call(homeserver_media_processor.retry,job_id)
+
+
+@router.get("/media-processor/derivatives")
+def media_processor_derivatives(
+    media_id:str=Query(default="",max_length=100),
+    limit:int=Query(default=200,ge=1,le=500),
+)->dict:
+    return _call(homeserver_media_processor.derivatives,media_id,limit)
+
+
+@router.get("/media-processor/derivatives/{derivative_id}/file")
+def media_processor_derivative_file(derivative_id:str):
+    path,row=_call(homeserver_media_processor.resolve_derivative,derivative_id)
+    from fastapi.responses import FileResponse
+    mime={
+        "mp4":"video/mp4","webm":"video/webm","mp3":"audio/mpeg",
+        "jpg":"image/jpeg","jpeg":"image/jpeg","png":"image/png","webp":"image/webp"
+    }.get(str(row.get("format") or "").lower(),"application/octet-stream")
+    return FileResponse(
+        path,media_type=mime,filename=None,
+        headers={
+            "Cache-Control":"private, no-store",
+            "X-Content-Type-Options":"nosniff",
+            "X-VP3-Derivative-Id":str(row["derivative_id"]),
+        },
+    )
+
+
+@router.get("/media-processor/destinations")
+def media_processor_destinations()->dict:
+    return _call(homeserver_media_processor.destinations)
+
+
+@router.post("/media-processor/destinations")
+def media_processor_add_destination(payload:MediaProcessorDestinationRequest)->dict:
+    return _call(homeserver_media_processor.add_destination,payload.path,payload.label,payload.destination_kind)
+
+
+@router.delete("/media-processor/destinations/{destination_id}")
+def media_processor_remove_destination(destination_id:str)->dict:
+    return _call(homeserver_media_processor.remove_destination,destination_id)
+
+
+@router.get("/media-processor/settings")
+def media_processor_settings()->dict:
+    return _call(homeserver_media_processor.settings)
+
+
+@router.put("/media-processor/settings")
+def media_processor_update_settings(payload:MediaProcessorSettingsRequest)->dict:
+    return _call(homeserver_media_processor.update_settings,payload.values)
+
+@router.get("/media-processor/remote")
+def media_processor_remote_status()->dict:
+    return _call(homeserver_media_processor.remote_status)
+
+
+@router.post("/media-processor/remote/enable")
+def media_processor_remote_enable()->dict:
+    return _call(homeserver_media_processor.enable_remote)
+
+
+@router.post("/media-processor/remote/disable")
+def media_processor_remote_disable()->dict:
+    return _call(homeserver_media_processor.disable_remote)
+
+
 @router.get("/download-manager/capability")
 def download_manager_capability()->dict:
     return homeserver_download_manager.public_capability()
@@ -408,6 +559,14 @@ def download_manager_enqueue(payload:DownloadCreateRequest)->dict:
         destination_id=payload.destination_id,filename=payload.filename,priority=payload.priority,
         checksum_algorithm=payload.checksum_algorithm,checksum_expected=payload.checksum_expected,
         max_retries=payload.max_retries,scheduled_at=payload.scheduled_at,
+    )
+
+
+@router.post("/download-manager/downloads/{download_id}/process")
+def download_manager_process(download_id:str,payload:MediaProcessRequest)->dict:
+    return _call(
+        homeserver_download_manager.handoff_to_processor,download_id,payload.operation,
+        payload.preset,payload.output_format,payload.priority
     )
 
 
@@ -737,6 +896,11 @@ def video_editor_update_clip(project_id:str,clip_id:str,payload:VideoClipUpdateR
 @router.delete("/video-editor/projects/{project_id}/clips/{clip_id}")
 def video_editor_remove_clip(project_id:str,clip_id:str)->dict:
     return _call(homeserver_video_editor.remove_clip,project_id,clip_id)
+
+
+@router.post("/video-editor/projects/{project_id}/clips/{clip_id}/proxy")
+def video_editor_clip_proxy(project_id:str,clip_id:str)->dict:
+    return _call(homeserver_video_editor.queue_clip_proxy,project_id,clip_id)
 
 
 @router.post("/video-editor/projects/{project_id}/render")

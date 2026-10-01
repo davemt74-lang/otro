@@ -10,7 +10,7 @@ from ..database import db
 from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.09.30.10"
+CATALOG_VERSION = "2026.09.30.12"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -21,6 +21,8 @@ VIDEO_EDITOR_CSS = """*{box-sizing:border-box}body{margin:0;background:#0d0f12;c
 VIDEO_EDITOR_JS = """const api='/api/v1/control/homeserver-apps/video-editor';const media='/api/v1/control/homeserver-apps/media-server';let active=null,library=[];const esc=s=>String(s??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));async function req(url,opt={}){const r=await fetch(url,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{})}});if(!r.ok){let m='Request failed';try{m=(await r.json()).detail||m}catch{}throw new Error(m)}return r.json()}async function loadProjects(){const j=await req(api+'/projects');document.getElementById('projects').innerHTML=j.projects.map(p=>'<button class=\"item\" data-project=\"'+esc(p.project_id)+'\">'+esc(p.name)+'</button>').join('')||'<p class=\"muted\">No projects yet.</p>';if(!active&&j.projects[0])openProject(j.projects[0].project_id)}async function loadMedia(){try{const j=await req(media+'/library?limit=100&media_type=video');library=j.items||[]}catch{library=[]}document.getElementById('media').innerHTML=library.map(x=>'<button class=\"item\" data-media=\"'+esc(x.media_id)+'\">'+esc(x.title)+'</button>').join('')||'<p class=\"muted\">Install and scan Media Server to add source clips.</p>'}async function openProject(id){active=await req(api+'/projects/'+encodeURIComponent(id));document.getElementById('projectTitle').textContent=active.project.name;document.getElementById('timeline').innerHTML=active.tracks.map(t=>'<div class=\"track\"><div class=\"track-name\">'+esc(t.name)+'</div><div class=\"lane\" data-track=\"'+esc(t.track_id)+'\">'+active.clips.filter(c=>c.track_id===t.track_id).map(c=>'<button class=\"clip\" data-clip=\"'+esc(c.clip_id)+'\">'+esc((c.metadata||{}).title||c.media_id)+'</button>').join('')+'</div></div>').join('');document.getElementById('renders').innerHTML=active.renders.map(r=>'<div class=\"item\">'+esc(r.output_name)+' · '+esc(r.status)+'</div>').join('')||'<p class=\"muted\">No renders yet.</p>'}document.getElementById('newProject').onclick=async()=>{const name=prompt('Project name');if(!name)return;const j=await req(api+'/projects',{method:'POST',body:JSON.stringify({name})});await loadProjects();await openProject(j.project.project_id)};document.getElementById('render').onclick=async()=>{if(!active)return;await req(api+'/projects/'+encodeURIComponent(active.project.project_id)+'/render',{method:'POST',body:JSON.stringify({preset:'1080p',format:'mp4'})});await openProject(active.project.project_id)};document.getElementById('projects').onclick=e=>{const b=e.target.closest('[data-project]');if(b)openProject(b.dataset.project)};document.getElementById('media').onclick=async e=>{const b=e.target.closest('[data-media]');if(!b||!active)return;const track=active.tracks.find(t=>t.kind==='video');if(!track)return;await req(api+'/projects/'+encodeURIComponent(active.project.project_id)+'/clips',{method:'POST',body:JSON.stringify({track_id:track.track_id,media_id:b.dataset.media,start_seconds:0})});await openProject(active.project.project_id)};Promise.all([loadProjects(),loadMedia()]).catch(e=>document.getElementById('projectTitle').textContent=e.message);"""
 
 COMMON_JS = """const cfg=window.VP3_PREBUILT;const dataUrl='/api/v1/control/homeserver-apps/'+encodeURIComponent(cfg.key)+'/data/file?path='+encodeURIComponent('data.json');const sampleUrl='/api/v1/control/homeserver-apps/'+encodeURIComponent(cfg.key)+'/sample-data';const esc=(s)=>String(s??'').replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));async function readData(){try{const r=await fetch(dataUrl,{cache:'no-store'});if(r.status===404)return [];if(!r.ok)return [];return await r.json()}catch(e){return []}}async function writeData(value){const blob=new Blob([JSON.stringify(value,null,2)],{type:'application/json'});const f=new FormData();f.append('file',blob,'data.json');const r=await fetch(dataUrl,{method:'PUT',body:f});if(!r.ok)throw new Error('Unable to save app data')}async function samples(){try{const r=await fetch(sampleUrl,{cache:'no-store'});if(!r.ok)return [];const j=await r.json();return j.sample_data?.items||[]}catch(e){return []}}let items=[];function markup(x,i){if(cfg.kind==='notes')return '<article class="row"><div><h3>'+esc(x.title)+'</h3><p>'+esc(x.body)+'</p></div><div class="actions"><button class="button secondary danger" data-delete="'+i+'">Delete</button></div></article>';if(cfg.kind==='inventory')return '<article class="row"><div><h3>'+esc(x.name)+'</h3><p>Quantity: <strong>'+Number(x.qty||0)+'</strong></p></div><div class="actions"><button class="button secondary" data-minus="'+i+'">−</button><button class="button secondary" data-plus="'+i+'">+</button><button class="button secondary danger" data-delete="'+i+'">Delete</button></div></article>';return '<article class="row"><div><h3>'+(x.done?'✓ ':'')+esc(x.task)+'</h3><p>'+(x.done?'Complete':'Open')+'</p></div><div class="actions"><button class="button secondary" data-toggle="'+i+'">'+(x.done?'Reopen':'Complete')+'</button><button class="button secondary danger" data-delete="'+i+'">Delete</button></div></article>'}function render(){const n=document.getElementById('list');n.innerHTML=items.length?items.map(markup).join(''):'<div class="empty">No items yet.</div>'}async function save(){await writeData(items);render()}async function init(){items=await readData();if(!items.length){const s=await samples();if(s.length)items=s}render()}document.getElementById('form').addEventListener('submit',async(e)=>{e.preventDefault();if(cfg.kind==='notes')items.unshift({title:document.getElementById('field1').value.trim(),body:document.getElementById('field2').value.trim()});else if(cfg.kind==='inventory')items.unshift({name:document.getElementById('field1').value.trim(),qty:Number(document.getElementById('field2').value||0)});else items.unshift({task:document.getElementById('field1').value.trim(),done:false});await save();e.target.reset();if(cfg.kind==='inventory')document.getElementById('field2').value='1'});document.addEventListener('click',async(e)=>{const b=e.target.closest('[data-delete],[data-plus],[data-minus],[data-toggle]');if(!b)return;const raw=b.dataset.delete??b.dataset.plus??b.dataset.minus??b.dataset.toggle;const i=Number(raw);if(b.dataset.delete!==undefined)items.splice(i,1);else if(b.dataset.plus!==undefined)items[i].qty=Number(items[i].qty||0)+1;else if(b.dataset.minus!==undefined)items[i].qty=Math.max(0,Number(items[i].qty||0)-1);else items[i].done=!items[i].done;await save()});init();"""
+
+MEDIA_PROCESSOR_JS = """const local=location.pathname.includes('/api/v1/control/homeserver-apps/');const control='/api/v1/control/homeserver-apps/media-processor';let access=sessionStorage.getItem('vp3_processor_access')||'';const auth=()=>access?{'Authorization':'Bearer '+access}:{};const esc=s=>String(s??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));async function req(path,opt={}){const base=local?control:'/__vp3_processor__';const r=await fetch(base+path,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{}),...(!local?auth():{})}});if(r.status===401&&!local){access=prompt('Media Processor access key')||'';sessionStorage.setItem('vp3_processor_access',access);return req(path,opt)}if(!r.ok){let m='Request failed';try{m=(await r.json()).detail||m}catch{}throw new Error(m)}return r.json()}async function load(){const [s,j,d]=await Promise.all([req('/status'),req('/jobs?limit=100'),req('/derivatives?limit=100')]);document.getElementById('stats').textContent=s.active+' active · '+s.queued+' queued · '+s.failed+' failed · '+s.completed+' completed · '+s.derivatives+' derivatives';document.getElementById('tools').textContent=s.ffmpeg_available?'Managed FFmpeg: '+(s.ffmpeg_version||'available'):'Managed FFmpeg unavailable';document.getElementById('jobs').innerHTML=j.jobs.map(x=>'<div class=\"item\"><strong>'+esc(x.operation)+'</strong> · '+esc(x.status)+' · '+Math.round((x.progress||0)*100)+'%'+(x.eta_seconds!=null?' · ETA '+x.eta_seconds+'s':'')+'<br><small class=\"muted\">'+esc(x.media_id)+'</small></div>').join('')||'<p class=\"muted\">No processing jobs.</p>';document.getElementById('derivatives').innerHTML=d.derivatives.map(x=>'<div class=\"item\">'+esc(x.kind)+' · '+esc(x.format)+' · '+Math.round((x.size_bytes||0)/1024)+' KB</div>').join('')||'<p class=\"muted\">No derivatives yet.</p>'}document.getElementById('enqueue').onclick=async()=>{const media_id=document.getElementById('mediaId').value.trim(),operation=document.getElementById('operation').value;if(!media_id)return;await req('/jobs',{method:'POST',body:JSON.stringify({media_id,operation})});await load()};document.getElementById('refresh').onclick=load;load().catch(e=>document.getElementById('stats').textContent=e.message);setInterval(()=>load().catch(()=>{}),3000);"""
 
 DOWNLOAD_MANAGER_JS = """const local=location.pathname.includes('/api/v1/control/homeserver-apps/');const control='/api/v1/control/homeserver-apps/download-manager';let access=sessionStorage.getItem('vp3_download_access')||'';const auth=()=>access?{'Authorization':'Bearer '+access}:{};const esc=s=>String(s??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));async function req(path,opt={}){const base=local?control:'/__vp3_downloads__';const r=await fetch(base+path,{...opt,headers:{'Content-Type':'application/json',...(opt.headers||{}),...(!local?auth():{})}});if(r.status===401&&!local){access=prompt('Download Manager access key')||'';sessionStorage.setItem('vp3_download_access',access);return req(path,opt)}if(!r.ok){let m='Request failed';try{m=(await r.json()).detail||m}catch{}throw new Error(m)}return r.json()}async function load(){const [s,dst,list]=await Promise.all([req('/status'),req('/destinations'),req('/downloads?limit=200')]);document.getElementById('stats').textContent=s.active+' active · '+s.queued+' queued · '+s.paused+' paused · '+s.failed+' failed · '+s.completed+' completed';document.getElementById('destinations').innerHTML=dst.destinations.map(x=>'<div class=\"item\">'+esc(x.label)+' · '+esc(x.destination_kind)+'</div>').join('');document.getElementById('downloads').innerHTML=list.downloads.map(x=>'<div class=\"item\"><strong>'+esc(x.final_filename||x.display_url)+'</strong><br><span class=\"muted\">'+esc(x.status)+' · '+Math.round((x.progress||0)*100)+'%</span><div><button data-pause=\"'+esc(x.download_id)+'\">Pause</button> <button data-resume=\"'+esc(x.download_id)+'\">Resume</button> <button data-cancel=\"'+esc(x.download_id)+'\">Cancel</button></div></div>').join('')||'<p class=\"muted\">No downloads.</p>'}document.getElementById('add').onclick=async()=>{const url=document.getElementById('url').value.trim();if(!url)return;await req('/downloads',{method:'POST',body:JSON.stringify({url})});document.getElementById('url').value='';await load()};document.getElementById('refresh').onclick=load;document.getElementById('downloads').onclick=async e=>{const p=e.target.closest('[data-pause]'),r=e.target.closest('[data-resume]'),c=e.target.closest('[data-cancel]');if(p)await req('/downloads/'+encodeURIComponent(p.dataset.pause)+'/pause',{method:'POST'});if(r)await req('/downloads/'+encodeURIComponent(r.dataset.resume)+'/resume',{method:'POST'});if(c&&confirm('Cancel this download?'))await req('/downloads/'+encodeURIComponent(c.dataset.cancel),{method:'DELETE'});await load()};document.getElementById('remote').onclick=async()=>{if(!local)return;const x=await req('/remote/enable',{method:'POST'});prompt('Copy this access key now',x.access_key)};load().catch(e=>document.getElementById('stats').textContent=e.message);setInterval(()=>load().catch(()=>{}),3000);"""
 
@@ -72,14 +74,14 @@ CATALOG = {
     "vp3.media-server": {
         "key": "vp3.media-server",
         "name": "VP3 Media Server",
-        "version": "1.1.1",
+        "version": "1.2.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Hardens mapped-source privacy so original path hints remain private.",
-            "Refreshes source health automatically during scans and preserves indexed media through temporary disconnects.",
-            "Ships on SDK 1.2 / Agent Actions v2 with governed mapping, checking, rescanning, and removal.",
+            "Adds governed Media Processor handoff for conversion, thumbnails, proxies, and derived media.",
+            "Retains mapped-source privacy, health checks, and in-place source ownership.",
+            "Ships on SDK 1.2 / Agent Actions v2.",
         ],
         "category": "Media",
         "kind": "media_server",
@@ -101,6 +103,17 @@ CATALOG = {
             {
                 "key":"media.scan","risk":"background","requires_confirmation":False,
                 "input_schema":{"type":"object","properties":{"root_id":{"type":"string","maxLength":64}},"additionalProperties":False},
+                "executor":{"type":"builtin","provider":"media_server"}
+            },
+            {
+                "key":"media.process","risk":"consequential","requires_confirmation":True,
+                "input_schema":{"type":"object","properties":{
+                    "media_id":{"type":"string","minLength":1,"maxLength":100},
+                    "operation":{"type":"string","enum":["thumbnail","proxy","video.convert","audio.convert","image.convert"]},
+                    "preset":{"type":"string","maxLength":80},
+                    "output_format":{"type":"string","enum":["","jpg","jpeg","png","webp","mp4","mp3"]},
+                    "priority":{"type":"integer","minimum":-100,"maximum":100}
+                },"required":["media_id","operation"],"additionalProperties":False},
                 "executor":{"type":"builtin","provider":"media_server"}
             },
             {
@@ -201,7 +214,7 @@ CATALOG = {
     "vp3.download-manager": {
         "key": "vp3.download-manager",
         "name": "VP3 Download Manager",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
@@ -236,18 +249,55 @@ CATALOG = {
             {"key":"downloads.destination.remove","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"destination_id":{"type":"string","minLength":1,"maxLength":80}},"required":["destination_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
             {"key":"downloads.settings","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
             {"key":"downloads.settings.update","risk":"admin","requires_confirmation":True,"input_schema":{"type":"object","properties":{"values":{"type":"object"}},"required":["values"],"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
-            {"key":"downloads.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}}
+            {"key":"downloads.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}},
+            {"key":"downloads.processor.handoff","risk":"consequential","requires_confirmation":True,"input_schema":{"type":"object","properties":{"download_id":{"type":"string","minLength":1,"maxLength":80},"operation":{"type":"string","enum":["thumbnail","proxy","video.convert","audio.convert","image.convert"]},"preset":{"type":"string","maxLength":80},"output_format":{"type":"string","enum":["","jpg","jpeg","png","webp","mp4","mp3"]},"priority":{"type":"integer","minimum":-100,"maximum":100}},"required":["download_id","operation"],"additionalProperties":False},"executor":{"type":"builtin","provider":"download_manager"}}
+        ],
+    },
+    "vp3.media-processor": {
+        "key": "vp3.media-processor",
+        "name": "VP3 Media Processor",
+        "version": "1.0.0",
+        "sdk_version": "1.2",
+        "release_channel": "stable",
+        "min_homeserver_version": "2.4",
+        "release_notes": [
+            "Adds HomeServer-managed FFmpeg processing for video, audio, images, thumbnails, and editor proxies.",
+            "Adds processor-owned derivative registry, resource limits, restart recovery, and Agent Brain context.",
+            "Integrates with Media Server, Download Manager, Video Editor, Hosting, Agent Chat, and Agent Brain."
+        ],
+        "category": "Media",
+        "kind": "media_processor",
+        "description": "Convert, compress, proxy, thumbnail, and derive media locally on your HomeServer.",
+        "sample": [],
+        "permissions": ["files.write"],
+        "routes": {"local": True, "private_remote": True, "public": False},
+        "agent_actions": [
+            {"key":"processor.status","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.jobs","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.job.get","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"job_id":{"type":"string","minLength":1,"maxLength":80}},"required":["job_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.enqueue","risk":"consequential","requires_confirmation":True,"input_schema":{"type":"object","properties":{"media_id":{"type":"string","minLength":1,"maxLength":100},"operation":{"type":"string","enum":["thumbnail","proxy","video.convert","audio.convert","image.convert"]},"preset":{"type":"string","maxLength":80},"output_format":{"type":"string","enum":["","jpg","jpeg","png","webp","mp4","mp3"]},"priority":{"type":"integer","minimum":-100,"maximum":100},"destination_id":{"type":"string","maxLength":80}},"required":["media_id","operation"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.cancel","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"job_id":{"type":"string","minLength":1,"maxLength":80}},"required":["job_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.retry","risk":"write","requires_confirmation":False,"input_schema":{"type":"object","properties":{"job_id":{"type":"string","minLength":1,"maxLength":80}},"required":["job_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.derivatives","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"media_id":{"type":"string","maxLength":100},"limit":{"type":"integer","minimum":1,"maximum":500}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.brain-context","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":20}},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.destinations","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.destination.add","risk":"admin","requires_confirmation":True,"input_schema":{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":2000},"label":{"type":"string","maxLength":120},"destination_kind":{"type":"string","enum":["mapped_folder","network_share","local_folder"]}},"required":["path"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.destination.remove","risk":"destructive","requires_confirmation":True,"input_schema":{"type":"object","properties":{"destination_id":{"type":"string","minLength":1,"maxLength":80}},"required":["destination_id"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.settings","risk":"read","requires_confirmation":False,"input_schema":{"type":"object","properties":{},"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}},
+            {"key":"processor.settings.update","risk":"admin","requires_confirmation":True,"input_schema":{"type":"object","properties":{"values":{"type":"object"}},"required":["values"],"additionalProperties":False},"executor":{"type":"builtin","provider":"media_processor"}}
         ],
     },
     "vp3.video-editor": {
         "key": "vp3.video-editor",
         "name": "VP3 Video Editor",
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "sdk_version": "1.2",
         "release_channel": "stable",
         "min_homeserver_version": "2.4",
         "release_notes": [
-            "Adds local non-destructive multi-track video editing backed by Media Server source IDs.",
-            "Adds HomeServer Agent complete-control actions for projects, timeline edits, and governed render jobs.",
+            "Adds governed Media Processor proxy generation for timeline clips.",
+            "Retains local non-destructive multi-track editing backed by Media Server source IDs.",
+            "Ships on SDK 1.2 / Agent Actions v2.",
         ],
         "category": "Media",
         "kind": "video_editor",
@@ -324,6 +374,14 @@ CATALOG = {
                 },"required":["project_id"],"additionalProperties":False},
                 "executor":{"type":"builtin","provider":"video_editor"}
             },
+            {
+                "key":"video.clip.proxy","risk":"consequential","requires_confirmation":True,
+                "input_schema":{"type":"object","properties":{
+                    "project_id":{"type":"string","minLength":1,"maxLength":80},
+                    "clip_id":{"type":"string","minLength":1,"maxLength":80}
+                },"required":["project_id","clip_id"],"additionalProperties":False},
+                "executor":{"type":"builtin","provider":"video_editor"}
+            },
         ],
     },
 }
@@ -356,6 +414,17 @@ def _manifest(definition: dict[str, Any]) -> dict[str, Any]:
 
 
 def _html(definition: dict[str, Any]) -> str:
+    if definition["kind"] == "media_processor":
+        return (
+            '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>VP3 Media Processor</title><link rel="stylesheet" href="assets/app.css"></head><body><main class="shell">'
+            '<header class="top"><div><span class="eyebrow">VP3 APP · MEDIA PROCESSOR</span><h1>Media Processor</h1><p class="muted">HomeServer-managed FFmpeg processing.</p></div><button class="button secondary" id="refresh">Refresh</button></header>'
+            '<section class="panel"><div id="stats" class="muted"></div><div id="tools" class="muted"></div></section>'
+            '<section class="panel"><div class="toolbar"><input id="mediaId" placeholder="Media Server media ID"><select id="operation"><option value="thumbnail">Thumbnail</option><option value="proxy">Editing Proxy</option><option value="video.convert">Video Convert</option><option value="audio.convert">Audio Convert</option><option value="image.convert">Image Convert</option></select><button class="button" id="enqueue">Process</button></div></section>'
+            '<section class="panel"><strong>Processing Queue</strong><div id="jobs" class="list"></div></section>'
+            '<section class="panel"><strong>Recent Derivatives</strong><div id="derivatives" class="list"></div></section>'
+            '<script src="assets/app.js"></script></main></body></html>'
+        )
     if definition["kind"] == "download_manager":
         return (
             '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -431,7 +500,7 @@ def _package(definition: dict[str, Any]) -> bytes:
         "vp3-app.json": json.dumps(_manifest(definition), indent=2, sort_keys=True) + "\n",
         "index.html": _html(definition),
         "assets/app.css": (APP_CSS + ".photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-top:14px}.photo-card{display:block;text-align:left;border:1px solid #2b3139;border-radius:10px;background:#171b20;color:#f4f6f8;padding:8px;cursor:pointer}.photo-thumb{aspect-ratio:1/1;background:#090b0e center/cover no-repeat;border-radius:7px;margin-bottom:8px}dialog{max-width:min(92vw,1100px);background:#11151a;color:#fff;border:1px solid #303640;border-radius:12px;padding:14px}dialog::backdrop{background:rgba(0,0,0,.8)}#viewerImage{display:block;max-width:86vw;max-height:78vh;margin:12px auto;object-fit:contain}") if definition["kind"]=="photo_library" else (VIDEO_EDITOR_CSS if definition["kind"]=="video_editor" else (MEDIA_SERVER_CSS if definition["kind"]=="media_server" else APP_CSS)),
-        "assets/app.js": DOWNLOAD_MANAGER_JS if definition["kind"]=="download_manager" else (PHOTO_LIBRARY_JS if definition["kind"]=="photo_library" else (MUSIC_SERVER_JS if definition["kind"]=="music_server" else (VIDEO_EDITOR_JS if definition["kind"]=="video_editor" else (MEDIA_SERVER_JS if definition["kind"]=="media_server" else COMMON_JS)))),
+        "assets/app.js": MEDIA_PROCESSOR_JS if definition["kind"]=="media_processor" else (DOWNLOAD_MANAGER_JS if definition["kind"]=="download_manager" else (PHOTO_LIBRARY_JS if definition["kind"]=="photo_library" else (MUSIC_SERVER_JS if definition["kind"]=="music_server" else (VIDEO_EDITOR_JS if definition["kind"]=="video_editor" else (MEDIA_SERVER_JS if definition["kind"]=="media_server" else COMMON_JS))))),
         "settings.schema.json": json.dumps({"contract": "vp3.app.settings-schema.v1", "fields": list(definition.get("settings_fields") or [])}, indent=2) + "\n",
         "agent/actions.json": json.dumps({
             "contract": "vp3.app.agent-actions.v2" if str(definition.get("sdk_version") or "1.0")=="1.2" else "vp3.app.agent-actions.v1",

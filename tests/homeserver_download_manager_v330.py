@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-downloads-v330-") as data_di
 
         install=client.post("/api/v1/control/homeserver-apps/catalog/prebuilt/vp3.download-manager/install")
         assert install.status_code==200,install.text
-        assert install.json()["app"]["installed_version"]=="1.0.0"
+        assert install.json()["app"]["installed_version"]=="1.1.0"
 
         # Required network/file permissions are declared and default denied.
         perms=client.get("/api/v1/control/homeserver-apps/vp3.download-manager/permissions").json()["permissions"]

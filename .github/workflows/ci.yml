@@ -568,6 +568,17 @@ jobs:
             throw 'Packaged restore smoke left a HomeServer listener on port 4377'
           }
           python tests/packaged_restore.py verify
+      - name: Stage managed FFmpeg runtime
+        shell: pwsh
+        run: ./scripts/stage_ffmpeg_windows.ps1
+      - name: Verify managed FFmpeg runtime
+        shell: pwsh
+        run: |
+          & 'dist/tools/ffmpeg/ffmpeg.exe' -version
+          if ($LASTEXITCODE -ne 0) { throw 'Managed ffmpeg.exe failed' }
+          & 'dist/tools/ffmpeg/ffprobe.exe' -version
+          if ($LASTEXITCODE -ne 0) { throw 'Managed ffprobe.exe failed' }
+          if (-not (Test-Path 'dist/tools/ffmpeg/manifest.json')) { throw 'Managed FFmpeg manifest missing' }
       - name: Install Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress -y
@@ -590,6 +601,16 @@ jobs:
           $first = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
           if ($first.ExitCode -ne 0) { throw "First silent install failed with $($first.ExitCode)" }
           if (-not (Test-Path (Join-Path $installDir 'HomeServer.exe'))) { throw 'Installed HomeServer.exe missing' }
+          $installedFfmpeg = Join-Path $installDir 'tools\ffmpeg\ffmpeg.exe'
+          $installedFfprobe = Join-Path $installDir 'tools\ffmpeg\ffprobe.exe'
+          $installedManifest = Join-Path $installDir 'tools\ffmpeg\manifest.json'
+          if (-not (Test-Path $installedFfmpeg) -or -not (Test-Path $installedFfprobe) -or -not (Test-Path $installedManifest)) {
+            throw 'Managed FFmpeg runtime missing from installed HomeServer'
+          }
+          & $installedFfmpeg -version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed managed ffmpeg.exe failed health check' }
+          & $installedFfprobe -version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed managed ffprobe.exe failed health check' }
           New-Item -ItemType Directory -Force -Path $privateDir | Out-Null
           Set-Content -Encoding utf8 (Join-Path $privateDir 'upgrade-sentinel.txt') 'preserve-me'
           $second = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru

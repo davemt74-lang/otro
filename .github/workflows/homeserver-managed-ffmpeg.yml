@@ -1,0 +1,66 @@
+name: HomeServer Managed FFmpeg
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/stage_ffmpeg_windows.ps1'
+      - 'installer/HomeServer.iss'
+      - 'tests/installer_contract.py'
+      - 'app/services/homeserver_media_tools.py'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/homeserver-managed-ffmpeg.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/stage_ffmpeg_windows.ps1'
+      - 'installer/HomeServer.iss'
+      - 'tests/installer_contract.py'
+      - 'app/services/homeserver_media_tools.py'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/homeserver-managed-ffmpeg.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  managed-ffmpeg-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify installer source contract
+        run: python tests/installer_contract.py
+      - name: Stage managed FFmpeg runtime
+        shell: pwsh
+        run: ./scripts/stage_ffmpeg_windows.ps1
+      - name: Verify managed runtime manifest
+        shell: pwsh
+        run: |
+          $root = 'dist/tools/ffmpeg'
+          foreach ($name in @('ffmpeg.exe','ffprobe.exe','manifest.json','THIRD_PARTY_NOTICE.txt')) {
+            if (-not (Test-Path (Join-Path $root $name))) { throw "Missing managed runtime file: $name" }
+          }
+          & (Join-Path $root 'ffmpeg.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Managed ffmpeg.exe failed' }
+          & (Join-Path $root 'ffprobe.exe') -version
+          if ($LASTEXITCODE -ne 0) { throw 'Managed ffprobe.exe failed' }
+          $manifest = Get-Content (Join-Path $root 'manifest.json') -Raw | ConvertFrom-Json
+          if ($manifest.version -ne '9.0.2') { throw "Unexpected FFmpeg version: $($manifest.version)" }
+          $ffmpegHash = (Get-FileHash (Join-Path $root 'ffmpeg.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $ffprobeHash = (Get-FileHash (Join-Path $root 'ffprobe.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($ffmpegHash -ne $manifest.ffmpeg_sha256) { throw 'ffmpeg.exe manifest hash mismatch' }
+          if ($ffprobeHash -ne $manifest.ffprobe_sha256) { throw 'ffprobe.exe manifest hash mismatch' }
+      - name: Compile installer layout with managed FFmpeg
+        shell: pwsh
+        run: |
+          New-Item -ItemType File -Force -Path 'dist/HomeServer.exe' | Out-Null
+          choco install innosetup --no-progress -y
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'ISCC.exe missing' }
+          & $iscc 'installer/HomeServer.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compile failed' }
+          if (-not (Test-Path 'dist/HomeServerSetup.exe')) { throw 'HomeServerSetup.exe missing' }
