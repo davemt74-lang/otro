@@ -39,6 +39,11 @@ assert '"layer": "app_update_center"' in canonical
 assert '"app_update_limit_chars"' in canonical
 assert '"app_update_used_chars"' in canonical
 assert "context.app_update_fragment" in canonical
+assert "health_repair.agent_context_fragment(" in canonical
+assert '"layer": "homeserver_health"' in canonical
+assert '"health_limit_chars"' in canonical
+assert '"health_used_chars"' in canonical
+assert "context.health_fragment" in canonical
 
 # Stateful owner + paired-app text chat and delegated/streamed VP3 chat both
 # enter the same builder. The old delegated duplicate collector is gone.
