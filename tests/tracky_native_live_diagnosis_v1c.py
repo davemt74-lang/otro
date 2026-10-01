@@ -96,6 +96,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-diagnosis-v1c-") as root:
         with patch.object(native,"_LAST",{}),patch.object(diag,"_BOOT","other-process"):
             report=diag.diagnose()
             assert "prior_test_requires_repeat_after_restart" in {row["code"] for row in report["issues"]}
+            issues=health_repair._native_tracky_issues()
+            assert "tracky:native-test-interrupted" in {item["key"] for item in issues}
 
         # Exercise the owner HTTP test with a controlled fake capture. These
         # measurements are local process evidence, NOT physical certification.

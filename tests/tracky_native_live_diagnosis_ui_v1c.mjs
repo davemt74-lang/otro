@@ -18,7 +18,7 @@ assert.match(diagnosis,/def _model_preflight\(/);
 assert.match(diagnosis,/def before_test\(/);
 assert.match(diagnosis,/def after_test\(/);
 assert.match(diagnosis,/hardware_certified": False/);
-assert.match(diagnosis,/automatic": False/);
+assert.match(diagnosis,/automated": False/);
 assert.match(repair,/def _native_tracky_issues\(/);
 assert.match(repair,/owner_approval_required=True/);
 assert.match(runtime,/camera_release_completed": True/);

@@ -219,11 +219,11 @@ def _native_tracky_issues()->list[dict[str,Any]]:
                 detail="The installed detector is incomplete. Obtain and install the signed HomeServer upgrade, then re-run local diagnosis.",
                 repair_class="owner_review",owner_approval_required=True,
             ))
-        elif code=="interrupted_prior_attempt":
+        elif code in {"interrupted_prior_attempt", "prior_test_requires_repeat_after_restart"}:
             issues.append(_issue(
                 "tracky:native-test-interrupted",source="tracky_native",severity="attention",
-                title="Native camera test was interrupted",
-                detail="The Agent can show diagnostics, but a new owner-approved camera test is required after restart.",
+                title="Native camera test must be repeated after restart",
+                detail="The Agent can show prior diagnostic metadata, but a new owner-approved camera test is required in this process.",
                 repair_class="owner_review",owner_approval_required=True,
             ))
         elif code=="last_capture_failed":
