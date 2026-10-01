@@ -74,6 +74,25 @@ def _connect()->sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_media_metadata_history_media
           ON media_metadata_history(media_id,created_at DESC);
+        CREATE TABLE IF NOT EXISTS media_collections(
+            collection_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            collection_type TEXT NOT NULL DEFAULT 'manual',
+            rules_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS media_collection_items(
+            collection_id TEXT NOT NULL,
+            media_id TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(collection_id,media_id),
+            FOREIGN KEY(collection_id) REFERENCES media_collections(collection_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_media_collection_items_order
+          ON media_collection_items(collection_id,position,created_at);
         """
     )
     return connection
@@ -378,6 +397,242 @@ def search(
     }
 
 
+
+def _validate_collection_rules(value:Any)->dict[str,Any]:
+    if value is None:
+        return {}
+    if not isinstance(value,dict):
+        raise MediaLibraryError("Collection rules must be an object.")
+    allowed={"query","media_type","tag","favorite","rating_min"}
+    unknown=set(value)-allowed
+    if unknown:
+        raise MediaLibraryError(f"Unknown collection rule: {sorted(unknown)[0]}")
+    out={}
+    if "query" in value:
+        out["query"]=" ".join(str(value.get("query") or "").split())[:200]
+    if "media_type" in value:
+        kind=str(value.get("media_type") or "").strip().lower()
+        if kind not in {"","video","audio","image"}:
+            raise MediaLibraryError("Collection media_type rule is invalid.")
+        out["media_type"]=kind
+    if "tag" in value:
+        out["tag"]=" ".join(str(value.get("tag") or "").lower().split())[:80]
+    if "favorite" in value:
+        fav=value.get("favorite")
+        if fav is not None and not isinstance(fav,bool):
+            raise MediaLibraryError("Collection favorite rule must be boolean or null.")
+        out["favorite"]=fav
+    if "rating_min" in value:
+        rating=int(value.get("rating_min"))
+        if rating<0 or rating>5:
+            raise MediaLibraryError("Collection rating_min must be between 0 and 5.")
+        out["rating_min"]=rating
+    return out
+
+
+def create_collection(
+    name:str,
+    *,
+    description:str="",
+    collection_type:str="manual",
+    rules:dict[str,Any]|None=None,
+)->dict[str,Any]:
+    title=" ".join(str(name or "").split())[:160]
+    if not title:
+        raise MediaLibraryError("Collection name is required.")
+    kind=str(collection_type or "manual").strip().lower()
+    if kind not in {"manual","smart"}:
+        raise MediaLibraryError("collection_type must be manual or smart.")
+    normalized=_validate_collection_rules(rules or {})
+    if kind=="smart" and not normalized:
+        raise MediaLibraryError("Smart collections require at least one rule.")
+    collection_id="collection_"+uuid.uuid4().hex
+    connection=_connect()
+    try:
+        connection.execute(
+            """INSERT INTO media_collections(
+                 collection_id,name,description,collection_type,rules_json
+               ) VALUES (?,?,?,?,?)""",
+            (
+                collection_id,title,str(description or "")[:2000],kind,
+                json.dumps(normalized,separators=(",",":"),sort_keys=True),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return get_collection(collection_id)
+
+
+def _collection_public(row:sqlite3.Row|dict[str,Any])->dict[str,Any]:
+    data=dict(row)
+    try:
+        rules=json.loads(str(data.get("rules_json") or "{}"))
+        if not isinstance(rules,dict):
+            rules={}
+    except json.JSONDecodeError:
+        rules={}
+    return {
+        "collection_id":str(data["collection_id"]),
+        "name":str(data["name"]),
+        "description":str(data.get("description") or ""),
+        "collection_type":str(data["collection_type"]),
+        "rules":rules,
+        "created_at":str(data["created_at"]),
+        "updated_at":str(data["updated_at"]),
+    }
+
+
+def _smart_items(rules:dict[str,Any],limit:int=500)->list[dict[str,Any]]:
+    result=search(
+        str(rules.get("query") or ""),
+        media_type=str(rules.get("media_type") or ""),
+        tag=str(rules.get("tag") or ""),
+        favorite=rules.get("favorite") if "favorite" in rules else None,
+        limit=min(500,max(1,int(limit))),
+    )
+    rating_min=rules.get("rating_min")
+    items=list(result["items"])
+    if rating_min is not None:
+        items=[
+            row for row in items
+            if row["metadata"].get("rating") is not None
+            and int(row["metadata"]["rating"])>=int(rating_min)
+        ]
+    return items
+
+
+def get_collection(collection_id:str,limit:int=500)->dict[str,Any]:
+    connection=_connect()
+    try:
+        row=connection.execute(
+            "SELECT * FROM media_collections WHERE collection_id=?",(str(collection_id),)
+        ).fetchone()
+        if not row:
+            raise MediaLibraryError("Collection not found.",404)
+        collection=_collection_public(row)
+        if collection["collection_type"]=="manual":
+            ids=[
+                str(item["media_id"])
+                for item in connection.execute(
+                    """SELECT media_id FROM media_collection_items
+                       WHERE collection_id=? ORDER BY position,created_at,media_id LIMIT ?""",
+                    (collection_id,max(1,min(int(limit),500))),
+                ).fetchall()
+            ]
+        else:
+            ids=[]
+    finally:
+        connection.close()
+    if collection["collection_type"]=="smart":
+        items=_smart_items(collection["rules"],limit)
+    else:
+        items=[]
+        for media_id in ids:
+            try:
+                items.append(get(media_id)["item"])
+            except MediaLibraryError:
+                continue
+    return {
+        "contract":CONTRACT,
+        "collection":collection,
+        "items":items,
+        "count":len(items),
+        "cross_media":True,
+        "source_files_modified":False,
+    }
+
+
+def collections(limit:int=200)->dict[str,Any]:
+    connection=_connect()
+    try:
+        rows=connection.execute(
+            "SELECT * FROM media_collections ORDER BY name COLLATE NOCASE,collection_id LIMIT ?",
+            (max(1,min(int(limit),500)),),
+        ).fetchall()
+    finally:
+        connection.close()
+    out=[]
+    for row in rows:
+        item=_collection_public(row)
+        try:
+            item["count"]=get_collection(item["collection_id"],500)["count"]
+        except MediaLibraryError:
+            item["count"]=0
+        out.append(item)
+    return {"contract":CONTRACT,"collections":out,"count":len(out)}
+
+
+def collection_add(collection_id:str,media_id:str,position:int=0)->dict[str,Any]:
+    _canonical_media(media_id)
+    connection=_connect()
+    try:
+        row=connection.execute(
+            "SELECT collection_type FROM media_collections WHERE collection_id=?",(collection_id,)
+        ).fetchone()
+        if not row:
+            raise MediaLibraryError("Collection not found.",404)
+        if str(row["collection_type"])!="manual":
+            raise MediaLibraryError("Items cannot be manually added to a smart collection.",409)
+        connection.execute(
+            """INSERT INTO media_collection_items(collection_id,media_id,position)
+               VALUES (?,?,?)
+               ON CONFLICT(collection_id,media_id) DO UPDATE SET
+                 position=excluded.position""",
+            (collection_id,media_id,max(-1_000_000,min(1_000_000,int(position)))),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return get_collection(collection_id)
+
+
+def collection_remove(collection_id:str,media_id:str)->dict[str,Any]:
+    connection=_connect()
+    try:
+        row=connection.execute(
+            "SELECT collection_type FROM media_collections WHERE collection_id=?",(collection_id,)
+        ).fetchone()
+        if not row:
+            raise MediaLibraryError("Collection not found.",404)
+        if str(row["collection_type"])!="manual":
+            raise MediaLibraryError("Items cannot be manually removed from a smart collection.",409)
+        connection.execute(
+            "DELETE FROM media_collection_items WHERE collection_id=? AND media_id=?",
+            (collection_id,media_id),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return get_collection(collection_id)
+
+
+def delete_collection(collection_id:str)->dict[str,Any]:
+    connection=_connect()
+    try:
+        cur=connection.execute(
+            "DELETE FROM media_collections WHERE collection_id=?",(str(collection_id),)
+        )
+        if cur.rowcount<1:
+            raise MediaLibraryError("Collection not found.",404)
+        connection.commit()
+    finally:
+        connection.close()
+    return {
+        "contract":CONTRACT,
+        "deleted":True,
+        "collection_id":collection_id,
+        "media_files_deleted":False,
+        "metadata_deleted":False,
+    }
+
+
+def smart_collections()->dict[str,Any]:
+    rows=collections(500)["collections"]
+    items=[row for row in rows if row["collection_type"]=="smart"]
+    return {"contract":CONTRACT,"collections":items,"count":len(items)}
+
+
 def status()->dict[str,Any]:
     connection=_connect()
     try:
@@ -385,6 +640,8 @@ def status()->dict[str,Any]:
         tags=int(connection.execute("SELECT COUNT(DISTINCT tag) FROM media_metadata_tags").fetchone()[0])
         relations=int(connection.execute("SELECT COUNT(*) FROM media_metadata_relations").fetchone()[0])
         history_count=int(connection.execute("SELECT COUNT(*) FROM media_metadata_history").fetchone()[0])
+        collection_count=int(connection.execute("SELECT COUNT(*) FROM media_collections").fetchone()[0])
+        smart_count=int(connection.execute("SELECT COUNT(*) FROM media_collections WHERE collection_type='smart'").fetchone()[0])
     finally:
         connection.close()
     return {
@@ -393,12 +650,18 @@ def status()->dict[str,Any]:
         "tags":tags,
         "relations":relations,
         "history_entries":history_count,
+        "collections":collection_count,
+        "smart_collections":smart_count,
         "canonical_source":"vp3.media-server",
         "source_files_modified":False,
         "source_files_deleted":False,
         "history_undo":True,
         "custom_fields":True,
         "provenance":True,
+        "manual_collections":True,
+        "smart_collections":True,
+        "saved_filters":True,
+        "cross_media_collections":True,
         "homeserver_execution_authority":True,
     }
 
@@ -428,6 +691,8 @@ def brain_context(limit:int=8)->dict[str,Any]:
             "tags":state["tags"],
             "relations":state["relations"],
             "history_entries":state["history_entries"],
+            "collections":state["collections"],
+            "smart_collections":state["smart_collections"],
         },
         "recent":recent,
         "source_files_modified":False,
@@ -463,6 +728,32 @@ def invoke(action:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
             favorite=None if favorite is None else bool(favorite),
             limit=int(args.get("limit",200)),
         )
+    if key=="library.collections":
+        return collections(int(args.get("limit",200)))
+    if key=="library.collection.get":
+        return get_collection(str(args.get("collection_id") or ""),int(args.get("limit",500)))
+    if key=="library.collection.create":
+        return create_collection(
+            str(args.get("name") or ""),
+            description=str(args.get("description") or ""),
+            collection_type=str(args.get("collection_type") or "manual"),
+            rules=dict(args.get("rules") or {}),
+        )
+    if key=="library.collection.add":
+        return collection_add(
+            str(args.get("collection_id") or ""),
+            str(args.get("media_id") or ""),
+            int(args.get("position",0)),
+        )
+    if key=="library.collection.remove":
+        return collection_remove(
+            str(args.get("collection_id") or ""),
+            str(args.get("media_id") or ""),
+        )
+    if key=="library.collection.delete":
+        return delete_collection(str(args.get("collection_id") or ""))
+    if key=="library.smart-collections":
+        return smart_collections()
     if key=="library.brain-context":
         return brain_context(int(args.get("limit",8)))
     raise MediaLibraryError("Unsupported Media Library action.",404)
