@@ -88,6 +88,18 @@ class MediaLibraryUpdateRequest(BaseModel):
     reason:str=Field(default="",max_length=500)
 
 
+class MediaCollectionCreateRequest(BaseModel):
+    name:str=Field(min_length=1,max_length=160)
+    description:str=Field(default="",max_length=2000)
+    collection_type:str=Field(default="manual",pattern="^(manual|smart)$")
+    rules:dict=Field(default_factory=dict)
+
+
+class MediaCollectionItemRequest(BaseModel):
+    media_id:str=Field(min_length=1,max_length=100)
+    position:int=Field(default=0,ge=-1000000,le=1000000)
+
+
 class MediaProcessRequest(BaseModel):
     operation:str=Field(pattern="^(thumbnail|proxy|video\\.convert|audio\\.convert|image\\.convert)$")
     preset:str=Field(default="default",max_length=80)
@@ -475,6 +487,44 @@ def media_library_history(media_id:str,limit:int=Query(default=100,ge=1,le=500))
 @router.post("/media-library/history/{history_id}/undo")
 def media_library_undo(history_id:str)->dict:
     return _call(homeserver_media_library.undo,history_id)
+
+
+@router.get("/media-library/collections")
+def media_library_collections(limit:int=Query(default=200,ge=1,le=500))->dict:
+    return _call(homeserver_media_library.collections,limit)
+
+
+@router.post("/media-library/collections")
+def media_library_create_collection(payload:MediaCollectionCreateRequest)->dict:
+    return _call(
+        homeserver_media_library.create_collection,payload.name,
+        description=payload.description,collection_type=payload.collection_type,rules=payload.rules
+    )
+
+
+@router.get("/media-library/collections/smart")
+def media_library_smart_collections()->dict:
+    return _call(homeserver_media_library.smart_collections)
+
+
+@router.get("/media-library/collections/{collection_id}")
+def media_library_collection(collection_id:str,limit:int=Query(default=500,ge=1,le=500))->dict:
+    return _call(homeserver_media_library.get_collection,collection_id,limit)
+
+
+@router.post("/media-library/collections/{collection_id}/items")
+def media_library_collection_add(collection_id:str,payload:MediaCollectionItemRequest)->dict:
+    return _call(homeserver_media_library.collection_add,collection_id,payload.media_id,payload.position)
+
+
+@router.delete("/media-library/collections/{collection_id}/items/{media_id}")
+def media_library_collection_remove(collection_id:str,media_id:str)->dict:
+    return _call(homeserver_media_library.collection_remove,collection_id,media_id)
+
+
+@router.delete("/media-library/collections/{collection_id}")
+def media_library_collection_delete(collection_id:str)->dict:
+    return _call(homeserver_media_library.delete_collection,collection_id)
 
 
 @router.get("/media-processor/capability")
