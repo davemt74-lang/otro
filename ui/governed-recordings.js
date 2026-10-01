@@ -155,9 +155,9 @@
     draft.addEventListener('click',()=>{
       const input=$('chatInput');if(!input){status('Open Agent Chat to draft this transcript.');return;}
       const max=Number(input.maxLength||32000);
-      const next=(input.value?(input.value+'\\n\\n'):'')+textarea.value;
+      const next=[input.value,textarea.value].filter(Boolean).join(String.fromCharCode(10,10));
       if(next.length>max){status('Transcript exceeds Agent Chat draft limit; select a shorter excerpt.');return;}
-      input.value=next.replace(/\\n/g,'\n');
+      input.value=next;
       input.dispatchEvent(new Event('input',{bubbles:true}));
       document.querySelector('[data-view="chat"]')?.click();
       input.focus();
