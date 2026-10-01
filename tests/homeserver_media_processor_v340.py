@@ -62,6 +62,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-processor-v340-") as data_di
     original_probe=homeserver_media_processor._probe_duration
     original_run_ffmpeg=homeserver_media_processor._run_ffmpeg
     original_worker=homeserver_media_processor._ensure_worker
+    # Avoid a background processor racing this test's temporary database teardown.
+    homeserver_media_processor._ensure_worker=lambda:None
 
     def fake_version(path:Path)->str:
         return "ffmpeg version 9.0.2" if "ffmpeg" in path.name and "probe" not in path.name else "ffprobe version 9.0.2"
@@ -129,7 +131,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-processor-v340-") as data_di
 
         # Deterministic FFmpeg execution for CI; processor still exercises job,
         # quotas, atomic rename, derivative registry, events and public projections.
-        homeserver_media_processor._ensure_worker=lambda:None
         homeserver_media_processor._probe_duration=lambda _path:10.0
         def fake_run(job_id,cmd,duration):
             target=Path(cmd[-1])
@@ -282,6 +283,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-processor-v340-") as data_di
         assert homeserver_media_server.status()["processing_provider"]=="vp3.media-processor"
         assert homeserver_media_server.status()["transcoding"] is True
 
+    homeserver_media_processor.stop_worker()
     homeserver_media_processor._ensure_worker=original_worker
     homeserver_media_processor._probe_duration=original_probe
     homeserver_media_processor._run_ffmpeg=original_run_ffmpeg

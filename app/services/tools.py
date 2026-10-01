@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, backup_protection, backups, storage_maintenance, contacts, health_repair, homeserver_app_agent, homeserver_app_update_center, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, maintenance_conversation, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
+from . import app_scopes, backup_protection, backups, storage_maintenance, contacts, health_repair, homeserver_app_agent, homeserver_app_update_center, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, maintenance_conversation, runtime_diagnostics, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -43,6 +43,15 @@ TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
         "key": "health.status",
         "name": "Read HomeServer Health",
         "description": "Read bounded HomeServer health across apps, storage, backups, bridge, hosting, media processing and unresolved failures.",
+        "mode": "read",
+        "owner_only": True,
+        "required_permissions": [],
+        "input_schema": {"type":"object","properties":{},"additionalProperties":False},
+    },
+    "runtime.diagnostics": {
+        "key": "runtime.diagnostics",
+        "name": "Inspect Installed HomeServer Runtime Diagnostics",
+        "description": "Read-only, non-recording inventory of locally installed AI, voice, video and Agent Eyes readiness. Never activates microphones, cameras or repairs. Hardware acceptance remains unverified until performed on device.",
         "mode": "read",
         "owner_only": True,
         "required_permissions": [],
@@ -1605,6 +1614,13 @@ def _health_status(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str,
     return state,{"overall":state["overall"],"count":state["count"],"repairable":state["agent_repairable_count"]}
 
 
+def _runtime_diagnostics(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if arguments:
+        raise ToolError("runtime.diagnostics accepts no arguments.")
+    state=runtime_diagnostics.inventory(probe=False)
+    return state,{"check_count":len(state["checks"]),"summary":state["summary"],"certified":False}
+
+
 def _health_issue(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         issue=maintenance_conversation.issue_detail(arguments)
@@ -2271,6 +2287,8 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _storage_status(payload)
         elif tool["key"] == "health.status":
             result, result_meta = _health_status(payload)
+        elif tool["key"] == "runtime.diagnostics":
+            result, result_meta = _runtime_diagnostics(payload)
         elif tool["key"] == "health.issue":
             result, result_meta = _health_issue(payload)
         elif tool["key"] == "health.repair-plan":

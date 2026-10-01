@@ -6,6 +6,11 @@ on:
       - 'app/bridge.py'
       - 'app/health_api.py'
       - 'app/services/health_repair.py'
+      - 'app/services/runtime_diagnostics.py'
+      - 'tests/runtime_diagnostics_v500.py'
+      - 'ui/runtime-diagnostics.js'
+      - 'ui/runtime-diagnostics.css'
+      - 'ui/index.html'
       - 'app/services/canonical_context.py'
       - 'app/services/tools.py'
       - 'tests/homeserver_health_repair_v440.py'
@@ -47,6 +52,8 @@ jobs:
           app/bridge.py
           app/health_api.py
           app/services/health_repair.py
+          app/services/runtime_diagnostics.py
+          tests/runtime_diagnostics_v500.py
           app/services/canonical_context.py
           app/services/tools.py
           tests/homeserver_health_repair_v440.py
@@ -54,6 +61,10 @@ jobs:
           tests/smoke.py
       - name: Validate Health UI JavaScript
         run: node --check ui/app.js
+      - name: Check runtime diagnostics UI
+        run: node --check ui/runtime-diagnostics.js
+      - name: Verify installed-machine inventory without capture
+        run: python tests/runtime_diagnostics_v500.py
       - name: Verify Section 30 health and repair orchestration
         run: python tests/homeserver_health_repair_v440.py
       - name: Verify canonical Agent Chat/Brain health integration

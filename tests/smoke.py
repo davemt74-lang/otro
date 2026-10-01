@@ -209,6 +209,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "memory.update",
             "memory.write",
             "notifications.list",
+            "runtime.diagnostics",
             "storage.status",
             "tasks.create",
             "tasks.delete",
