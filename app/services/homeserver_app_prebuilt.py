@@ -111,7 +111,7 @@ CATALOG = {
                     "media_id":{"type":"string","minLength":1,"maxLength":100},
                     "operation":{"type":"string","enum":["thumbnail","proxy","video.convert","audio.convert","image.convert"]},
                     "preset":{"type":"string","maxLength":80},
-                    "output_format":{"type":"string","maxLength":20},
+                    "output_format":{"type":"string","enum":["","jpg","jpeg","png","webp","mp4","mp3"]},
                     "priority":{"type":"integer","minimum":-100,"maximum":100}
                 },"required":["media_id","operation"],"additionalProperties":False},
                 "executor":{"type":"builtin","provider":"media_server"}
