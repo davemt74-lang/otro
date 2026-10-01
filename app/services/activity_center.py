@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..database import db
+from . import homeserver_app_approvals
 
 CONTRACT="vp3.homeserver.activity-center.v1"
 _LEVEL_RANK={"info":0,"success":1,"warning":2,"error":3,"action_required":4}
@@ -182,6 +183,26 @@ def list_activity(
                 title=f"{str(row['action_key'])} · {str(row['status'])}",
                 action_payload=action_payload,
             ))
+        for row in homeserver_app_approvals.list_rows(limit=fetch):
+            request_id=str(row.get("id") or "")
+            status=str(row.get("status") or "")
+            if status=="pending" and f"app-approval:{request_id}" in notification_dedupe:
+                continue
+            action_payload={"type":"approval","request_id":request_id} if status=="pending" else {}
+            items.append(_event(
+                "approval",f"app-{request_id}",str(row.get("created_at") or ""),"action."+status,
+                actor_type=str(row.get("actor_type") or "owner"),actor_key=str(row.get("source_app_key") or ""),
+                resource_type="action_request",resource_key=request_id,status=status,
+                source_key=str(row.get("source_app_key") or ""),
+                metadata={
+                    "action_key":str(row.get("action_key") or ""),
+                    "expires_at":str(row.get("expires_at") or ""),
+                    "has_error":bool(row.get("error")),
+                    "homeserver_app":True,
+                },
+                title=f"{str(row.get('action_key') or 'apps.invoke')} · {status}",
+                action_payload=action_payload,
+            ))
         for row in connection.execute(
             """SELECT x.id,x.trigger_kind,x.status,x.action_count,x.error,x.created_at,
                       r.rule_key,ru.routine_key
@@ -322,6 +343,7 @@ def sync_notifications(limit:int=250)->dict[str,int]:
             """SELECT id,action_key,source_app_key,created_at FROM action_requests
                WHERE status='pending' ORDER BY created_at DESC LIMIT ?""",(bounded,)
         ).fetchall()
+    app_approvals=homeserver_app_approvals.list_rows(status="pending",limit=bounded)
         failed_ai=connection.execute(
             """SELECT r.id,r.run_key,r.job_id,r.created_at,a.app_key
                FROM homeserver_app_ai_runs r JOIN homeserver_apps a ON a.app_id=r.app_id
@@ -340,6 +362,18 @@ def sync_notifications(limit:int=250)->dict[str,int]:
             category="approvals",source_kind="approval",source_key=str(row["source_app_key"]),
             event_key="action.pending",dedupe_key=f"approval:{row['id']}",
             action_payload={"type":"approval","request_id":str(row["id"])},
+        )
+        created+=0 if before or emitted.get("suppressed") else 1
+    for row in app_approvals:
+        request_id=str(row.get("id") or "")
+        before=_notification_by_dedupe(f"app-approval:{request_id}")
+        emitted=emit_notification(
+            source="approvals",title=f"Approval required: {str(row.get('action_key') or 'apps.invoke')}",
+            body=f"Requested by {str(row.get('source_app_key') or 'owner')}",
+            level="action_required",priority="high",category="approvals",source_kind="approval",
+            source_key=str(row.get("source_app_key") or "owner"),
+            event_key="action.pending",dedupe_key=f"app-approval:{request_id}",
+            action_payload={"type":"approval","request_id":request_id},
         )
         created+=0 if before or emitted.get("suppressed") else 1
     for row in failed_ai:
@@ -426,7 +460,7 @@ def summary()->dict[str,Any]:
     with db() as connection:
         unread=int(connection.execute("SELECT COUNT(*) FROM notifications WHERE read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL").fetchone()[0])
         attention=int(connection.execute("""SELECT COUNT(*) FROM notifications WHERE level IN ('error','action_required') AND dismissed_at IS NULL AND archived_at IS NULL""").fetchone()[0])
-        pending=int(connection.execute("SELECT COUNT(*) FROM action_requests WHERE status='pending'").fetchone()[0])
+        pending_db=int(connection.execute("SELECT COUNT(*) FROM action_requests WHERE status='pending'").fetchone()[0])
         failed_auto=int(connection.execute(
             """SELECT COUNT(*) FROM notifications
                WHERE source_kind='automation' AND level='error'
@@ -438,7 +472,7 @@ def summary()->dict[str,Any]:
                  AND dismissed_at IS NULL AND archived_at IS NULL"""
         ).fetchone()[0])
     return {
-        "contract":CONTRACT,"unread":unread,"needs_attention":attention,"pending_approvals":pending,
+        "contract":CONTRACT,"unread":unread,"needs_attention":attention,"pending_approvals":pending_db+len(homeserver_app_approvals.list_rows(status="pending",limit=500)),
         "failed_automations":failed_auto,"failed_agent_runs":failed_agent,
     }
 
