@@ -30,12 +30,14 @@
     $('memberWorkspace').classList.remove('hidden');
     $('memberName').textContent=me.member.display_name;
     $('memberIdentity').textContent='@'+me.member.username+' · '+me.member.role;
+    const contextForm=$('memberContextForm');
+    if(contextForm) contextForm.classList.toggle('hidden',me.member.role==='guest');
     $('memberApps').innerHTML=apps.items.length ? apps.items.map(app =>
       '<article class="member-item"><div class="member-item-head"><h3>'+esc(app.name)+'</h3><span class="tag">'+esc(app.lifecycle_state)+'</span></div><p class="muted">'+esc(app.app_key)+'</p></article>'
     ).join('') : '<div class="empty-state">No apps have been assigned to your account.</div>';
     $('memberContext').innerHTML=context.items.length ? context.items.map(item =>
       '<article class="member-item"><div class="member-item-head"><h3>'+esc(item.context_key)+'</h3><button class="text-button danger" data-context-delete="'+esc(item.context_key)+'">Delete</button></div><pre>'+esc(JSON.stringify(item.value,null,2))+'</pre></article>'
-    ).join('') : '<div class="empty-state">No private Agent context saved yet.</div>';
+    ).join('') : '<div class="empty-state">'+(me.member.role==='guest'?'Guest accounts are read-only and do not persist Agent context.':'No private Agent context saved yet.')+'</div>';
     $('memberActivity').innerHTML=activity.items.length ? activity.items.map(item =>
       '<article class="member-item"><div class="member-item-head"><h3>'+esc(item.action)+'</h3><span class="muted">'+esc(fmt(item.created_at))+'</span></div><p class="muted">'+esc([item.resource_type,item.resource_key].filter(Boolean).join(' · '))+'</p></article>'
     ).join('') : '<div class="empty-state">No user activity yet.</div>';
