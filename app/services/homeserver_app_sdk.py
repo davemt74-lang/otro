@@ -45,7 +45,10 @@ async readFile(path){const r=await fetch(this.base()+"/data/file?path="+encodeUR
 async deleteFile(path){const r=await fetch(this.base()+"/data/file?path="+encodeURIComponent(path),{method:"DELETE"});if(!r.ok)throw new Error(await r.text());return r.json();},
 async permissions(){const r=await fetch(this.base()+"/permissions");if(!r.ok)throw new Error(await r.text());return r.json();},
 async resources(){const r=await fetch(this.base()+"/resources");if(!r.ok)throw new Error(await r.text());return r.json();},
-async runtime(){const r=await fetch(this.base()+"/runtime/services");if(!r.ok)throw new Error(await r.text());return r.json();}
+async runtime(){const r=await fetch(this.base()+"/runtime/services");if(!r.ok)throw new Error(await r.text());return r.json();},
+async agentPolicy(){const r=await fetch(this.base()+"/agent-runtime/policy");if(!r.ok)throw new Error(await r.text());return r.json();},
+async agentContext(keys=[]){const q=new URLSearchParams();for(const key of keys)q.append("key",key);const r=await fetch(this.base()+"/agent-runtime/context?"+q);if(!r.ok)throw new Error(await r.text());return r.json();},
+async agentPrompt(prompt,{contextKeys=[],systemPrompt=""}={}){const r=await fetch(this.base()+"/agent-runtime/prompt",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,context_keys:contextKeys,system_prompt:systemPrompt})});if(!r.ok)throw new Error(await r.text());return r.json();}
 };"""
 APP_JS="""VP3App.ready(()=>{console.log("VP3 app ready",VP3App.health());});"""
 
