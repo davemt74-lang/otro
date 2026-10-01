@@ -442,7 +442,9 @@ def run_due_jobs()->int:
     from ..database import db
     with db() as central:
         rows=central.execute(
-            "SELECT app_key FROM homeserver_apps WHERE app_class='user' AND lifecycle_state='running' ORDER BY app_key"
+            """SELECT app_key FROM homeserver_apps
+               WHERE installed_version IS NOT NULL AND lifecycle_state='running'
+               ORDER BY app_key"""
         ).fetchall()
     now=int(time.time())
     count=0
