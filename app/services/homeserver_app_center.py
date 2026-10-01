@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
-from . import homeserver_app_control, homeserver_app_manager
+from ..config import settings
+from . import homeserver_app_manager
 
 CONTRACT="vp3.homeserver.app-center.v1"
 
@@ -17,6 +19,11 @@ def _text(value:Any)->str:
     return str(value or "").strip()
 
 
+def _version_tuple(value:Any)->tuple[int,...]:
+    parts=[int(x) for x in re.findall(r"\d+",_text(value))[:4]]
+    return tuple(parts or [0])
+
+
 def _readiness(item:dict[str,Any])->dict[str,Any]:
     catalog=dict(item.get("catalog") or {})
     installed=bool(item.get("installed"))
@@ -24,6 +31,7 @@ def _readiness(item:dict[str,Any])->dict[str,Any]:
     lifecycle=_text(item.get("lifecycle_state"))
     migration=dict(catalog.get("data_migration") or {})
     integrity=dict(catalog.get("integrity") or {})
+    compatibility=dict(catalog.get("compatibility") or {})
     issues:list[dict[str,str]]=[]
     warnings:list[dict[str,str]]=[]
 
@@ -31,6 +39,19 @@ def _readiness(item:dict[str,Any])->dict[str,Any]:
         issues.append({"code":"catalog_missing","message":"Catalog metadata is unavailable."})
     if catalog and not _text(integrity.get("package_sha256")):
         issues.append({"code":"integrity_missing","message":"Package SHA-256 metadata is unavailable."})
+    minimum=_text(compatibility.get("min_homeserver_version"))
+    maximum=_text(compatibility.get("max_homeserver_version"))
+    current=_version_tuple(settings.version)
+    if minimum and current<_version_tuple(minimum):
+        issues.append({
+            "code":"homeserver_version_too_old",
+            "message":f"Requires HomeServer {minimum} or newer.",
+        })
+    if maximum and current>_version_tuple(maximum):
+        issues.append({
+            "code":"homeserver_version_too_new",
+            "message":f"Supports HomeServer through {maximum}.",
+        })
     if installed and lifecycle in {"failed","degraded"}:
         issues.append({"code":"runtime_attention","message":f"Installed app is {lifecycle}."})
     if update and not bool(migration.get("reversible",True)):
