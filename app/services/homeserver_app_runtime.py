@@ -410,6 +410,7 @@ def run_job(app_key:str,job_id:str)->dict[str,Any]:
         run_id=int(cursor.lastrowid)
         connection.commit()
         action=json.loads(row["action_json"])
+        action["job_id"]=job_id
         try:
             output=_run_action(app_key,action)
             status="succeeded"
