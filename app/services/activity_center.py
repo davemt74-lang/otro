@@ -482,7 +482,9 @@ def summary()->dict[str,Any]:
     sync_notifications()
     with db() as connection:
         unread=int(connection.execute("SELECT COUNT(*) FROM notifications WHERE read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL").fetchone()[0])
-        attention=int(connection.execute("""SELECT COUNT(*) FROM notifications WHERE level IN ('error','action_required') AND dismissed_at IS NULL AND archived_at IS NULL""").fetchone()[0])
+        attention=int(connection.execute("""SELECT COUNT(*) FROM notifications WHERE
+            (level IN ('error','action_required') OR (source='homeserver-health' AND level='warning'))
+            AND dismissed_at IS NULL AND archived_at IS NULL""").fetchone()[0])
         pending_db=int(connection.execute("SELECT COUNT(*) FROM action_requests WHERE status='pending'").fetchone()[0])
     failures=failure_counts()
     return {
@@ -493,7 +495,27 @@ def summary()->dict[str,Any]:
 
 def brain_context(limit:int=20)->dict[str,Any]:
     state=summary()
-    activity=list_activity(limit=max(1,min(int(limit),50)),needs_attention=True)["items"]
+    bounded=max(1,min(int(limit),50))
+    activity=list_activity(limit=bounded,needs_attention=True)["items"]
+    # Warnings from health must be visible as maintenance, unlike generic low-priority warnings.
+    with db() as connection:
+        warnings=connection.execute(
+            """SELECT id,created_at,title,level FROM notifications
+               WHERE source='homeserver-health' AND level='warning'
+                 AND dismissed_at IS NULL AND archived_at IS NULL
+               ORDER BY id DESC LIMIT ?""",(min(5,bounded),),
+        ).fetchall()
+    existing_ids={item["event_id"] for item in activity}
+    for row in reversed(warnings):
+        event_id=f"notification:{row['id']}"
+        if event_id in existing_ids:
+            continue
+        activity.insert(0,{
+            "event_id":event_id,"category":"system","created_at":str(row["created_at"]),
+            "title":str(row["title"]),"level":"warning","source_kind":"notification",
+            "source_key":"homeserver-health","action":"health.attention",
+        })
+    activity=activity[:bounded]
     return {
         "contract":"vp3.homeserver.activity-center.brain-context.v1",
         "summary":state,
