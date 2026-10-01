@@ -357,6 +357,7 @@ def health(backups:list[dict[str,Any]],last_restore:dict[str,Any]|None,pending_r
     valid=[item for item in backups if not item.get("invalid")]
     invalid=[item for item in backups if item.get("invalid")]
     latest=valid[0] if valid else None
+    current_policy=policy()
     return {
         "contract":CONTRACT,
         "backup_format_current":2,
@@ -366,11 +367,11 @@ def health(backups:list[dict[str,Any]],last_restore:dict[str,Any]|None,pending_r
         "latest_backup":latest,
         "pending_restore":pending_restore,
         "last_restore":last_restore,
-        "policy":policy(),
+        "policy":current_policy,
         "coverage":{
             "database":True,
             "knowledge_files":True,
-            "app_data":True,
+            "app_data":bool(current_policy["include_app_data"]),
             "member_data":"database",
             "security_secrets":False,
             "runtime_state":False,
