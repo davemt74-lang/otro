@@ -34,12 +34,13 @@ from .local_apps_api import router as local_apps_router
 from .local_automation_api import router as local_automation_router
 from .local_voice_api import router as local_voice_router
 from .member_api import router as member_router
+from .storage_api import router as storage_router
 from .main import app
 from .release_readiness_api import router as release_readiness_router
 from .remote_bridge_api import router as remote_bridge_router
 from .room_device_api import router as room_device_router
 from .tracky_api import router as tracky_router
-from .services import activity_center, backup_protection, ambient_agent, ambient_orchestration, automation_intelligence, members, device_rollout, fleet_management, hardware_adapters, hardware_experience, hosting_cloud_control, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
+from .services import activity_center, backup_protection, ambient_agent, ambient_orchestration, automation_intelligence, members, storage_maintenance, device_rollout, fleet_management, hardware_adapters, hardware_experience, hosting_cloud_control, hosting_deployment, hosting_entitlements, hosting_operations, hosting_public, hosting_recovery, hosting_runtime, hosting_scheduler, hosting_serving, local_automation, physical_agent, physical_meeting, providers, release_readiness, room_device_automation, tracky_physical_context, vp3_os
 from .services.knowledge_backup_remote import install as install_knowledge_backup_remote_operations
 from .services.knowledge_collections_remote import install as install_knowledge_collection_remote_operations
 from .services.local_file_actions_agent import install as install_local_file_action_agent_tools
@@ -111,6 +112,7 @@ app.include_router(connected_apps_router)
 app.include_router(local_apps_router)
 app.include_router(local_voice_router)
 app.include_router(member_router)
+app.include_router(storage_router)
 app.include_router(capability_registry_router)
 app.include_router(vp3_os_router)
 app.include_router(room_device_router)
@@ -157,6 +159,7 @@ def capabilities() -> dict:
         "vp3_activity_center": activity_center.public_capability(),
         "vp3_backup_protection": backup_protection.public_capability(),
         "vp3_members": members.public_capability(),
+        "vp3_storage_maintenance": storage_maintenance.public_capability(),
         "vp3_os_ambient_orchestration": ambient_orchestration.public_capability(),
         "vp3_os_release_readiness": release_readiness.public_capability(),
         "vp3_os_device_rollout": device_rollout.public_capability(),
