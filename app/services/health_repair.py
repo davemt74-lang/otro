@@ -194,7 +194,7 @@ def _media_issues()->list[dict[str,Any]]:
 
 
 def _activity_issues()->list[dict[str,Any]]:
-    summary=_safe(activity_center.summary,{})
+    summary=_safe(activity_center.failure_counts,{})
     issues=[]
     failed_auto=int(summary.get("failed_automations") or 0)
     failed_agent=int(summary.get("failed_agent_runs") or 0)
