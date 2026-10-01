@@ -439,6 +439,12 @@
       document.querySelectorAll('[data-hs-app-filter]').forEach(n=>n.classList.toggle('active',n===filter));
       render(); return;
     }
+    const jump=event.target.closest('[data-hs-app-filter-jump]');
+    if(jump){
+      state.filter=jump.dataset.hsAppFilterJump||'all';
+      document.querySelectorAll('[data-hs-app-filter]').forEach(n=>n.classList.toggle('active',n.dataset.hsAppFilter===state.filter));
+      render(); return;
+    }
     if(event.target.closest('[data-hs-app-create]')) document.getElementById('hsAppsCreate')?.classList.remove('hidden');
     if(event.target.closest('[data-hs-app-import]')) document.getElementById('hsAppsImport')?.classList.remove('hidden');
     if(event.target.closest('[data-hs-app-create-cancel]')) document.getElementById('hsAppsCreate')?.classList.add('hidden');
@@ -449,13 +455,20 @@
     const prebuilt=event.target.closest('[data-hs-prebuilt-install]');
     if(prebuilt){
       const key=prebuilt.dataset.hsPrebuiltInstall;
+      const center=(state.center?.items||[]).find(item=>item.app_key===key)||{};
+      const readiness=center.readiness||{};
+      if(readiness.blocked){window.flash(readiness.issues?.[0]?.message||'This app is not ready to install or update.',true);return;}
+      const verb=center.update_available?'Update':'Install';
+      const warning=readiness.warnings?.[0]?.message||'';
+      const message=warning?`${warning}\n\nContinue with ${verb.toLowerCase()}?`:`${verb} ${center.name||key} through the verified HomeServer installer?`;
+      if(!confirm(message)) return;
       prebuilt.disabled=true;
       const original=prebuilt.textContent;
-      prebuilt.textContent=original==='Update'?'Updating…':'Installing…';
+      prebuilt.textContent=verb==='Update'?'Updating…':'Installing…';
       post('/api/v1/control/homeserver-apps/catalog/prebuilt/'+encodeURIComponent(key)+'/install')
-        .then(async()=>{await load(true);window.flash('VP3 app installed.');})
-        .catch(error=>window.flash(error.message||'VP3 app install failed.',true))
-        .finally(()=>{prebuilt.disabled=false;});
+        .then(async()=>{await load(true);window.flash(verb==='Update'?'VP3 app updated.':'VP3 app installed.');})
+        .catch(error=>window.flash(error.message||`VP3 app ${verb.toLowerCase()} failed.`,true))
+        .finally(()=>{prebuilt.disabled=false;prebuilt.textContent=original;});
       return;
     }
     const distributionInstall=event.target.closest('[data-hs-distribution-install]');
@@ -548,7 +561,15 @@
     if(action) act(action);
   });
 
+  let appSearchTimer=null;
+  document.addEventListener('input',(event)=>{
+    if(event.target.id!=='hsAppSearch') return;
+    clearTimeout(appSearchTimer);
+    appSearchTimer=setTimeout(()=>{state.query=event.target.value||'';render();},180);
+  });
+
   document.addEventListener('change',async(event)=>{
+    if(event.target.id==='hsAppCategory'){state.category=event.target.value||'';render();return;}
     const input=event.target.closest('[data-hs-app-permission]');
     if(!input) return;
     try{
