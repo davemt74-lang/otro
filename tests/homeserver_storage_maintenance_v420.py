@@ -23,6 +23,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
         backups,
         homeserver_app_prebuilt,
         homeserver_app_resources,
+        members,
         storage_maintenance,
         tools,
     )
@@ -36,9 +37,15 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
 
         installed=homeserver_app_prebuilt.install("vp3.notes")
         assert installed["app"]["app_key"]=="vp3.notes"
+        homeserver_app_prebuilt.install("vp3.download-manager")
+        homeserver_app_prebuilt.install("vp3.media-processor")
 
         payload=b"SECTION28_APP_STORAGE_" + (b"x"*4096)
         homeserver_app_resources.write_file("vp3.notes","section28/data.bin",payload)
+        homeserver_app_resources.write_file("vp3.download-manager","downloads/section28.bin",b"d"*2048)
+        homeserver_app_resources.write_file("vp3.media-processor","derivatives/section28.bin",b"m"*3072)
+        member=members.create_member("storage-user","Storage User","Storage-user-pass-2026","member")
+        members.set_context(member["member_id"],"preferences.storage",{"keep":"private"})
         status=client.get("/api/v1/control/storage")
         assert status.status_code==200,status.text
         body=status.json()
@@ -48,6 +55,12 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
         assert body["external_mapped_storage_counted"] is False
         assert body["filesystem_paths_exposed"] is False
         assert body["categories"]["app_data"]>=len(payload)
+        assert body["domains"]["downloads"]["physical_bytes"]>=2048
+        assert body["domains"]["media_derivatives"]["physical_bytes"]>=3072
+        assert body["domains"]["member_owned"]["member_count"]>=1
+        assert body["domains"]["member_owned"]["logical_bytes_estimate"]>0
+        assert body["domains"]["member_owned"]["physical_bytes"] is None
+        assert body["domains"]["member_owned"]["double_counted_in_database"] is False
         notes=next(item for item in body["apps"]["items"] if item["app_key"]=="vp3.notes")
         assert notes["used_bytes"]>=len(payload)
         assert notes["limit_bytes"]>notes["used_bytes"]
@@ -62,6 +75,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
         assert capability.status_code==200,capability.text
         cap=capability.json()
         assert cap["per_app_quota_rollup"] is True
+        assert cap["domain_usage"] is True
+        assert cap["download_usage"] is True
+        assert cap["media_derivative_usage"] is True
+        assert cap["member_owned_logical_usage"] is True
         assert cap["automatic_deletion"] is False
         assert cap["backup_prune_delegates_existing_retention"] is True
         assert cap["agent_brain_context"] is True
@@ -90,6 +107,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
         assert brain_payload["governance"]["automatic_deletion"] is False
         assert brain_payload["governance"]["cleanup_requires_owner_action"] is True
         assert brain_payload["governance"]["filesystem_paths_exposed"] is False
+        assert brain_payload["domains"]["downloads"]["physical_bytes"]>=2048
+        assert brain_payload["domains"]["media_derivatives"]["physical_bytes"]>=3072
+        assert brain_payload["domains"]["member_owned"]["member_count"]>=1
         brain_text=json.dumps(brain_payload,ensure_ascii=False)
         assert str(settings.data_dir) not in brain_text
 
@@ -150,6 +170,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-storage-v420-") as data_dir:
         css=(ROOT/"ui"/"storage.css").read_text(encoding="utf-8")
         assert "view-storage" in ui
         assert "storagePolicyForm" in ui
+        assert "storageDomains" in ui
         assert "storagePruneBackups" in ui
         assert "automatic" not in ui.lower() or "auto-delete" not in ui.lower()
         assert ".storage-health" in css
