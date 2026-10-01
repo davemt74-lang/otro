@@ -420,7 +420,8 @@ class TaskScheduler:
                 # Reuse the existing local scheduler; do not create another
                 # daemon or require the Brain drawer to be open.
                 try:
-                    from . import health_maintenance
+                    from . import activity_center, health_maintenance
+                    activity_center.sync_notifications()
                     health_maintenance.sync_health_notifications()
                 except Exception:
                     # Scheduler survives a failed probe; the next cycle retries.
