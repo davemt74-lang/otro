@@ -1,6 +1,20 @@
-name: VP3 OS Local Automation v0.70
+name: VP3 OS App Orchestration v0.80
 
 on:
+  pull_request:
+    paths:
+      - 'app/services/local_automation.py'
+      - 'app/local_automation_api.py'
+      - 'app/services/homeserver_app_control.py'
+      - 'app/services/homeserver_app_agent.py'
+      - 'app/services/approvals.py'
+      - 'database/migrations/061_app_orchestration.sql'
+      - 'tests/homeserver_app_orchestration_v370.py'
+      - 'tests/local_automation_v070.py'
+      - 'tests/migrations.py'
+      - 'ui/index.html'
+      - 'ui/room-device-automation.js'
+      - '.github/workflows/vp3-os-local-automation-v070.yml'
   workflow_dispatch:
 
 permissions:
@@ -25,7 +39,7 @@ jobs:
           node-version: '24'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Compile v0.70 runtime
+      - name: Compile app orchestration runtime
         run: >-
           python -m py_compile
           app/services/local_automation.py
@@ -36,6 +50,7 @@ jobs:
           app/main.py
           app/bridge.py
           tests/local_automation_v070.py
+          tests/homeserver_app_orchestration_v370.py
           tests/local_automation_ui_contract_v070.py
           tests/room_device_automation_v060.py
           tests/room_device_automation_ui_contract_v060.py
@@ -45,8 +60,10 @@ jobs:
         run: python tests/room_device_automation_v060.py
       - name: Verify v0.60 governance contract
         run: python tests/room_device_automation_ui_contract_v060.py
-      - name: Verify v0.70 local automation runtime
+      - name: Verify v0.70 local automation regression
         run: python tests/local_automation_v070.py
+      - name: Verify Section 23 app orchestration
+        run: python tests/homeserver_app_orchestration_v370.py
       - name: Verify v0.70 governance contract
         run: python tests/local_automation_ui_contract_v070.py
       - name: Verify migrations
