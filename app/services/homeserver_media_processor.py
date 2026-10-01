@@ -348,28 +348,43 @@ def _run_ffmpeg(job_id:str,cmd:list[str],duration:float|None)->None:
 
 
 def _spec(operation:str,preset:str,fmt:str,source_type:str)->tuple[list[str],str,str]:
-    op=str(operation or "").strip().lower(); preset=str(preset or "default").strip().lower(); fmt=str(fmt or "").strip().lower()
+    op=str(operation or "").strip().lower()
+    preset=str(preset or "default").strip().lower()
+    fmt=str(fmt or "").strip().lower()
+    if fmt and not fmt.isalnum():
+      raise MediaProcessorError("Output format is invalid.")
     if op=="thumbnail":
-      return (["-frames:v","1","-vf","scale='min(1280,iw)':-2"],fmt or "jpg","thumbnail")
+      if source_type not in {"video","image"}: raise MediaProcessorError("Thumbnail generation requires video or image media.",409)
+      chosen=fmt or "jpg"
+      if chosen not in {"jpg","jpeg","png","webp"}: raise MediaProcessorError("Unsupported thumbnail output format.")
+      return (["-frames:v","1","-vf","scale='min(1280,iw)':-2"],chosen,"thumbnail")
     if op=="proxy":
       if source_type!="video": raise MediaProcessorError("Proxy generation requires video media.",409)
       scale={"editor":"1280","720p":"1280","1080p":"1920"}.get(preset,"1280")
-      return (["-c:v","libx264","-preset","veryfast","-crf","28","-vf",f"scale='min({scale},iw)':-2","-c:a","aac","-b:a","128k"],fmt or "mp4","proxy")
+      chosen=fmt or "mp4"
+      if chosen!="mp4": raise MediaProcessorError("Proxy output format must be mp4.")
+      return (["-c:v","libx264","-preset","veryfast","-crf","28","-vf",f"scale='min({scale},iw)':-2","-c:a","aac","-b:a","128k"],chosen,"proxy")
     if op=="video.convert":
       if source_type!="video": raise MediaProcessorError("Video conversion requires video media.",409)
       scale={"720p":"1280","1080p":"1920","4k":"3840"}.get(preset)
       vf=["-vf",f"scale='min({scale},iw)':-2"] if scale else []
       quality={"small":"28","balanced":"23","high":"18"}.get(preset,"23")
-      return (["-c:v","libx264","-preset","medium","-crf",quality,*vf,"-c:a","aac"],fmt or "mp4","video")
+      chosen=fmt or "mp4"
+      if chosen!="mp4": raise MediaProcessorError("Video conversion output format must be mp4.")
+      return (["-c:v","libx264","-preset","medium","-crf",quality,*vf,"-c:a","aac"],chosen,"video")
     if op=="audio.convert":
       if source_type not in {"audio","video"}: raise MediaProcessorError("Audio conversion requires audio or video media.",409)
       quality={"small":"6","balanced":"2","high":"0"}.get(preset,"2")
-      return (["-vn","-c:a","libmp3lame","-q:a",quality],fmt or "mp3","audio")
+      chosen=fmt or "mp3"
+      if chosen!="mp3": raise MediaProcessorError("Audio conversion output format must be mp3.")
+      return (["-vn","-c:a","libmp3lame","-q:a",quality],chosen,"audio")
     if op=="image.convert":
       if source_type!="image": raise MediaProcessorError("Image conversion requires image media.",409)
       scale={"small":"1280","medium":"2560","large":"4096"}.get(preset)
       vf=["-vf",f"scale='min({scale},iw)':-2"] if scale else []
-      return (vf,fmt or "webp","image")
+      chosen=fmt or "webp"
+      if chosen not in {"jpg","jpeg","png","webp"}: raise MediaProcessorError("Unsupported image output format.")
+      return (vf,chosen,"image")
     raise MediaProcessorError("Unsupported processing operation.")
 
 def enqueue(media_id:str,operation:str,preset:str="default",output_format:str="",priority:int=0,destination_id:str="app-storage")->dict[str,Any]:
@@ -426,7 +441,11 @@ def _run(job_id:str)->None:
       src,mime,item=homeserver_media_server.resolve_stream(job["media_id"])
       args,fmt,kind=_spec(job["operation"],job["preset"],job["output_format"],item["media_type"])
       root,destination_kind=_destination_path(str(job.get("destination_id") or "app-storage"))
-      name=f"{job_id}.{fmt}"; tmp=root/f".{job_id}.tmp.{fmt}"; final=root/name
+      name=f"{job_id}.{fmt}"
+      tmp=(root/f".{job_id}.tmp.{fmt}").resolve()
+      final=(root/name).resolve()
+      if tmp.parent!=root or final.parent!=root:
+        raise MediaProcessorError("Processor output path escaped its destination.",500)
       tools=homeserver_media_tools.require()
       limits=settings()["settings"]
       duration=_probe_duration(src)
