@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-orchestration-v370-") as
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
 
     from app.database import db, initialize_database
-    from app.services import approvals, homeserver_app_prebuilt, homeserver_apps, local_automation
+    from app.services import approvals, homeserver_app_control, homeserver_app_prebuilt, homeserver_apps, local_automation
 
     initialize_database()
     installed=homeserver_app_prebuilt.install("vp3.media-player")
@@ -132,6 +132,44 @@ with tempfile.TemporaryDirectory(prefix="homeserver-app-orchestration-v370-") as
     assert snapshot["app_event"]["metadata_exposed"] is False
     assert "filesystem_path" not in str(snapshot)
     assert "do-not-expose" not in str(snapshot)
+
+    chained=local_automation.upsert_rule(
+        "after-player-status",
+        "After Player Status",
+        routine_key="player-health-suggestion",
+        trigger_kind="app_event",
+        trigger={
+            "app_key":"vp3.media-player",
+            "event_type":"app.action.invoked",
+            "action_key":"player.status",
+        },
+        conditions=[],
+        cooldown_seconds=0,
+    )
+    assert chained["trigger"]["action_key"]=="player.status"
+    before=local_automation.evaluate_rule("after-player-status")
+    assert before["fired"] is False
+    result=homeserver_app_control.invoke("vp3.media-player","player.status",{})
+    assert result["action"]=="player.status"
+    after=local_automation.evaluate_rule("after-player-status")
+    assert after["fired"] is True
+    chain_snapshot=after["snapshot"] if "snapshot" in after else local_automation.list_executions(20)[0]["trigger_snapshot"]
+    event_snapshot=chain_snapshot.get("app_event") or {}
+    assert event_snapshot.get("event_type")=="app.action.invoked"
+    assert event_snapshot.get("action_key")=="player.status"
+    assert event_snapshot.get("metadata_exposed") is False
+
+    with db() as connection:
+        event_row=connection.execute(
+            """SELECT metadata_json FROM homeserver_app_events
+               WHERE app_id=? AND event_type='app.action.invoked'
+               ORDER BY id DESC LIMIT 1""",
+            (app_id,),
+        ).fetchone()
+    assert event_row is not None
+    assert "player.status" in event_row["metadata_json"]
+    assert "arguments" not in event_row["metadata_json"]
+    assert "token" not in event_row["metadata_json"]
 
     brain=local_automation.brain_context(20)
     assert brain["contract"]=="vp3.homeserver.app-orchestration.brain-context.v1"
