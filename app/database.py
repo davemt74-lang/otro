@@ -19,6 +19,7 @@ FEATURE_SCHEMA_PATHS = (
     ROOT_DIR / "database" / "agent_workflow_supervision.sql",
     ROOT_DIR / "database" / "agent_workflow_automation.sql",
     ROOT_DIR / "database" / "runtime_certification.sql",
+    ROOT_DIR / "database" / "governed_recordings.sql",
 )
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_.+\.sql$")
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
