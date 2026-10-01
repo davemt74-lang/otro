@@ -309,8 +309,17 @@ def _backup_summary(path: Path) -> dict[str, Any]:
         "created_at": manifest.get("created_at"),
         "app_version": manifest.get("app_version"),
         "schema_version": manifest.get("schema_version"),
+        "format_version": int(manifest.get("format_version") or 1),
         "reason": manifest.get("reason", "manual"),
         "file_count": len(manifest.get("files") or []),
+        "app_count": len(manifest.get("apps") or []),
+        "app_data_files": int(manifest.get("app_data_files") or 0),
+        "app_data_bytes": int(manifest.get("app_data_bytes") or 0),
+        "coverage": manifest.get("coverage") or {
+            "database": True,
+            "knowledge_files": True,
+            "app_data": False,
+        },
     }
 
 
