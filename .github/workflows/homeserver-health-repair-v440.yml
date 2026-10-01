@@ -9,6 +9,7 @@ on:
       - 'app/services/runtime_diagnostics.py'
       - 'app/services/live_certification.py'
       - 'app/services/governed_recordings.py'
+      - 'app/services/tasks.py'
       - 'database/governed_recordings.sql'
       - 'tests/governed_recordings_v502.py'
       - 'ui/governed-recordings.js'
