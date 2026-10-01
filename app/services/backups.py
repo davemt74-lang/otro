@@ -173,6 +173,8 @@ def _manifest_file_entry(root: Path, relative_path: str) -> dict[str, Any]:
 
 
 def create_backup(reason: str = "manual") -> dict[str, Any]:
+    from . import backup_protection
+
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.backups_dir.mkdir(parents=True, exist_ok=True)
     if not settings.db_path.exists():
@@ -191,14 +193,20 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
         knowledge_root = root / "knowledge" / "files"
         copied_files = _copy_knowledge_files(knowledge_root)
 
+        protection_policy = backup_protection.policy()
+        app_snapshot = {"archive_paths": [], "apps": [], "bytes": 0, "files": 0}
+        if protection_policy["include_app_data"]:
+            app_snapshot = backup_protection.snapshot_app_data(root)
+
         archive_paths = ["database/homeserver.db"]
         archive_paths.extend(
             f"knowledge/files/{path.relative_to(knowledge_root).as_posix()}"
             for path in copied_files
         )
+        archive_paths.extend(app_snapshot["archive_paths"])
         archive_paths = [_safe_member_name(path) for path in archive_paths]
         if len({path.casefold() for path in archive_paths}) != len(archive_paths):
-            raise BackupError("Knowledge storage contains file names that collide on Windows.")
+            raise BackupError("Backup storage contains file names that collide on Windows.")
         file_entries = [_manifest_file_entry(root, path) for path in sorted(archive_paths)]
         manifest = {
             "format": BACKUP_FORMAT,
@@ -207,6 +215,20 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
             "app_version": settings.version,
             "schema_version": schema_version,
             "reason": reason_text,
+            "coverage": {
+                "database": True,
+                "knowledge_files": True,
+                "app_data": bool(protection_policy["include_app_data"]),
+                "member_data": "database",
+                "security_secrets": False,
+                "runtime_state": False,
+                "backup_archives": False,
+                "restore_staging": False,
+                "app_recovery_snapshots": False,
+            },
+            "apps": app_snapshot["apps"],
+            "app_data_bytes": app_snapshot["bytes"],
+            "app_data_files": app_snapshot["files"],
             "files": file_entries,
         }
         (root / MANIFEST_NAME).write_text(
@@ -236,10 +258,16 @@ def create_backup(reason: str = "manual") -> dict[str, Any]:
         "app_version": manifest["app_version"],
         "schema_version": manifest["schema_version"],
         "reason": manifest["reason"],
+        "format_version": manifest["format_version"],
         "file_count": len(file_entries),
+        "app_count": len(manifest["apps"]),
+        "app_data_files": manifest["app_data_files"],
+        "app_data_bytes": manifest["app_data_bytes"],
+        "coverage": manifest["coverage"],
         "size_bytes": final_path.stat().st_size,
         "sha256": _sha256_path(final_path),
     }
+    backup_protection.prune_backups(list_backups(), delete_backup, protect_name=filename)
     return result
 
 
