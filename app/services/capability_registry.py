@@ -351,7 +351,7 @@ def build_registry(identity: dict[str, Any]) -> dict[str, Any]:
         "services": _services(inference, local_app_inventory),
         "operations": sorted(set(_operations(permissions, bool(contacts_inventory.get("available"))) + (
             ["transcription.shared.list","transcription.shared.fetch"]
-            if str(identity.get("app_key") or "")=="vp3" and "knowledge.read" in permissions
+            if str(identity.get("app_key") or "")=="vp3" and "knowledge.search" in permissions
             else []
         ))),
         "counts": {
