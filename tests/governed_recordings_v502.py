@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix="hs-recording-v502-") as data:
     state={"privacy_switch":{"engaged":False},"camera":{"ready":False}}
     def fake_audio(_seconds,target):
         target.write_bytes(wav)
-    with TestClient(app) as client:
+    with TestClient(app,base_url='http://localhost') as client:
         scheduler.stop()
         headers={"X-Requested-With":"XMLHttpRequest"}
         assert client.get("/api/v1/control/governed-recordings").status_code==401
