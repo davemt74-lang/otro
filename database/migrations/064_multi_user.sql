@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS homeserver_members (
     member_id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin','member','guest')),
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','disabled')),
