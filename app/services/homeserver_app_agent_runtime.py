@@ -102,17 +102,17 @@ def update_policy(app_key:str,values:dict[str,Any])->dict[str,Any]:
     return policy(app_key)
 
 
-def _context_path(app_key:str)->tuple[Path,dict[str,Any]]:
-    app=_app(app_key)
-    root=homeserver_app_packages.active_content_root(app_key).resolve()
-    manifest_path=root/"vp3-app.json"
+def validate_release_contract(app_key:str,content_root:Path)->dict[str,Any]:
+    root=content_root.resolve()
     try:
-        manifest=json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest=json.loads((root/"vp3-app.json").read_text(encoding="utf-8"))
     except Exception as exc:
-        raise AppAgentRuntimeError("Installed app manifest is unavailable.",500) from exc
+        raise AppAgentRuntimeError("Installed app manifest is unavailable.",400) from exc
+    if not isinstance(manifest,dict) or str(manifest.get("app_key") or "")!=app_key:
+        raise AppAgentRuntimeError("Installed app manifest identity mismatch.",400)
     rel=str(manifest.get("agent_context") or "").strip()
     if not rel:
-        return root,{"contract":CONTEXT_CONTRACT,"providers":[]}
+        return {"contract":CONTEXT_CONTRACT,"app_key":app_key,"providers":[],"count":0}
     candidate=Path(rel.replace("\\","/"))
     if candidate.is_absolute() or ".." in candidate.parts or not candidate.parts:
         raise AppAgentRuntimeError("App Agent context path is invalid.")
@@ -123,16 +123,19 @@ def _context_path(app_key:str)->tuple[Path,dict[str,Any]]:
         payload=json.loads(target.read_text(encoding="utf-8"))
     except Exception as exc:
         raise AppAgentRuntimeError("App Agent context contract is invalid JSON.") from exc
-    return root,payload
-
-
-def context_providers(app_key:str)->dict[str,Any]:
-    _root,payload=_context_path(app_key)
     if not isinstance(payload,dict) or payload.get("contract")!=CONTEXT_CONTRACT:
         raise AppAgentRuntimeError("App Agent context contract is unsupported.")
     raw=payload.get("providers",[])
     if not isinstance(raw,list) or len(raw)>32:
         raise AppAgentRuntimeError("App Agent context providers are invalid.")
+    action_path=str(manifest.get("agent_actions") or "").strip()
+    if not action_path:
+        raise AppAgentRuntimeError("App Agent context providers require an Agent action manifest.")
+    try:
+        actions=homeserver_app_control.validate_action_manifest(root,app_key,action_path)
+    except homeserver_app_control.AppControlError as exc:
+        raise AppAgentRuntimeError(str(exc),exc.status_code) from exc
+    actions_by_key={row["key"]:row for row in actions["actions"]}
     out=[]
     seen=set()
     for row in raw:
@@ -143,14 +146,14 @@ def context_providers(app_key:str)->dict[str,Any]:
         if not _CONTEXT_KEY.fullmatch(key) or key in seen:
             raise AppAgentRuntimeError("App Agent context key is invalid or duplicated.")
         seen.add(key)
-        if not action:
-            raise AppAgentRuntimeError(f"Context provider {key} requires an app action.")
-        try:
-            spec=homeserver_app_control.action_spec(app_key,action)
-        except homeserver_app_control.AppControlError as exc:
-            raise AppAgentRuntimeError(str(exc),exc.status_code) from exc
+        spec=actions_by_key.get(action)
+        if spec is None:
+            raise AppAgentRuntimeError(f"Context provider {key} references an undeclared app action.")
         if str(spec.get("risk") or "")!="read" or bool(spec.get("requires_confirmation")):
             raise AppAgentRuntimeError(f"Context provider {key} must reference a confirmation-free read action.")
+        schema=dict(spec.get("input_schema") or {})
+        if list(schema.get("required") or []):
+            raise AppAgentRuntimeError(f"Context provider {key} action may not require arguments.")
         maximum=max(256,min(int(row.get("max_chars") or 4000),12000))
         out.append({
             "key":key,
@@ -167,6 +170,14 @@ def context_providers(app_key:str)->dict[str,Any]:
         "count":len(out),
     }
 
+
+def context_providers(app_key:str)->dict[str,Any]:
+    _app(app_key)
+    try:
+        root=homeserver_app_packages.active_content_root(app_key)
+    except homeserver_app_packages.AppPackageError as exc:
+        raise AppAgentRuntimeError(str(exc),exc.status_code) from exc
+    return validate_release_contract(app_key,root)
 
 def _redact(value:Any,depth:int=0)->Any:
     if depth>8:
