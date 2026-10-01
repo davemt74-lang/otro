@@ -33,4 +33,6 @@ assert '/assets/agent-brain-drawer.js' not in (ROOT/"ui"/"member.html").read_tex
 assert 'CHAT_DRAFT_KEY' in script
 assert 'sessionStorage.setItem(CHAT_DRAFT_KEY' in script
 assert 'window.location.assign(\'/#chat\')' in script
+# Defer global drawer initialization until the universal shell mounts.
+assert "document.readyState !== 'complete'" in script
 print("Section 31: global owner drawer and safe Chat handoff contract PASS")
