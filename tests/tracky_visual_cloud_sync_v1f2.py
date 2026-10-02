@@ -86,16 +86,31 @@ with tempfile.TemporaryDirectory(prefix="tracky-visual-cloud-v1f2-") as folder:
         # Concurrent explicit revocation wins over an in-flight HTTPS ACK.
         assert client.post(route+"cloud-sharing",json=disable,headers=headers).status_code==200
         assert link.cloud_projection()=="revoked"
-        assert link.mark_cloud_delivery("owner_attributed_unverified") is False
+        assert link.mark_cloud_delivery("owner_attributed_unverified", generation=package["visual_owner_generation"]) is False
         assert link.cloud_projection()=="revoked"
         assert physical._cloud_payload()["payload"]["health"]["visual_owner_association"]=="revoked"
-        assert link.mark_cloud_delivery("revoked") is True
+        revoke_snapshot=link.cloud_snapshot()
+        assert revoke_snapshot["generation"] != package["visual_owner_generation"]
+        assert link.mark_cloud_delivery("revoked") is False  # Unfenced acknowledgements forbidden.
+        assert link.mark_cloud_delivery("revoked", generation=revoke_snapshot["generation"]) is True
         assert link.cloud_projection() is None
         assert link.status()["cloud_sharing_opted_in"] is False
 
         # A brand-new opt-in is required for every reactivation.
         assert client.post(route+"cloud-sharing",json=enable,headers=headers).status_code==200
         assert link.cloud_projection()=="owner_attributed_unverified"
+        # A revoked-and-reauthorized link can regain the SAME public scalar.
+        # An old ACK must not confirm the new consent generation.
+        assert link.mark_cloud_delivery("owner_attributed_unverified",
+            generation=package["visual_owner_generation"]) is False
+        newer=link.cloud_snapshot()
+        assert newer["generation"] != package["visual_owner_generation"]
+        assert newer["state"]=="owner_attributed_unverified"
+        assert link.mark_cloud_delivery("owner_attributed_unverified") is False
+        assert link.mark_cloud_delivery("owner_attributed_unverified",
+            generation=newer["generation"]) is True
+        assert link.status()["cloud_delivery_status"]=="authenticated_site_accepted_cloud_account_consent_separate"
+        assert "visual_owner_generation" not in physical._cloud_payload()["payload"]
         with patch.object(physical,"sync_cloud",return_value={"ok":True}):
             sent=client.post(route+"cloud-sync",json={"consent":True},headers=headers)
             assert sent.status_code==200
@@ -106,7 +121,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-visual-cloud-v1f2-") as folder:
         assert client.post(route+"cloud-sharing",json=enable,headers=headers).status_code==409
         assert client.post(route+"revoke",json={"consent":True},headers=headers).status_code==200
         assert link.cloud_projection()=="revoked"
-        assert link.mark_cloud_delivery("revoked") is True
+        final_snapshot=link.cloud_snapshot()
+        assert link.mark_cloud_delivery("revoked",generation=final_snapshot["generation"]) is True
         assert link.cloud_projection() is None
         assert not client.get(route+"receipt").json()["available"]
 
