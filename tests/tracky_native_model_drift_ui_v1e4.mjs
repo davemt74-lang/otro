@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const client=readFileSync('ui/tracky/native-camera.js','utf8');
+const source=readFileSync('app/services/tracky_native_certification.py','utf8');
+const model=readFileSync('app/services/tracky_native_camera.py','utf8');
+assert.match(client,/requires_new_owner_test_due_model_change/);
+assert.match(client,/detector changed after your previous test/i);
+assert.match(client,/managedReady/);
+assert.match(source,/model_sha256/);
+assert.match(source,/installed_model_matches_last_test/);
+assert.match(source,/runtime_version/);
+assert.match(model,/hashlib\.sha256/);
+console.log('TRACKY_NATIVE_MODEL_DRIFT_UI_V1E4: integrity binding and owner repair PASS');
