@@ -50,8 +50,12 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
         "reason": "interrupted_by_restart" if restarted else str(row.get("reason") or "")[:50],
         "started_at": str(row.get("started_at") or "")[:40],
         "finished_at": str(row.get("finished_at") or "")[:40],
-        "requested_samples": max(0, min(12, int(row.get("requested_samples") or 0))),
-        "completed_samples": max(0, min(12, int(row.get("completed_samples") or 0))),
+        "requested_samples": max(0, min(
+            60 if row.get("owner_surface") == "agent_eyes" else 12,
+            int(row.get("requested_samples") or 0))),
+        "completed_samples": max(0, min(
+            60 if row.get("owner_surface") == "agent_eyes" else 12,
+            int(row.get("completed_samples") or 0))),
         "current_process": row.get("boot_id") == _BOOT,
         "recover_before_new_session": restarted,
         "automatic_resume": False,
@@ -126,7 +130,8 @@ def begin(*, sample_count: int, owner_surface: str = "native_supervised",
             or (model_sha256 and (len(model_sha256) != 64
                 or any(c not in "0123456789abcdef" for c in model_sha256)))):
         raise ValueError("Invalid reviewed installed-model binding")
-    if type(sample_count) is not int or not 1 <= sample_count <= 12:
+    max_count = 60 if owner_surface == "agent_eyes" else 12
+    if type(sample_count) is not int or not 1 <= sample_count <= max_count:
         raise ValueError("Invalid sample limit")
     with _LOCK:
         prior = _saved()
