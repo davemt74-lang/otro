@@ -8,7 +8,8 @@ for(const name of retained){
     name+' must require contiguous migration registry');
   assert.ok(source.includes('assert versions == declared'),
     name+' must compare applied and declared versions');
-  assert.ok(!/assert versions\\s*==\\s*list\\(range\\(1,\\s*61\\)\\)/.test(source),
+  assert.ok(!source.includes('assert versions == list(range(1, 61))')
+    && !source.includes('assert versions==list(range(1,61))'),
     name+' must not freeze the old 060 ceiling');
 }
 const workflow=readFileSync('.github/workflows/ci.yml','utf8');
