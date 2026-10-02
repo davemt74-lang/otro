@@ -140,11 +140,17 @@ def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
         "face_templates_retained_by_homeserver": False,
         # Opt-in reports only a semantic status through existing authenticated
         # Tracky site sync. Local signed receipt is NEVER exported.
-        "cloud_sync_enabled": False,
+        "cloud_sync_enabled": opted,
+        "cloud_receipt_sync_enabled": False,
         "cloud_sharing_opted_in": opted,
         "cloud_revocation_pending": revoke_signal,
-        "cloud_delivery_status": ("pending_authenticated_sync_and_cloud_consent"
-                                  if opted or revoke_signal else "not_shared"),
+        "cloud_delivery_status": (
+            "revocation_pending_sync" if revoke_signal
+            else "authenticated_site_accepted_cloud_account_consent_separate"
+                if opted and row.get("cloud_last_accepted_state") == _ACTIVE
+            else "pending_authenticated_sync_and_cloud_consent" if opted
+            else "not_shared"
+        ),
         "raw_media_in_receipt": False,
         "requires_explicit_owner_approval": True,
     }
@@ -252,11 +258,13 @@ def set_cloud_sharing(*, consent: bool, scope: str, enabled: bool) -> dict[str, 
                 row["cloud_share_opt_in"] = True
                 row["cloud_projection_state"] = _ACTIVE
                 row["cloud_consented_at"] = datetime.now(timezone.utc).isoformat()
+                row["cloud_last_accepted_state"] = ""
                 _commit(row, "tracky.visual.cloud_sharing.enabled")
         elif row.get("cloud_share_opt_in") is True:
             row["cloud_share_opt_in"] = False
             row["cloud_projection_state"] = "revoked"
             row["cloud_revoked_at"] = datetime.now(timezone.utc).isoformat()
+            row["cloud_last_accepted_state"] = ""
             _commit(row, "tracky.visual.cloud_sharing.revoked")
         return status()
 
