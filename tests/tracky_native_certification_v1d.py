@@ -29,7 +29,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-v1d-") as home:
         assert client.post(base+"owner-review",json=full).status_code==403
         assert client.post(base+"owner-review",json=full,headers=hdr).status_code==409
         assert not cert.status()["history"]
-        model={"installed":True,"model_present":True,"runtime_version":"synthetic","model_sha256":"a"*64}
+        model={"installed":True,"model_present":True,"model_integrity_verified":True,"runtime_version":"synthetic","model_sha256":"a"*64}
         evidence={"status":"native_detector_completed","driver_worker_exited":True,
                   "measurement":{"frame_captured":True,"detector_executed":True,
                                  "camera_release_call_completed":True,
