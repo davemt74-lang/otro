@@ -980,7 +980,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     )
     # Opted-in semantic status only. No raw local receipt, image, contact
     # or participant identifier may enter the authenticated site transport.
-    visual_owner_snapshot = tracky_visual_contact_link.cloud_snapshot()
+    visual_owner_snapshot = tracky_visual_contact_link.prepare_cloud_snapshot()
     visual_owner_projection = visual_owner_snapshot["state"] or None
     federated_automation_projection = (
         tracky_federated_automation.cloud_projection()
@@ -993,6 +993,11 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "site": {"id": device_id, "label": "HomeServer"},
             "status": status,
             "cursor": cursor,
+            # Only a bounded monotonic consent revision is transmitted. The
+            # random local generation, signed receipt and participant/contact
+            # references remain exclusively on the HomeServer.
+            **({"visual_owner_status_revision": visual_owner_snapshot["revision"]}
+               if visual_owner_projection is not None else {}),
             "capabilities": {
                 "camera_count": 1 if camera["present"] else 0,
                 "scene_graph": True,
@@ -1105,6 +1110,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
         "event_ids": event_ids,
         "visual_owner_projection": visual_owner_projection,
         "visual_owner_generation": visual_owner_snapshot["generation"],
+        "visual_owner_revision": visual_owner_snapshot["revision"],
         "max_sequence": max_sequence,
         "cursor": cursor,
         "previous_cursor": str(sync_row["sync_cursor"] or "") if sync_row else "",
@@ -1231,12 +1237,25 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
                        "status_sent": package["visual_owner_projection"] or "",
                        "current_generation_acknowledged": False}
     if package["visual_owner_projection"] is not None:
-        visual_delivery["current_generation_acknowledged"] = bool(
-            tracky_visual_contact_link.mark_cloud_delivery(
-                package["visual_owner_projection"],
-                generation=package["visual_owner_generation"],
-            )
+        cloud_receipt = body.get("visual_owner_status")
+        # The old Cloud receiver returned only a generic ok=true and MUST
+        # NOT be treated as proof that it applied our current consent change.
+        # Stale, missing, conflicting or malformed revision ACKs remain pending.
+        revision_accepted = bool(
+            isinstance(cloud_receipt, dict)
+            and cloud_receipt.get("accepted") is True
+            and type(cloud_receipt.get("revision")) is int
+            and cloud_receipt["revision"] == package["visual_owner_revision"]
+            and cloud_receipt.get("state") == package["visual_owner_projection"]
         )
+        if revision_accepted:
+            visual_delivery["current_generation_acknowledged"] = bool(
+                tracky_visual_contact_link.mark_cloud_delivery(
+                    package["visual_owner_projection"],
+                    generation=package["visual_owner_generation"],
+                    revision=package["visual_owner_revision"],
+                )
+            )
     return {
         "ok": True,
         "protocol": PHYSICAL_CONTEXT_PROTOCOL,

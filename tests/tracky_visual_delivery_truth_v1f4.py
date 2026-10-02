@@ -30,8 +30,14 @@ with tempfile.TemporaryDirectory(prefix="tracky-visual-delivery-v1f4-") as data:
 
     class Reply:
         status_code=200
+        def __init__(self,payload):self.payload=payload
         def json(self):
-            return {"ok":True}
+            state=self.payload.get("health",{}).get("visual_owner_association")
+            revision=self.payload.get("visual_owner_status_revision",0)
+            return {"ok":True,"visual_owner_status":{
+                "accepted":state is not None,"revision":revision if state else 0,
+                "state":state or "",
+            }}
     class HTTPS:
         on_post=None
         payloads=[]
@@ -45,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-visual-delivery-v1f4-") as data:
             HTTPS.payloads.append(json)
             if HTTPS.on_post:
                 HTTPS.on_post()
-            return Reply()
+            return Reply(json)
 
     def fake_transport():
         return patch.multiple(physical,

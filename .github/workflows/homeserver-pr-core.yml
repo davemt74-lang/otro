@@ -44,6 +44,8 @@ jobs:
           node tests/tracky_visual_cloud_sync_ui_v1f2.mjs
           python tests/tracky_visual_delivery_truth_v1f4.py
           node tests/tracky_visual_delivery_truth_ui_v1f4.mjs
+          python tests/tracky_visual_ordered_sender_v1f6.py
+          node tests/tracky_visual_ordered_sender_ui_v1f6.mjs
           node tests/tracky_visual_contact_link_ui_v1f1.mjs
           node --check ui/tracky/owner-contact-link.js
           node --check ui/tracky/owner-visual.js

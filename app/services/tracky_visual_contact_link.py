@@ -108,6 +108,18 @@ def _receipt_valid(row: dict[str, Any]) -> bool:
         return False
 
 
+def _next_cloud_revision(row: dict[str, Any]) -> int:
+    # Explicit local changes, not heartbeat polls, advance the Cloud order.
+    # Legacy records without a revision have an effective baseline of 1 so
+    # revoking an already-shared legacy state cannot reuse its first version.
+    raw = row.get("cloud_revision", 0)
+    if type(raw) is not int or raw < 0 or raw >= 2147483647:
+        raise VisualContactLinkError(
+            "Local sharing revision is invalid; use governed device recovery.", 409
+        )
+    return max(1, raw) + 1 if row else 1
+
+
 def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
     row = _saved()
     v = _visual() if visual is None else visual
@@ -121,8 +133,13 @@ def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
     accepted_state = str(row.get("cloud_last_accepted_state") or "")
     accepted_generation = str(row.get("cloud_last_accepted_generation") or "")
     current_generation = str(row.get("cloud_generation") or "")
+    raw_revision = row.get("cloud_revision", 0)
+    current_revision = raw_revision if type(raw_revision) is int and 0 <= raw_revision <= 2147483647 else 0
+    accepted_revision = row.get("cloud_last_accepted_revision")
     acknowledged_current = bool(
-        accepted_generation and current_generation
+        type(accepted_revision) is int
+        and current_revision > 0 and accepted_revision == current_revision
+        and accepted_generation and current_generation
         and hmac.compare_digest(accepted_generation, current_generation)
         and ((accepted_state == _ACTIVE and opted and not revoke_signal)
              or (accepted_state == "revoked" and not opted and not revoke_signal))
@@ -205,6 +222,7 @@ def associate(*, consent: bool, scope: str, participant_id: str, contact_id: int
             # Keep a pending previously-shared revocation until the next
             # authenticated sync. New links ALWAYS require fresh Cloud opt-in.
             "cloud_share_opt_in": False,
+            "cloud_revision": _next_cloud_revision(existing),
             "cloud_generation": secrets.token_hex(16),
             "cloud_projection_state": ("revoked"
                 if existing.get("cloud_projection_state") == "revoked"
@@ -233,9 +251,11 @@ def revoke(*, consent: bool = False, reason: str = "owner_revoked") -> dict[str,
             if row.get("cloud_share_opt_in") is True or row.get("cloud_projection_state") == "revoked":
                 row["cloud_projection_state"] = "revoked"
             row["cloud_share_opt_in"] = False
+            row["cloud_revision"] = _next_cloud_revision(row)
             row["cloud_generation"] = secrets.token_hex(16)
             row["cloud_last_accepted_state"] = ""
             row["cloud_last_accepted_generation"] = ""
+            row["cloud_last_accepted_revision"] = 0
             # No active signed receipt may be reused after revocation.
             row["receipt_signature"] = ""
             for name in ("local_participant_id", "contact_id", "participant_ref",
@@ -273,24 +293,28 @@ def set_cloud_sharing(*, consent: bool, scope: str, enabled: bool) -> dict[str, 
                 )
             if row.get("cloud_share_opt_in") is not True:
                 row["cloud_share_opt_in"] = True
+                row["cloud_revision"] = _next_cloud_revision(row)
                 row["cloud_generation"] = secrets.token_hex(16)
                 row["cloud_projection_state"] = _ACTIVE
                 row["cloud_consented_at"] = datetime.now(timezone.utc).isoformat()
                 row["cloud_last_accepted_state"] = ""
                 row["cloud_last_accepted_generation"] = ""
+                row["cloud_last_accepted_revision"] = 0
                 _commit(row, "tracky.visual.cloud_sharing.enabled")
         elif row.get("cloud_share_opt_in") is True:
             row["cloud_share_opt_in"] = False
+            row["cloud_revision"] = _next_cloud_revision(row)
             row["cloud_generation"] = secrets.token_hex(16)
             row["cloud_projection_state"] = "revoked"
             row["cloud_revoked_at"] = datetime.now(timezone.utc).isoformat()
             row["cloud_last_accepted_state"] = ""
             row["cloud_last_accepted_generation"] = ""
+            row["cloud_last_accepted_revision"] = 0
             _commit(row, "tracky.visual.cloud_sharing.revoked")
         return status()
 
 
-def cloud_snapshot() -> dict[str, str]:
+def cloud_snapshot() -> dict[str, Any]:
     """Local-only generation fencing for asynchronous Cloud ACKs.
 
     Only `state` is placed inside authenticated Tracky site health. The
@@ -304,7 +328,38 @@ def cloud_snapshot() -> dict[str, str]:
         value = (_ACTIVE if state["cloud_sharing_opted_in"]
                  else "revoked" if state["cloud_revocation_pending"]
                  else "")
-        return {"state": value, "generation": str(row.get("cloud_generation") or "")}
+        raw = row.get("cloud_revision", 0)
+        if type(raw) is not int or raw < 0 or raw > 2147483647:
+            raise VisualContactLinkError("Local Cloud ordering state is invalid.", 409)
+        return {
+            "state": value, "generation": str(row.get("cloud_generation") or ""),
+            "revision": max(1, raw) if value else 0,
+        }
+
+
+def prepare_cloud_snapshot() -> dict[str, Any]:
+    """Safety reconciliation only when preparing an outbound Tracky sync.
+
+    If the linked contact disappeared or enrollment consent changed outside
+    the visual-link UI, promote the previously shared active state to a NEW
+    revocation revision before packaging. Read-only status polling does not
+    mutate consent or start network traffic.
+    """
+    with _LOCK:
+        row = _saved()
+        if (row.get("state") == _ACTIVE
+                and row.get("cloud_share_opt_in") is True
+                and not status()["active"]):
+            row["cloud_revision"] = _next_cloud_revision(row)
+            row["cloud_share_opt_in"] = False
+            row["cloud_projection_state"] = "revoked"
+            row["cloud_generation"] = secrets.token_hex(16)
+            row["cloud_revoked_at"] = datetime.now(timezone.utc).isoformat()
+            row["cloud_last_accepted_state"] = ""
+            row["cloud_last_accepted_generation"] = ""
+            row["cloud_last_accepted_revision"] = 0
+            _commit(row, "tracky.visual.cloud_sharing.invalidated")
+        return cloud_snapshot()
 
 
 def cloud_projection() -> str | None:
@@ -312,7 +367,9 @@ def cloud_projection() -> str | None:
     return cloud_snapshot()["state"] or None
 
 
-def mark_cloud_delivery(sent_state: str, *, generation: str = "") -> bool:
+def mark_cloud_delivery(
+    sent_state: str, *, generation: str = "", revision: int | None = None
+) -> bool:
     """Reject late ACKs even when revoked/newly approved status has same label.
 
     A generation is mandatory for ACKs; the legacy one-argument call cannot
@@ -320,16 +377,21 @@ def mark_cloud_delivery(sent_state: str, *, generation: str = "") -> bool:
     """
     if sent_state not in {_ACTIVE, "revoked"}:
         raise ValueError("Unsupported semantic Cloud status")
-    if not generation:
+    if not generation or type(revision) is not int or revision < 1:
         return False
     with _LOCK:
         row = _saved()
+        actual_revision = row.get("cloud_revision", 0)
+        if type(actual_revision) is not int or max(1, actual_revision) != revision:
+            return False
         if not row or not hmac.compare_digest(str(row.get("cloud_generation") or ""), generation):
             return False
         if cloud_projection() != sent_state:
             return False
+        row["cloud_revision"] = revision
         row["cloud_last_accepted_state"] = sent_state
         row["cloud_last_accepted_generation"] = generation
+        row["cloud_last_accepted_revision"] = revision
         row["cloud_last_accepted_at"] = datetime.now(timezone.utc).isoformat()
         if sent_state == "revoked":
             row["cloud_share_opt_in"] = False
