@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from . import system_state, tracky_physical_context, tracky_owner_perception, vp3_os
+from . import system_state, tracky_physical_context, tracky_owner_perception, vp3_os, tracky_visual_contact_link
 
 STATE_KEY = "tracky.owner_visual_chat.v1"
 SCOPE = "owner-self-local-recognition-v1"
@@ -90,6 +90,7 @@ def status() -> dict[str, Any]:
             "cloud_biometrics": False,
             "tracking_enabled": False,
             "contact_creation_enabled": False,
+            "contact_association": tracky_visual_contact_link.status(visual=row),
             "local_deletion_required": phase == "browser_reported",
         }
 
@@ -148,6 +149,7 @@ def cancel() -> dict[str, Any]:
         # Cancelling never pretends that independently persisted browser
         # biometrics have been deleted. The UI offers explicit local deletion.
         if row.get("phase") == "browser_reported":
+            tracky_visual_contact_link.revoke(reason="visual_consent_revoked")
             row["consent"] = False
             row["scope"] = ""
             row["phase"] = "browser_reported"
@@ -167,6 +169,7 @@ def delete_report(*, participant_id: str) -> dict[str, Any]:
             raise VisualOnboardingError("No matching local enrollment report exists.", 404)
         # Caller MUST first delete the browser's canonical IndexedDB participant.
         # A response here confirms only that the HomeServer report was cleared.
+        tracky_visual_contact_link.revoke(reason="local_profile_deleted")
         _write({"phase": "deleted", "consent": False, "scope": "", "session_hash": "",
                 "expires_at": "", "local_participant_id": "", "sample_count": 0})
         return status()
