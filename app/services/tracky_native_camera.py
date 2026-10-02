@@ -9,6 +9,7 @@ certification. Neither images nor face templates are saved or synchronized.
 """
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import threading
 import time
@@ -46,6 +47,18 @@ def _privacy() -> bool:
                 .get("privacy", {}).get("privacy_switch_engaged"))
 
 
+def model_preflight() -> dict[str, Any]:
+    try:
+        if importlib.util.find_spec('cv2') is None:
+            return {'installed': False, 'model_present': False, 'runtime_version': 'missing'}
+        cv2 = importlib.import_module('cv2')
+        present = (Path(cv2.data.haarcascades) / 'haarcascade_frontalface_default.xml').is_file()
+        return {'installed': True, 'model_present': present,
+                'runtime_version': str(getattr(cv2, '__version__', 'unknown'))[:64]}
+    except Exception:
+        return {'installed': False, 'model_present': False, 'runtime_version': 'unavailable'}
+
+
 def _dependency() -> dict[str, Any]:
     # Passive inspection only: never loads camera, native driver or frame.
     try:
@@ -55,7 +68,7 @@ def _dependency() -> dict[str, Any]:
     return {
         "runtime": MODEL_NAME,
         "installed": installed,
-        "model_bundled_with_runtime": installed,
+        "model_bundled_with_runtime": model_preflight()["model_present"],
         "auto_installed_with_homeserver": True,
     }
 
@@ -94,6 +107,7 @@ def _observe(index: int, cancel: threading.Event) -> dict[str, Any]:
     if not cascade_file.is_file():
         raise NativeCameraError("Bundled native detection model is missing.", 503)
     capture = None
+    released = False
     start = time.monotonic()
     try:
         # Do not enumerate or open other cameras: use only the index selected
@@ -136,6 +150,7 @@ def _observe(index: int, cancel: threading.Event) -> dict[str, Any]:
     finally:
         if capture is not None:
             capture.release()
+            released = True
 
 
 def _provider(request: dict[str, Any]) -> dict[str, Any]:
@@ -159,6 +174,8 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
             _MEASUREMENT = {
                 "frame_captured": True, "detector_executed": True,
                 "camera_release_completed": True,
+                "camera_release_call_completed": True,
+                "physical_camera_release_verified": False,
                 "capture_and_inference_ms": result["capture_and_inference_ms"],
                 "inference_ms": result["inference_ms"],
                 "face_count_category": "none" if result["face_regions_detected"] == 0
@@ -181,7 +198,7 @@ def test(*, consent: bool, scope: str, camera_index: int) -> dict[str, Any]:
         raise NativeCameraError("Select a supported local camera index.", 422)
     if _privacy():
         raise NativeCameraError("Physical privacy is engaged.", 403)
-    if not _dependency()["installed"]:
+    if not model_preflight()["model_present"]:
         raise NativeCameraError("Native camera detector is not installed.", 503)
     with _LOCK:
         if _BUSY or _INFLIGHT:
