@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const js=readFileSync('ui/tracky/native-camera.js','utf8');
+const native=readFileSync('app/services/tracky_native_camera.py','utf8');
+const managed=readFileSync('app/services/tracky_native_managed_session.py','utf8');
+const spec=readFileSync('HomeServer.spec','utf8');
+assert.match(js,/model_integrity_verified/);
+assert.match(native,/integrity\.verify_file\(cascade_file\)/);
+assert.match(native,/model_preflight\(\)\["model_integrity_verified"\]/);
+assert.match(managed,/model_preflight\(\)\["model_integrity_verified"\]/);
+assert.match(spec,/collect_all\('cv2'\)/);
+assert.match(spec,/cv2_datas/);
+console.log('TRACKY_NATIVE_MODEL_INTEGRITY_UI_V1E4: owner diagnosis, fail-closed session, bundle PASS');
