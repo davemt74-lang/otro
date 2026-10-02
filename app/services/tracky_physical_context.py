@@ -456,6 +456,7 @@ _OWNER_SESSION_PROVIDERS = frozenset({
     "homeserver-owner-browser-one-shot",
     "homeserver-native-opencv-owner-test",
     "homeserver-supervised-native-sampling",
+    "homeserver-owner-agent-eyes",
 })
 
 
@@ -476,6 +477,7 @@ def provider_exposure() -> dict[str, Any]:
         or caps.get("camera_opens_on_approval_only") is True
         or caps.get("surface") in {
             "owner_browser", "native_owner_on_demand", "native_supervised",
+            "native_agent_eyes",
         }
     )
     remote = bool(
