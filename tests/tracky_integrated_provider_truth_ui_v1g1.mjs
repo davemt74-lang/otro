@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const runtime=fs.readFileSync('app/services/tracky_physical_context.py','utf8');
+const agent=fs.readFileSync('app/services/onboarding_chat.py','utf8');
+const audit=fs.readFileSync('docs/tracky-v1g1-integrated-runtime-audit.md','utf8');
+assert.match(runtime,/def provider_exposure\(/);
+assert.match(runtime,/_OWNER_SESSION_PROVIDERS/);
+assert.match(runtime,/caps\.get\("remote_requestable"\) is True/);
+assert.match(runtime,/"remote_requestable": exposure\["remote_requestable"\]/);
+assert.match(runtime,/"active_perception": bool\(provider\["remote_requestable"\]\)/);
+assert.match(runtime,/status = "healthy" if provider\["remote_requestable"\]/);
+assert.match(agent,/"tracky_provider_exposure": tracky_physical_context\.provider_exposure\(\)/);
+assert.match(audit,/Standalone.*tracky/);
+assert.doesNotMatch(runtime,/"active_perception": bool\(provider\["available"\]\)/);
+console.log('TRACKY_1G1_INTEGRATION_CONTRACT: single canonical provider, owner-local isolation and Cloud truth PASS');

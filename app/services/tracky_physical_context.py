@@ -448,6 +448,53 @@ def unregister_provider(
         return True if expected is not None else None
 
 
+
+# This is one canonical registry for integrated HomeServer perception, not an
+# additional camera runtime or a dependency on the standalone Tracky script.
+# Being registered for a local, owner-bound request is NOT remote availability.
+_OWNER_SESSION_PROVIDERS = frozenset({
+    "homeserver-owner-browser-one-shot",
+    "homeserver-native-opencv-owner-test",
+    "homeserver-supervised-native-sampling",
+})
+
+
+def provider_exposure() -> dict[str, Any]:
+    """Read-only, fail-closed capability truth for Agent and Cloud.
+
+    No camera discovery, model import, driver access, user data or provider
+    callback execution. Existing local provider ownership remains unchanged.
+    Remote availability requires an explicit declaration by a future,
+    separately governed integration; temporary owner sessions never qualify.
+    """
+    provider, caps, name = _provider_snapshot()
+    registered = provider is not None
+    owner_bound = registered and (
+        name in _OWNER_SESSION_PROVIDERS
+        or caps.get("owner_consent_required") is True
+        or caps.get("owner_gesture_required") is True
+        or caps.get("camera_opens_on_approval_only") is True
+        or caps.get("surface") in {
+            "owner_browser", "native_owner_on_demand", "native_supervised",
+        }
+    )
+    remote = bool(
+        registered and not owner_bound
+        and caps.get("remote_requestable") is True
+        and caps.get("background_tracking") is not False
+    )
+    return {
+        "registered": registered,
+        "name": name if registered else "",
+        "local_owner_session_provider": bool(owner_bound),
+        "remote_requestable": remote,
+        "cloud_active_perception_advertised": remote,
+        "remote_opt_in_required": True,
+        "identity_recognition_certified": False,
+        "hardware_certified": False,
+    }
+
+
 def canonical_rooms() -> list[dict[str, Any]]:
     try:
         rows = room_device_automation.list_rooms(enabled_only=True)
@@ -466,6 +513,7 @@ def canonical_rooms() -> list[dict[str, Any]]:
 
 def public_capability() -> dict[str, Any]:
     provider, provider_caps, provider_name = _provider_snapshot()
+    exposure = provider_exposure()
     inventory = vp3_os.hardware_inventory()
     camera = inventory.get("camera") if isinstance(inventory.get("camera"), dict) else {}
     reconciliation = federated_data.reconciliation_state("vp3_cloud")
@@ -478,6 +526,9 @@ def public_capability() -> dict[str, Any]:
         "transport": "existing_vp3_https_session",
         "provider": {
             "available": provider is not None,
+            "registered": exposure["registered"],
+            "remote_requestable": exposure["remote_requestable"],
+            "local_owner_session_provider": exposure["local_owner_session_provider"],
             "name": provider_name,
             "capabilities": provider_caps,
         },
@@ -928,7 +979,9 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     capability = public_capability()
     provider = capability["provider"]
     camera = capability["camera"]
-    status = "healthy" if provider["available"] and (camera["ready"] or not provider["capabilities"].get("requires_camera", True)) else "degraded"
+    # A temporary local owner lease must not make Cloud advertise a globally
+    # healthy or remotely available active-perception service.
+    status = "healthy" if provider["remote_requestable"] and (camera["ready"] or not provider["capabilities"].get("requires_camera", True)) else "degraded"
     cursor = f"hs-{max_sequence}"
     federation_request = tracky_federation_sync.cloud_sync_request()
     local_federation_site = str(federation_request.get("local_site_id") or "")
@@ -1001,7 +1054,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "capabilities": {
                 "camera_count": 1 if camera["present"] else 0,
                 "scene_graph": True,
-                "active_perception": bool(provider["available"]),
+                "active_perception": bool(provider["remote_requestable"]),
                 "recognition": bool(provider["capabilities"].get("recognition")),
                 "object_tracking": bool(provider["capabilities"].get("object_tracking")),
                 "gesture_support": bool(provider["capabilities"].get("gesture_support")),

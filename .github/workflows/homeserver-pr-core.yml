@@ -51,6 +51,8 @@ jobs:
           node --check ui/tracky/owner-visual.js
       - name: Owner-gated canonical Tracky camera-to-inference provider
         run: |
+          python tests/tracky_integrated_provider_truth_v1g1.py
+          node tests/tracky_integrated_provider_truth_ui_v1g1.mjs
           python tests/tracky_owner_perception_v1.py
           node tests/tracky_owner_perception_ui_v1.mjs
           node --check ui/tracky/eyes-runtime.js
