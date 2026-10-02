@@ -167,7 +167,10 @@ assert "tracky_v280_golden_operational_release.py" in ci
 assert "tracky_v280_golden_operational_release.py" in release_workflow
 assert "feature_track = 'Tracky V2.81'" in ci
 assert "feature_section = 3" in ci
-assert "current_schema_version = 59" in ci
+assert "current_schema_version = [int]$schema" in ci
+assert "from app.database import migration_files;" in ci
+assert "owner_visual_identity_claim = 'owner_attributed_unverified'" in ci
+assert "native_hardware_certified = $false" in ci
 assert "golden_operational_scenarios = 24" in ci
 assert "federated_automation_protocol = 'physical_federated_automation.v1'" in ci
 assert "federated_automation_execution_enabled = $true" in ci
