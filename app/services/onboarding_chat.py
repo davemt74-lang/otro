@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 
 from ..config import settings
-from . import cloud_pairing, local_apps, remote_bridge, system_state, onboarding_visual, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_visual_contact_link, tracky_physical_context
+from . import cloud_pairing, local_apps, remote_bridge, system_state, onboarding_visual, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_visual_contact_link, tracky_physical_context, tracky_agent_eyes
 from .owner_secret import _atomic_write, _protect_windows, _unprotect_windows
 from .remote_identity import load_or_create_remote_identity
 
@@ -186,6 +186,7 @@ def summary() -> dict[str, Any]:
             "native_camera_diagnosis": tracky_native_diagnosis.diagnose(),
             "native_camera_certification": tracky_native_certification.status(),
             "native_managed_session": tracky_native_managed_session.status(),
+            "agent_eyes": tracky_agent_eyes.agent_context(),
             "tracky_provider_exposure": tracky_physical_context.provider_exposure(),
             **device_status()}
 
