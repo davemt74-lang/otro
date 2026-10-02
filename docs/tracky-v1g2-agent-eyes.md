@@ -1,0 +1,11 @@
+# Tracky 1G2 — Agent Eyes supervised live observations
+
+**Production ownership:** VP3 HomeServer, not the standalone Tracky development script. The existing `tracky_native_managed_session` worker remains the only supervised native-camera loop. Agent Eyes uses it with a distinct `owner_surface`, while both modes use the canonical Tracky provider and existing exclusive native camera driver lock.
+
+**Default:** off. Owner must first perform the installed HomeServer camera test, local privacy check and owner acceptance. Agent Eyes also requires fresh consent and an owner-selected local camera per session. It samples locally 1–12 times at minimum five-second intervals, has a two-minute absolute limit and a 15-second owner-presence heartbeat. No unattended startup or automatic resumption. Closing the Tracky view or hiding its initiating tab requests immediate stop; the server lease expires independently if that request cannot arrive.
+
+**Privacy and safety:** face-region detector is not recognition. No recordings or templates persist; synthetic tests are not installed-device hardware certification. All observations pass through the existing `tracky.active_perception` ledger; Agent Chat sees passive operational status and counts only. HomeServer never advertises this temporary local owner-bound provider as remotely available to Cloud. It does not give Cloud control of camera capture.
+
+**Agent integration:** existing Agent Chat onboarding summary includes `agent_eyes` with current operation, last observation time, presence gate, provenance through canonical request ledger and next owner action. Read-only status cannot issue a capture or extend a lease. Agent Brain's broader contextual recognition, multi-camera fusion and durable policy for unattended perception are explicitly deferred to governed 1G3, not impersonated by this section.
+
+**Test gates:** owner authentication/CSRF, strict start validation, privacy rejection, installed-review binding, exclusive provider, shared native driver, canonical observation ledger, passive Agent status, non-biometric output, UI visible-tab owner lease and no cross-session stop. Hardware certification must run on the installed Windows HomeServer after release.
