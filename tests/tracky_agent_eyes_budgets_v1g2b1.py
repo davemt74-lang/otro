@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="agent-eyes-budgets-") as root:
         },observed_source="homeserver",trigger_reason="eyes-v1g2b1-synthetic")["status"]=="completed"
     assert eyes.status()["available_wall_budgets"] == [60, 120]
     assert eyes.status()["available_cpu_budgets"] == [4, 8, 12]
-    model={"model_integrity_verified":True}
+    model={"installed":True,"model_present":True,"model_integrity_verified":True,"runtime_version":"synthetic"}
     approval={"owner_accepted_current_run":True,
               "requires_new_owner_test_due_model_change":False}
     with patch.object(cert,"status",return_value=approval), \
