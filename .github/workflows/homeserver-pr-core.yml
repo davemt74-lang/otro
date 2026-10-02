@@ -83,6 +83,11 @@ jobs:
         run: |
           node tests/v24_historical_baseline_v1f8.mjs
           python tests/single_instance.py
+      - name: Validate cumulative Tracky release migration and installer metadata
+        run: |
+          node tests/tracky_v24_release_baselines_v1f9.mjs
+          python tests/tracky_contract_join_v273.py
+          python tests/hosting_runtime_v100.py
       - name: Verify API smoke contract
         run: python tests/smoke.py
       - name: Verify tool security contract

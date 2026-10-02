@@ -19,14 +19,16 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s2-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
     os.environ["VP3_OS_HARDWARE_ADAPTER"] = "disabled"
 
-    from app.database import db, initialize_database  # noqa: E402
+    from app.database import db, initialize_database, migration_files  # noqa: E402
     from app.services import tracky_federated_world, tracky_physical_context, tracky_site_topology  # noqa: E402
 
     initialize_database()
 
     with db() as connection:
         versions = [int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 61))
+        declared = [1] + [version for version, _ in migration_files()]
+        assert declared == list(range(1, declared[-1] + 1))
+        assert versions == declared
         assert connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracky_federated_world_fragments'"
         ).fetchone() is not None

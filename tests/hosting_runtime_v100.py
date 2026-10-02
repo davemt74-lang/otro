@@ -11,13 +11,15 @@ if str(ROOT) not in sys.path:
 
 with tempfile.TemporaryDirectory(prefix="hosting-v100-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
-    from app.database import db, initialize_database
+    from app.database import db, initialize_database, migration_files
     from app.services import hosting_runtime
 
     initialize_database()
     with db() as connection:
         versions=[row["version"] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-    assert versions==list(range(1,61))
+    declared = [1] + [version for version, _ in migration_files()]
+    assert declared == list(range(1, declared[-1] + 1))
+    assert versions == declared
 
     site=hosting_runtime.create_site(
         "Pizza Site",
