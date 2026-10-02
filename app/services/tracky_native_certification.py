@@ -62,7 +62,8 @@ def record_test(phase: str) -> dict[str, Any]:
     measurement = last.get("measurement") or {}
     model = native.model_preflight()
     successful = (
-        phase == "completed" and last.get("status") == "native_detector_completed"
+        phase == "completed" and model.get("model_integrity_verified") is True
+        and last.get("status") == "native_detector_completed"
         and measurement.get("frame_captured") is True
         and measurement.get("detector_executed") is True
         and measurement.get("camera_release_call_completed") is True
@@ -74,6 +75,7 @@ def record_test(phase: str) -> dict[str, Any]:
         "model_sha256": str(model.get("model_sha256") or "")[:64],
         "test_outcome": "completed_owner_review_pending" if successful else "not_verified",
         "model_present": model.get("model_present") is True,
+        "model_integrity_verified": model.get("model_integrity_verified") is True,
         "frame_captured": successful,
         "detector_executed": successful,
         "camera_release_call_completed": successful,
@@ -139,6 +141,8 @@ def status() -> dict[str, Any]:
     current_digest = str(current_model.get("model_sha256") or "")
     model_binding_matches = bool(
         current_model.get("model_present") is True
+        and current_model.get("model_integrity_verified") is True
+        and test_model.get("model_integrity_verified") is True
         and len(last_digest) == 64 and len(current_digest) == 64
         and last_digest == current_digest
         and test_model.get("runtime_version") == current_model.get("runtime_version")
@@ -170,7 +174,7 @@ def status() -> dict[str, Any]:
         "identity_recognition_certified": False,
         "history": recent,
         "requires_installed_owner_acceptance": not current_accepted,
-        "model_integrity_scope": "local_file_fingerprint_not_vendor_signature",
+        "model_integrity_scope": "reviewed_local_sha256_and_last_test_binding_not_installer_signature",
     }
 
 
