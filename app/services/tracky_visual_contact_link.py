@@ -193,6 +193,9 @@ def revoke(*, consent: bool = False, reason: str = "owner_revoked") -> dict[str,
             row["revoked_at"] = datetime.now(timezone.utc).isoformat()
             # No active signed receipt may be reused after revocation.
             row["receipt_signature"] = ""
+            for name in ("local_participant_id", "contact_id", "participant_ref",
+                         "contact_ref", "device_id", "client_reported_at"):
+                row.pop(name, None)
             _commit(row, "tracky.visual.association.revoked")
         return status()
 
