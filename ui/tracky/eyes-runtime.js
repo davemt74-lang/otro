@@ -66,6 +66,9 @@ async function test() {
   if(started||live)return;
   const consent=$('onboardEyesConsent');
   if(!consent?.checked){report('Approve this separate one-time test before using your camera.');return;}
+  if(window.TrackyOwnerSelfVerify?.isActive()){
+    report('Finish the local one-frame self-check first.');return;
+  }
   if(window.HomeServerVisualEnrollment?.isCapturing()){
     report('Finish or stop visual profile enrollment before running Agent Eyes.');return;
   }
