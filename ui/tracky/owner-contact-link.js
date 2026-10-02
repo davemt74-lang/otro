@@ -7,6 +7,7 @@ import { listParticipants } from './src/participant-store.js';
 const el = id => document.getElementById(id);
 const BASE = '/api/v1/control/onboarding/visual/contact-link/';
 const SCOPE = 'owner-self-existing-contact-association.v1';
+const CLOUD_SCOPE = 'owner-self-cloud-status-only.v1';
 let busy = false;
 let state = null;
 let visual = null;
@@ -41,6 +42,19 @@ function render() {
       !el('onboardVisualLinkConsent').checked || !el('onboardVisualLinkTarget').value;
   el('onboardVisualLinkRevoke').disabled = busy;
   el('onboardVisualLinkTarget').disabled = busy || active || needsReview;
+  const opted=link.cloud_sharing_opted_in===true;
+  const pending=link.cloud_revocation_pending===true;
+  el('onboardVisualCloudEnable').hidden=opted;
+  el('onboardVisualCloudDisable').hidden=!opted;
+  el('onboardVisualCloudEnable').disabled=busy||!active||!el('onboardVisualCloudConsent').checked;
+  el('onboardVisualCloudDisable').disabled=busy;
+  el('onboardVisualCloudSync').hidden=!opted&&!pending;
+  el('onboardVisualCloudSync').disabled=busy;
+  el('onboardVisualCloudState').textContent=opted
+    ? 'Owner-approved, unverified attribution status only. Cloud account consent is separate.'
+    : pending
+      ? 'Sharing revoked locally. Deliver the revocation to your paired Cloud account.'
+      : 'Cloud status sharing is off. Neither profile nor contact data are shared.';
   if(active) {
     message('Owner-associated with '+link.contact.display_name+
       ' · browser report only; facial identity not independently verified.');
@@ -110,9 +124,40 @@ async function revoke(){
   finally{busy=false;render();}
 }
 
+async function toggleCloud(enabled){
+  if(busy || (enabled && (!state?.active || !el('onboardVisualCloudConsent').checked)))return;
+  const warning=enabled
+    ? 'Share only your unverified owner-attribution STATUS with paired VP3 Cloud? Your Cloud account requires its own visual consent. No photo, face descriptor, contact details, IDs or signed local receipt will be sent.'
+    : 'Disable status sharing locally and queue a non-biometric revocation status for Cloud?';
+  if(!window.confirm(warning))return;
+  busy=true;render();
+  try{
+    state=await json(BASE+'cloud-sharing',{consent:true,scope:CLOUD_SCOPE,enabled});
+    el('onboardVisualCloudConsent').checked=false;
+    await refresh();
+  }catch(error){message(String(error.message));}
+  finally{busy=false;render();}
+}
+async function syncCloud(){
+  if(busy||(!state?.cloud_sharing_opted_in&&!state?.cloud_revocation_pending))return;
+  if(!window.confirm('Send only the current unverified owner status or its revocation through your existing paired Tracky HTTPS connection? No biometric data or local receipt will be sent.'))return;
+  busy=true;render();
+  try{
+    const result=await json(BASE+'cloud-sync',{consent:true});
+    await refresh();
+    el('onboardVisualCloudState').textContent=result.site_sync_accepted
+      ? 'Paired Cloud site update accepted; separate Cloud account consent still required. This does not verify facial identity.'
+      : 'Cloud status was not delivered. Retry after checking your paired connection.';
+  }catch(error){el('onboardVisualCloudState').textContent='Cloud status delivery needs attention: '+String(error.message);}
+  finally{busy=false;render();}
+}
 function init(){
   if(!el('onboardVisualLink'))return;
   el('onboardVisualLinkConsent').addEventListener('change',render);
+  el('onboardVisualCloudConsent').addEventListener('change',render);
+  el('onboardVisualCloudEnable').addEventListener('click',()=>{void toggleCloud(true);});
+  el('onboardVisualCloudDisable').addEventListener('click',()=>{void toggleCloud(false);});
+  el('onboardVisualCloudSync').addEventListener('click',()=>{void syncCloud();});
   el('onboardVisualLinkTarget').addEventListener('change',render);
   el('onboardVisualLinkSearch').addEventListener('input',()=>{
     if(searchTimer)window.clearTimeout(searchTimer);
@@ -125,10 +170,12 @@ function init(){
   el('onboardVisualLinkRevoke').addEventListener('click',()=>{void revoke();});
   window.addEventListener('tracky:visual-state-changed',()=>{
     el('onboardVisualLinkConsent').checked=false;
+    el('onboardVisualCloudConsent').checked=false;
     void refresh().catch(error=>message(String(error.message)));
   });
   window.addEventListener('homeserver:onboarding-hidden',()=>{
     el('onboardVisualLinkConsent').checked=false;
+    el('onboardVisualCloudConsent').checked=false;
     render();
   });
   void refresh().catch(()=>message('Local contact attribution is unavailable.'));
