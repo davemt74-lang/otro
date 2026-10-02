@@ -28,6 +28,12 @@ HEARTBEAT_TTL_SECONDS = 15
 # remain physically uncertified and disabled until installed-device acceptance.
 AGENT_WALL_OPTIONS = (60, 120)
 AGENT_CPU_OPTIONS = (4, 8, 12)
+# Extended mode is still visible-tab, owner-supervised and off until the
+# installed owner completes all current-review exercises.
+AGENT_EXTENDED_WALL_OPTIONS = (300, 600)
+AGENT_EXTENDED_CPU_OPTIONS = (20, 30)
+AGENT_EXTENDED_MAX_SAMPLES = 60
+AGENT_EXTENDED_MAX_INTERVAL = 30
 WATCHDOG_STALL_SECONDS = 16
 _LOCK = threading.RLock()
 _STOP = threading.Event()
@@ -66,8 +72,11 @@ def _snapshot() -> dict[str, Any]:
             "identity_recognition": False,
             "continuous_unattended_tracking": False,
             "raw_media_retained": False,
-            "max_samples": MAX_SAMPLES,
-            "max_session_seconds": MAX_SECONDS,
+            "max_samples": (AGENT_EXTENDED_MAX_SAMPLES if
+                state.get("owner_surface") == "agent_eyes" and state.get("extended_session")
+                else MAX_SAMPLES),
+            "max_session_seconds": (int(state.get("wall_limit_seconds") or MAX_SECONDS)
+                if state.get("owner_surface") == "agent_eyes" else MAX_SECONDS),
             "owner_presence_required": True,
             "heartbeat_ttl_seconds": HEARTBEAT_TTL_SECONDS,
             "requires_new_owner_consent_per_session": True,
@@ -303,20 +312,34 @@ def start(*, consent: bool, scope: str, camera_index: int,
         raise ManagedSessionError("Unsupported owner session surface.", 422)
     if type(camera_index) is not int or camera_index not in native.CAMERA_INDICES:
         raise ManagedSessionError("Select a supported camera.", 422)
-    if (type(max_session_seconds) is not int or type(max_cpu_seconds) is not int
-            or (owner_surface == "agent_eyes"
-                and (max_session_seconds not in AGENT_WALL_OPTIONS
-                     or max_cpu_seconds not in AGENT_CPU_OPTIONS))
-            or (owner_surface != "agent_eyes"
-                and (max_session_seconds != MAX_SECONDS
-                     or max_cpu_seconds != AGENT_CPU_OPTIONS[-1]))):
+    extended = (owner_surface == "agent_eyes"
+                and type(max_session_seconds) is int
+                and max_session_seconds in AGENT_EXTENDED_WALL_OPTIONS)
+    allowed_walls = (AGENT_WALL_OPTIONS + AGENT_EXTENDED_WALL_OPTIONS
+                     if owner_surface == "agent_eyes" else (MAX_SECONDS,))
+    allowed_cpu = (AGENT_CPU_OPTIONS + AGENT_EXTENDED_CPU_OPTIONS
+                   if extended else
+                   AGENT_CPU_OPTIONS if owner_surface == "agent_eyes"
+                   else (AGENT_CPU_OPTIONS[-1],))
+    if (type(max_session_seconds) is not int or max_session_seconds not in allowed_walls
+            or type(max_cpu_seconds) is not int or max_cpu_seconds not in allowed_cpu):
         raise ManagedSessionError("Unsupported supervised resource budget.", 422)
-    if (type(sample_count) is not int or not 1 <= sample_count <= MAX_SAMPLES
+    sample_limit = AGENT_EXTENDED_MAX_SAMPLES if extended else MAX_SAMPLES
+    interval_limit = AGENT_EXTENDED_MAX_INTERVAL if extended else 15
+    if (type(sample_count) is not int or not 1 <= sample_count <= sample_limit
             or type(interval_seconds) is not int
-            or not MIN_INTERVAL_SECONDS <= interval_seconds <= 15
+            or not MIN_INTERVAL_SECONDS <= interval_seconds <= interval_limit
             or (sample_count - 1) * interval_seconds
                > max_session_seconds - native.CAPTURE_SECONDS):
         raise ManagedSessionError("Session limits exceeded.", 422)
+    if extended:
+        from . import tracky_agent_eyes_acceptance as acceptance
+        if not acceptance.status()["owner_exercise_complete"]:
+            raise ManagedSessionError(
+                "Complete all current-install owner exercises before requesting "
+                "extended supervised Agent Eyes.", 409)
+    # No extended path for generic native sessions. No unattended or remote
+    # camera control regardless of installed owner exercise results.
     if native._privacy():
         raise ManagedSessionError("Privacy is engaged.", 403)
     if not cert.status()["owner_accepted_current_run"]:
@@ -353,6 +376,7 @@ def start(*, consent: bool, scope: str, camera_index: int,
             "wall_limit_seconds": max_session_seconds,
             "cpu_limit_seconds": max_cpu_seconds,
             "cpu_used_seconds": 0.0,
+            "extended_session": extended,
         })
         run_id = ""
         try:

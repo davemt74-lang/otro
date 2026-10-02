@@ -47,13 +47,22 @@ def status() -> dict[str, Any]:
         "requested_observations": int(worker.get("requested_samples") or 0) if belongs else 0,
         "last_observed_at": str(worker.get("last_observed_at") or "") if belongs else "",
         "started_at": str(worker.get("started_at") or "") if belongs else "",
-        "max_observations": managed.MAX_SAMPLES,
-        "max_seconds": managed.MAX_SECONDS,
+        "max_observations": (managed.AGENT_EXTENDED_MAX_SAMPLES
+            if acceptance_state["owner_exercise_complete"] else managed.MAX_SAMPLES),
+        "max_seconds": (managed.AGENT_EXTENDED_WALL_OPTIONS[-1]
+            if acceptance_state["owner_exercise_complete"] else managed.MAX_SECONDS),
         "resource_budget": (worker.get("resource_budget") if belongs else None),
         "recovery": recovery_state,
         "installed_exercise": acceptance_state,
-        "available_wall_budgets": list(managed.AGENT_WALL_OPTIONS),
-        "available_cpu_budgets": list(managed.AGENT_CPU_OPTIONS),
+        "available_wall_budgets": list(managed.AGENT_WALL_OPTIONS) + (
+            list(managed.AGENT_EXTENDED_WALL_OPTIONS)
+            if acceptance_state["owner_exercise_complete"] else []),
+        "available_cpu_budgets": list(managed.AGENT_CPU_OPTIONS) + (
+            list(managed.AGENT_EXTENDED_CPU_OPTIONS)
+            if acceptance_state["owner_exercise_complete"] else []),
+        "available_intervals": [5, 10, 15, 20, 30] if
+            acceptance_state["owner_exercise_complete"] else [5, 10, 15],
+        "extended_supervised_eligible": bool(acceptance_state["owner_exercise_complete"]),
         "watchdog_fail_closed": True,
         "owner_heartbeat_ttl_seconds": managed.HEARTBEAT_TTL_SECONDS,
         "owner_review_current": bool(approval["owner_accepted_current_run"]),
@@ -131,6 +140,7 @@ def agent_context() -> dict[str, Any]:
         "hardware_certified": False,
         "canonical_request_ledger": True,
         "resource_budget": current["resource_budget"],
+        "extended_supervised_eligible": current["extended_supervised_eligible"],
         "installed_exercise": {
             "complete": current["installed_exercise"]["owner_exercise_complete"],
             "pending_steps": current["installed_exercise"]["pending_steps"],

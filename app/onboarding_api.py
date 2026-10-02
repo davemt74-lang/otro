@@ -329,10 +329,10 @@ class AgentEyesStart(BaseModel):
     consent: bool = Field(strict=True)
     scope: str = Field(max_length=80)
     camera_index: int = Field(strict=True, ge=0, le=2)
-    sample_count: int = Field(default=6, strict=True, ge=1, le=12)
-    interval_seconds: int = Field(default=5, strict=True, ge=5, le=15)
-    max_session_seconds: int = Field(default=120, strict=True, ge=60, le=120)
-    max_cpu_seconds: int = Field(default=12, strict=True, ge=4, le=12)
+    sample_count: int = Field(default=6, strict=True, ge=1, le=60)
+    interval_seconds: int = Field(default=5, strict=True, ge=5, le=30)
+    max_session_seconds: int = Field(default=120, strict=True, ge=60, le=600)
+    max_cpu_seconds: int = Field(default=12, strict=True, ge=4, le=30)
 
 
 @router.get("/visual/agent-eyes/status")
