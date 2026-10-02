@@ -313,3 +313,12 @@ def native_managed_start(payload: NativeManagedSessionStart,
 def native_managed_stop(x_requested_with: str | None = Header(default=None)) -> dict:
     _require_ui(x_requested_with)
     return tracky_native_managed_session.stop()
+
+
+@router.post("/visual/native/session/heartbeat")
+def native_managed_heartbeat(x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    try:
+        return tracky_native_managed_session.heartbeat()
+    except tracky_native_managed_session.ManagedSessionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
