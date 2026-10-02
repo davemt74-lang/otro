@@ -91,13 +91,29 @@ def _semantic_receipt(data: dict[str, Any]) -> dict[str, Any]:
         "cloud_delivery": "not_enabled",
     }
 
+def _receipt_valid(row: dict[str, Any]) -> bool:
+    if row.get("state") != _ACTIVE or not row.get("receipt_signature"):
+        return False
+    try:
+        identity = remote_identity.load_or_create_remote_identity()
+        if not hmac.compare_digest(str(row.get("device_id") or ""), identity["device_id"]):
+            return False
+        receipt = _semantic_receipt(row)
+        canonical = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        digest = hmac.new(identity["device_secret"].encode("utf-8"), canonical,
+                          hashlib.sha256).hexdigest()
+        return hmac.compare_digest(digest, str(row["receipt_signature"]))
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
+
 
 def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
     row = _saved()
     v = _visual() if visual is None else visual
     current = _current(row, v)
     local = contacts.get_contact(int(row["contact_id"])) if current else None
-    valid = bool(current and local)
+    signed = _receipt_valid(row) if current and local else False
+    valid = bool(current and local and signed)
     if not row:
         state, reason = "not_linked", "no_owner_association"
     elif row.get("state") == "revoked":
@@ -106,6 +122,8 @@ def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
         state, reason = "needs_review", "visual_report_or_consent_changed"
     elif not local:
         state, reason = "needs_review", "linked_contact_missing"
+    elif not signed:
+        state, reason = "needs_review", "device_signature_changed_or_receipt_invalid"
     else:
         state, reason = _ACTIVE, "owner_approved_local_association"
     return {
