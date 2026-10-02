@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_visual_contact_link, tracky_physical_context, contacts
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_agent_eyes, tracky_visual_contact_link, tracky_physical_context, contacts
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -321,6 +321,45 @@ def native_managed_heartbeat(x_requested_with: str | None = Header(default=None)
     try:
         return tracky_native_managed_session.heartbeat()
     except tracky_native_managed_session.ManagedSessionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+class AgentEyesStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool = Field(strict=True)
+    scope: str = Field(max_length=80)
+    camera_index: int = Field(strict=True, ge=0, le=2)
+    sample_count: int = Field(default=6, strict=True, ge=1, le=12)
+    interval_seconds: int = Field(default=5, strict=True, ge=5, le=15)
+
+
+@router.get("/visual/agent-eyes/status")
+def agent_eyes_status() -> dict:
+    return tracky_agent_eyes.status()
+
+
+@router.post("/visual/agent-eyes/start")
+def agent_eyes_start(payload: AgentEyesStart,
+                     x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    try:
+        return tracky_agent_eyes.start(**payload.model_dump())
+    except tracky_agent_eyes.AgentEyesError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/visual/agent-eyes/stop")
+def agent_eyes_stop(x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return tracky_agent_eyes.stop()
+
+
+@router.post("/visual/agent-eyes/heartbeat")
+def agent_eyes_heartbeat(x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    try:
+        return tracky_agent_eyes.heartbeat()
+    except tracky_agent_eyes.AgentEyesError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
