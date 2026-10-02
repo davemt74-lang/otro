@@ -140,7 +140,7 @@ async function toggleCloud(enabled){
 }
 async function syncCloud(){
   if(busy||(!state?.cloud_sharing_opted_in&&!state?.cloud_revocation_pending))return;
-  if(!window.confirm('Send only the current unverified owner status or its revocation through your existing paired Tracky HTTPS connection? No biometric data or local receipt will be sent.'))return;
+  if(!window.confirm('Run your existing governed Tracky HTTPS site sync with your unverified owner status or its revocation? The normal permitted Tracky site data may synchronize too. No visual biometrics, contact details or local receipt will be sent.'))return;
   busy=true;render();
   try{
     const result=await json(BASE+'cloud-sync',{consent:true});
