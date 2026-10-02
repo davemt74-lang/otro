@@ -6,6 +6,7 @@
 const $=id=>document.getElementById(id);
 const API='/api/v1/control/onboarding/visual/native/';
 let busy=false, running=false;
+let managedTimer=null;
 function say(message){if($('onboardNativeDetails'))$('onboardNativeDetails').textContent=message;}
 function label(message){if($('onboardNativeStatus'))$('onboardNativeStatus').textContent=message;}
 async function call(path,body){
@@ -110,18 +111,56 @@ async function ownerReview(){
   }catch(error){say('Owner review unavailable: '+String(error.message));}
   finally{review.disabled=false;}
 }
+async function updateManaged(){
+  const value=await call('session/status');
+  const active=Boolean(value.active);
+  if($('onboardNativeManagedStop'))$('onboardNativeManagedStop').hidden=!active;
+  if($('onboardNativeManagedStart'))$('onboardNativeManagedStart').disabled=active||busy||running;
+  if($('onboardNativeManagedState'))$('onboardNativeManagedState').textContent=active
+    ? 'Supervised sampling '+value.completed_samples+'/'+value.requested_samples+' · stop at any time'
+    : 'Sampling '+value.phase+' · '+value.completed_samples+' observations · no unattended tracking';
+  if(active&&!managedTimer)managedTimer=window.setInterval(()=>{void updateManaged().catch(()=>{});},2500);
+  if(!active&&managedTimer){window.clearInterval(managedTimer);managedTimer=null;}
+  return active;
+}
+async function startManaged(){
+  if(busy||running)return;
+  if(!$('onboardNativeManagedConsent')?.checked){say('Authorize supervised sampling separately before starting.');return;}
+  if(window.TrackyOwnerEyes?.isActive()||window.HomeServerVisualEnrollment?.isCapturing()){
+    say('Finish the active browser camera session first.');return;
+  }
+  const index=Number($('onboardNativeIndex')?.value);
+  if(![0,1,2].includes(index))return;
+  if(!window.confirm('Start three supervised native observations at least five seconds apart? This session stops automatically, saves no media and does not identify anyone.'))return;
+  try{
+    await call('session/start',{consent:true,scope:'owner-supervised-native-sampling.v1',camera_index:index,sample_count:3,interval_seconds:5});
+    say('Supervised sampling started under your approval.');
+    await updateManaged();
+  }catch(error){say('Cannot start sampling: '+String(error.message));}
+}
+async function stopManaged(){
+  try{await call('session/stop',{});say('Sampling stop requested; any in-flight driver call must finish before the camera is available.');await updateManaged();}
+  catch(error){say('Unable to stop sampling: '+String(error.message));}
+}
 async function init(){
   if(!$('onboardNativeCamera'))return;
   $('onboardNativeStart').addEventListener('click',()=>{void run();});
   $('onboardNativeCancel').addEventListener('click',()=>{void cancel();});
   $('onboardNativePrivacy').addEventListener('click',()=>{void checkPrivacy();});
   $('onboardNativeReview').addEventListener('click',()=>{void ownerReview();});
+  $('onboardNativeManagedStart').addEventListener('click',()=>{void startManaged();});
+  $('onboardNativeManagedStop').addEventListener('click',()=>{void stopManaged();});
   $('onboardNativeConsent').addEventListener('change',()=>{
     if(!$('onboardNativeConsent').checked && running)void cancel();
   });
   window.addEventListener('homeserver:onboarding-hidden',()=>{if(running)void cancel();});
-  window.addEventListener('pagehide',()=>{if(running)void cancel();});
+  window.addEventListener('pagehide',()=>{
+    if(running)void cancel();
+    if(managedTimer){window.clearInterval(managedTimer);managedTimer=null;}
+    // Explicit bounded supervised leases end at their configured limits.
+  });
   await refresh().catch(()=>label('Native detector status unavailable'));
+  await updateManaged().catch(()=>{});
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{void init();},{once:true});
 else void init();
