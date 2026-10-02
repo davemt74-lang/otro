@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-live-approval-") as root:
     approved={"value":True}
     def current_approval():
         return {"owner_accepted_current_run":approved["value"]}
-    model={"installed":True,"model_present":True,"runtime_version":"synthetic",
+    model={"installed":True,"model_present":True,"model_integrity_verified":True,"runtime_version":"synthetic",
            "model_sha256":"a"*64}
     entered=threading.Event()
     release=threading.Event()
