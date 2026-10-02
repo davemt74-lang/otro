@@ -31,6 +31,13 @@ jobs:
         run: node --check ui/remote.js
       - name: Validate Agent Brain JavaScript
         run: node --check ui/brain.js
+      - name: Governed Agent Eyes chat context and evidence explanations
+        run: |
+          node --check ui/context-engine.js
+          python tests/tracky_agent_eyes_context_v1g3a.py
+          python tests/tracky_agent_eyes_evidence_v1g3b.py
+          node tests/tracky_agent_eyes_context_ui_v1g3a.mjs
+          node tests/tracky_agent_eyes_evidence_ui_v1g3b.mjs
       - name: Validate agent-first shell JavaScript
         run: node --check ui/shell.js
       - name: Validate Skills and Tools JavaScript
