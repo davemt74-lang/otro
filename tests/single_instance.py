@@ -33,7 +33,10 @@ installer = (ROOT_DIR / "installer" / "HomeServer.iss").read_text(encoding="utf-
 assert "def _schedule_initial_open(self) -> None:" in launcher
 assert "self._schedule_initial_open()" in launcher
 assert "threading.Timer(0.6, self.open_control_center).start()" in launcher
-assert "threading.Timer(0.6, self.open_system).start()" in launcher
+assert "def open_welcome(self," in launcher
+assert "threading.Timer(0.6, self.open_welcome).start()" in launcher
+assert 'if not setup["complete"]:' in launcher
+assert "mark_first_run_prompted()" in launcher
 assert '("--headless" in sys.argv or "--background" in sys.argv) and "--replace-running" not in sys.argv' in launcher
 assert "_open(_path_for_health(health))" in launcher
 assert "def _request_existing_shutdown() -> bool:" in launcher
