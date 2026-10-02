@@ -79,6 +79,10 @@ jobs:
         run: |
           python tests/migrations.py
           python tests/contacts_continuity_v241.py
+      - name: Validate retained v2.4 release baseline and current Windows launch contract
+        run: |
+          node tests/v24_historical_baseline_v1f8.mjs
+          python tests/single_instance.py
       - name: Verify API smoke contract
         run: python tests/smoke.py
       - name: Verify tool security contract
