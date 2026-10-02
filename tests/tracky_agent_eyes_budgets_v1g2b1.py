@@ -34,13 +34,21 @@ with tempfile.TemporaryDirectory(prefix="agent-eyes-budgets-") as root:
     with patch.object(cert,"status",return_value=approval), \
          patch.object(native,"model_preflight",return_value=model), \
          patch.object(native,"_privacy",return_value=False):
-        for budget in (-1, 61, True, 300):
+        # 300 seconds is structurally valid only after current-install
+        # exercises; it now fails closed with 409 rather than 422.
+        for budget in (-1, 61, True):
             try:
                 eyes.start(consent=True,scope=eyes.SCOPE,camera_index=0,
                            sample_count=1,max_session_seconds=budget)
                 raise AssertionError("Invalid wall budget accepted")
             except eyes.AgentEyesError as err:
                 assert err.status_code==422
+        try:
+            eyes.start(consent=True,scope=eyes.SCOPE,camera_index=0,
+                       sample_count=1,max_session_seconds=300)
+            raise AssertionError("Unreviewed extended session accepted")
+        except eyes.AgentEyesError as err:
+            assert err.status_code==409
         try:
             eyes.start(consent=True,scope=eyes.SCOPE,camera_index=0,
                        sample_count=1,max_cpu_seconds=3)
