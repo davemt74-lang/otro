@@ -55,6 +55,8 @@ jobs:
           python tests/tracky_native_session_evidence_v1e3.py
           python tests/tracky_native_model_drift_v1e4.py
           python tests/tracky_native_live_approval_v1e5.py
+          python tests/tracky_native_model_integrity_v1e5.py
+          node tests/tracky_native_model_integrity_ui_v1e5.mjs
           node tests/tracky_native_live_approval_ui_v1e5.mjs
           node tests/tracky_native_model_drift_ui_v1e4.mjs
           node tests/tracky_native_session_evidence_ui_v1e3.mjs
