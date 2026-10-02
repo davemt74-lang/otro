@@ -15,6 +15,7 @@ from typing import Any
 
 from . import tracky_native_camera as native, tracky_native_certification as cert
 from . import tracky_physical_context as tracky
+from . import tracky_native_session_evidence as evidence
 
 CONTRACT = "tracky.native.managed-session.v1e1"
 SCOPE = "owner-supervised-native-sampling.v1"
@@ -62,6 +63,7 @@ def _snapshot() -> dict[str, Any]:
             "heartbeat_ttl_seconds": HEARTBEAT_TTL_SECONDS,
             "requires_new_owner_consent_per_session": True,
         })
+        state["durable_evidence"] = evidence.latest()
         return state
 
 
@@ -127,7 +129,7 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _run(sample_count: int, interval: int, started: float) -> None:
+def _run(sample_count: int, interval: int, started: float, run_id: str) -> None:
     global _ALLOWED_REQUEST, _WORKER
     reason = "completed"
     phase = "completed"
@@ -183,6 +185,13 @@ def _run(sample_count: int, interval: int, started: float) -> None:
         with _LOCK:
             _ALLOWED_REQUEST = ""
             _STATE.update({"phase": phase, "reason": reason, "finished_at": _now()})
+            completed = int(_STATE["completed_samples"])
+        try:
+            evidence.finish(run_id=run_id, phase=phase, reason=reason,
+                            completed_samples=completed)
+        except Exception:
+            with _LOCK:
+                _STATE["evidence_write_status"] = "unavailable"
             # Do not null _WORKER until it has actually exited: racing starts
             # still see a live worker and fail closed.
 
@@ -213,6 +222,8 @@ def start(*, consent: bool, scope: str, camera_index: int,
         existing, _, _ = tracky._provider_snapshot()
         if existing is not None:
             raise ManagedSessionError("Another Tracky perception provider owns the session.", 409)
+        # Close an old process's interrupted session without resuming capture.
+        evidence.recover_prior(worker_active=False)
         _STOP.clear()
         _LAST_HEARTBEAT = time.monotonic()
         _CAMERA_INDEX = camera_index
@@ -223,6 +234,7 @@ def start(*, consent: bool, scope: str, camera_index: int,
             "started_at": _now(), "last_observed_at": "",
             "capture_interval_seconds": interval_seconds,
         })
+        run_id = ""
         try:
             tracky.register_provider(
                 _provider, name="homeserver-supervised-native-sampling",
@@ -235,14 +247,18 @@ def start(*, consent: bool, scope: str, camera_index: int,
                     "timeout_seconds": native.CAPTURE_SECONDS,
                 }, replace=False,
             )
+            run_id = evidence.begin(sample_count=sample_count)
             _WORKER = threading.Thread(
-                target=_run, args=(sample_count, interval_seconds, time.monotonic()),
+                target=_run, args=(sample_count, interval_seconds, time.monotonic(), run_id),
                 name="tracky-supervised-native", daemon=True,
             )
             _WORKER.start()
         except Exception:
             _STOP.set()
             tracky.unregister_provider(expected=_provider)
+            if run_id:
+                evidence.finish(run_id=run_id, phase="failed", reason="startup_failed",
+                                completed_samples=0)
             _STATE.update({"phase": "failed", "reason": "startup_failed"})
             raise
     return status()
