@@ -13,6 +13,7 @@ let state = null;
 let visual = null;
 let owner = null;
 let searchTimer = null;
+let cloudNotice = '';
 
 async function json(url, body) {
   const resp = await fetch(url, {
@@ -50,11 +51,17 @@ function render() {
   el('onboardVisualCloudDisable').disabled=busy;
   el('onboardVisualCloudSync').hidden=!opted&&!pending;
   el('onboardVisualCloudSync').disabled=busy;
-  el('onboardVisualCloudState').textContent=opted
-    ? 'Owner-approved, unverified attribution status only. Cloud account consent is separate.'
+  const acknowledged=link.cloud_current_generation_acknowledged===true;
+  const delivery=opted
+    ? acknowledged
+      ? 'Paired Cloud site accepted the current unverified attribution. Cloud account consent is still separate.'
+      : 'Sharing approved locally; current Cloud delivery is NOT confirmed. Approve an explicit sync to retry.'
     : pending
-      ? 'Sharing revoked locally. Deliver the revocation to your paired Cloud account.'
-      : 'Cloud status sharing is off. Neither profile nor contact data are shared.';
+      ? 'Sharing revoked locally; Cloud revocation has NOT been acknowledged. Retry an explicit sync when online.'
+      : link.cloud_delivery_status==='revocation_delivered'
+        ? 'Current revocation was accepted by the paired Cloud site. No local sharing is active.'
+        : 'Cloud status sharing is off. Neither profile nor contact data are shared.';
+  el('onboardVisualCloudState').textContent=cloudNotice || delivery;
   if(active) {
     message('Owner-associated with '+link.contact.display_name+
       ' · browser report only; facial identity not independently verified.');
@@ -133,6 +140,7 @@ async function toggleCloud(enabled){
   busy=true;render();
   try{
     state=await json(BASE+'cloud-sharing',{consent:true,scope:CLOUD_SCOPE,enabled});
+    cloudNotice='';
     el('onboardVisualCloudConsent').checked=false;
     await refresh();
   }catch(error){message(String(error.message));}
@@ -144,11 +152,15 @@ async function syncCloud(){
   busy=true;render();
   try{
     const result=await json(BASE+'cloud-sync',{consent:true});
+    cloudNotice=result.visual_status_current_generation_acknowledged
+      ? result.visual_status_sent==='revoked'
+        ? 'Current revocation accepted by the paired Cloud site. Face identity remains unverified.'
+        : 'Current unverified attribution accepted by the paired Cloud site. Separate Cloud account consent is required.'
+      : result.site_sync_accepted
+        ? 'Site sync succeeded, but the CURRENT visual status was not acknowledged. Consent may have changed during upload; retry if still approved.'
+        : 'Cloud status was not delivered. Retry after checking your paired connection.';
     await refresh();
-    el('onboardVisualCloudState').textContent=result.site_sync_accepted
-      ? 'Paired Cloud site update accepted; separate Cloud account consent still required. This does not verify facial identity.'
-      : 'Cloud status was not delivered. Retry after checking your paired connection.';
-  }catch(error){el('onboardVisualCloudState').textContent='Cloud status delivery needs attention: '+String(error.message);}
+  }catch(error){cloudNotice='Cloud status not confirmed. Review pairing and retry while online.';}
   finally{busy=false;render();}
 }
 function init(){
@@ -169,6 +181,7 @@ function init(){
   el('onboardVisualLinkStart').addEventListener('click',()=>{void associate();});
   el('onboardVisualLinkRevoke').addEventListener('click',()=>{void revoke();});
   window.addEventListener('tracky:visual-state-changed',()=>{
+    cloudNotice='';
     el('onboardVisualLinkConsent').checked=false;
     el('onboardVisualCloudConsent').checked=false;
     void refresh().catch(error=>message(String(error.message)));
