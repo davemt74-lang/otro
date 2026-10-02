@@ -104,6 +104,21 @@
           <div class="item-meta"><span>Site <strong id="trackySiteName">No site</strong></span><span>World revision <strong id="trackyWorldRevision">0</strong></span><span>Federation <strong id="trackyFederationHealth">unknown</strong></span><span>Agent view <strong id="trackyAgentView">None</strong></span></div>
           <p class="muted" id="trackyOverviewMessage">Tracky will summarize the current governed physical-world projection here.</p>
         </div>
+        <div class="panel" id="trackyAgentEyesPanel" style="margin-top:16px">
+          <div class="panel-head"><div><p class="eyebrow">AGENT EYES</p><h3>Owner-supervised live perception</h3></div><span id="trackyAgentEyesState" class="muted" role="status" aria-live="polite">Camera inactive</span></div>
+          <p class="muted">Run repeated local observations through HomeServer's existing Tracky camera and Agent request ledger. Each session is limited to 12 observations and two minutes, requires your installed-device approval and stops without your visible presence. This does not identify people, record video or authorize unattended monitoring.</p>
+          <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
+            <label for="trackyAgentEyesCamera">Camera <select id="trackyAgentEyesCamera"><option value="0">Camera 0</option><option value="1">Camera 1</option><option value="2">Camera 2</option></select></label>
+            <label for="trackyAgentEyesSamples">Observations <select id="trackyAgentEyesSamples"><option value="3">3</option><option value="6" selected>6</option><option value="9">9</option><option value="12">12</option></select></label>
+          </div>
+          <label class="onboard-visual-consent"><input id="trackyAgentEyesConsent" type="checkbox"><span>I authorize a new bounded, supervised local camera session. I will keep this view open and can stop it at any time.</span></label>
+          <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
+            <button class="button primary" id="trackyAgentEyesStart" type="button" disabled>Start Agent Eyes</button>
+            <button class="button secondary" id="trackyAgentEyesStop" type="button" hidden>Stop camera</button>
+            <button class="button secondary" id="trackyAgentEyesRefresh" type="button">Refresh status</button>
+          </div>
+          <p class="muted" id="trackyAgentEyesDetails" role="status" aria-live="polite">Complete the installed camera test and owner review in Agent Chat before starting.</p>
+        </div>
         <div class="panel" style="margin-top:16px">
           <div class="panel-head"><div><p class="eyebrow">OPEN</p><h3>Tracky workspaces</h3></div></div>
           <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
@@ -827,6 +842,7 @@
   <script src="/assets/local-apps.js" defer></script>
   <script src="/assets/homeserver-apps.js" defer></script>
   <script src="/assets/tracky-overview.js" defer></script>
+  <script src="/assets/tracky/agent-eyes.js" defer></script>
   <script src="/assets/federation-control-center-v280.js" defer></script>
   <script src="/assets/physical-world-dashboard-v280.js" defer></script>
   <script src="/assets/cross-site-presence-v280.js" defer></script>
