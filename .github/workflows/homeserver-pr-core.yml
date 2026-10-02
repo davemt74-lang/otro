@@ -37,6 +37,9 @@ jobs:
         run: |
           python tests/tracky_visual_onboarding.py
           node tests/tracky_visual_browser.mjs
+          python tests/tracky_visual_contact_link_v1f1.py
+          node tests/tracky_visual_contact_link_ui_v1f1.mjs
+          node --check ui/tracky/owner-contact-link.js
           node --check ui/tracky/owner-visual.js
       - name: Owner-gated canonical Tracky camera-to-inference provider
         run: |
