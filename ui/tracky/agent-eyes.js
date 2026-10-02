@@ -6,7 +6,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const BASE='/api/v1/control/onboarding/visual/agent-eyes/';
-let active=false, busy=false, timer=null, pending=false, armedHere=false;
+let active=false, busy=false, timer=null, pending=false, armedHere=false, suspendHeartbeat=false;
 
 function visible(){
   return document.visibilityState==='visible' &&
@@ -30,7 +30,7 @@ async function request(route,payload){
 }
 function render(state){
   active=state?.active===true;
-  if(!active)armedHere=false;
+  if(!active){armedHere=false;suspendHeartbeat=false;}
   const recovery=state?.recovery;
   const recoveryRequired=recovery?.requires_acknowledgement===true;
   const panel=$('trackyAgentEyesRecoveryPanel');
@@ -60,6 +60,22 @@ function render(state){
       's · CPU '+budget.cpu_used_seconds+'/'+budget.cpu_limit_seconds+
       's · watchdog '+(budget.watchdog_running?'active':'stopped')
     : 'Owner-configured budgets; no unattended operation.';
+  const exercise=state?.installed_exercise;
+  const completed=exercise?.completed_steps||[];
+  const names={owner_stop:'Owner stop',privacy_revocation:'Privacy revocation',
+               presence_lease:'Presence lease expiry'};
+  const progress=$('trackyAgentEyesAcceptanceStatus');
+  if(progress)progress.textContent=exercise?.owner_exercise_complete
+    ? 'All three current-install owner exercises reported. This is not independent hardware certification.'
+    : 'Current-install exercise reports: '+(completed.map(step=>names[step]||step).join(', ')||'none')+
+      '. Next: '+(exercise?.pending_steps?.map(step=>names[step]||step).join(', ')||'repeat after review')+
+      '. No unattended operation permitted.';
+  const step=$('trackyAgentEyesAcceptanceStep')?.value;
+  const record=$('trackyAgentEyesAcceptanceRecord');
+  if(record)record.disabled=busy||!visible()||!$('trackyAgentEyesAcceptanceObserved')?.checked||
+    !exercise?.ready_to_record||exercise?.current_session_step!==step;
+  const expiry=$('trackyAgentEyesTestLease');
+  if(expiry)expiry.disabled=busy||!active||!armedHere||suspendHeartbeat||!visible();
   const label=$('trackyAgentEyesState');
   if(label)label.textContent=active
     ? 'Supervised local camera active'
@@ -97,13 +113,34 @@ async function refresh(){
     if(active&&armedHere){
       if(!visible()){
         await stop();
-      }else{
+      }else if(!suspendHeartbeat){
         try{render(await request('heartbeat',{}));}
         catch(_){render(await request('status'));}
       }
     }
   }catch(_){details('HomeServer Agent Eyes status is unavailable; no automatic restart.');}
   finally{pending=false;}
+}
+async function recordInstalledExercise(){
+  const step=$('trackyAgentEyesAcceptanceStep')?.value;
+  if(busy||!visible()||!['owner_stop','privacy_revocation','presence_lease'].includes(step)||
+     !$('trackyAgentEyesAcceptanceObserved')?.checked)return;
+  if(!window.confirm('Record your direct installed-device observation for this completed exercise? This is an owner report, not physical certification.'))return;
+  busy=true;
+  try{
+    await request('installed-exercise/record',{
+      step,consent:true,inspected_camera_release:true,
+    });
+    $('trackyAgentEyesAcceptanceObserved').checked=false;
+    await refresh();
+  }catch(error){details('Exercise report was not recorded: '+String(error.message));}
+  finally{busy=false;}
+}
+function testLeaseExpiry(){
+  if(!active||!armedHere||!visible()||suspendHeartbeat)return;
+  if(!window.confirm('Test the 15-second presence lease? HomeServer will stop accepting observations after the lease expires. Stay at this device, and use Stop if needed.'))return;
+  suspendHeartbeat=true;
+  details('Presence-lease test: heartbeats paused intentionally. HomeServer should end this session within 15 seconds. No automatic restart.');
 }
 async function acknowledgeRecovery(){
   if(busy||!visible()||!$('trackyAgentEyesReleaseObserved')?.checked||
@@ -149,11 +186,13 @@ async function start(){
     });
     $('trackyAgentEyesConsent').checked=false;
     armedHere=state.active===true;
+    suspendHeartbeat=false;
     render(state);
   }catch(error){details('Agent Eyes could not start: '+String(error.message));}
   finally{busy=false;}
 }
 async function stop(){
+  suspendHeartbeat=false;
   // Revocation is best-effort over HTTP; backend's 15-second owner
   // heartbeat lease independently stops all further observations.
   active=false;
@@ -170,6 +209,10 @@ function init(){
   $('trackyAgentEyesStop').addEventListener('click',()=>{void stop();});
   $('trackyAgentEyesRefresh').addEventListener('click',()=>{void refresh();});
   $('trackyAgentEyesRecoveryAck').addEventListener('click',()=>{void acknowledgeRecovery();});
+  $('trackyAgentEyesTestLease').addEventListener('click',testLeaseExpiry);
+  $('trackyAgentEyesAcceptanceRecord').addEventListener('click',()=>{void recordInstalledExercise();});
+  for(const id of ['trackyAgentEyesAcceptanceStep','trackyAgentEyesAcceptanceObserved'])
+    $(id).addEventListener('change',()=>{void refresh();});
   for(const id of ['trackyAgentEyesReleaseObserved','trackyAgentEyesFreshConsent'])
     $(id).addEventListener('change',()=>{void refresh();});
   document.addEventListener('visibilitychange',()=>{

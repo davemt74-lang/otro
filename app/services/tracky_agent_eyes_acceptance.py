@@ -41,9 +41,11 @@ def _current(*, approval: dict[str, Any], model: dict[str, Any],
              worker: dict[str, Any], exposure: dict[str, Any]) -> dict[str, Any]:
     from . import tracky_native_managed_session as managed
     current = evidence.latest()
+    session_binding = evidence._saved()
+    native_state = native.status()
     busy = bool(worker.get("active") or native.capture_busy()
-                or native.status().get("running")
-                or native.status().get("capture_worker_active")
+                or native_state.get("running")
+                or native_state.get("capture_worker_active")
                 or exposure.get("registered"))
     digest = str(model.get("model_sha256") or "")
     ready = bool(approval.get("owner_accepted_current_run")
@@ -52,6 +54,8 @@ def _current(*, approval: dict[str, Any], model: dict[str, Any],
                  and _review(approval)
                  and current.get("owner_surface") == "agent_eyes"
                  and current.get("current_process") is True
+                 and session_binding.get("owner_review_id") == _review(approval)
+                 and session_binding.get("model_sha256") == digest
                  and current.get("phase") == "stopped"
                  and current.get("reason") in _STEPS.values()
                  and not current.get("recover_before_new_session")
