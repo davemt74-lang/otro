@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-session-safety-") as root:
     hdr = {"X-Requested-With": "XMLHttpRequest"}
     scope = {"consent": True, "scope": managed.SCOPE, "camera_index": 0,
              "sample_count": 3, "interval_seconds": 5}
-    model = {"installed": True, "model_present": True, "runtime_version": "synthetic"}
+    model = {"installed": True, "model_present": True, "model_integrity_verified": True, "runtime_version": "synthetic"}
     fake = {"summary": "One possible face region; no identity verified.", "confidence": 0.0}
     with TestClient(app) as client:
         scheduler.stop()
