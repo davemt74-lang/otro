@@ -199,6 +199,17 @@
         <button id="onboardVisualLinkRevoke" class="onboard-minor" type="button" hidden>Revoke association</button>
       </div>
       <p id="onboardVisualLinkState" class="onboard-package-state" role="status" aria-live="polite">Optional · contact association disabled until you explicitly approve.</p>
+      <div class="onboard-step" id="onboardVisualCloud">
+        <div class="onboard-step-head"><span>OPTIONAL NON-BIOMETRIC CLOUD STATUS</span></div>
+        <p class="onboard-agent-line">HomeServer can report only that YOU attributed your local self-profile to a contact. It never sends your face samples, photo, contact name, local receipt or signing key. This does not verify your facial identity. Your VP3 Cloud account requires separate visual-onboarding consent.</p>
+        <label class="onboard-visual-consent"><input id="onboardVisualCloudConsent" type="checkbox"><span>I explicitly authorize this HomeServer to share only my unverified local attribution status with my paired VP3 Cloud account.</span></label>
+        <div class="onboard-actions">
+          <button id="onboardVisualCloudEnable" class="onboard-minor" type="button">Allow status sharing</button>
+          <button id="onboardVisualCloudDisable" class="onboard-minor" type="button" hidden>Revoke Cloud status sharing</button>
+          <button id="onboardVisualCloudSync" class="onboard-minor" type="button" hidden>Send current status to Cloud</button>
+        </div>
+        <p id="onboardVisualCloudState" class="onboard-package-state" role="status" aria-live="polite">Off by default; no identity or biometric data sent.</p>
+      </div>
     </div>
         <div id="onboardVisualCapture" class="onboard-visual-capture" hidden>
       <video id="onboardVisualVideo" playsinline muted autoplay aria-label="Local visual enrollment camera preview"></video>
