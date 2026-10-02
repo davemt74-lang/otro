@@ -9,7 +9,6 @@ certification. Neither images nor face templates are saved or synchronized.
 """
 from __future__ import annotations
 
-import hashlib
 import importlib
 import importlib.util
 import threading
@@ -19,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import tracky_physical_context as tracky, vp3_os
+from . import tracky_physical_context as tracky, vp3_os, tracky_native_model_integrity as integrity
 
 CONTRACT = "tracky.native.owner_camera.v1"
 SCOPE = "owner-native-single-camera-test.v1"
@@ -51,38 +50,28 @@ def _privacy() -> bool:
 
 
 def model_preflight() -> dict[str, Any]:
+    """Read-only pinned asset check; also returns SHA for existing drift ledger."""
     try:
-        if importlib.util.find_spec('cv2') is None:
-            return {'installed': False, 'model_present': False, 'runtime_version': 'missing'}
-        cv2 = importlib.import_module('cv2')
-        model = Path(cv2.data.haarcascades) / 'haarcascade_frontalface_default.xml'
-        # Passive local integrity fingerprint, NOT a vendor signature. Never
-        # include the absolute model path or raw model data in the response.
-        digest = ""
-        present = model.is_file() and 0 < model.stat().st_size <= 8 * 1024 * 1024
-        if present:
-            with model.open('rb') as stream:
-                fingerprint = hashlib.sha256()
-                for block in iter(lambda: stream.read(65536), b''):
-                    fingerprint.update(block)
-                digest = fingerprint.hexdigest()
-        return {'installed': True, 'model_present': present,
-                'runtime_version': str(getattr(cv2, '__version__', 'unknown'))[:64],
-                'model_sha256': digest}
+        if importlib.util.find_spec("cv2") is None:
+            return {"installed": False, "model_present": False,
+                    "model_integrity_verified": False, "model_sha256": "",
+                    "runtime_version": "missing"}
+        cv2 = importlib.import_module("cv2")
+        return {"installed": True, **integrity.inspect_module(cv2)}
     except Exception:
-        return {'installed': False, 'model_present': False, 'runtime_version': 'unavailable'}
+        return {"installed": False, "model_present": False,
+                "model_integrity_verified": False, "model_sha256": "",
+                "runtime_version": "unavailable"}
 
 
 def _dependency() -> dict[str, Any]:
     # Passive inspection only: never loads camera, native driver or frame.
-    try:
-        installed = importlib.util.find_spec("cv2") is not None
-    except (ImportError, ValueError):
-        installed = False
+    model = model_preflight()
     return {
         "runtime": MODEL_NAME,
-        "installed": installed,
-        "model_bundled_with_runtime": model_preflight()["model_present"],
+        "installed": model["installed"],
+        "model_bundled_with_runtime": model["model_present"],
+        "model_integrity_verified": model["model_integrity_verified"],
         "auto_installed_with_homeserver": True,
     }
 
@@ -122,8 +111,8 @@ def _observe_exclusive(index: int, cancel: threading.Event) -> dict[str, Any]:
     except ImportError as exc:
         raise NativeCameraError("Native camera runtime is missing; repair the HomeServer installation.", 503) from exc
     cascade_file = Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml"
-    if not cascade_file.is_file():
-        raise NativeCameraError("Bundled native detection model is missing.", 503)
+    if not integrity.verify_file(cascade_file):
+        raise NativeCameraError("Packaged detector failed the reviewed integrity check.", 503)
     capture = None
     released = False
     start = time.monotonic()
@@ -225,8 +214,8 @@ def test(*, consent: bool, scope: str, camera_index: int) -> dict[str, Any]:
         raise NativeCameraError("Select a supported local camera index.", 422)
     if _privacy():
         raise NativeCameraError("Physical privacy is engaged.", 403)
-    if not model_preflight()["model_present"]:
-        raise NativeCameraError("Native camera detector is not installed.", 503)
+    if not model_preflight()["model_integrity_verified"]:
+        raise NativeCameraError("Reviewed native detector is missing or does not match the installed package.", 503)
     with _LOCK:
         if _BUSY or _INFLIGHT:
             raise NativeCameraError("A native Tracky camera driver is still active.", 409)
