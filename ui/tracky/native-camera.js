@@ -129,8 +129,11 @@ async function updateManaged(){
   if($('onboardNativeManagedStart'))$('onboardNativeManagedStart').disabled=active||busy||running||!managedReady;
   const durable=value.durable_evidence||{};
   const interrupted=!active&&durable.phase==='interrupted';
+  const approvalRevoked=!active&&value.reason==='acceptance_revoked';
   if($('onboardNativeManagedState'))$('onboardNativeManagedState').textContent=active
     ? 'Supervised sampling '+value.completed_samples+'/'+value.requested_samples+' · stop at any time'
+    : approvalRevoked
+      ? 'Session stopped: installed-detector approval changed. Repeat native tests and owner review before restarting.'
     : interrupted
       ? 'Prior supervised session interrupted by restart. Camera remains off; rerun checks and approve a new session.'
       : 'Sampling '+value.phase+' · '+value.completed_samples+' observations · no unattended tracking';
