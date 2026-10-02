@@ -24,6 +24,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-supervised-evidence-") as temp:
     from app.services import tracky_native_certification as cert
     from app.services import federated_data
     from app.services.tasks import scheduler
+    from app.database import initialize_database
+    initialize_database()  # CLI test uses a fresh temporary SQLite path.
 
     assert evidence.latest()["phase"]=="never_started"
     first=evidence.begin(sample_count=3)
