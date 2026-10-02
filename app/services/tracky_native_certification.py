@@ -73,6 +73,7 @@ def record_test(phase: str) -> dict[str, Any]:
         "runtime_version": str(model.get("runtime_version") or "unknown")[:64],
         "test_outcome": "completed_owner_review_pending" if successful else "not_verified",
         "model_present": model.get("model_present") is True,
+        "model_integrity_verified": model.get("model_integrity_verified") is True,
         "frame_captured": successful,
         "detector_executed": successful,
         "camera_release_call_completed": successful,
@@ -133,7 +134,7 @@ def status() -> dict[str, Any]:
         and record.get("phase") == "privacy_reviewed"
     )
     review_ready = bool(current_test and privacy_reviewed
-                        and native.model_preflight().get("model_present"))
+                        and native.model_preflight().get("model_integrity_verified"))
     current_accepted = bool(
         review_ready and last_review and last_test
         and last_review["evidence"].get("review_state") == "owner_attested_current_run"
