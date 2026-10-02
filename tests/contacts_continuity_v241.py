@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
-    from app.database import db, initialize_database  # noqa: E402
+    from app.database import db, initialize_database, migration_files  # noqa: E402
     from app.services import action_policy, approvals, contacts, federated_data, pairing, tools  # noqa: E402
 
     initialize_database()
@@ -25,7 +25,13 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-    assert versions == list(range(1, 61))
+    # This historical contacts acceptance test must validate the actual
+    # repository migration chain, not freeze the project at a 2026 baseline.
+    # Still require a contiguous, unique and fully applied chain so it catches
+    # omitted or skipped migrations in fresh and upgraded installations.
+    declared = [1] + [version for version, _ in migration_files()]
+    assert declared == list(range(1, declared[-1] + 1))
+    assert versions == declared
 
     migration = (ROOT / "database" / "migrations" / "033_governed_contact_actions.sql").read_text(encoding="utf-8")
     migration_sql = "\n".join(
