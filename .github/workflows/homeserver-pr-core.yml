@@ -37,6 +37,8 @@ jobs:
         run: |
           python tests/tracky_visual_onboarding.py
           node tests/tracky_visual_browser.mjs
+          node tests/tracky_owner_self_check_v1f4.mjs
+          node --check ui/tracky/owner-self-check.js
           python tests/tracky_visual_contact_link_v1f1.py
           python tests/tracky_visual_cloud_sync_v1f2.py
           node tests/tracky_visual_cloud_sync_ui_v1f2.mjs
