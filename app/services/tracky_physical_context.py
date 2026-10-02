@@ -980,7 +980,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     )
     # Opted-in semantic status only. No raw local receipt, image, contact
     # or participant identifier may enter the authenticated site transport.
-    visual_owner_projection = tracky_visual_contact_link.cloud_projection()
+    visual_owner_snapshot = tracky_visual_contact_link.cloud_snapshot()
+    visual_owner_projection = visual_owner_snapshot["state"] or None
     federated_automation_projection = (
         tracky_federated_automation.cloud_projection()
         if federation_ready
@@ -1103,6 +1104,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
         },
         "event_ids": event_ids,
         "visual_owner_projection": visual_owner_projection,
+        "visual_owner_generation": visual_owner_snapshot["generation"],
         "max_sequence": max_sequence,
         "cursor": cursor,
         "previous_cursor": str(sync_row["sync_cursor"] or "") if sync_row else "",
@@ -1224,7 +1226,10 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
     _record_sync_success(last_sequence, cursor, len(package["event_ids"]))
     # Successful authenticated site delivery is NOT independent face verification.
     if package["visual_owner_projection"] is not None:
-        tracky_visual_contact_link.mark_cloud_delivery(package["visual_owner_projection"])
+        tracky_visual_contact_link.mark_cloud_delivery(
+            package["visual_owner_projection"],
+            generation=package["visual_owner_generation"],
+        )
     return {
         "ok": True,
         "protocol": PHYSICAL_CONTEXT_PROTOCOL,

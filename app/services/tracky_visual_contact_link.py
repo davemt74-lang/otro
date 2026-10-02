@@ -192,6 +192,7 @@ def associate(*, consent: bool, scope: str, participant_id: str, contact_id: int
             # Keep a pending previously-shared revocation until the next
             # authenticated sync. New links ALWAYS require fresh Cloud opt-in.
             "cloud_share_opt_in": False,
+            "cloud_generation": secrets.token_hex(16),
             "cloud_projection_state": ("revoked"
                 if existing.get("cloud_projection_state") == "revoked"
                 or existing.get("cloud_share_opt_in") is True else ""),
@@ -219,6 +220,8 @@ def revoke(*, consent: bool = False, reason: str = "owner_revoked") -> dict[str,
             if row.get("cloud_share_opt_in") is True or row.get("cloud_projection_state") == "revoked":
                 row["cloud_projection_state"] = "revoked"
             row["cloud_share_opt_in"] = False
+            row["cloud_generation"] = secrets.token_hex(16)
+            row["cloud_last_accepted_state"] = ""
             # No active signed receipt may be reused after revocation.
             row["receipt_signature"] = ""
             for name in ("local_participant_id", "contact_id", "participant_ref",
@@ -256,12 +259,14 @@ def set_cloud_sharing(*, consent: bool, scope: str, enabled: bool) -> dict[str, 
                 )
             if row.get("cloud_share_opt_in") is not True:
                 row["cloud_share_opt_in"] = True
+                row["cloud_generation"] = secrets.token_hex(16)
                 row["cloud_projection_state"] = _ACTIVE
                 row["cloud_consented_at"] = datetime.now(timezone.utc).isoformat()
                 row["cloud_last_accepted_state"] = ""
                 _commit(row, "tracky.visual.cloud_sharing.enabled")
         elif row.get("cloud_share_opt_in") is True:
             row["cloud_share_opt_in"] = False
+            row["cloud_generation"] = secrets.token_hex(16)
             row["cloud_projection_state"] = "revoked"
             row["cloud_revoked_at"] = datetime.now(timezone.utc).isoformat()
             row["cloud_last_accepted_state"] = ""
@@ -269,30 +274,43 @@ def set_cloud_sharing(*, consent: bool, scope: str, enabled: bool) -> dict[str, 
         return status()
 
 
-def cloud_projection() -> str | None:
-    """Fail-closed semantic scalar for existing authenticated Tracky sync.
+def cloud_snapshot() -> dict[str, str]:
+    """Local-only generation fencing for asynchronous Cloud ACKs.
 
-    Never exports local receipt, signature, participant ref, contact ref,
-    local contact details, model outputs or visual biometrics.
+    Only `state` is placed inside authenticated Tracky site health. The
+    generation stays on HomeServer and prevents an old upload of the same
+    state from acknowledging a NEW consent or a NEW participant association.
+    No passive call starts synchronization.
     """
-    state = status()
-    if state["cloud_sharing_opted_in"]:
-        return _ACTIVE
-    if state["cloud_revocation_pending"]:
-        return "revoked"
-    return None
+    with _LOCK:
+        row = _saved()
+        state = status()
+        value = (_ACTIVE if state["cloud_sharing_opted_in"]
+                 else "revoked" if state["cloud_revocation_pending"]
+                 else "")
+        return {"state": value, "generation": str(row.get("cloud_generation") or "")}
 
 
-def mark_cloud_delivery(sent_state: str) -> bool:
-    """Record authenticated Cloud site acceptance without promoting identity."""
+def cloud_projection() -> str | None:
+    """Only an allowlisted semantic scalar may leave HomeServer."""
+    return cloud_snapshot()["state"] or None
+
+
+def mark_cloud_delivery(sent_state: str, *, generation: str = "") -> bool:
+    """Reject late ACKs even when revoked/newly approved status has same label.
+
+    A generation is mandatory for ACKs; the legacy one-argument call cannot
+    acknowledge an uncorrelated response or clear a pending tombstone.
+    """
     if sent_state not in {_ACTIVE, "revoked"}:
         raise ValueError("Unsupported semantic Cloud status")
+    if not generation:
+        return False
     with _LOCK:
-        # Concurrent owner revocation/change wins over an in-flight sync ACK.
-        if cloud_projection() != sent_state:
-            return False
         row = _saved()
-        if not row:
+        if not row or not hmac.compare_digest(str(row.get("cloud_generation") or ""), generation):
+            return False
+        if cloud_projection() != sent_state:
             return False
         row["cloud_last_accepted_state"] = sent_state
         row["cloud_last_accepted_at"] = datetime.now(timezone.utc).isoformat()
