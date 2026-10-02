@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -77,15 +78,29 @@ with tempfile.TemporaryDirectory(prefix="tracky-visual-link-v1f1-") as folder:
         assert payload["cloud_biometrics"] is False
         assert payload["cloud_delivery"]=="not_enabled"
         assert body["participant_id"] not in str(receipt)
-        assert str(contact_id) not in payload["contact_ref"]
+        assert len(payload["contact_ref"]) == 64
+        assert all(char in "0123456789abcdef" for char in payload["contact_ref"])
+        assert payload["contact_ref"] != str(contact_id)
         key=remote_identity.load_or_create_remote_identity()["device_secret"].encode()
         expected=hmac.new(key,json.dumps(payload,sort_keys=True,separators=(",",":")).encode(),
                           hashlib.sha256).hexdigest()
         assert hmac.compare_digest(receipt["signature"],expected)
+        with patch.object(remote_identity,"load_or_create_remote_identity",return_value={
+            "device_id":"changed-device","device_secret":"new-secret"
+        }):
+            invalid=client.get(api+"status").json()
+            assert invalid["state"]=="needs_review"
+            assert invalid["active"] is False
+            assert client.get(api+"receipt").json()["available"] is False
+        assert client.get(api+"status").json()["active"] is True
         assert client.post(api+"revoke",headers=headers,json={"consent":True}).status_code==200
         assert not client.get(api+"status").json()["active"]
         assert client.get(api+"receipt").json()["available"] is False
         assert client.post(api+"associate",headers=headers,json=body).status_code==200
+        assert contacts.delete_contact(contact_id) is True
+        assert client.get(api+"status").json()["state"]=="needs_review"
+        assert client.get(api+"receipt").json()["available"] is False
+        assert client.post(api+"revoke",json={"consent":True},headers=headers).status_code==200
         cancelled=client.post(base+"cancel",headers=headers)
         assert cancelled.status_code==200
         assert client.get(api+"status").json()["state"]=="revoked"
