@@ -13,6 +13,7 @@ from . import (
     remote_bridge,
     storage_maintenance,
     tracky_native_diagnosis,
+    tracky_native_managed_session,
 )
 
 CONTRACT="vp3.homeserver.health-repair.v1"
@@ -233,6 +234,23 @@ def _native_tracky_issues()->list[dict[str,Any]]:
                 detail="Confirm camera permissions and selected index, then approve another one-shot test.",
                 repair_class="owner_review",owner_approval_required=True,
             ))
+    session=_safe(tracky_native_managed_session.status,{})
+    phase=str(session.get("phase") or "")
+    reason=str(session.get("reason") or "")
+    if phase=="failed" and reason in {"observation_unavailable","startup_failed"}:
+        issues.append(_issue(
+            "tracky:managed-session-failed",source="tracky_native",severity="attention",
+            title="Supervised Tracky camera session needs owner review",
+            detail="The bounded observation session failed. Review camera access and the existing native diagnostic, then explicitly approve a new session.",
+            repair_class="owner_review",owner_approval_required=True,
+        ))
+    elif phase in {"stopped","stopping"} and reason in {"owner_presence_expired","privacy_engaged"}:
+        issues.append(_issue(
+            "tracky:managed-session-ended",source="tracky_native",severity="info",
+            title="Supervised Tracky session stopped by the safety gate",
+            detail="The privacy or owner-presence lease ended. The Agent must not restart camera capture without fresh owner consent.",
+            repair_class="owner_review",owner_approval_required=True,
+        ))
     return issues
 
 

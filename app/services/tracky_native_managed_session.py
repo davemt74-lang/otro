@@ -21,6 +21,7 @@ SCOPE = "owner-supervised-native-sampling.v1"
 MAX_SAMPLES = 12
 MIN_INTERVAL_SECONDS = 5
 MAX_SECONDS = 120
+HEARTBEAT_TTL_SECONDS = 15
 _LOCK = threading.RLock()
 _STOP = threading.Event()
 _WORKER: threading.Thread | None = None
@@ -30,6 +31,7 @@ _STATE: dict[str, Any] = {
 }
 _ALLOWED_REQUEST = ""
 _CAMERA_INDEX = 0
+_LAST_HEARTBEAT = 0.0
 
 
 class ManagedSessionError(RuntimeError):
@@ -56,6 +58,8 @@ def _snapshot() -> dict[str, Any]:
             "raw_media_retained": False,
             "max_samples": MAX_SAMPLES,
             "max_session_seconds": MAX_SECONDS,
+            "owner_presence_required": True,
+            "heartbeat_ttl_seconds": HEARTBEAT_TTL_SECONDS,
             "requires_new_owner_consent_per_session": True,
         })
         return state
@@ -65,10 +69,43 @@ def status() -> dict[str, Any]:
     state = _snapshot()
     # This check is read-only; a privacy change should immediately request
     # cancellation even if the worker is blocked in a camera driver call.
-    if state["active"] and native._privacy():
-        _STOP.set()
-        state["stop_requested"] = True
+    if state["active"]:
+        if native._privacy():
+            _cancel("privacy_engaged")
+            state["stop_requested"] = True
+        elif state.get("phase") == "running" and _heartbeat_expired():
+            _cancel("owner_presence_expired")
+            state["stop_requested"] = True
     return state
+
+
+def _heartbeat_expired() -> bool:
+    with _LOCK:
+        return bool(_LAST_HEARTBEAT and time.monotonic() - _LAST_HEARTBEAT > HEARTBEAT_TTL_SECONDS)
+
+
+def _cancel(reason: str) -> None:
+    with _LOCK:
+        if _WORKER is not None and _WORKER.is_alive() and _STATE.get("phase") == "running":
+            _STATE["cancel_reason"] = reason
+            _STATE["phase"] = "stopping"
+            _STOP.set()
+
+
+def heartbeat() -> dict[str, Any]:
+    global _LAST_HEARTBEAT
+    with _LOCK:
+        if (not _WORKER or not _WORKER.is_alive()
+                or _STATE.get("phase") != "running"
+                or _STOP.is_set() or native._privacy() or _heartbeat_expired()):
+            raise ManagedSessionError("Supervised session inactive or consent lease expired.", 409)
+        _LAST_HEARTBEAT = time.monotonic()
+    return status()
+
+
+def _stopping_reason(default: str = "owner_stopped") -> str:
+    with _LOCK:
+        return str(_STATE.get("cancel_reason") or default)
 
 
 def _provider(request: dict[str, Any]) -> dict[str, Any]:
@@ -96,10 +133,16 @@ def _run(sample_count: int, interval: int, started: float) -> None:
     phase = "completed"
     try:
         for index in range(sample_count):
-            if _STOP.is_set() or native._privacy():
-                reason, phase = "stopped_or_privacy", "stopped"
+            if native._privacy():
+                _cancel("privacy_engaged")
+            if _heartbeat_expired():
+                _cancel("owner_presence_expired")
+            if _STOP.is_set():
+                reason, phase = _stopping_reason(), "stopped"
                 break
-            if time.monotonic() - started >= MAX_SECONDS:
+            # Leave room for the native provider's bounded call. An OS driver
+            # that ignores cancellation remains separately reported as busy.
+            if time.monotonic() - started >= MAX_SECONDS - native.CAPTURE_SECONDS:
                 reason, phase = "time_limit", "stopped"
                 break
             request_id = "tracky-managed-" + secrets.token_hex(16)
@@ -112,9 +155,13 @@ def _run(sample_count: int, interval: int, started: float) -> None:
                     reason="Owner-armed bounded native sampling",
                 )
                 row = response.get("request") or {}
-                if row.get("status") != "completed" or _STOP.is_set() or native._privacy():
-                    reason = "stopped_or_privacy" if _STOP.is_set() or native._privacy() else "observation_unavailable"
-                    phase = "stopped" if reason == "stopped_or_privacy" else "failed"
+                if native._privacy():
+                    _cancel("privacy_engaged")
+                if _heartbeat_expired():
+                    _cancel("owner_presence_expired")
+                if row.get("status") != "completed" or _STOP.is_set():
+                    reason = _stopping_reason() if _STOP.is_set() else "observation_unavailable"
+                    phase = "stopped" if _STOP.is_set() else "failed"
                     break
                 with _LOCK:
                     _STATE["completed_samples"] += 1
@@ -123,10 +170,10 @@ def _run(sample_count: int, interval: int, started: float) -> None:
                 with _LOCK:
                     _ALLOWED_REQUEST = ""
             if index + 1 < sample_count and _STOP.wait(interval):
-                reason, phase = "owner_stopped", "stopped"
+                reason, phase = _stopping_reason(), "stopped"
                 break
         if _STOP.is_set() and reason == "completed":
-            reason, phase = "owner_stopped", "stopped"
+            reason, phase = _stopping_reason(), "stopped"
     except Exception:
         # No exception messages or driver identifiers in the UI.
         reason, phase = "observation_unavailable", "failed"
@@ -142,7 +189,7 @@ def _run(sample_count: int, interval: int, started: float) -> None:
 
 def start(*, consent: bool, scope: str, camera_index: int,
           sample_count: int = 3, interval_seconds: int = MIN_INTERVAL_SECONDS) -> dict[str, Any]:
-    global _WORKER, _CAMERA_INDEX
+    global _WORKER, _CAMERA_INDEX, _LAST_HEARTBEAT
     if consent is not True or scope != SCOPE:
         raise ManagedSessionError("Explicit fresh owner consent is required.", 403)
     if type(camera_index) is not int or camera_index not in native.CAMERA_INDICES:
@@ -167,6 +214,7 @@ def start(*, consent: bool, scope: str, camera_index: int,
         if existing is not None:
             raise ManagedSessionError("Another Tracky perception provider owns the session.", 409)
         _STOP.clear()
+        _LAST_HEARTBEAT = time.monotonic()
         _CAMERA_INDEX = camera_index
         _STATE.clear()
         _STATE.update({
@@ -201,11 +249,7 @@ def start(*, consent: bool, scope: str, camera_index: int,
 
 
 def stop() -> dict[str, Any]:
-    with _LOCK:
-        _STOP.set()
-        if _WORKER is not None and _WORKER.is_alive():
-            _STATE["phase"] = "stopping"
-            _STATE["reason"] = "owner_stopped"
+    _cancel("owner_stopped")
     # Revocation is immediate even if OS VideoCapture.read cannot be interrupted.
     # The worker must exit and release its driver before any new session starts.
     return status()
