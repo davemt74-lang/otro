@@ -133,7 +133,8 @@ def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
     accepted_state = str(row.get("cloud_last_accepted_state") or "")
     accepted_generation = str(row.get("cloud_last_accepted_generation") or "")
     current_generation = str(row.get("cloud_generation") or "")
-    current_revision = int(row.get("cloud_revision") or 0)
+    raw_revision = row.get("cloud_revision", 0)
+    current_revision = raw_revision if type(raw_revision) is int and 0 <= raw_revision <= 2147483647 else 0
     accepted_revision = row.get("cloud_last_accepted_revision")
     acknowledged_current = bool(
         type(accepted_revision) is int
@@ -362,6 +363,7 @@ def mark_cloud_delivery(
             return False
         if cloud_projection() != sent_state:
             return False
+        row["cloud_revision"] = revision
         row["cloud_last_accepted_state"] = sent_state
         row["cloud_last_accepted_generation"] = generation
         row["cloud_last_accepted_revision"] = revision
