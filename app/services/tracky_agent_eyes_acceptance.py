@@ -86,6 +86,7 @@ def status(*, approval: dict[str, Any] | None = None,
             "WHERE test_key=? ORDER BY rowid DESC LIMIT 50", (TEST_KEY,)
         ).fetchall()
     completed: set[str] = set()
+    device_fingerprint = cert._device_fingerprint()
     for row in rows:
         try:
             saved = json.loads(row["evidence_json"])
@@ -94,7 +95,7 @@ def status(*, approval: dict[str, Any] | None = None,
         if (isinstance(saved, dict) and saved.get("boot") == _BOOT
                 and saved.get("review_id") == current["review_id"]
                 and saved.get("model_sha256") == current["digest"]
-                and saved.get("device_fingerprint") == cert._device_fingerprint()
+                and saved.get("device_fingerprint") == device_fingerprint
                 and bool(current["review_id"]) and len(current["digest"]) == 64):
             if saved.get("step") in _STEPS:
                 completed.add(saved["step"])
