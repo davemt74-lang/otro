@@ -15,6 +15,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any
 
+from ..database import db
 from . import contacts, remote_identity, system_state
 
 KEY = "tracky.visual.owner_contact_link.v1f1"
@@ -53,14 +54,21 @@ def _current(row: dict[str, Any], visual: dict[str, Any]) -> bool:
     )
 
 
-def _log(action: str, receipt_id: str) -> None:
-    # Only opaque receipt ID in append-only activity log; no contact details.
-    from ..database import db
+def _commit(row: dict[str, Any], action: str) -> None:
+    # Atomic state transition and audit; a failed audit cannot leave an
+    # unlogged approval/revocation. Log only opaque receipt IDs locally.
+    encoded = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
     with db() as connection:
+        connection.execute(
+            "INSERT INTO system_settings(setting_key,value_json) VALUES(?,?) "
+            "ON CONFLICT(setting_key) DO UPDATE SET "
+            "value_json=excluded.value_json,updated_at=CURRENT_TIMESTAMP",
+            (KEY, encoded),
+        )
         connection.execute(
             "INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)"
             " VALUES ('owner','control-center',?,'tracky_visual_link',?,'{}')",
-            (action, receipt_id),
+            (action, row["receipt_id"]),
         )
 
 
@@ -130,7 +138,7 @@ def associate(*, consent: bool, scope: str, participant_id: str, contact_id: int
         if not contact:
             raise VisualContactLinkError("The selected local contact does not exist.", 404)
         existing = _saved()
-        if _current(existing, v):
+        if existing.get("state") == _ACTIVE:
             raise VisualContactLinkError("Revoke the existing association before making another.", 409)
         secret = remote_identity.load_or_create_remote_identity()
         key = secret["device_secret"].encode("utf-8")
@@ -150,8 +158,7 @@ def associate(*, consent: bool, scope: str, participant_id: str, contact_id: int
         receipt = _semantic_receipt(row)
         canonical = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
         row["receipt_signature"] = hmac.new(key, canonical, hashlib.sha256).hexdigest()
-        system_state._write_setting(KEY, row)
-        _log("tracky.visual.association.approved", row["receipt_id"])
+        _commit(row, "tracky.visual.association.approved")
         return status(visual=v)
 
 
@@ -168,8 +175,7 @@ def revoke(*, consent: bool = False, reason: str = "owner_revoked") -> dict[str,
             row["revoked_at"] = datetime.now(timezone.utc).isoformat()
             # No active signed receipt may be reused after revocation.
             row["receipt_signature"] = ""
-            system_state._write_setting(KEY, row)
-            _log("tracky.visual.association.revoked", str(row.get("receipt_id") or ""))
+            _commit(row, "tracky.visual.association.revoked")
         return status()
 
 
