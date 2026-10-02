@@ -214,11 +214,11 @@ def _native_tracky_issues()->list[dict[str,Any]]:
     issues=[]
     for row in report.get("issues") or []:
         code=str(row.get("code") or "")
-        if code in {"opencv_missing","opencv_unavailable","face_model_missing"}:
+        if code in {"opencv_missing","opencv_unavailable","face_model_missing","face_model_integrity_mismatch"}:
             issues.append(_issue(
                 "tracky:native-runtime-missing",source="tracky_native",severity="failed",
                 title="Native Tracky detector or its bundled model is unavailable",
-                detail="The installed detector is incomplete. Obtain and install the signed HomeServer upgrade, then re-run local diagnosis.",
+                detail="The installed detector is incomplete. Obtain and install the verified HomeServer upgrade, then re-run local diagnosis.",
                 repair_class="owner_review",owner_approval_required=True,
             ))
         elif code in {"interrupted_prior_attempt", "prior_test_requires_repeat_after_restart"}:
