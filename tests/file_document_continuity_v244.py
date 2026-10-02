@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v244-files-") as temp_root:
     delete_path.write_text("SECTION5_DELETE_ME", encoding="utf-8")
     os.environ["HOMESERVER_DATA_DIR"] = str(data_dir)
 
-    from app.database import db  # noqa: E402
+    from app.database import db, migration_files  # noqa: E402
     from app.runtime import app  # noqa: E402
     from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
     from app.services import federated_data, file_continuity, shared_agent_context  # noqa: E402
@@ -47,7 +47,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v244-files-") as temp_root:
                     "SELECT version FROM schema_migrations ORDER BY version"
                 ).fetchall()
             ]
-        assert versions == list(range(1, 61))
+        declared = [1] + [version for version, _ in migration_files()]
+        assert declared == list(range(1, declared[-1] + 1))
+        assert versions == declared
         assert "files" in federated_data.DATASETS
 
         created = client.post(
