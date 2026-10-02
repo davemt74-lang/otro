@@ -97,22 +97,26 @@ def acknowledge(*, consent: bool, camera_stopped_observed: bool,
     if not (consent is True and camera_stopped_observed is True
             and fresh_consent_understood is True):
         raise RecoveryError("Explicit owner inspection and recovery acknowledgement required.", 403)
-    state = status()
-    if not state["requires_acknowledgement"]:
-        raise RecoveryError("No pending Agent Eyes failure requires recovery acknowledgement.", 409)
-    if not state["ready_for_owner_acknowledgement"]:
-        raise RecoveryError("Camera worker or shared provider is still occupied; do not rearm.", 409)
-    # Restarted sessions are recorded as interrupted only during explicit
-    # owner recovery; passive status never alters durable session evidence.
-    row = evidence.latest()
-    if row["recover_before_new_session"]:
-        evidence.recover_prior(worker_active=False)
+    from . import tracky_native_managed_session as managed
+    # Serialize acknowledgement with worker start so a newly starting
+    # camera cannot pass between our idle check and the durable report.
+    with managed._LOCK:
+        state = status()
+        if not state["requires_acknowledgement"]:
+            raise RecoveryError("No pending Agent Eyes failure requires recovery acknowledgement.", 409)
+        if not state["ready_for_owner_acknowledgement"]:
+            raise RecoveryError("Camera worker or shared provider is still occupied; do not rearm.", 409)
+        # Restarted sessions are recorded as interrupted only during explicit
+        # owner recovery; passive status never alters durable session evidence.
         row = evidence.latest()
-    system_state._write_setting(KEY, {
-        "fingerprint": _fingerprint(row), "owner_reported_stopped": True,
-        "owner_understands_fresh_consent": True,
-        "reported_at": datetime.now(timezone.utc).isoformat(),
-        "report_id": secrets.token_hex(8),
-        "physical_hardware_certified": False,
-    })
+        if row["recover_before_new_session"]:
+            evidence.recover_prior(worker_active=False)
+            row = evidence.latest()
+        system_state._write_setting(KEY, {
+            "fingerprint": _fingerprint(row), "owner_reported_stopped": True,
+            "owner_understands_fresh_consent": True,
+            "reported_at": datetime.now(timezone.utc).isoformat(),
+            "report_id": secrets.token_hex(8),
+            "physical_hardware_certified": False,
+        })
     return status()

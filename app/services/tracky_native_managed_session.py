@@ -323,11 +323,12 @@ def start(*, consent: bool, scope: str, camera_index: int,
         raise ManagedSessionError("Complete current-process owner camera acceptance first.", 409)
     if not native.model_preflight()["model_integrity_verified"]:
         raise ManagedSessionError("Installed native detector does not match the reviewed offline model.", 503)
-    if owner_surface == "agent_eyes":
+    with _LOCK:
+        # Shared hardware must never let a generic supervised session
+        # overwrite the last unresolved Agent Eyes failure evidence.
         from . import tracky_agent_eyes_recovery as recovery
         if recovery.status()["requires_acknowledgement"]:
             raise ManagedSessionError("Inspect the stopped camera and acknowledge Agent Eyes recovery before a new session.", 409)
-    with _LOCK:
         if _WORKER is not None and _WORKER.is_alive():
             raise ManagedSessionError("A supervised session is already running.", 409)
         if native.status()["running"] or native.status()["capture_worker_active"] or native.capture_busy():
