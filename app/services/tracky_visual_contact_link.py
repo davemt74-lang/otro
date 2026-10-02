@@ -118,6 +118,15 @@ def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
     opted = bool(valid and row.get("cloud_share_opt_in") is True)
     revoke_signal = bool(row.get("cloud_projection_state") == "revoked"
                          or (row.get("cloud_share_opt_in") is True and not valid))
+    accepted_state = str(row.get("cloud_last_accepted_state") or "")
+    accepted_generation = str(row.get("cloud_last_accepted_generation") or "")
+    current_generation = str(row.get("cloud_generation") or "")
+    acknowledged_current = bool(
+        accepted_generation and current_generation
+        and hmac.compare_digest(accepted_generation, current_generation)
+        and ((accepted_state == _ACTIVE and opted and not revoke_signal)
+             or (accepted_state == "revoked" and not opted and not revoke_signal))
+    )
     if not row:
         state, reason = "not_linked", "no_owner_association"
     elif row.get("state") == "revoked":
@@ -147,10 +156,14 @@ def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
         "cloud_delivery_status": (
             "revocation_pending_sync" if revoke_signal
             else "authenticated_site_accepted_cloud_account_consent_separate"
-                if opted and row.get("cloud_last_accepted_state") == _ACTIVE
+                if opted and acknowledged_current
             else "pending_authenticated_sync_and_cloud_consent" if opted
+            else "revocation_delivered" if acknowledged_current and accepted_state == "revoked"
             else "not_shared"
         ),
+        "cloud_current_generation_acknowledged": acknowledged_current,
+        "cloud_last_accepted_status": accepted_state if acknowledged_current else "",
+        "cloud_last_accepted_at": str(row.get("cloud_last_accepted_at") or "") if acknowledged_current else "",
         "raw_media_in_receipt": False,
         "requires_explicit_owner_approval": True,
     }
@@ -222,6 +235,7 @@ def revoke(*, consent: bool = False, reason: str = "owner_revoked") -> dict[str,
             row["cloud_share_opt_in"] = False
             row["cloud_generation"] = secrets.token_hex(16)
             row["cloud_last_accepted_state"] = ""
+            row["cloud_last_accepted_generation"] = ""
             # No active signed receipt may be reused after revocation.
             row["receipt_signature"] = ""
             for name in ("local_participant_id", "contact_id", "participant_ref",
@@ -263,6 +277,7 @@ def set_cloud_sharing(*, consent: bool, scope: str, enabled: bool) -> dict[str, 
                 row["cloud_projection_state"] = _ACTIVE
                 row["cloud_consented_at"] = datetime.now(timezone.utc).isoformat()
                 row["cloud_last_accepted_state"] = ""
+                row["cloud_last_accepted_generation"] = ""
                 _commit(row, "tracky.visual.cloud_sharing.enabled")
         elif row.get("cloud_share_opt_in") is True:
             row["cloud_share_opt_in"] = False
@@ -270,6 +285,7 @@ def set_cloud_sharing(*, consent: bool, scope: str, enabled: bool) -> dict[str, 
             row["cloud_projection_state"] = "revoked"
             row["cloud_revoked_at"] = datetime.now(timezone.utc).isoformat()
             row["cloud_last_accepted_state"] = ""
+            row["cloud_last_accepted_generation"] = ""
             _commit(row, "tracky.visual.cloud_sharing.revoked")
         return status()
 
@@ -313,6 +329,7 @@ def mark_cloud_delivery(sent_state: str, *, generation: str = "") -> bool:
         if cloud_projection() != sent_state:
             return False
         row["cloud_last_accepted_state"] = sent_state
+        row["cloud_last_accepted_generation"] = generation
         row["cloud_last_accepted_at"] = datetime.now(timezone.utc).isoformat()
         if sent_state == "revoked":
             row["cloud_share_opt_in"] = False

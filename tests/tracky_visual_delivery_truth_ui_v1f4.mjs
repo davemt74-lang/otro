@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const physical=fs.readFileSync('app/services/tracky_physical_context.py','utf8');
+const link=fs.readFileSync('app/services/tracky_visual_contact_link.py','utf8');
+const api=fs.readFileSync('app/onboarding_api.py','utf8');
+const ui=fs.readFileSync('ui/tracky/owner-contact-link.js','utf8');
+assert.match(physical,/"current_generation_acknowledged": False/);
+assert.match(physical,/visual_delivery\["current_generation_acknowledged"\]/);
+assert.match(physical,/"visual_owner_delivery": visual_delivery/);
+assert.match(link,/cloud_last_accepted_generation/);
+assert.match(link,/"revocation_delivered"/);
+assert.match(link,/accepted_generation.*current_generation/);
+assert.match(api,/visual_status_current_generation_acknowledged/);
+assert.match(api,/association\.get\("cloud_current_generation_acknowledged"\)/);
+assert.match(ui,/result\.visual_status_current_generation_acknowledged/);
+assert.match(ui,/Site sync succeeded, but the CURRENT visual status was not acknowledged/);
+assert.match(ui,/Cloud revocation has NOT been acknowledged/);
+assert.match(ui,/cloudNotice \|\| delivery/);
+assert.doesNotMatch(ui,/result\.site_sync_accepted\s*\?\s*'Paired Cloud site update accepted/);
+const section=physical.slice(physical.indexOf('"health": {'),
+    physical.indexOf('"forecast_calibration": tracky_forecast_calibration.cloud_projection()'));
+assert.doesNotMatch(section,/cloud_generation|receipt_signature|participant_ref|contact_ref|embeddings|portrait/);
+console.log('TRACKY_VISUAL_DELIVERY_UI_V1F4: current-generation acknowledgement distinct from site transport PASS');
