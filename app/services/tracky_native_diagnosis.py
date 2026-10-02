@@ -52,6 +52,10 @@ def _model_preflight() -> dict[str, Any]:
 def diagnose() -> dict[str, Any]:
     """Read installed readiness without touching any camera driver."""
     model = _model_preflight()
+    model["model_integrity_verified"] = bool(
+        model.get("installed") and model.get("model_present")
+        and native.model_preflight().get("model_integrity_verified")
+    )
     run = native.status()
     inventory = vp3_os.hardware_inventory()
     camera = inventory.get("camera") or {}
@@ -67,6 +71,9 @@ def diagnose() -> dict[str, Any]:
         issues.append({"code": model["reason"], "severity": "failed", "repair": "reinstall_homeserver"})
     elif not model["model_present"]:
         issues.append({"code": "face_model_missing", "severity": "failed", "repair": "reinstall_homeserver"})
+    if model["installed"] and model["model_present"] and not model["model_integrity_verified"]:
+        issues.append({"code": "face_model_integrity_mismatch", "severity": "failed",
+                       "repair": "reinstall_homeserver"})
     if privacy_blocked:
         issues.append({"code": "privacy_engaged", "severity": "attention", "repair": "owner_physical_action"})
     if run["provider_conflict"]:
@@ -98,7 +105,7 @@ def diagnose() -> dict[str, Any]:
         "issues": issues,
         "recommendations": [
             {"key": "repair_runtime", "when": "opencv_missing_or_model_missing",
-             "kind": "reinstall_signed_homeserver", "automated": False, "owner_approval": True},
+             "kind": "reinstall_reviewed_homeserver", "automated": False, "owner_approval": True},
             {"key": "select_camera", "when": "camera_unverified",
              "kind": "owner_choose_camera_index", "automated": False, "owner_approval": True},
             {"key": "run_live_test", "when": "runtime_ready_and_privacy_off",
