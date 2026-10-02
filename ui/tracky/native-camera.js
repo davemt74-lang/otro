@@ -23,7 +23,7 @@ async function call(path,body){
 }
 async function refresh(){
   const current=await call('diagnose');
-  const ready=Boolean(current.model?.installed&&current.model?.model_present);
+  const ready=Boolean(current.model?.installed&&current.model?.model_present&&current.model?.model_integrity_verified);
   const recovery=current.issues?.map(issue=>issue.code).join(', ')||'';
   const cert=await call('certification');
   managedReady=Boolean(cert.owner_accepted_current_run&&!cert.requires_new_owner_test_due_model_change);
