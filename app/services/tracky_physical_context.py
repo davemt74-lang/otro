@@ -980,7 +980,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     )
     # Opted-in semantic status only. No raw local receipt, image, contact
     # or participant identifier may enter the authenticated site transport.
-    visual_owner_snapshot = tracky_visual_contact_link.cloud_snapshot()
+    visual_owner_snapshot = tracky_visual_contact_link.prepare_cloud_snapshot()
     visual_owner_projection = visual_owner_snapshot["state"] or None
     federated_automation_projection = (
         tracky_federated_automation.cloud_projection()
