@@ -75,8 +75,10 @@ jobs:
           node tests/tracky_native_managed_ui_v1e1.mjs
           node tests/tracky_native_certification_ui_v1d.mjs
           node tests/tracky_native_live_diagnosis_ui_v1c.mjs
-      - name: Verify migration chain
-        run: python tests/migrations.py
+      - name: Verify migration chain and retained contacts acceptance
+        run: |
+          python tests/migrations.py
+          python tests/contacts_continuity_v241.py
       - name: Verify API smoke contract
         run: python tests/smoke.py
       - name: Verify tool security contract
