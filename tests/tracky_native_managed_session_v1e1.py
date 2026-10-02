@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-supervised-") as root:
         assert reconciled["status"] == "completed"
         fake = {"summary": "One unverified possible face region.",
                 "capture_and_inference_ms": 3, "inference_ms": 2}
-        model = {"installed": True, "model_present": True, "runtime_version": "synthetic"}
+        model = {"installed": True, "model_present": True, "model_integrity_verified": True, "runtime_version": "synthetic"}
         with patch.object(cert, "status", return_value={"owner_accepted_current_run": True}), \
              patch.object(native, "model_preflight", return_value=model), \
              patch.object(native, "_observe_exclusive", return_value=fake) as observe:
