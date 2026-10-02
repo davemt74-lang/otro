@@ -414,9 +414,21 @@ def visual_contact_cloud_sync(
     except tracky_physical_context.TrackyPhysicalError as exc:
         raise HTTPException(status_code=exc.status_code,
                             detail="Authenticated Tracky Cloud sync is unavailable.") from exc
+    association = tracky_visual_contact_link.status()
+    visual_delivery = outcome.get("visual_owner_delivery")
+    if not isinstance(visual_delivery, dict):
+        visual_delivery = {}
     return {
         "site_sync_accepted": outcome.get("ok") is True,
-        "association": tracky_visual_contact_link.status(),
+        # Cloud may have received the previous generation if consent was
+        # revoked while HTTPS was in flight. Never claim CURRENT delivery.
+        "visual_status_sent": str(visual_delivery.get("status_sent") or ""),
+        "visual_status_current_generation_acknowledged": bool(
+            visual_delivery.get("current_generation_acknowledged") is True
+            and association.get("cloud_current_generation_acknowledged") is True
+            and association.get("cloud_last_accepted_status") == visual_delivery.get("status_sent")
+        ),
+        "association": association,
         "cloud_account_consent_independently_required": True,
         "face_recognition_verified": False,
         "cloud_biometric_storage": False,
