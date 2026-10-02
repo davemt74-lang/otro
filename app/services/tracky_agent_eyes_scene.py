@@ -62,7 +62,9 @@ def _json(client: httpx.Client, url: str, path: str, *, payload=None,
                        json=payload) as response:
         response.raise_for_status()
         data = bytearray()
-        for chunk in response.iter_bytes(chunk_size=1024):
+        # Do not aggregate small transport chunks: a trickling response must
+        # reach deadline/cancellation checks on every received chunk.
+        for chunk in response.iter_bytes():
             if time.monotonic() >= deadline or (cancel and cancel.is_set()):
                 raise SceneError("Local scene request cancelled or timed out.", 504)
             data.extend(chunk)
