@@ -16,6 +16,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     from app.config import settings  # noqa: E402
     from app.database import SCHEMA_PATH, _apply_migration, connect, db, initialize_database, migration_files  # noqa: E402
+
+    declared_versions = [1] + [v for v, _ in migration_files()]
+    assert declared_versions == list(range(1, declared_versions[-1] + 1))
     from app.services.knowledge import ensure_knowledge_index, list_knowledge  # noqa: E402
 
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -62,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
 
     with db() as migrated:
         versions = [row["version"] for row in migrated.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions == list(range(1, 68))
+        assert versions == declared_versions
         for automation_table in (
             "automation_rooms",
             "automation_providers",
@@ -615,7 +618,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
     initialize_database()
     with db() as migrated_again:
         versions_again = [row["version"] for row in migrated_again.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-        assert versions_again == list(range(1, 68))
+        assert versions_again == declared_versions
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers WHERE provider_key='ollama'").fetchone()[0] == 1
         assert migrated_again.execute("SELECT COUNT(*) FROM model_providers").fetchone()[0] == 4
         assert migrated_again.execute("SELECT COUNT(*) FROM inference_settings").fetchone()[0] == 1

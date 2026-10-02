@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="homeserver-apps-v100-") as data_dir, tempfile.TemporaryDirectory(prefix="homeserver-app-sdk-") as sdk_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
 
+    from app.database import migration_files
     from app.runtime import app  # noqa: E402
     from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
     from app.services import homeserver_apps  # noqa: E402
@@ -101,6 +102,6 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v100-") as data_dir, te
 
     with __import__("sqlite3").connect(Path(data_dir)/"homeserver.db") as connection:
         version=connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
-        assert version==66
+        assert version == max([1] + [v for v, _ in migration_files()])
 
 print("HomeServer Apps V1 Section 1 registry lifecycle and SDK foundation passed")
