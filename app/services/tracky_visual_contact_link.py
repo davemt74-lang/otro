@@ -21,6 +21,7 @@ from . import contacts, remote_identity, system_state
 KEY = "tracky.visual.owner_contact_link.v1f1"
 CONTRACT = "tracky.visual.owner-contact-association.v1f1"
 SCOPE = "owner-self-existing-contact-association.v1"
+CLOUD_SCOPE = "owner-self-cloud-status-only.v1"
 _LOCK = threading.RLock()
 _ACTIVE = "owner_attributed_unverified"
 
@@ -114,6 +115,9 @@ def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
     local = contacts.get_contact(int(row["contact_id"])) if current else None
     signed = _receipt_valid(row) if current and local else False
     valid = bool(current and local and signed)
+    opted = bool(valid and row.get("cloud_share_opt_in") is True)
+    revoke_signal = bool(row.get("cloud_projection_state") == "revoked"
+                         or (row.get("cloud_share_opt_in") is True and not valid))
     if not row:
         state, reason = "not_linked", "no_owner_association"
     elif row.get("state") == "revoked":
@@ -134,7 +138,20 @@ def status(*, visual: dict[str, Any] | None = None) -> dict[str, Any]:
         "identity_verified": False, "owner_attribution_only": True,
         "contact_creation_automatic": False,
         "face_templates_retained_by_homeserver": False,
-        "cloud_sync_enabled": False, "raw_media_in_receipt": False,
+        # Opt-in reports only a semantic status through existing authenticated
+        # Tracky site sync. Local signed receipt is NEVER exported.
+        "cloud_sync_enabled": opted,
+        "cloud_receipt_sync_enabled": False,
+        "cloud_sharing_opted_in": opted,
+        "cloud_revocation_pending": revoke_signal,
+        "cloud_delivery_status": (
+            "revocation_pending_sync" if revoke_signal
+            else "authenticated_site_accepted_cloud_account_consent_separate"
+                if opted and row.get("cloud_last_accepted_state") == _ACTIVE
+            else "pending_authenticated_sync_and_cloud_consent" if opted
+            else "not_shared"
+        ),
+        "raw_media_in_receipt": False,
         "requires_explicit_owner_approval": True,
     }
 
@@ -172,6 +189,12 @@ def associate(*, consent: bool, scope: str, participant_id: str, contact_id: int
             "device_id": secret["device_id"],
             "participant_ref": tag("visual-participant:" + participant_id),
             "contact_ref": tag("visual-local-contact:" + str(contact_id)),
+            # Keep a pending previously-shared revocation until the next
+            # authenticated sync. New links ALWAYS require fresh Cloud opt-in.
+            "cloud_share_opt_in": False,
+            "cloud_projection_state": ("revoked"
+                if existing.get("cloud_projection_state") == "revoked"
+                or existing.get("cloud_share_opt_in") is True else ""),
         }
         receipt = _semantic_receipt(row)
         canonical = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -191,6 +214,11 @@ def revoke(*, consent: bool = False, reason: str = "owner_revoked") -> dict[str,
             row["state"] = "revoked"
             row["revocation_reason"] = reason
             row["revoked_at"] = datetime.now(timezone.utc).isoformat()
+            # Explicitly revoke any previously shared semantic status. No
+            # captured media, private local ID or contact value is sent.
+            if row.get("cloud_share_opt_in") is True or row.get("cloud_projection_state") == "revoked":
+                row["cloud_projection_state"] = "revoked"
+            row["cloud_share_opt_in"] = False
             # No active signed receipt may be reused after revocation.
             row["receipt_signature"] = ""
             for name in ("local_participant_id", "contact_id", "participant_ref",
@@ -211,3 +239,77 @@ def local_receipt() -> dict[str, Any]:
         "signature": row["receipt_signature"], "algorithm": "hmac-sha256-local-device",
         "cloud_delivery": "not_enabled", "independently_verified": False,
     }
+
+
+def set_cloud_sharing(*, consent: bool, scope: str, enabled: bool) -> dict[str, Any]:
+    """Explicit per-HomeServer consent. Cloud account consent is separate."""
+    if consent is not True or scope != CLOUD_SCOPE or type(enabled) is not bool:
+        raise VisualContactLinkError(
+            "Explicit owner permission for non-biometric Cloud status is required.", 403
+        )
+    with _LOCK:
+        row = _saved()
+        if enabled:
+            if not status()["active"]:
+                raise VisualContactLinkError(
+                    "Complete and review a current local owner association before sharing.", 409
+                )
+            if row.get("cloud_share_opt_in") is not True:
+                row["cloud_share_opt_in"] = True
+                row["cloud_projection_state"] = _ACTIVE
+                row["cloud_consented_at"] = datetime.now(timezone.utc).isoformat()
+                row["cloud_last_accepted_state"] = ""
+                _commit(row, "tracky.visual.cloud_sharing.enabled")
+        elif row.get("cloud_share_opt_in") is True:
+            row["cloud_share_opt_in"] = False
+            row["cloud_projection_state"] = "revoked"
+            row["cloud_revoked_at"] = datetime.now(timezone.utc).isoformat()
+            row["cloud_last_accepted_state"] = ""
+            _commit(row, "tracky.visual.cloud_sharing.revoked")
+        return status()
+
+
+def cloud_projection() -> str | None:
+    """Fail-closed semantic scalar for existing authenticated Tracky sync.
+
+    Never exports local receipt, signature, participant ref, contact ref,
+    local contact details, model outputs or visual biometrics.
+    """
+    state = status()
+    if state["cloud_sharing_opted_in"]:
+        return _ACTIVE
+    if state["cloud_revocation_pending"]:
+        return "revoked"
+    return None
+
+
+def mark_cloud_delivery(sent_state: str) -> bool:
+    """Record authenticated Cloud site acceptance without promoting identity."""
+    if sent_state not in {_ACTIVE, "revoked"}:
+        raise ValueError("Unsupported semantic Cloud status")
+    with _LOCK:
+        # Concurrent owner revocation/change wins over an in-flight sync ACK.
+        if cloud_projection() != sent_state:
+            return False
+        row = _saved()
+        if not row:
+            return False
+        row["cloud_last_accepted_state"] = sent_state
+        row["cloud_last_accepted_at"] = datetime.now(timezone.utc).isoformat()
+        if sent_state == "revoked":
+            row["cloud_share_opt_in"] = False
+            row["cloud_projection_state"] = ""
+        encoded = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+        with db() as connection:
+            connection.execute(
+                "INSERT INTO system_settings(setting_key,value_json) VALUES (?,?) "
+                "ON CONFLICT(setting_key) DO UPDATE SET "
+                "value_json=excluded.value_json,updated_at=CURRENT_TIMESTAMP",
+                (KEY, encoded),
+            )
+            connection.execute(
+                "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) "
+                "VALUES ('system','tracky-sync',?,'tracky_visual_link',?,'{}')",
+                ("tracky.visual.cloud_status.delivered", str(row.get("receipt_id") or "")),
+            )
+        return True

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_visual_contact_link, contacts
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_visual_contact_link, tracky_physical_context, contacts
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -374,3 +374,50 @@ def visual_contact_link_revoke(payload: VisualContactRevoke,
 @router.get("/visual/contact-link/receipt")
 def visual_contact_link_receipt() -> dict:
     return tracky_visual_contact_link.local_receipt()
+
+
+class VisualCloudStatusSharing(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool = Field(strict=True)
+    scope: str = Field(max_length=80)
+    enabled: bool = Field(strict=True)
+
+
+class VisualCloudStatusSync(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool = Field(strict=True)
+
+
+@router.post("/visual/contact-link/cloud-sharing")
+def visual_contact_cloud_sharing(
+    payload: VisualCloudStatusSharing,
+    x_requested_with: str | None = Header(default=None),
+) -> dict:
+    _require_ui(x_requested_with)
+    return _visual_link_call(
+        lambda: tracky_visual_contact_link.set_cloud_sharing(**payload.model_dump())
+    )
+
+
+@router.post("/visual/contact-link/cloud-sync")
+def visual_contact_cloud_sync(
+    payload: VisualCloudStatusSync,
+    x_requested_with: str | None = Header(default=None),
+) -> dict:
+    _require_ui(x_requested_with)
+    if payload.consent is not True:
+        raise HTTPException(status_code=403, detail="Owner must explicitly approve status sync.")
+    if tracky_visual_contact_link.cloud_projection() is None:
+        raise HTTPException(status_code=409, detail="No approved semantic status or revocation to deliver.")
+    try:
+        outcome = tracky_physical_context.sync_cloud(force=True)
+    except tracky_physical_context.TrackyPhysicalError as exc:
+        raise HTTPException(status_code=exc.status_code,
+                            detail="Authenticated Tracky Cloud sync is unavailable.") from exc
+    return {
+        "site_sync_accepted": outcome.get("ok") is True,
+        "association": tracky_visual_contact_link.status(),
+        "cloud_account_consent_independently_required": True,
+        "face_recognition_verified": False,
+        "cloud_biometric_storage": False,
+    }
