@@ -6,7 +6,7 @@
 const $=id=>document.getElementById(id);
 const API='/api/v1/control/onboarding/visual/native/';
 let busy=false, running=false;
-let managedTimer=null, managedActive=false;
+let managedTimer=null, managedActive=false, managedReady=false;
 function say(message){if($('onboardNativeDetails'))$('onboardNativeDetails').textContent=message;}
 function label(message){if($('onboardNativeStatus'))$('onboardNativeStatus').textContent=message;}
 async function call(path,body){
@@ -26,13 +26,18 @@ async function refresh(){
   const ready=Boolean(current.model?.installed&&current.model?.model_present);
   const recovery=current.issues?.map(issue=>issue.code).join(', ')||'';
   const cert=await call('certification');
+  managedReady=Boolean(cert.owner_accepted_current_run&&!cert.requires_new_owner_test_due_model_change);
   if($('onboardNativeReview')) $('onboardNativeReview').hidden=!cert.review_ready||cert.owner_accepted_current_run;
   if($('onboardNativeCertState'))$('onboardNativeCertState').textContent=cert.owner_accepted_current_run
     ? 'Owner-attested installed-device test · independent physical certification pending'
     : 'Independent hardware certification pending · '+(cert.review_ready?'Owner review available':'Complete camera and privacy steps first');
-  label(current.running?'Native camera test running':ready?'Native detector installed · not certified':'Local detector unavailable');
+  label(cert.requires_new_owner_test_due_model_change
+    ? 'Detector changed · new owner test required'
+    : current.running?'Native camera test running':ready?'Native detector installed · not certified':'Local detector unavailable');
   if(!running){
-    if(!ready)say('Runtime or model missing. Install the signed HomeServer upgrade, then rerun diagnosis.');
+    if(cert.requires_new_owner_test_due_model_change)
+      say('The installed native detector changed after your previous test. Re-run camera test, privacy review and owner acceptance before supervised sampling.');
+    else if(!ready)say('Runtime or model missing. Reinstall the verified HomeServer release, then rerun diagnosis.');
     else if(current.last_test_status==='native_detector_completed')
       say('Previous local test completed; on-device owner review is still required for hardware certification.');
     else say(recovery
@@ -121,7 +126,7 @@ async function updateManaged(){
     await call('session/heartbeat',{}).catch(()=>{});
   }
   if($('onboardNativeManagedStop'))$('onboardNativeManagedStop').hidden=!active;
-  if($('onboardNativeManagedStart'))$('onboardNativeManagedStart').disabled=active||busy||running;
+  if($('onboardNativeManagedStart'))$('onboardNativeManagedStart').disabled=active||busy||running||!managedReady;
   const durable=value.durable_evidence||{};
   const interrupted=!active&&durable.phase==='interrupted';
   if($('onboardNativeManagedState'))$('onboardNativeManagedState').textContent=active
