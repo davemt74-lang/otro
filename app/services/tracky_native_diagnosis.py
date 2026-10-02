@@ -119,6 +119,8 @@ def after_test(*, status: str) -> None:
         status = "failed"
     _save({"phase": status, "boot_id": _BOOT,
            "finished_at": datetime.now(timezone.utc).isoformat()})
+    from . import tracky_native_certification as certification
+    certification.record_test(status)
 
 
 def privacy_review(*, consent: bool) -> dict[str, Any]:
@@ -138,6 +140,8 @@ def privacy_review(*, consent: bool) -> dict[str, Any]:
                 "camera_opened": False, "hardware_certified": False}
     _save({"phase": "privacy_reviewed", "boot_id": _BOOT,
            "privacy_reviewed_at": datetime.now(timezone.utc).isoformat()})
+    from . import tracky_native_certification as certification
+    certification.record_privacy()
     return {"privacy_check": "reported_software_gate_engaged",
             "camera_opened": False, "hardware_certified": False,
             "instruction": "Reported privacy switch engages HomeServer's camera software gate; physical camera disconnect and on-device acceptance remain unverified."}
