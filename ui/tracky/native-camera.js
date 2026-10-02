@@ -24,6 +24,11 @@ async function refresh(){
   const current=await call('diagnose');
   const ready=Boolean(current.model?.installed&&current.model?.model_present);
   const recovery=current.issues?.map(issue=>issue.code).join(', ')||'';
+  const cert=await call('certification');
+  if($('onboardNativeReview')) $('onboardNativeReview').hidden=!cert.review_ready||cert.owner_accepted_current_run;
+  if($('onboardNativeCertState'))$('onboardNativeCertState').textContent=cert.owner_accepted_current_run
+    ? 'Owner-attested installed-device test · independent physical certification pending'
+    : 'Independent hardware certification pending · '+(cert.review_ready?'Owner review available':'Complete camera and privacy steps first');
   label(current.running?'Native camera test running':ready?'Native detector installed · not certified':'Local detector unavailable');
   if(!running){
     if(!ready)say('Runtime or model missing. Install the signed HomeServer upgrade, then rerun diagnosis.');
@@ -92,11 +97,25 @@ async function checkPrivacy(){
   }catch(error){say('Privacy review unavailable: '+String(error.message));}
   finally{button.disabled=false;}
 }
+async function ownerReview(){
+  const review=$('onboardNativeReview');
+  if(!review)return;
+  if(!window.confirm('Did YOU run the camera test on the installed HomeServer, observe the camera release after it completed, and verify the reported privacy software gate? This records your review, NOT independent proof of physical camera disconnect or biometric identity.'))return;
+  review.disabled=true;
+  try{
+    const result=await call('owner-review',{consent:true,installed_device:true,
+      camera_release_observed:true,software_privacy_gate_observed:true});
+    await refresh();
+    say(result.owner_accepted_current_run?'Local owner review recorded. Physical camera disconnect and independent certification remain unverified.':'Review not accepted.');
+  }catch(error){say('Owner review unavailable: '+String(error.message));}
+  finally{review.disabled=false;}
+}
 async function init(){
   if(!$('onboardNativeCamera'))return;
   $('onboardNativeStart').addEventListener('click',()=>{void run();});
   $('onboardNativeCancel').addEventListener('click',()=>{void cancel();});
   $('onboardNativePrivacy').addEventListener('click',()=>{void checkPrivacy();});
+  $('onboardNativeReview').addEventListener('click',()=>{void ownerReview();});
   $('onboardNativeConsent').addEventListener('change',()=>{
     if(!$('onboardNativeConsent').checked && running)void cancel();
   });
