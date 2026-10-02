@@ -12,14 +12,16 @@ if str(ROOT) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="homeserver-v243-task-calendar-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
-    from app.database import db, initialize_database  # noqa: E402
+    from app.database import db, initialize_database, migration_files  # noqa: E402
     from app.services import action_policy, approvals, federated_data, pairing, task_calendar_continuity as continuity, tools  # noqa: E402
 
     initialize_database()
 
     with db() as connection:
         versions = [row["version"] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-    assert versions == list(range(1, 61))
+    declared = [1] + [version for version, _ in migration_files()]
+    assert declared == list(range(1, declared[-1] + 1))
+    assert versions == declared
     assert "calendar" in federated_data.DATASETS
 
     migration = (ROOT / "database" / "migrations" / "035_governed_task_calendar_continuity.sql").read_text(encoding="utf-8")
