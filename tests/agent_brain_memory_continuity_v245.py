@@ -13,7 +13,7 @@ if str(ROOT) not in sys.path:
 with tempfile.TemporaryDirectory(prefix="homeserver-v245-agent-brain-memory-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
 
-    from app.database import db, initialize_database  # noqa: E402
+    from app.database import db, initialize_database, migration_files  # noqa: E402
     from app.services import (  # noqa: E402
         action_policy,
         app_scopes,
@@ -35,7 +35,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v245-agent-brain-memory-") a
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-    assert versions == list(range(1, 61))
+    declared = [1] + [version for version, _ in migration_files()]
+    assert declared == list(range(1, declared[-1] + 1))
+    assert versions == declared
 
     migration = (
         ROOT / "database" / "migrations" / "037_agent_brain_memory_continuity.sql"
