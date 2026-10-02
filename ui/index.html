@@ -208,6 +208,12 @@
     <label class="onboard-visual-consent"><input id="onboardNativeConsent" type="checkbox"><span>I authorize HomeServer to open one selected camera, capture one frame and run local face-region detection. No frame or face template will be stored or uploaded.</span></label>
     <label class="onboard-native-select" for="onboardNativeIndex">Local camera <select id="onboardNativeIndex"><option value="0">Camera 0 (default)</option><option value="1">Camera 1</option><option value="2">Camera 2</option></select></label>
     <div class="onboard-actions"><button id="onboardNativeStart" class="onboard-button" type="button">Test native HomeServer camera →</button><button id="onboardNativeCancel" class="onboard-minor" type="button" hidden>Stop native test</button><button id="onboardNativePrivacy" class="onboard-minor" type="button">Check physical privacy switch</button><button id="onboardNativeReview" class="onboard-minor" type="button" hidden>Review installed-device test</button></div>
+    <div class="onboard-step" id="onboardNativeManaged">
+      <p class="onboard-agent-line">Optional supervised native sampling: after current-process owner review, authorize three spaced, non-identifying camera observations. Stops automatically; no continuous unattended monitoring or participant recognition.</p>
+      <label class="onboard-visual-consent"><input id="onboardNativeManagedConsent" type="checkbox"><span>I authorize this bounded supervised local camera session. No media is saved; I can stop at any time.</span></label>
+      <div class="onboard-actions"><button id="onboardNativeManagedStart" class="onboard-minor" type="button">Start supervised sampling</button><button id="onboardNativeManagedStop" class="onboard-minor" type="button" hidden>Stop sampling</button></div>
+      <p id="onboardNativeManagedState" class="onboard-package-state" role="status" aria-live="polite">Inactive · new consent required for every session.</p>
+    </div>
     <p id="onboardNativeCertState" class="onboard-package-state" role="status" aria-live="polite">Hardware certification pending · no owner review recorded.</p><p id="onboardNativeDetails" class="onboard-package-state" role="status" aria-live="polite">Camera stays closed until you approve this test.</p>
   </div>
   <div class="onboard-agent-message end"><span class="onboard-orb" aria-hidden="true">✦</span><div class="onboard-agent-content">

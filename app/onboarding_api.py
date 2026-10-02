@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -283,3 +283,33 @@ def native_certification_owner_review(payload: NativeOwnerAcceptance,
         return tracky_native_certification.accept_owner_review(**payload.model_dump())
     except tracky_native_certification.NativeCertificationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+class NativeManagedSessionStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool
+    scope: str = Field(max_length=80)
+    camera_index: int = Field(strict=True, ge=0, le=2)
+    sample_count: int = Field(default=3, strict=True, ge=1, le=12)
+    interval_seconds: int = Field(default=5, strict=True, ge=5, le=15)
+
+
+@router.get("/visual/native/session/status")
+def native_managed_status() -> dict:
+    return tracky_native_managed_session.status()
+
+
+@router.post("/visual/native/session/start")
+def native_managed_start(payload: NativeManagedSessionStart,
+                         x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    try:
+        return tracky_native_managed_session.start(**payload.model_dump())
+    except tracky_native_managed_session.ManagedSessionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/visual/native/session/stop")
+def native_managed_stop(x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return tracky_native_managed_session.stop()

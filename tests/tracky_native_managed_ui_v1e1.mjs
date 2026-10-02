@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const html=readFileSync('ui/index.html','utf8');
+const js=readFileSync('ui/tracky/native-camera.js','utf8');
+for(const id of ['onboardNativeManaged','onboardNativeManagedConsent','onboardNativeManagedStart','onboardNativeManagedStop','onboardNativeManagedState']) assert.match(html,new RegExp('id="'+id+'"'));
+assert.match(js,/call\('session\/start'/);
+assert.match(js,/call\('session\/stop'/);
+assert.match(js,/call\('session\/status'/);
+assert.match(js,/owner-supervised-native-sampling\.v1/);
+assert.match(js,/\.checked/);
+console.log('TRACKY_NATIVE_MANAGED_UI_V1E1: bounded explicit-consent session control PASS');

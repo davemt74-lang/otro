@@ -28,6 +28,8 @@ CAMERA_INDICES = (0, 1, 2)
 # Do not exceed the existing canonical provider's bounded timeout.
 CAPTURE_SECONDS = 7.0
 _LOCK = threading.RLock()
+# Global OS-camera lock shared by one-shot and supervised native capture.
+_CAMERA_CAPTURE_LOCK = threading.Lock()
 _BUSY = False
 _INFLIGHT = False  # Camera-driver worker still active after an upstream timeout.
 _ALLOWED_ID = ""
@@ -96,7 +98,11 @@ def status() -> dict[str, Any]:
         }
 
 
-def _observe(index: int, cancel: threading.Event) -> dict[str, Any]:
+def capture_busy() -> bool:
+    return _CAMERA_CAPTURE_LOCK.locked()
+
+
+def _observe_exclusive(index: int, cancel: threading.Event) -> dict[str, Any]:
     if cancel.is_set() or _privacy():
         raise NativeCameraError("Consent or hardware privacy prevents native capture.", 403)
     try:
@@ -151,6 +157,15 @@ def _observe(index: int, cancel: threading.Event) -> dict[str, Any]:
         if capture is not None:
             capture.release()
             released = True
+
+
+def _observe(index: int, cancel: threading.Event) -> dict[str, Any]:
+    if not _CAMERA_CAPTURE_LOCK.acquire(blocking=False):
+        raise NativeCameraError('A native camera capture is already in progress.', 409)
+    try:
+        return _observe_exclusive(index, cancel)
+    finally:
+        _CAMERA_CAPTURE_LOCK.release()
 
 
 def _provider(request: dict[str, Any]) -> dict[str, Any]:
