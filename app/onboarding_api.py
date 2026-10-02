@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -260,3 +260,26 @@ def native_camera_privacy_review(
     if payload.consent is not True:
         raise HTTPException(status_code=403,detail="Explicit owner approval is required.")
     return tracky_native_diagnosis.privacy_review(consent=True)
+
+
+class NativeOwnerAcceptance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool
+    installed_device: bool
+    camera_release_observed: bool
+    software_privacy_gate_observed: bool
+
+
+@router.get("/visual/native/certification")
+def native_certification_status() -> dict:
+    return tracky_native_certification.status()
+
+
+@router.post("/visual/native/owner-review")
+def native_certification_owner_review(payload: NativeOwnerAcceptance,
+                                      x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    try:
+        return tracky_native_certification.accept_owner_review(**payload.model_dump())
+    except tracky_native_certification.NativeCertificationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
