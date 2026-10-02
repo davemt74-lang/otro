@@ -16,6 +16,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-camera-") as root:
     from fastapi.testclient import TestClient
     from app.runtime import app
     from app.security import OWNER_CONTROL_TOKEN
+    from app.services import tracky_native_model_integrity as integrity
     from app.services import tracky_native_camera as native
     from app.services import tracky_physical_context as tracky
     from app.services import federated_data, live_certification, runtime_diagnostics
@@ -81,7 +82,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-camera-") as root:
         }, observed_source="homeserver",trigger_reason="tracky-native-v1-fixture")
         assert reconciled["status"]=="completed"
 
-        with patch.dict(sys.modules,{"cv2":fake}):
+        with patch.dict(sys.modules,{"cv2":fake}), \
+             patch.object(integrity,"verify_file",return_value=True):
             result=client.post(base+"test",json=consent,headers=hdr)
         assert result.status_code==200,result.text
         outcome=result.json()
@@ -104,7 +106,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-camera-") as root:
         assert tracky._provider_snapshot()[0] is existing_provider
         tracky.unregister_provider(expected=existing_provider)
 
-        with patch.dict(sys.modules,{"cv2":fake}):
+        with patch.dict(sys.modules,{"cv2":fake}), \
+             patch.object(integrity,"verify_file",return_value=True):
             assert client.post(base+"test",json=dict(consent,camera_index=1),
                                headers=hdr).json()["request"]["status"]=="failed"
         assert created[-1].released and created[-1].reads==0
