@@ -273,3 +273,35 @@ def cloud_projection() -> str | None:
     if state["cloud_revocation_pending"]:
         return "revoked"
     return None
+
+
+def mark_cloud_delivery(sent_state: str) -> bool:
+    """Record authenticated Cloud site acceptance without promoting identity."""
+    if sent_state not in {_ACTIVE, "revoked"}:
+        raise ValueError("Unsupported semantic Cloud status")
+    with _LOCK:
+        # Concurrent owner revocation/change wins over an in-flight sync ACK.
+        if cloud_projection() != sent_state:
+            return False
+        row = _saved()
+        if not row:
+            return False
+        row["cloud_last_accepted_state"] = sent_state
+        row["cloud_last_accepted_at"] = datetime.now(timezone.utc).isoformat()
+        if sent_state == "revoked":
+            row["cloud_share_opt_in"] = False
+            row["cloud_projection_state"] = ""
+        encoded = json.dumps(row, ensure_ascii=False, separators=(",", ":"))
+        with db() as connection:
+            connection.execute(
+                "INSERT INTO system_settings(setting_key,value_json) VALUES (?,?) "
+                "ON CONFLICT(setting_key) DO UPDATE SET "
+                "value_json=excluded.value_json,updated_at=CURRENT_TIMESTAMP",
+                (KEY, encoded),
+            )
+            connection.execute(
+                "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) "
+                "VALUES ('system','tracky-sync',?,'tracky_visual_link',?,'{}')",
+                ("tracky.visual.cloud_status.delivered", str(row.get("receipt_id") or "")),
+            )
+        return True
