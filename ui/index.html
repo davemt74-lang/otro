@@ -110,6 +110,8 @@
           <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
             <label for="trackyAgentEyesCamera">Camera <select id="trackyAgentEyesCamera"><option value="0">Camera 0</option><option value="1">Camera 1</option><option value="2">Camera 2</option></select></label>
             <label for="trackyAgentEyesSamples">Observations <select id="trackyAgentEyesSamples"><option value="3">3</option><option value="6" selected>6</option><option value="9">9</option><option value="12">12</option></select></label>
+            <label for="trackyAgentEyesWall">Time limit <select id="trackyAgentEyesWall"><option value="60">1 minute</option><option value="120" selected>2 minutes</option></select></label>
+            <label for="trackyAgentEyesCPU">CPU budget <select id="trackyAgentEyesCPU"><option value="4">4 CPU seconds</option><option value="8">8 CPU seconds</option><option value="12" selected>12 CPU seconds</option></select></label>
           </div>
           <label class="onboard-visual-consent"><input id="trackyAgentEyesConsent" type="checkbox"><span>I authorize a new bounded, supervised local camera session. I will keep this view open and can stop it at any time.</span></label>
           <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
@@ -117,6 +119,7 @@
             <button class="button secondary" id="trackyAgentEyesStop" type="button" hidden>Stop camera</button>
             <button class="button secondary" id="trackyAgentEyesRefresh" type="button">Refresh status</button>
           </div>
+          <p class="muted" id="trackyAgentEyesBudgetStatus" role="status">Owner-configured budgets; no unattended operation.</p>
           <p class="muted" id="trackyAgentEyesDetails" role="status" aria-live="polite">Complete the installed camera test and owner review in Agent Chat before starting.</p>
         </div>
         <div class="panel" style="margin-top:16px">

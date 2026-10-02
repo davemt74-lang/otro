@@ -65,6 +65,8 @@ jobs:
           python tests/tracky_native_certification_v1d.py
           python tests/tracky_native_managed_session_v1e1.py
           python tests/tracky_agent_eyes_v1g2.py
+          python tests/tracky_agent_eyes_budgets_v1g2b1.py
+          node tests/tracky_agent_eyes_budgets_ui_v1g2b1.mjs
           node tests/tracky_agent_eyes_ui_v1g2.mjs
           node --check ui/tracky/agent-eyes.js
           python tests/tracky_native_session_safety_v1e2.py

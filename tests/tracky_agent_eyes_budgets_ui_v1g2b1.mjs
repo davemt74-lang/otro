@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const html=fs.readFileSync('ui/index.html','utf8');
+const js=fs.readFileSync('ui/tracky/agent-eyes.js','utf8');
+const py=fs.readFileSync('app/services/tracky_native_managed_session.py','utf8');
+const api=fs.readFileSync('app/onboarding_api.py','utf8');
+for (const field of ['Wall','CPU','BudgetStatus']) assert.match(html,new RegExp('id="trackyAgentEyes'+field+'"'));
+assert.match(js,/max_session_seconds:wall,max_cpu_seconds:cpu/);
+assert.match(js,/watchdog_running/);
+assert.match(py,/def _watchdog\(/);
+assert.match(py,/time\.thread_time\(\)/);
+assert.match(py,/WATCHDOG_STALL_SECONDS/);
+assert.match(api,/max_cpu_seconds: int = Field\(default=12/);
+assert.doesNotMatch(js,/getUserMedia|localStorage|sessionStorage/);
+console.log('TRACKY_AGENT_EYES_BUDGETS_UI_V1G2B1: governed owner controls and watchdog status PASS');

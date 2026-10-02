@@ -24,6 +24,11 @@ MAX_SAMPLES = 12
 MIN_INTERVAL_SECONDS = 5
 MAX_SECONDS = 120
 HEARTBEAT_TTL_SECONDS = 15
+# 1G2B1: deliberate owner-selected *supervised* budgets. Longer sessions
+# remain physically uncertified and disabled until installed-device acceptance.
+AGENT_WALL_OPTIONS = (60, 120)
+AGENT_CPU_OPTIONS = (4, 8, 12)
+WATCHDOG_STALL_SECONDS = 16
 _LOCK = threading.RLock()
 _STOP = threading.Event()
 _WORKER: threading.Thread | None = None
@@ -34,6 +39,9 @@ _STATE: dict[str, Any] = {
 _ALLOWED_REQUEST = ""
 _CAMERA_INDEX = 0
 _LAST_HEARTBEAT = 0.0
+_SESSION_STARTED = 0.0
+_ATTEMPT_STARTED = 0.0
+_WATCHDOG: threading.Thread | None = None
 
 
 class ManagedSessionError(RuntimeError):
@@ -64,6 +72,20 @@ def _snapshot() -> dict[str, Any]:
             "heartbeat_ttl_seconds": HEARTBEAT_TTL_SECONDS,
             "requires_new_owner_consent_per_session": True,
         })
+        if state.get("owner_surface") == "agent_eyes":
+            elapsed = max(0.0, time.monotonic() - _SESSION_STARTED) if active else 0.0
+            limit = int(state.get("wall_limit_seconds") or MAX_SECONDS)
+            state["resource_budget"] = {
+                "wall_limit_seconds": limit,
+                "wall_elapsed_seconds": round(min(elapsed, limit), 2) if active
+                    else round(float(state.get("final_elapsed_seconds") or 0), 2),
+                "cpu_limit_seconds": int(state.get("cpu_limit_seconds") or AGENT_CPU_OPTIONS[-1]),
+                "cpu_used_seconds": round(float(state.get("cpu_used_seconds") or 0), 3),
+                "observations_remaining": max(0, int(state.get("requested_samples") or 0)
+                                              - int(state.get("completed_samples") or 0)),
+                "watchdog_running": bool(active and _WATCHDOG and _WATCHDOG.is_alive()),
+                "automatic_restart": False,
+            }
         state["durable_evidence"] = evidence.latest()
         return state
 
@@ -126,7 +148,27 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
         raise tracky.TrackyPhysicalError("Installed camera approval expired.", 403)
     # Existing shared native capture path enforces driver exclusivity and
     # checks revocation before capture, inference and result acceptance.
-    result = native._observe(index, _STOP)
+    cpu_at = time.thread_time()
+    try:
+        result = native._observe(index, _STOP)
+    finally:
+        used = max(0.0, time.thread_time() - cpu_at)
+        with _LOCK:
+            if _STATE.get("owner_surface") == "agent_eyes":
+                _STATE["cpu_used_seconds"] = float(_STATE.get("cpu_used_seconds") or 0) + used
+    with _LOCK:
+        cpu_exceeded = (_STATE.get("owner_surface") == "agent_eyes"
+                        and float(_STATE.get("cpu_used_seconds") or 0)
+                        >= float(_STATE.get("cpu_limit_seconds") or AGENT_CPU_OPTIONS[-1]))
+        wall_exceeded = (_STATE.get("owner_surface") == "agent_eyes"
+                         and time.monotonic() - _SESSION_STARTED
+                         >= float(_STATE.get("wall_limit_seconds") or MAX_SECONDS))
+    if cpu_exceeded or wall_exceeded:
+        _cancel("cpu_budget_exhausted" if cpu_exceeded else "time_limit")
+        raise tracky.TrackyPhysicalError("Agent Eyes session resource budget exhausted.", 403)
+    if _heartbeat_expired():
+        _cancel("owner_presence_expired")
+        raise tracky.TrackyPhysicalError("Owner presence lease expired.", 403)
     if not cert.status().get("owner_accepted_current_run"):
         _cancel("acceptance_revoked")
         raise tracky.TrackyPhysicalError("Detector approval changed during capture.", 403)
@@ -138,9 +180,35 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _watchdog(worker: threading.Thread, run_id: str) -> None:
+    """Independent fail-closed supervisor: never launches or resumes a camera."""
+    while worker.is_alive() and not _STOP.wait(0.25):
+        with _LOCK:
+            if _STATE.get("run_id") != run_id or _STATE.get("phase") != "running":
+                return
+            elapsed = time.monotonic() - _SESSION_STARTED
+            limit = int(_STATE.get("wall_limit_seconds") or MAX_SECONDS)
+            attempt = _ATTEMPT_STARTED
+            cpu_used = float(_STATE.get("cpu_used_seconds") or 0)
+            cpu_limit = int(_STATE.get("cpu_limit_seconds") or AGENT_CPU_OPTIONS[-1])
+        # Do not hold the session lock around calls into privacy/certification.
+        if native._privacy():
+            _cancel("privacy_engaged")
+        elif not cert.status().get("owner_accepted_current_run"):
+            _cancel("acceptance_revoked")
+        elif _heartbeat_expired():
+            _cancel("owner_presence_expired")
+        elif elapsed >= limit:
+            _cancel("time_limit")
+        elif cpu_used >= cpu_limit:
+            _cancel("cpu_budget_exhausted")
+        elif attempt and time.monotonic() - attempt >= WATCHDOG_STALL_SECONDS:
+            _cancel("watchdog_stall")
+
+
 def _run(sample_count: int, interval: int, started: float, run_id: str,
          owner_surface: str) -> None:
-    global _ALLOWED_REQUEST, _WORKER
+    global _ALLOWED_REQUEST, _WORKER, _ATTEMPT_STARTED
     reason = "completed"
     phase = "completed"
     try:
@@ -156,12 +224,15 @@ def _run(sample_count: int, interval: int, started: float, run_id: str,
                 break
             # Leave room for the native provider's bounded call. An OS driver
             # that ignores cancellation remains separately reported as busy.
-            if time.monotonic() - started >= MAX_SECONDS - native.CAPTURE_SECONDS:
+            with _LOCK:
+                wall_limit = int(_STATE.get("wall_limit_seconds") or MAX_SECONDS)
+            if time.monotonic() - started >= wall_limit - native.CAPTURE_SECONDS:
                 reason, phase = "time_limit", "stopped"
                 break
             request_id = "tracky-managed-" + secrets.token_hex(16)
             with _LOCK:
                 _ALLOWED_REQUEST = request_id
+                _ATTEMPT_STARTED = time.monotonic()
             try:
                 response = tracky.active_perception(
                     "refresh_current_view", request_id=request_id,
@@ -188,6 +259,7 @@ def _run(sample_count: int, interval: int, started: float, run_id: str,
             finally:
                 with _LOCK:
                     _ALLOWED_REQUEST = ""
+                    _ATTEMPT_STARTED = 0.0
             if index + 1 < sample_count and _STOP.wait(interval):
                 reason, phase = _stopping_reason(), "stopped"
                 break
@@ -201,7 +273,9 @@ def _run(sample_count: int, interval: int, started: float, run_id: str,
         tracky.unregister_provider(expected=_provider)
         with _LOCK:
             _ALLOWED_REQUEST = ""
-            _STATE.update({"phase": phase, "reason": reason, "finished_at": _now()})
+            _ATTEMPT_STARTED = 0.0
+            _STATE.update({"phase": phase, "reason": reason, "finished_at": _now(),
+                           "final_elapsed_seconds": round(time.monotonic() - started, 2)})
             completed = int(_STATE["completed_samples"])
         try:
             evidence.finish(run_id=run_id, phase=phase, reason=reason,
@@ -215,18 +289,29 @@ def _run(sample_count: int, interval: int, started: float, run_id: str,
 
 def start(*, consent: bool, scope: str, camera_index: int,
           sample_count: int = 3, interval_seconds: int = MIN_INTERVAL_SECONDS,
-          owner_surface: str = "native_supervised") -> dict[str, Any]:
-    global _WORKER, _CAMERA_INDEX, _LAST_HEARTBEAT
+          owner_surface: str = "native_supervised",
+          max_session_seconds: int = MAX_SECONDS,
+          max_cpu_seconds: int = AGENT_CPU_OPTIONS[-1]) -> dict[str, Any]:
+    global _WORKER, _CAMERA_INDEX, _LAST_HEARTBEAT, _SESSION_STARTED, _ATTEMPT_STARTED, _WATCHDOG
     if consent is not True or scope != SCOPE:
         raise ManagedSessionError("Explicit fresh owner consent is required.", 403)
     if type(owner_surface) is not str or owner_surface not in OWNER_SURFACES:
         raise ManagedSessionError("Unsupported owner session surface.", 422)
     if type(camera_index) is not int or camera_index not in native.CAMERA_INDICES:
         raise ManagedSessionError("Select a supported camera.", 422)
+    if (type(max_session_seconds) is not int or type(max_cpu_seconds) is not int
+            or (owner_surface == "agent_eyes"
+                and (max_session_seconds not in AGENT_WALL_OPTIONS
+                     or max_cpu_seconds not in AGENT_CPU_OPTIONS))
+            or (owner_surface != "agent_eyes"
+                and (max_session_seconds != MAX_SECONDS
+                     or max_cpu_seconds != AGENT_CPU_OPTIONS[-1]))):
+        raise ManagedSessionError("Unsupported supervised resource budget.", 422)
     if (type(sample_count) is not int or not 1 <= sample_count <= MAX_SAMPLES
             or type(interval_seconds) is not int
             or not MIN_INTERVAL_SECONDS <= interval_seconds <= 15
-            or (sample_count - 1) * interval_seconds > MAX_SECONDS - native.CAPTURE_SECONDS):
+            or (sample_count - 1) * interval_seconds
+               > max_session_seconds - native.CAPTURE_SECONDS):
         raise ManagedSessionError("Session limits exceeded.", 422)
     if native._privacy():
         raise ManagedSessionError("Privacy is engaged.", 403)
@@ -246,6 +331,8 @@ def start(*, consent: bool, scope: str, camera_index: int,
         evidence.recover_prior(worker_active=False)
         _STOP.clear()
         _LAST_HEARTBEAT = time.monotonic()
+        _SESSION_STARTED = _LAST_HEARTBEAT
+        _ATTEMPT_STARTED = 0.0
         _CAMERA_INDEX = camera_index
         _STATE.clear()
         _STATE.update({
@@ -254,6 +341,9 @@ def start(*, consent: bool, scope: str, camera_index: int,
             "started_at": _now(), "last_observed_at": "",
             "capture_interval_seconds": interval_seconds,
             "owner_surface": owner_surface,
+            "wall_limit_seconds": max_session_seconds,
+            "cpu_limit_seconds": max_cpu_seconds,
+            "cpu_used_seconds": 0.0,
         })
         run_id = ""
         try:
@@ -272,12 +362,22 @@ def start(*, consent: bool, scope: str, camera_index: int,
                 }, replace=False,
             )
             run_id = evidence.begin(sample_count=sample_count)
+            _STATE["run_id"] = run_id
             _WORKER = threading.Thread(
                 target=_run, args=(sample_count, interval_seconds, time.monotonic(), run_id,
                                    owner_surface),
                 name="tracky-supervised-native", daemon=True,
             )
             _WORKER.start()
+            # Only Agent Eyes gets the owner-presence and resource watchdog;
+            # it never opens or restarts the camera itself.
+            if owner_surface == "agent_eyes":
+                _WATCHDOG = threading.Thread(
+                    target=_watchdog, args=(_WORKER, run_id),
+                    name="tracky-agent-eyes-watchdog", daemon=True)
+                _WATCHDOG.start()
+            else:
+                _WATCHDOG = None
         except Exception:
             _STOP.set()
             tracky.unregister_provider(expected=_provider)

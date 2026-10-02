@@ -44,6 +44,10 @@ def status() -> dict[str, Any]:
         "started_at": str(worker.get("started_at") or "") if belongs else "",
         "max_observations": managed.MAX_SAMPLES,
         "max_seconds": managed.MAX_SECONDS,
+        "resource_budget": (worker.get("resource_budget") if belongs else None),
+        "available_wall_budgets": list(managed.AGENT_WALL_OPTIONS),
+        "available_cpu_budgets": list(managed.AGENT_CPU_OPTIONS),
+        "watchdog_fail_closed": True,
         "owner_heartbeat_ttl_seconds": managed.HEARTBEAT_TTL_SECONDS,
         "owner_review_current": bool(approval["owner_accepted_current_run"]),
         "model_changed_requires_review": bool(
@@ -65,7 +69,8 @@ def status() -> dict[str, Any]:
 
 
 def start(*, consent: bool, scope: str, camera_index: int,
-          sample_count: int = 6, interval_seconds: int = 5) -> dict[str, Any]:
+          sample_count: int = 6, interval_seconds: int = 5,
+          max_session_seconds: int = 120, max_cpu_seconds: int = 12) -> dict[str, Any]:
     if consent is not True or scope != SCOPE:
         raise AgentEyesError("Fresh Agent Eyes owner approval is required.", 403)
     # A second endpoint cannot borrow a preexisting generic supervised
@@ -75,6 +80,8 @@ def start(*, consent: bool, scope: str, camera_index: int,
             consent=True, scope=managed.SCOPE, camera_index=camera_index,
             sample_count=sample_count, interval_seconds=interval_seconds,
             owner_surface=OWNER_SURFACE,
+            max_session_seconds=max_session_seconds,
+            max_cpu_seconds=max_cpu_seconds,
         )
     except managed.ManagedSessionError as exc:
         raise AgentEyesError(str(exc), exc.status_code) from exc
@@ -116,6 +123,7 @@ def agent_context() -> dict[str, Any]:
         "identity_recognition": False,
         "hardware_certified": False,
         "canonical_request_ledger": True,
+        "resource_budget": current["resource_budget"],
         "next_action": (
             "owner_stop_or_continue_visible_lease" if current["active"]
             else "repeat_installed_owner_review" if not current["owner_review_current"]

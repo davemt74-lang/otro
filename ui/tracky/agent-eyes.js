@@ -33,6 +33,13 @@ function render(state){
   if(!active)armedHere=false;
   const ready=state?.owner_review_current===true &&
     !state?.model_changed_requires_review && !state?.privacy_engaged;
+  const budget=state?.resource_budget;
+  const usage=$('trackyAgentEyesBudgetStatus');
+  if(usage)usage.textContent=budget
+    ? 'Elapsed '+budget.wall_elapsed_seconds+'/'+budget.wall_limit_seconds+
+      's · CPU '+budget.cpu_used_seconds+'/'+budget.cpu_limit_seconds+
+      's · watchdog '+(budget.watchdog_running?'active':'stopped')
+    : 'Owner-configured budgets; no unattended operation.';
   const label=$('trackyAgentEyesState');
   if(label)label.textContent=active
     ? 'Supervised local camera active'
@@ -41,7 +48,8 @@ function render(state){
   if(start)start.disabled=busy||active||!ready||!$('trackyAgentEyesConsent')?.checked;
   if($('trackyAgentEyesStop'))$('trackyAgentEyesStop').hidden=!active;
   if($('trackyAgentEyesCamera'))$('trackyAgentEyesCamera').disabled=busy||active;
-  if($('trackyAgentEyesSamples'))$('trackyAgentEyesSamples').disabled=busy||active;
+  for(const id of ['trackyAgentEyesSamples','trackyAgentEyesWall','trackyAgentEyesCPU'])
+    if($(id))$(id).disabled=busy||active;
   if(active){
     details((armedHere?'Owner-supervised':'Another local owner view has')+' observations: '+state.completed_observations+'/'+
       state.requested_observations+'. No recording or identity recognition. Leave this view to stop.');
@@ -84,7 +92,14 @@ async function start(){
   }
   const camera=Number($('trackyAgentEyesCamera')?.value);
   const samples=Number($('trackyAgentEyesSamples')?.value);
-  if(![0,1,2].includes(camera)||![3,6,9,12].includes(samples))return;
+  const wall=Number($('trackyAgentEyesWall')?.value);
+  const cpu=Number($('trackyAgentEyesCPU')?.value);
+  if(![0,1,2].includes(camera)||![3,6,9,12].includes(samples)
+     ||![60,120].includes(wall)||![4,8,12].includes(cpu))return;
+  if((samples-1)*5>wall-7){
+    details('Choose fewer observations or a longer approved time budget.');
+    return;
+  }
   if(!window.confirm('Start '+samples+' owner-supervised local observations using camera '+
     camera+'? No images are saved, people are not identified, and leaving this view ends the lease.'))return;
   busy=true;
@@ -92,6 +107,7 @@ async function start(){
     const state=await request('start',{
       consent:true,scope:'owner-agent-eyes-supervised-live.v1',
       camera_index:camera,sample_count:samples,interval_seconds:5,
+      max_session_seconds:wall,max_cpu_seconds:cpu,
     });
     $('trackyAgentEyesConsent').checked=false;
     armedHere=state.active===true;
