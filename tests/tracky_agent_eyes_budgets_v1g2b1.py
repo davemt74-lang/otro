@@ -13,6 +13,19 @@ with tempfile.TemporaryDirectory(prefix="agent-eyes-budgets-") as root:
     from app.services import tracky_native_certification as cert
     from app.services import tracky_physical_context as physical
     from app.services import tracky_native_session_evidence as evidence
+    from fastapi.testclient import TestClient
+    from app.runtime import app
+    from app.services import federated_data
+    from app.services.tasks import scheduler
+    with TestClient(app):
+        scheduler.stop()
+        datasets={key:[] for key in federated_data.DATASETS}
+        assert federated_data.reconcile_snapshot({
+            "version":"2.2","federation_version":"2.4",
+            "authoritative_source":"vp3_cloud","snapshot_mode":"full",
+            "covered_datasets":list(datasets),"revision":"eyes-v1g2b1-synthetic",
+            "datasets":datasets,
+        },observed_source="homeserver",trigger_reason="eyes-v1g2b1-synthetic")["status"]=="completed"
     assert eyes.status()["available_wall_budgets"] == [60, 120]
     assert eyes.status()["available_cpu_budgets"] == [4, 8, 12]
     model={"model_integrity_verified":True}
