@@ -253,11 +253,11 @@ def _native_tracky_issues()->list[dict[str,Any]]:
             detail="The bounded observation session failed. Review camera access and the existing native diagnostic, then explicitly approve a new session.",
             repair_class="owner_review",owner_approval_required=True,
         ))
-    elif phase in {"stopped","stopping"} and reason in {"owner_presence_expired","privacy_engaged"}:
+    elif phase in {"stopped","stopping"} and reason in {"owner_presence_expired","privacy_engaged","acceptance_revoked"}:
         issues.append(_issue(
             "tracky:managed-session-ended",source="tracky_native",severity="info",
             title="Supervised Tracky session stopped by the safety gate",
-            detail="The privacy or owner-presence lease ended. The Agent must not restart camera capture without fresh owner consent.",
+            detail="The privacy, owner-presence or current device-approval gate ended. The Agent must not restart camera capture without fresh owner consent and valid installed-device review.",
             repair_class="owner_review",owner_approval_required=True,
         ))
     # Restart evidence is passive: Agent receives repair guidance only.

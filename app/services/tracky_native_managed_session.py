@@ -118,9 +118,17 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
                 or _STOP.is_set()):
             raise tracky.TrackyPhysicalError("Session has no authorized observation.", 403)
         index = _CAMERA_INDEX
+    # A detector update or revoked owner review must immediately invalidate
+    # observations even after the supervised session was initially armed.
+    if not cert.status().get("owner_accepted_current_run"):
+        _cancel("acceptance_revoked")
+        raise tracky.TrackyPhysicalError("Installed camera approval expired.", 403)
     # Existing shared native capture path enforces driver exclusivity and
     # checks revocation before capture, inference and result acceptance.
     result = native._observe(index, _STOP)
+    if not cert.status().get("owner_accepted_current_run"):
+        _cancel("acceptance_revoked")
+        raise tracky.TrackyPhysicalError("Detector approval changed during capture.", 403)
     if _STOP.is_set() or native._privacy():
         raise tracky.TrackyPhysicalError("Session stopped or privacy engaged.", 403)
     return {
@@ -137,6 +145,8 @@ def _run(sample_count: int, interval: int, started: float, run_id: str) -> None:
         for index in range(sample_count):
             if native._privacy():
                 _cancel("privacy_engaged")
+            if not cert.status().get("owner_accepted_current_run"):
+                _cancel("acceptance_revoked")
             if _heartbeat_expired():
                 _cancel("owner_presence_expired")
             if _STOP.is_set():
@@ -159,6 +169,8 @@ def _run(sample_count: int, interval: int, started: float, run_id: str) -> None:
                 row = response.get("request") or {}
                 if native._privacy():
                     _cancel("privacy_engaged")
+                if not cert.status().get("owner_accepted_current_run"):
+                    _cancel("acceptance_revoked")
                 if _heartbeat_expired():
                     _cancel("owner_presence_expired")
                 if row.get("status") != "completed" or _STOP.is_set():
