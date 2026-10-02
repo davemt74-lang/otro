@@ -1,4 +1,4 @@
-# Tracky 1G3A — governed Agent Eyes context for Agent Brain
+# Tracky 1G3 — governed Agent Eyes context for Agent Brain
 
 This section implements the first Agent Brain integration. It uses the existing
 HomeServer native worker and `tracky_active_perception_requests` ledger. It adds
@@ -52,8 +52,48 @@ prose, unknown detector values, local inference routing, persistent local chat
 history, context budgets, UI behavior and migration upgrade coverage. These
 tests are software evidence, not installed-device hardware certification.
 
-Next: 1G3B can improve owner-facing freshness and evidence explanations after
-this section is green on its final PR, merged main and packaging. Broader scene
+## 1G3B — freshness and evidence explanations
+
+Agent Chat now shows a checked Agent Eyes status snapshot beside its context
+settings. A recent permitted observation includes its age, the 60-second limit
+and only the allowlisted possible-face-region category. Expired observations
+show age without retaining the category. Other failures show static reasons
+and owner guidance: camera privacy, stopped session, lost owner presence,
+missing owner approval, changed or unverified model, unmatched session review,
+missing or invalid ledger evidence, unverifiable timing, and uninterpretable
+detector output. The local agent receives the same reason and safe guidance;
+it cannot substitute a past reply for a fresh observation. Confidence remains
+uncalibrated. Retrieval provenance still contains no categories or reasons.
+
+**Refresh status** uses an authenticated, owner-conversation-only read at
+`GET /api/v1/control/conversations/{conversation_id}/agent-eyes-context`.
+The same `agent_eyes_context` projection accompanies owner conversation reads
+and context policy saves. Paired-app conversation responses omit it entirely.
+Opt-out checks no camera state. Owner reads use `Cache-Control: no-store`.
+**Open Tracky** navigates to the existing dashboard; it does not grant consent,
+start capture or heartbeat the worker. Follow the existing camera review,
+recovery and short supervised observation flow there, then return to chat.
+
+The visible opted-in chat refreshes status every five seconds. This is passive
+status polling, not perception. The UI clears observations on navigation,
+visibility changes, new chats, opt-out and read failures. It expires categories
+locally at 60 seconds even when a request stalls, counting request transit time
+conservatively. Privacy and session changes are checked on every server read;
+the displayed snapshot may precede the next check. Late responses cannot
+repopulate another chat or undo a newer policy response. Policy writes are
+serialized to preserve the owner's opt-in/opt-out order; reloads wait for the
+pending writes. Completed observations that cross the deadline during the
+server's final authority check are discarded.
+
+No schema migration or Cloud deployment is required for this section. The
+existing sticky local-only/read-only conversation policy, camera lifecycle,
+ledger, owner-review requirements and 1,600-character fragment ceiling remain
+in force. Tests cover real synthetic worker/ledger/API/chat integration,
+paired-app isolation, no capture or heartbeat, reason redaction, revocation,
+deadline crossing, delayed responses, write ordering, opt-out and navigation.
+Both PR Core and the merged-main Windows workflow run the focused suites.
+
+Installed-device camera acceptance remains outstanding. Broader scene
 understanding, multi-camera fusion and unattended perception require additional
 governed design and independent physical acceptance; they are not implemented
 or enabled here.

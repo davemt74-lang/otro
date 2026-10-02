@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-from .services import agent_routing, agent_tools, brain, context_chat, context_engine, provider_secrets, providers
+from .services import agent_routing, agent_tools, brain, context_chat, context_engine, provider_secrets, providers, tracky_agent_eyes_context
 from .services.pairing import authenticate
 
 router = APIRouter()
@@ -132,6 +132,8 @@ def _conversation_payload(
         settings["include_knowledge"] = bool(settings["include_knowledge"] and "knowledge" in allowed_kinds)
         settings["include_contacts"] = bool(settings["include_contacts"] and "contact" in allowed_kinds)
     result["context_settings"] = settings
+    if source == "owner":
+        result["agent_eyes_context"] = tracky_agent_eyes_context.owner_status(settings)
     result["context_history"] = context_engine.recent_sources(
         conversation_id,
         limit=5,
@@ -242,7 +244,8 @@ def control_conversations(limit: int = Query(default=50, ge=1, le=100)) -> dict:
 
 
 @router.get("/api/v1/control/conversations/{conversation_id}")
-def control_conversation(conversation_id: str) -> dict:
+def control_conversation(conversation_id: str, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     return _conversation_payload("owner", conversation_id)
 
 
@@ -251,6 +254,17 @@ def control_conversation_rename(conversation_id: str, payload: ConversationRenam
     try:
         return {"conversation": brain.rename_conversation("owner", conversation_id, payload.title)}
     except brain.BrainError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/api/v1/control/conversations/{conversation_id}/agent-eyes-context")
+def control_conversation_agent_eyes_context(conversation_id: str, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        brain.get_conversation("owner", conversation_id)
+        settings = context_engine.ensure_settings(conversation_id)
+        return {"agent_eyes_context": tracky_agent_eyes_context.owner_status(settings)}
+    except (brain.BrainError, context_engine.ContextError) as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
@@ -267,7 +281,8 @@ def control_conversation_context(conversation_id: str, payload: ContextSettingsU
             max_context_chars=payload.max_context_chars,
             include_agent_eyes=payload.include_agent_eyes,
         )
-        return {"context_settings": settings}
+        return {"context_settings": settings,
+                "agent_eyes_context": tracky_agent_eyes_context.owner_status(settings)}
     except (brain.BrainError, context_engine.ContextError) as exc:
         status_code = getattr(exc, "status_code", 422)
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc

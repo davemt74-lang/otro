@@ -523,7 +523,9 @@ def build_authorized_context(
                            "state": physical_data["state"], "chars": physical_used,
                            "request_fingerprint": physical_data.get("request_fingerprint", ""),
                            "local_only": True})
-        physical_ref = {"kind": "agent_eyes", "title": "Recent permitted Agent Eyes context",
+        physical_ref = {"kind": "agent_eyes", "title": (
+                            "Recent permitted Agent Eyes context" if physical_data["state"] == "recent_observation"
+                            else "Agent Eyes context unavailable"),
                         "updated_at": physical_data.get("observed_at")}
         source_refs.append(physical_ref)
         bundle.sources.append(physical_ref)

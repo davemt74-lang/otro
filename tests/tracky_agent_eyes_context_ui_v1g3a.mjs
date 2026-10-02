@@ -53,7 +53,7 @@ listeners.change({target: {closest: () => true}}); await flush();
 assert.equal(requests.at(-1).include_agent_eyes, false);
 assert.equal(nodes.contextCloudAllowed.disabled, true);
 activeId = null;
-listeners.click({target: {closest: () => true}});
+listeners.click({target: {closest: selector => selector.includes('newChat') ? {} : null}});
 await timers.pop()(); await flush();
 assert.equal(nodes.contextUseAgentEyes.checked, false);
 assert.equal(nodes.contextUseAgentEyes.disabled, true);
