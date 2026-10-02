@@ -19,6 +19,7 @@ from . import tracky_native_session_evidence as evidence
 
 CONTRACT = "tracky.native.managed-session.v1e1"
 SCOPE = "owner-supervised-native-sampling.v1"
+OWNER_SURFACES = frozenset({"native_supervised", "agent_eyes"})
 MAX_SAMPLES = 12
 MIN_INTERVAL_SECONDS = 5
 MAX_SECONDS = 120
@@ -137,7 +138,8 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _run(sample_count: int, interval: int, started: float, run_id: str) -> None:
+def _run(sample_count: int, interval: int, started: float, run_id: str,
+         owner_surface: str) -> None:
     global _ALLOWED_REQUEST, _WORKER
     reason = "completed"
     phase = "completed"
@@ -163,8 +165,11 @@ def _run(sample_count: int, interval: int, started: float, run_id: str) -> None:
             try:
                 response = tracky.active_perception(
                     "refresh_current_view", request_id=request_id,
-                    requested_by="homeserver_owner_managed_native",
-                    reason="Owner-armed bounded native sampling",
+                    requested_by=("homeserver_owner_agent_eyes" if owner_surface == "agent_eyes"
+                                  else "homeserver_owner_managed_native"),
+                    reason=("Owner-approved bounded Agent Eyes live observation"
+                            if owner_surface == "agent_eyes"
+                            else "Owner-armed bounded native sampling"),
                 )
                 row = response.get("request") or {}
                 if native._privacy():
@@ -209,10 +214,13 @@ def _run(sample_count: int, interval: int, started: float, run_id: str) -> None:
 
 
 def start(*, consent: bool, scope: str, camera_index: int,
-          sample_count: int = 3, interval_seconds: int = MIN_INTERVAL_SECONDS) -> dict[str, Any]:
+          sample_count: int = 3, interval_seconds: int = MIN_INTERVAL_SECONDS,
+          owner_surface: str = "native_supervised") -> dict[str, Any]:
     global _WORKER, _CAMERA_INDEX, _LAST_HEARTBEAT
     if consent is not True or scope != SCOPE:
         raise ManagedSessionError("Explicit fresh owner consent is required.", 403)
+    if type(owner_surface) is not str or owner_surface not in OWNER_SURFACES:
+        raise ManagedSessionError("Unsupported owner session surface.", 422)
     if type(camera_index) is not int or camera_index not in native.CAMERA_INDICES:
         raise ManagedSessionError("Select a supported camera.", 422)
     if (type(sample_count) is not int or not 1 <= sample_count <= MAX_SAMPLES
@@ -245,13 +253,17 @@ def start(*, consent: bool, scope: str, camera_index: int,
             "completed_samples": 0, "requested_samples": sample_count,
             "started_at": _now(), "last_observed_at": "",
             "capture_interval_seconds": interval_seconds,
+            "owner_surface": owner_surface,
         })
         run_id = ""
         try:
             tracky.register_provider(
-                _provider, name="homeserver-supervised-native-sampling",
+                _provider, name=("homeserver-owner-agent-eyes"
+                                 if owner_surface == "agent_eyes"
+                                 else "homeserver-supervised-native-sampling"),
                 capabilities={
-                    "surface": "native_supervised",
+                    "surface": ("native_agent_eyes" if owner_surface == "agent_eyes"
+                                else "native_supervised"),
                     "requires_camera": False,  # native shared path verifies actual device
                     "identity_recognition": False,
                     "background_tracking": False,
@@ -261,7 +273,8 @@ def start(*, consent: bool, scope: str, camera_index: int,
             )
             run_id = evidence.begin(sample_count=sample_count)
             _WORKER = threading.Thread(
-                target=_run, args=(sample_count, interval_seconds, time.monotonic(), run_id),
+                target=_run, args=(sample_count, interval_seconds, time.monotonic(), run_id,
+                                   owner_surface),
                 name="tracky-supervised-native", daemon=True,
             )
             _WORKER.start()
