@@ -8,12 +8,14 @@ HDEV="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";ODEV="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbb
 
 with tempfile.TemporaryDirectory(prefix="tracky-v281-fa-") as data_dir:
  os.environ["HOMESERVER_DATA_DIR"]=data_dir;os.environ["VP3_OS_HARDWARE_ADAPTER"]="disabled"
- from app.database import initialize_database,db
+ from app.database import initialize_database,db, migration_files
  from app.services import tracky_federated_automation,tracky_federation_sync,tracky_site_topology
  initialize_database();initialize_database()
  with db() as c:
   versions=[int(x["version"]) for x in c.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
- assert versions==list(range(1,61))
+ declared = [1] + [version for version, _ in migration_files()]
+ assert declared == list(range(1, declared[-1] + 1))
+ assert versions == declared
  for site,label in ((HOME,"Home"),(OFFICE,"Office")):tracky_site_topology.register_site(site_id=site,label=label)
  for device,label,site in ((HDEV,"Home Node",HOME),(ODEV,"Office Node",OFFICE)):
   tracky_site_topology.register_device(device_id=device,label=label,site_id=site,hardware_profile="Node",trust_state="trusted",roles=["site_authority"],capabilities={"site_authority_eligible":True})
