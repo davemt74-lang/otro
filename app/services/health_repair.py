@@ -13,6 +13,7 @@ from . import (
     remote_bridge,
     storage_maintenance,
     tracky_native_diagnosis,
+    tracky_native_certification,
     tracky_native_managed_session, tracky_native_session_evidence,
 )
 
@@ -234,6 +235,14 @@ def _native_tracky_issues()->list[dict[str,Any]]:
                 detail="Confirm camera permissions and selected index, then approve another one-shot test.",
                 repair_class="owner_review",owner_approval_required=True,
             ))
+    certification=_safe(tracky_native_certification.status,{})
+    if certification.get("requires_new_owner_test_due_model_change"):
+        issues.append(_issue(
+            "tracky:native-model-evidence-expired",source="tracky_native",severity="attention",
+            title="Detector changed since the last accepted camera test",
+            detail="The installed detector model or runtime differs from the last recorded test. Re-run local native camera and privacy checks before authorizing a supervised session.",
+            repair_class="owner_review",owner_approval_required=True,
+        ))
     session=_safe(tracky_native_managed_session.status,{})
     phase=str(session.get("phase") or "")
     reason=str(session.get("reason") or "")

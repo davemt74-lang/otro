@@ -9,6 +9,7 @@ certification. Neither images nor face templates are saved or synchronized.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.util
 import threading
@@ -54,9 +55,20 @@ def model_preflight() -> dict[str, Any]:
         if importlib.util.find_spec('cv2') is None:
             return {'installed': False, 'model_present': False, 'runtime_version': 'missing'}
         cv2 = importlib.import_module('cv2')
-        present = (Path(cv2.data.haarcascades) / 'haarcascade_frontalface_default.xml').is_file()
+        model = Path(cv2.data.haarcascades) / 'haarcascade_frontalface_default.xml'
+        # Passive local integrity fingerprint, NOT a vendor signature. Never
+        # include the absolute model path or raw model data in the response.
+        digest = ""
+        present = model.is_file() and 0 < model.stat().st_size <= 8 * 1024 * 1024
+        if present:
+            with model.open('rb') as stream:
+                fingerprint = hashlib.sha256()
+                for block in iter(lambda: stream.read(65536), b''):
+                    fingerprint.update(block)
+                digest = fingerprint.hexdigest()
         return {'installed': True, 'model_present': present,
-                'runtime_version': str(getattr(cv2, '__version__', 'unknown'))[:64]}
+                'runtime_version': str(getattr(cv2, '__version__', 'unknown'))[:64],
+                'model_sha256': digest}
     except Exception:
         return {'installed': False, 'model_present': False, 'runtime_version': 'unavailable'}
 

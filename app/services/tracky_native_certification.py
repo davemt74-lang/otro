@@ -43,7 +43,7 @@ def _record(key: str, status: str, evidence: dict[str, Any]) -> dict[str, Any]:
              if isinstance(value, (bool, int)) or (
                  isinstance(value, str) and name in {
                      "device_fingerprint", "runtime_version", "test_outcome",
-                     "privacy_check", "review_state"
+                     "privacy_check", "review_state", "model_sha256"
                  } and len(value) <= 64)}
     row_id = secrets.token_hex(12)
     with db() as connection:
@@ -71,6 +71,7 @@ def record_test(phase: str) -> dict[str, Any]:
     return _record(TEST, "not_verified" if successful else "failed", {
         "device_fingerprint": _device_fingerprint(),
         "runtime_version": str(model.get("runtime_version") or "unknown")[:64],
+        "model_sha256": str(model.get("model_sha256") or "")[:64],
         "test_outcome": "completed_owner_review_pending" if successful else "not_verified",
         "model_present": model.get("model_present") is True,
         "frame_captured": successful,
@@ -132,8 +133,22 @@ def status() -> dict[str, Any]:
         record.get("boot_id") == diagnosis._BOOT
         and record.get("phase") == "privacy_reviewed"
     )
-    review_ready = bool(current_test and privacy_reviewed
-                        and native.model_preflight().get("model_present"))
+    current_model = native.model_preflight()
+    test_model = (last_test or {}).get("evidence") or {}
+    last_digest = str(test_model.get("model_sha256") or "")
+    current_digest = str(current_model.get("model_sha256") or "")
+    model_binding_matches = bool(
+        current_model.get("model_present") is True
+        and len(last_digest) == 64 and len(current_digest) == 64
+        and last_digest == current_digest
+        and test_model.get("runtime_version") == current_model.get("runtime_version")
+        and test_model.get("test_outcome") == "completed_owner_review_pending"
+    )
+    needs_new_model_test = bool(
+        last_test and test_model.get("test_outcome") == "completed_owner_review_pending"
+        and not model_binding_matches
+    )
+    review_ready = bool(current_test and privacy_reviewed and model_binding_matches)
     current_accepted = bool(
         review_ready and last_review and last_test
         and last_review["evidence"].get("review_state") == "owner_attested_current_run"
@@ -147,12 +162,15 @@ def status() -> dict[str, Any]:
         "latest_test": last_test, "latest_privacy": last_privacy,
         "latest_owner_review": last_review,
         "review_ready": review_ready,
+        "installed_model_matches_last_test": model_binding_matches,
+        "requires_new_owner_test_due_model_change": needs_new_model_test,
         "owner_accepted_current_run": current_accepted,
         "hardware_certified": False,
         "independent_physical_camera_disconnect_verified": False,
         "identity_recognition_certified": False,
         "history": recent,
         "requires_installed_owner_acceptance": not current_accepted,
+        "model_integrity_scope": "local_file_fingerprint_not_vendor_signature",
     }
 
 
