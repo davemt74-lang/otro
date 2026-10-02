@@ -97,6 +97,7 @@ async function reportLocal(record, session) {
   visual=await api('report',{session,participant_id:record.id,samples:record.embeddings.length});
   localOwner=record;
   await loadLocal();
+  window.dispatchEvent(new Event("tracky:visual-state-changed"));
   message('Local enrollment has finished. The Agent sees a browser-reported profile, not a certified HomeServer perception provider. You can continue without enabling tracking.');
 }
 
@@ -258,6 +259,7 @@ async function start() {
 async function stop() {
   closeCamera();
   try{visual=await api('cancel',{});}catch(_){}
+  window.dispatchEvent(new Event("tracky:visual-state-changed"));
   message('Camera stopped and this HomeServer enrollment session was cancelled. You can resume later.');
   render();
 }
@@ -273,6 +275,7 @@ async function remove() {
     localOwner=null;
     if(visual?.local_participant_id===id)visual=await api('delete',{participant_id:id});
     await loadLocal();
+    window.dispatchEvent(new Event("tracky:visual-state-changed"));
     message('Local face samples and portrait deleted from this browser. This does not delete profiles independently stored on other devices.');
   }catch(error){message('Deletion needs attention: '+error.message+'. Check the original browser before retrying.');}
   finally{busy=false;render();}
@@ -285,7 +288,9 @@ function init() {
     if(el('onboardVisualConsent').checked)return;
     // Unchecking revokes the session even during async model initialization.
     closeCamera();
-    void api('cancel',{}).catch(()=>{});
+    void api('cancel',{}).then(()=>{
+      window.dispatchEvent(new Event("tracky:visual-state-changed"));
+    }).catch(()=>{});
     message(localOwner
       ? 'Local enrollment stopped. Your existing local profile remains until you explicitly delete it.'
       : 'Visual consent withdrawn and camera stopped.');
