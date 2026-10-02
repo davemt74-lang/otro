@@ -1,7 +1,7 @@
 """Owner-only scripted Agent Chat onboarding and approved provisioning."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_visual_contact_link, contacts
 
@@ -350,9 +350,9 @@ def visual_contact_link_status() -> dict:
 
 
 @router.get("/visual/contact-link/contacts")
-def visual_contact_link_contacts() -> dict:
-    # Only existing local contacts, never federated Cloud mirrors. Read-only.
-    items = contacts.list_contacts(limit=100)
+def visual_contact_link_contacts(q: str = Query(default="", max_length=120)) -> dict:
+    # Only searched existing local contacts, never federated Cloud mirrors.
+    items = contacts.list_contacts(query=q, limit=50)
     return {"items": [{"id": row["id"], "display_name": row["display_name"]}
                       for row in items], "automatic_contact_creation": False}
 
