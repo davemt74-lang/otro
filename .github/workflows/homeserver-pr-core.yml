@@ -88,6 +88,8 @@ jobs:
           node tests/tracky_v24_release_baselines_v1f9.mjs
           python tests/tracky_contract_join_v273.py
           python tests/hosting_runtime_v100.py
+          python tests/tracky_v280_golden_operational_release.py
+          python tests/tracky_federated_automation_v281.py
       - name: Verify API smoke contract
         run: python tests/smoke.py
       - name: Verify tool security contract
