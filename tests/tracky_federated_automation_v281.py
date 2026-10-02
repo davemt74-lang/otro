@@ -93,7 +93,10 @@ assert "tracky_federated_automation_v281.py" in ci
 assert "tracky_federated_automation_v281.py" in release_workflow
 assert "tracky_federated_automation_definitions" in migration and "tracky_federated_automation_events" in migration
 assert "trg_tracky_federated_automation_events_no_update" in migration and "trg_tracky_federated_automation_events_no_delete" in migration
-assert "current_schema_version = 59" in ci
+# The package version is calculated from the canonical registry at build time.
+assert "current_schema_version = [int]$schema" in ci
+assert "from app.database import migration_files;" in ci
+assert "if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 66)" in ci
 assert "feature_track = 'Tracky V2.81'" in ci
 assert "feature_section = 3" in ci
 assert "federated_automation_execution_enabled = $true" in ci

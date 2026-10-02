@@ -14,6 +14,13 @@ for(const name of retained){
 }
 const workflow=readFileSync('.github/workflows/ci.yml','utf8');
 assert.ok(workflow.includes('current_schema_version = [int]$schema'));
+for (const name of ['tracky_v280_golden_operational_release', 'tracky_federated_automation_v281']) {
+  const contract=readFileSync('tests/'+name+'.py','utf8');
+  assert.ok(contract.includes('current_schema_version = [int]$schema'),
+    name+' must assert schema derived from migration registry');
+  assert.ok(!contract.includes('current_schema_version = 59'),
+    name+' must not demand a frozen release schema');
+}
 assert.ok(workflow.includes('from app.database import migration_files;'));
 assert.ok(workflow.includes("owner_visual_identity_claim = 'owner_attributed_unverified'"));
 assert.ok(workflow.includes('native_hardware_certified = $false'));
