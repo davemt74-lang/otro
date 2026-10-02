@@ -189,6 +189,9 @@ async function scan(engine, generation, session, captures) {
 
 async function start() {
   if(busy || active)return;
+  if(window.TrackyOwnerSelfVerify?.isActive()){
+    message('Finish the local one-frame self-check first.');return;
+  }
   if(window.TrackyOwnerEyes?.isActive()){
     message('Finish your one-time Agent Eyes camera test before enrolling your visual profile.');
     return;
@@ -283,7 +286,7 @@ async function remove() {
 
 function init() {
   if(!el('onboardVisual'))return;
-  window.HomeServerVisualEnrollment={render,isCapturing:()=>Boolean(active)};
+  window.HomeServerVisualEnrollment={render,isCapturing:()=>Boolean(active)||busy};
   el('onboardVisualConsent').addEventListener('change',()=>{
     if(el('onboardVisualConsent').checked)return;
     // Unchecking revokes the session even during async model initialization.
