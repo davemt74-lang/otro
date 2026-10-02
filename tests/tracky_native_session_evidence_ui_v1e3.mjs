@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const js=readFileSync('ui/tracky/native-camera.js','utf8');
+const managed=readFileSync('app/services/tracky_native_managed_session.py','utf8');
+const health=readFileSync('app/services/health_repair.py','utf8');
+assert.match(js,/durable_evidence/);
+assert.match(js,/prior supervised session interrupted by restart/i);
+assert.match(js,/session\/heartbeat/);
+assert.match(managed,/evidence\.recover_prior/);
+assert.match(managed,/evidence\.finish/);
+assert.match(health,/tracky:managed-session-interrupted/);
+assert.doesNotMatch(js,/automatic.resume/i);
+console.log('TRACKY_NATIVE_SESSION_EVIDENCE_UI_V1E3: passive recovery visibility PASS');
