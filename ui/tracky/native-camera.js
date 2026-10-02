@@ -122,9 +122,13 @@ async function updateManaged(){
   }
   if($('onboardNativeManagedStop'))$('onboardNativeManagedStop').hidden=!active;
   if($('onboardNativeManagedStart'))$('onboardNativeManagedStart').disabled=active||busy||running;
+  const durable=value.durable_evidence||{};
+  const interrupted=!active&&durable.phase==='interrupted';
   if($('onboardNativeManagedState'))$('onboardNativeManagedState').textContent=active
     ? 'Supervised sampling '+value.completed_samples+'/'+value.requested_samples+' · stop at any time'
-    : 'Sampling '+value.phase+' · '+value.completed_samples+' observations · no unattended tracking';
+    : interrupted
+      ? 'Prior supervised session interrupted by restart. Camera remains off; rerun checks and approve a new session.'
+      : 'Sampling '+value.phase+' · '+value.completed_samples+' observations · no unattended tracking';
   if(active&&!managedTimer)managedTimer=window.setInterval(()=>{void updateManaged().catch(()=>{});},2500);
   if(!active&&managedTimer){window.clearInterval(managedTimer);managedTimer=null;}
   return active;
