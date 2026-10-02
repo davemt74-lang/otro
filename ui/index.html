@@ -186,7 +186,20 @@
       <button id="onboardVisualDelete" class="onboard-minor" type="button" hidden>Delete local visual profile</button>
     </div>
     <p class="onboard-package-state" id="onboardVisualDetails" role="status" aria-live="polite">Optional · no camera or recognition started.</p>
-    <div class="onboard-step" id="onboardVisualLink">
+    <div class="onboard-step" id="onboardSelfCheck">
+      <div class="onboard-step-head"><span>OPTIONAL ONE-TIME LOCAL SELF-CHECK</span></div>
+      <p class="onboard-agent-line">You can compare one live face to your existing three-angle profile inside this browser. It runs only when you start it, stops automatically, and sends neither images nor results to HomeServer or Cloud. A match is a local similarity demonstration, not identity verification.</p>
+      <label class="onboard-visual-consent"><input id="onboardSelfCheckConsent" type="checkbox"><span>I consent to a one-time local comparison against my own saved browser profile. I can stop at any time.</span></label>
+      <div class="onboard-actions">
+        <button id="onboardSelfCheckStart" class="onboard-minor" type="button">Run local self-check</button>
+        <button id="onboardSelfCheckStop" class="onboard-minor" type="button" hidden>Stop local self-check</button>
+      </div>
+      <div class="onboard-visual-capture" id="onboardSelfCheckPreview" hidden>
+        <video id="onboardSelfCheckVideo" playsinline muted autoplay aria-label="Ephemeral browser-only self-check camera preview"></video>
+      </div>
+      <p id="onboardSelfCheckState" class="onboard-package-state" role="status" aria-live="polite">Camera off. No identity proof is produced.</p>
+    </div>
+        <div class="onboard-step" id="onboardVisualLink">
       <div class="onboard-step-head"><span>OPTIONAL LOCAL CONTACT ASSOCIATION</span></div>
       <p class="onboard-agent-line">After enrolling yourself, you can choose an existing local contact and explicitly attribute your browser profile to it. This is your statement, not facial verification; it does not create contacts, activate tracking or send face data to Cloud.</p>
       <label for="onboardVisualLinkSearch">Find an existing local contact</label>
@@ -800,6 +813,7 @@
   <script src="/assets/chat-enhancements.js" defer></script>
 <script src="/assets/chat-onboarding.js" defer></script>
   <script type="module" src="/assets/tracky/owner-visual.js"></script>
+  <script type="module" src="/assets/tracky/owner-self-check.js"></script>
   <script type="module" src="/assets/tracky/owner-contact-link.js"></script>
   <script type="module" src="/assets/tracky/eyes-runtime.js"></script>
   <script src="/assets/tracky/native-camera.js" defer></script>

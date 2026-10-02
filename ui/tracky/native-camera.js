@@ -50,7 +50,7 @@ async function run(){
   if(!($('onboardNativeConsent')?.checked)){
     say('Authorize the one-time local camera test before proceeding.');return;
   }
-  if(window.TrackyOwnerEyes?.isActive()||window.HomeServerVisualEnrollment?.isCapturing()){
+  if(window.TrackyOwnerEyes?.isActive()||window.HomeServerVisualEnrollment?.isCapturing()||window.TrackyOwnerSelfCheck?.isActive()){
     say('Finish the existing Tracky camera activity first.');return;
   }
   const index=Number($('onboardNativeIndex')?.value);
@@ -144,7 +144,7 @@ async function updateManaged(){
 async function startManaged(){
   if(busy||running)return;
   if(!$('onboardNativeManagedConsent')?.checked){say('Authorize supervised sampling separately before starting.');return;}
-  if(window.TrackyOwnerEyes?.isActive()||window.HomeServerVisualEnrollment?.isCapturing()){
+  if(window.TrackyOwnerEyes?.isActive()||window.HomeServerVisualEnrollment?.isCapturing()||window.TrackyOwnerSelfCheck?.isActive()){
     say('Finish the active browser camera session first.');return;
   }
   const index=Number($('onboardNativeIndex')?.value);
