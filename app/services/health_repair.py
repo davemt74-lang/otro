@@ -13,7 +13,7 @@ from . import (
     remote_bridge,
     storage_maintenance,
     tracky_native_diagnosis,
-    tracky_native_managed_session,
+    tracky_native_managed_session, tracky_native_session_evidence,
 )
 
 CONTRACT="vp3.homeserver.health-repair.v1"
@@ -249,6 +249,15 @@ def _native_tracky_issues()->list[dict[str,Any]]:
             "tracky:managed-session-ended",source="tracky_native",severity="info",
             title="Supervised Tracky session stopped by the safety gate",
             detail="The privacy or owner-presence lease ended. The Agent must not restart camera capture without fresh owner consent.",
+            repair_class="owner_review",owner_approval_required=True,
+        ))
+    # Restart evidence is passive: Agent receives repair guidance only.
+    prior=_safe(tracky_native_session_evidence.latest,{})
+    if prior.get("phase")=="interrupted":
+        issues.append(_issue(
+            "tracky:managed-session-interrupted",source="tracky_native",severity="attention",
+            title="Supervised Tracky session was interrupted by restart",
+            detail="The previous supervised session was interrupted. No camera session was resumed. Re-run installed-device checks and explicitly authorize a new session.",
             repair_class="owner_review",owner_approval_required=True,
         ))
     return issues
