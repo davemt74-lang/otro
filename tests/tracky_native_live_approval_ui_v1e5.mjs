@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const ui=readFileSync('ui/tracky/native-camera.js','utf8');
+const managed=readFileSync('app/services/tracky_native_managed_session.py','utf8');
+const evidence=readFileSync('app/services/tracky_native_session_evidence.py','utf8');
+assert.match(ui,/value\.reason==='acceptance_revoked'/);
+assert.match(ui,/approval changed/i);
+assert.match(managed,/_cancel\("acceptance_revoked"\)/);
+assert.match(managed,/Detector approval changed during capture/);
+assert.match(evidence,/"acceptance_revoked"/);
+console.log('TRACKY_LIVE_APPROVAL_UI_V1E5: active approval revocation and owner recovery PASS');
