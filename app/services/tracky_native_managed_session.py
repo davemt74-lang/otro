@@ -212,8 +212,8 @@ def start(*, consent: bool, scope: str, camera_index: int,
         raise ManagedSessionError("Privacy is engaged.", 403)
     if not cert.status()["owner_accepted_current_run"]:
         raise ManagedSessionError("Complete current-process owner camera acceptance first.", 409)
-    if not native.model_preflight()["model_present"]:
-        raise ManagedSessionError("Installed native detector or model unavailable.", 503)
+    if not native.model_preflight()["model_integrity_verified"]:
+        raise ManagedSessionError("Installed detector integrity missing or invalid.", 503)
     with _LOCK:
         if _WORKER is not None and _WORKER.is_alive():
             raise ManagedSessionError("A supervised session is already running.", 409)
