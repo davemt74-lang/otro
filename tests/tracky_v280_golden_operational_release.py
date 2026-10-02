@@ -170,7 +170,7 @@ assert "feature_section = 3" in ci
 # The package version is calculated from the canonical registry at build time.
 assert "current_schema_version = [int]$schema" in ci
 assert "from app.database import migration_files;" in ci
-assert "if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 66)" in ci
+assert f"if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt {max([1] + [v for v, _ in migration_files()])})" in ci
 assert "golden_operational_scenarios = 24" in ci
 assert "federated_automation_protocol = 'physical_federated_automation.v1'" in ci
 assert "federated_automation_execution_enabled = $true" in ci

@@ -51,6 +51,7 @@
         <label><input id="contextUseMemory" type="checkbox" checked> Memory</label>
         <label><input id="contextUseKnowledge" type="checkbox" checked> Knowledge</label>
         <label><input id="contextUseContacts" type="checkbox" checked> Contacts</label>
+        <label><input id="contextUseAgentEyes" type="checkbox"> Agent Eyes · local read-only chat</label>
         <label class="context-cloud"><input id="contextCloudAllowed" type="checkbox" checked> Cloud providers allowed</label>
         <label class="context-budget">Context budget
           <select id="contextBudget">
@@ -62,7 +63,7 @@
         </label>
       </div>
       <div class="context-engine-foot">
-        <span>Uncheck <strong>Cloud providers allowed</strong> to require local Ollama for this conversation.</span>
+        <span>Agent Eyes reads recent permitted observations and requires local Ollama. Once enabled, this conversation stays local and read-only, including after you turn it off. Start a new chat to use cloud providers.</span>
         <div id="contextSources" class="context-sources"></div>
       </div>`;
     intro.insertAdjacentElement('afterend', panel);
@@ -70,7 +71,7 @@
   }
 
   function setControlsEnabled(enabled) {
-    for (const id of ['contextUseMemory','contextUseKnowledge','contextUseContacts','contextCloudAllowed','contextBudget']) {
+    for (const id of ['contextUseMemory','contextUseKnowledge','contextUseContacts','contextUseAgentEyes','contextCloudAllowed','contextBudget']) {
       const node = byId(id);
       if (node) node.disabled = !enabled;
     }
@@ -88,6 +89,8 @@
     if (byId('contextUseKnowledge')) byId('contextUseKnowledge').checked = settings.include_knowledge !== false;
     if (byId('contextUseContacts')) byId('contextUseContacts').checked = settings.include_contacts !== false;
     if (byId('contextCloudAllowed')) byId('contextCloudAllowed').checked = settings.cloud_allowed !== false;
+    if (byId('contextUseAgentEyes')) byId('contextUseAgentEyes').checked = settings.include_agent_eyes === true;
+    if (settings.agent_eyes_local_only && byId('contextCloudAllowed')) byId('contextCloudAllowed').disabled = true;
     if (byId('contextBudget')) byId('contextBudget').value = String(settings.max_context_chars || 12000);
   }
 
@@ -101,7 +104,7 @@
       return;
     }
     node.innerHTML = sources.slice(0, 12).map(source => {
-      const label = source.kind === 'knowledge' ? 'Knowledge' : source.kind === 'memory' ? 'Memory' : 'Contact';
+      const label = source.kind === 'agent_eyes' ? 'Agent Eyes' : source.kind === 'knowledge' ? 'Knowledge' : source.kind === 'memory' ? 'Memory' : 'Contact';
       return `<span class="context-source" title="${esc(source.updated_at || '')}"><b>${esc(label)}</b> ${esc(source.title || '')}</span>`;
     }).join('');
   }
@@ -118,11 +121,11 @@
     }
     try {
       const data = await contextApi(`/api/v1/control/conversations/${encodeURIComponent(id)}`);
-      applySettings(data.context_settings || {});
       renderSources(data.context_history || []);
       setControlsEnabled(true);
       const settings = data.context_settings || {};
-      setStatus(settings.cloud_allowed ? 'Cloud allowed · context policy saved' : 'Private · local model required');
+      applySettings(settings);
+      setStatus(settings.agent_eyes_local_only ? 'Agent Eyes history · local model required · read-only' : settings.cloud_allowed ? 'Cloud allowed · context policy saved' : 'Private · local model required');
     } catch (err) {
       setControlsEnabled(false);
       setStatus(err.message, true);
@@ -139,13 +142,15 @@
         body: JSON.stringify({
           include_memory: Boolean(byId('contextUseMemory')?.checked),
           include_knowledge: Boolean(byId('contextUseKnowledge')?.checked),
+          include_agent_eyes: Boolean(byId('contextUseAgentEyes')?.checked),
           include_contacts: Boolean(byId('contextUseContacts')?.checked),
           cloud_allowed: Boolean(byId('contextCloudAllowed')?.checked),
           max_context_chars: Number(byId('contextBudget')?.value || 12000),
         }),
       });
       const settings = data.context_settings || {};
-      setStatus(settings.cloud_allowed ? 'Cloud allowed · context policy saved' : 'Private · local model required');
+      applySettings(settings);
+      setStatus(settings.agent_eyes_local_only ? 'Agent Eyes history · local model required · read-only' : settings.cloud_allowed ? 'Cloud allowed · context policy saved' : 'Private · local model required');
     } catch (err) {
       setStatus(err.message, true);
     }

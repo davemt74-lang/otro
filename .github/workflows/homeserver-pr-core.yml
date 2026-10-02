@@ -68,6 +68,8 @@ jobs:
           python tests/tracky_agent_eyes_budgets_v1g2b1.py
           python tests/tracky_agent_eyes_recovery_v1g2b2.py
           python tests/tracky_agent_eyes_acceptance_v1g2b3.py
+          python tests/tracky_agent_eyes_context_v1g3a.py
+          node tests/tracky_agent_eyes_context_ui_v1g3a.mjs
           python tests/tracky_agent_eyes_extended_v1g2b4.py
           node tests/tracky_agent_eyes_extended_ui_v1g2b4.mjs
           node tests/tracky_agent_eyes_acceptance_ui_v1g2b3.mjs

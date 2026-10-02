@@ -1549,6 +1549,13 @@ def active_perception(
             "cloud_sync_error": "",
             "current_context": current_context(),
         }
+        # A coarse, non-identifying native result for owner-local Agent Brain.
+        # No free-form summary, image or arbitrary provider field is promoted.
+        category = provider_result.get("face_count_category")
+        if (provider_name == "homeserver-owner-agent-eyes"
+                and isinstance(category, str)
+                and category in {"none", "one", "multiple", "unknown"}):
+            result["provider_result"]["face_count_category"] = category
         _set_request_status(request_id, "completed", result=result, completed=True)
     except TrackyPhysicalError as exc:
         reason = "provider_timeout" if exc.status_code == 504 else "provider_failed"
