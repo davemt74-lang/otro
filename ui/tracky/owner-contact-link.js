@@ -11,6 +11,7 @@ let busy = false;
 let state = null;
 let visual = null;
 let owner = null;
+let searchTimer = null;
 
 async function json(url, body) {
   const resp = await fetch(url, {
@@ -33,12 +34,13 @@ function render() {
   const available = visual?.phase === 'browser_reported' && visual?.consented === true &&
       owner?.id === visual.local_participant_id && owner.embeddings?.length >= 3;
   const active = link.active === true;
+  const needsReview = link.state === 'needs_review';
   el('onboardVisualLinkStart').hidden = active;
-  el('onboardVisualLinkRevoke').hidden = !active;
-  el('onboardVisualLinkStart').disabled = busy || !available ||
+  el('onboardVisualLinkRevoke').hidden = !active && !needsReview;
+  el('onboardVisualLinkStart').disabled = busy || needsReview || !available ||
       !el('onboardVisualLinkConsent').checked || !el('onboardVisualLinkTarget').value;
   el('onboardVisualLinkRevoke').disabled = busy;
-  el('onboardVisualLinkTarget').disabled = busy || active;
+  el('onboardVisualLinkTarget').disabled = busy || active || needsReview;
   if(active) {
     message('Owner-associated with '+link.contact.display_name+
       ' · browser report only; facial identity not independently verified.');
@@ -55,10 +57,12 @@ function render() {
 
 async function refresh(){
   if(!el('onboardVisualLink')) return;
+  const query=el('onboardVisualLinkSearch').value.trim().slice(0,120);
   const [link, report, local, contacts] = await Promise.all([
     json(BASE+'status'), json('/api/v1/control/onboarding/visual/status'),
-    listParticipants(), json(BASE+'contacts')
+    listParticipants(), json(BASE+'contacts?q='+encodeURIComponent(query))
   ]);
+  if(query!==el('onboardVisualLinkSearch').value.trim().slice(0,120))return;
   state = link; visual = report;
   owner = local.find(x=>x.visualEnrollment?.scope==='owner-self' &&
     x.id===report.local_participant_id) || null;
@@ -95,7 +99,7 @@ async function associate(){
   finally{busy=false;render();}
 }
 async function revoke(){
-  if(busy || !state?.active)return;
+  if(busy || (!state?.active && state?.state!=='needs_review'))return;
   if(!window.confirm('Revoke the visual-to-contact association? Your local profile and contact will remain until you delete them separately.'))return;
   busy=true;render();
   try{
@@ -110,6 +114,13 @@ function init(){
   if(!el('onboardVisualLink'))return;
   el('onboardVisualLinkConsent').addEventListener('change',render);
   el('onboardVisualLinkTarget').addEventListener('change',render);
+  el('onboardVisualLinkSearch').addEventListener('input',()=>{
+    if(searchTimer)window.clearTimeout(searchTimer);
+    searchTimer=window.setTimeout(()=>{
+      searchTimer=null;
+      void refresh().catch(error=>message(String(error.message)));
+    },250);
+  });
   el('onboardVisualLinkStart').addEventListener('click',()=>{void associate();});
   el('onboardVisualLinkRevoke').addEventListener('click',()=>{void revoke();});
   window.addEventListener('tracky:visual-state-changed',()=>{
