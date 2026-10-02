@@ -4,6 +4,7 @@ Synthetic fixtures only; a matching local hash is NOT vendor signing or
 independent physical hardware certification.
 """
 import json
+import hashlib
 import os
 import sys
 import tempfile
@@ -18,6 +19,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-model-drift-") as root:
     os.environ["VP3_OS_HARDWARE_ADAPTER"]="disabled"
     from app.database import db,initialize_database
     initialize_database()
+    from app.services import tracky_native_model_integrity as integrity
     from app.services import tracky_native_camera as native
     from app.services import tracky_native_diagnosis as diag
     from app.services import tracky_native_certification as cert
@@ -26,17 +28,19 @@ with tempfile.TemporaryDirectory(prefix="tracky-model-drift-") as root:
     from app.services import health_repair
 
     model=Path(root)/"haarcascade_frontalface_default.xml"
-    model.write_bytes(b"<synthetic-model-v1>")
+    baseline_bytes=b"<synthetic-model-v1>"+b"X"*120000
+    model.write_bytes(baseline_bytes)
     cv2=types.ModuleType("cv2")
     cv2.__spec__=ModuleSpec("cv2",loader=None)
     cv2.__version__="synthetic-1.0"
     cv2.data=types.SimpleNamespace(haarcascades=root+"/")
-    with patch.dict(sys.modules,{"cv2":cv2}):
+    with patch.dict(sys.modules,{"cv2":cv2}), \
+         patch.object(integrity,"EXPECTED_HAAR_SHA256",hashlib.sha256(baseline_bytes).hexdigest()):
         baseline=native.model_preflight()
         assert baseline["model_present"] is True
         assert len(baseline["model_sha256"])==64
         assert "haarcascade" not in str(baseline).lower()
-        model.write_bytes(b"<synthetic-model-v2>")
+        model.write_bytes(b"<synthetic-model-v2>"+b"X"*120000)
         changed=native.model_preflight()
         assert baseline["model_sha256"]!=changed["model_sha256"]
     measurement={"status":"native_detector_completed","driver_worker_exited":True,
