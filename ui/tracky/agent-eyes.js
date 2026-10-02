@@ -6,7 +6,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const BASE='/api/v1/control/onboarding/visual/agent-eyes/';
-let active=false, busy=false, timer=null, pending=false, armedHere=false, suspendHeartbeat=false;
+let active=false, busy=false, timer=null, pending=false, armedHere=false, suspendHeartbeat=false, extendedEligible=false;
 
 function visible(){
   return document.visibilityState==='visible' &&
@@ -60,6 +60,26 @@ function render(state){
       's · CPU '+budget.cpu_used_seconds+'/'+budget.cpu_limit_seconds+
       's · watchdog '+(budget.watchdog_running?'active':'stopped')
     : 'Owner-configured budgets; no unattended operation.';
+  extendedEligible=state?.extended_supervised_eligible===true;
+  for(const id of ['trackyAgentEyesSamples','trackyAgentEyesWall','trackyAgentEyesCPU',
+                    'trackyAgentEyesInterval']){
+    const select=$(id);
+    if(!select)continue;
+    for(const option of select.querySelectorAll('option[data-extended="true"]')){
+      option.hidden=!extendedEligible;
+      option.disabled=!extendedEligible;
+    }
+  }
+  if(!active&&!extendedEligible){
+    if(Number($('trackyAgentEyesSamples')?.value)>12)$('trackyAgentEyesSamples').value='6';
+    if(Number($('trackyAgentEyesWall')?.value)>120)$('trackyAgentEyesWall').value='120';
+    if(Number($('trackyAgentEyesCPU')?.value)>12)$('trackyAgentEyesCPU').value='12';
+    if(Number($('trackyAgentEyesInterval')?.value)>15)$('trackyAgentEyesInterval').value='5';
+  }
+  if($('trackyAgentEyesExtendedStatus'))$('trackyAgentEyesExtendedStatus').textContent=
+    extendedEligible
+      ? 'Extended owner-supervised budgets are available on this reviewed installation. You must remain present in this visible view; no unattended camera use.'
+      : 'Extended supervised budgets stay locked until all three current-install owner exercises are recorded. No unattended operation.';
   const exercise=state?.installed_exercise;
   const completed=exercise?.completed_steps||[];
   const names={owner_stop:'Owner stop',privacy_revocation:'Privacy revocation',
@@ -84,7 +104,7 @@ function render(state){
   if(start)start.disabled=busy||active||!ready||!$('trackyAgentEyesConsent')?.checked;
   if($('trackyAgentEyesStop'))$('trackyAgentEyesStop').hidden=!active;
   if($('trackyAgentEyesCamera'))$('trackyAgentEyesCamera').disabled=busy||active;
-  for(const id of ['trackyAgentEyesSamples','trackyAgentEyesWall','trackyAgentEyesCPU'])
+  for(const id of ['trackyAgentEyesSamples','trackyAgentEyesWall','trackyAgentEyesCPU','trackyAgentEyesInterval'])
     if($(id))$(id).disabled=busy||active;
   if(active){
     details((armedHere?'Owner-supervised':'Another local owner view has')+' observations: '+state.completed_observations+'/'+
@@ -167,21 +187,30 @@ async function start(){
   }
   const camera=Number($('trackyAgentEyesCamera')?.value);
   const samples=Number($('trackyAgentEyesSamples')?.value);
+  const interval=Number($('trackyAgentEyesInterval')?.value);
   const wall=Number($('trackyAgentEyesWall')?.value);
   const cpu=Number($('trackyAgentEyesCPU')?.value);
-  if(![0,1,2].includes(camera)||![3,6,9,12].includes(samples)
-     ||![60,120].includes(wall)||![4,8,12].includes(cpu))return;
-  if((samples-1)*5>wall-7){
+  const extended=[300,600].includes(wall);
+  if(![0,1,2].includes(camera)||![3,6,9,12,24,30,48,60].includes(samples)
+     ||![5,10,15,20,30].includes(interval)||![60,120,300,600].includes(wall)
+     ||![4,8,12,20,30].includes(cpu))return;
+  if((extended&&!extendedEligible)||
+     (!extended&&(samples>12||interval>15||cpu>12))){
+    details('Complete all three installed-device exercises before selecting extended supervised limits.');
+    return;
+  }
+  if((samples-1)*interval>wall-7){
     details('Choose fewer observations or a longer approved time budget.');
     return;
   }
-  if(!window.confirm('Start '+samples+' owner-supervised local observations using camera '+
-    camera+'? No images are saved, people are not identified, and leaving this view ends the lease.'))return;
+  if(!window.confirm('Start '+samples+' owner-supervised local observations every '+
+    interval+' seconds with a '+wall+'-second hard cap using camera '+camera+
+    '? No images are saved, people are not identified, and leaving this view ends the lease.'))return;
   busy=true;
   try{
     const state=await request('start',{
       consent:true,scope:'owner-agent-eyes-supervised-live.v1',
-      camera_index:camera,sample_count:samples,interval_seconds:5,
+      camera_index:camera,sample_count:samples,interval_seconds:interval,
       max_session_seconds:wall,max_cpu_seconds:cpu,
     });
     $('trackyAgentEyesConsent').checked=false;
