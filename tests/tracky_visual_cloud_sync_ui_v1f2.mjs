@@ -12,7 +12,7 @@ for(const id of ['onboardVisualCloud','onboardVisualCloudConsent','onboardVisual
 assert.match(ui,/CLOUD_SCOPE = 'owner-self-cloud-status-only.v1'/);
 assert.match(ui,/onboardVisualCloudConsent'\)\.checked/);
 assert.match(ui,/window\.confirm\(warning\)/);
-assert.match(ui,/window\.confirm\('Send only/);
+assert.match(ui,/window\.confirm\('Run your existing governed Tracky HTTPS site sync/);
 assert.match(ui,/BASE\+'cloud-sharing'/);
 assert.match(ui,/BASE\+'cloud-sync'/);
 assert.match(ui,/No photo, face descriptor, contact details, IDs or signed local receipt/);
