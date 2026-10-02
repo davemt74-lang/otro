@@ -5,6 +5,7 @@ Hardware status here is synthetic. This test NEVER certifies a CI runner camera.
 from __future__ import annotations
 
 import os
+import hashlib
 import sys
 import tempfile
 from pathlib import Path
@@ -20,6 +21,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-diagnosis-v1c-") as root:
     from app.runtime import app
     from app.security import OWNER_CONTROL_TOKEN
     from app.services import (
+        tracky_native_model_integrity as integrity,
         tracky_native_diagnosis as diag, tracky_native_camera as native,
         vp3_os, health_repair, federated_data
     )
@@ -53,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-diagnosis-v1c-") as root:
              patch.object(diag.importlib,"import_module",return_value=FakeCV()):
             missing=diag._model_preflight()
             assert missing["reason"]=="face_model_missing"
-            cascade.write_text("<synthetic-test-model>")
+            cascade.write_bytes(b"<synthetic-test-model>"+b"X"*120000)
             present=diag._model_preflight()
             assert present["reason"]=="ready" and present["model_present"]
 
@@ -132,7 +134,8 @@ with tempfile.TemporaryDirectory(prefix="tracky-native-diagnosis-v1c-") as root:
             "datasets":datasets
         },observed_source="homeserver",trigger_reason="tracky-native-diagnosis-fixture")
         assert reconciled["status"]=="completed"
-        with patch.dict(sys.modules,{"cv2":fakecv}):
+        with patch.dict(sys.modules,{"cv2":fakecv}), \
+             patch.object(integrity,"EXPECTED_HAAR_SHA256",hashlib.sha256(cascade.read_bytes()).hexdigest()):
             completed=client.post(base+"test",headers=headers,json={
                 "consent":True,"scope":native.SCOPE,"camera_index":0
             })
