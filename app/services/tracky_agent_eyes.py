@@ -86,7 +86,8 @@ def status() -> dict[str, Any]:
 
 def start(*, consent: bool, scope: str, camera_index: int,
           sample_count: int = 6, interval_seconds: int = 5,
-          max_session_seconds: int = 120, max_cpu_seconds: int = 12) -> dict[str, Any]:
+          max_session_seconds: int = 120, max_cpu_seconds: int = 12,
+          include_scene: bool = False, scene_test: bool = False) -> dict[str, Any]:
     if consent is not True or scope != SCOPE:
         raise AgentEyesError("Fresh Agent Eyes owner approval is required.", 403)
     # A second endpoint cannot borrow a preexisting generic supervised
@@ -98,6 +99,7 @@ def start(*, consent: bool, scope: str, camera_index: int,
             owner_surface=OWNER_SURFACE,
             max_session_seconds=max_session_seconds,
             max_cpu_seconds=max_cpu_seconds,
+            include_scene=include_scene, scene_test=scene_test,
         )
     except managed.ManagedSessionError as exc:
         raise AgentEyesError(str(exc), exc.status_code) from exc
