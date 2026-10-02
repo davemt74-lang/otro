@@ -6,7 +6,7 @@
 const $=id=>document.getElementById(id);
 const API='/api/v1/control/onboarding/visual/native/';
 let busy=false, running=false;
-let managedTimer=null;
+let managedTimer=null, managedActive=false;
 function say(message){if($('onboardNativeDetails'))$('onboardNativeDetails').textContent=message;}
 function label(message){if($('onboardNativeStatus'))$('onboardNativeStatus').textContent=message;}
 async function call(path,body){
@@ -114,6 +114,12 @@ async function ownerReview(){
 async function updateManaged(){
   const value=await call('session/status');
   const active=Boolean(value.active);
+  managedActive=active;
+  // Only a visible, authenticated owner gesture maintains the short lease.
+  // Status reads by Agent Brain or Cloud must not silently extend it.
+  if(active&&value.phase==='running'&&document.visibilityState!=='hidden'){
+    await call('session/heartbeat',{}).catch(()=>{});
+  }
   if($('onboardNativeManagedStop'))$('onboardNativeManagedStop').hidden=!active;
   if($('onboardNativeManagedStart'))$('onboardNativeManagedStart').disabled=active||busy||running;
   if($('onboardNativeManagedState'))$('onboardNativeManagedState').textContent=active
@@ -134,11 +140,15 @@ async function startManaged(){
   if(!window.confirm('Start three supervised native observations at least five seconds apart? This session stops automatically, saves no media and does not identify anyone.'))return;
   try{
     await call('session/start',{consent:true,scope:'owner-supervised-native-sampling.v1',camera_index:index,sample_count:3,interval_seconds:5});
+    managedActive=true;
+    // Each new supervised session must receive fresh explicit consent.
+    $('onboardNativeManagedConsent').checked=false;
     say('Supervised sampling started under your approval.');
     await updateManaged();
   }catch(error){say('Cannot start sampling: '+String(error.message));}
 }
 async function stopManaged(){
+  managedActive=false;
   try{await call('session/stop',{});say('Sampling stop requested; any in-flight driver call must finish before the camera is available.');await updateManaged();}
   catch(error){say('Unable to stop sampling: '+String(error.message));}
 }
@@ -153,11 +163,23 @@ async function init(){
   $('onboardNativeConsent').addEventListener('change',()=>{
     if(!$('onboardNativeConsent').checked && running)void cancel();
   });
-  window.addEventListener('homeserver:onboarding-hidden',()=>{if(running)void cancel();});
+  window.addEventListener('homeserver:onboarding-hidden',()=>{
+    if(running)void cancel();
+    if(managedActive)void stopManaged();
+  });
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='hidden'&&managedActive)void stopManaged();
+  });
   window.addEventListener('pagehide',()=>{
     if(running)void cancel();
+    if(managedActive){
+      managedActive=false;
+      // Keepalive best effort: even if the request is lost, the local
+      // heartbeat lease expires and blocks any further observations.
+      void fetch(API+'session/stop',{method:'POST',credentials:'same-origin',
+        keepalive:true,headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/json'},body:'{}'}).catch(()=>{});
+    }
     if(managedTimer){window.clearInterval(managedTimer);managedTimer=null;}
-    // Explicit bounded supervised leases end at their configured limits.
   });
   await refresh().catch(()=>label('Native detector status unavailable'));
   await updateManaged().catch(()=>{});
