@@ -288,7 +288,9 @@ function init() {
     if(el('onboardVisualConsent').checked)return;
     // Unchecking revokes the session even during async model initialization.
     closeCamera();
-    void api('cancel',{}).catch(()=>{});
+    void api('cancel',{}).then(()=>{
+      window.dispatchEvent(new Event("tracky:visual-state-changed"));
+    }).catch(()=>{});
     message(localOwner
       ? 'Local enrollment stopped. Your existing local profile remains until you explicitly delete it.'
       : 'Visual consent withdrawn and camera stopped.');
