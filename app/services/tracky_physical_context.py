@@ -1224,17 +1224,25 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
     last_sequence = int(body.get("last_sequence") or package["max_sequence"])
     cursor = str(body.get("cursor") or package["cursor"])
     _record_sync_success(last_sequence, cursor, len(package["event_ids"]))
-    # Successful authenticated site delivery is NOT independent face verification.
+    # An HTTPS site success is not proof that the CURRENT owner status was
+    # delivered: permission may have changed while the request was in flight.
+    # This local-only result never enters the Cloud JSON payload.
+    visual_delivery = {"attempted": package["visual_owner_projection"] is not None,
+                       "status_sent": package["visual_owner_projection"] or "",
+                       "current_generation_acknowledged": False}
     if package["visual_owner_projection"] is not None:
-        tracky_visual_contact_link.mark_cloud_delivery(
-            package["visual_owner_projection"],
-            generation=package["visual_owner_generation"],
+        visual_delivery["current_generation_acknowledged"] = bool(
+            tracky_visual_contact_link.mark_cloud_delivery(
+                package["visual_owner_projection"],
+                generation=package["visual_owner_generation"],
+            )
         )
     return {
         "ok": True,
         "protocol": PHYSICAL_CONTEXT_PROTOCOL,
         "federation_operation_requests": len(federation_operation_request_result),
         "cloud": body,
+        "visual_owner_delivery": visual_delivery,
         "synced_events": len(package["event_ids"]),
         "cursor": cursor,
         "federation_sync": federation_result,
