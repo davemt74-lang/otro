@@ -186,7 +186,19 @@
       <button id="onboardVisualDelete" class="onboard-minor" type="button" hidden>Delete local visual profile</button>
     </div>
     <p class="onboard-package-state" id="onboardVisualDetails" role="status" aria-live="polite">Optional · no camera or recognition started.</p>
-    <div id="onboardVisualCapture" class="onboard-visual-capture" hidden>
+    <div class="onboard-step" id="onboardVisualLink">
+      <div class="onboard-step-head"><span>OPTIONAL LOCAL CONTACT ASSOCIATION</span></div>
+      <p class="onboard-agent-line">After enrolling yourself, you can choose an existing local contact and explicitly attribute your browser profile to it. This is your statement, not facial verification; it does not create contacts, activate tracking or send face data to Cloud.</p>
+      <label for="onboardVisualLinkTarget">Existing local contact</label>
+      <select id="onboardVisualLinkTarget"><option value="">Choose existing local contact</option></select>
+      <label class="onboard-visual-consent"><input id="onboardVisualLinkConsent" type="checkbox"><span>I explicitly approve associating my reported local self-profile with the chosen existing HomeServer contact.</span></label>
+      <div class="onboard-actions">
+        <button id="onboardVisualLinkStart" class="onboard-minor" type="button" disabled>Link my self-profile</button>
+        <button id="onboardVisualLinkRevoke" class="onboard-minor" type="button" hidden>Revoke association</button>
+      </div>
+      <p id="onboardVisualLinkState" class="onboard-package-state" role="status" aria-live="polite">Optional · contact association disabled until you explicitly approve.</p>
+    </div>
+        <div id="onboardVisualCapture" class="onboard-visual-capture" hidden>
       <video id="onboardVisualVideo" playsinline muted autoplay aria-label="Local visual enrollment camera preview"></video>
       <div id="onboardVisualProgress" role="status" aria-live="polite">Preparing local enrollment…</div>
     </div>
@@ -775,6 +787,7 @@
   <script src="/assets/chat-enhancements.js" defer></script>
 <script src="/assets/chat-onboarding.js" defer></script>
   <script type="module" src="/assets/tracky/owner-visual.js"></script>
+  <script type="module" src="/assets/tracky/owner-contact-link.js"></script>
   <script type="module" src="/assets/tracky/eyes-runtime.js"></script>
   <script src="/assets/tracky/native-camera.js" defer></script>
   <script src="/assets/chat-dictation.js" defer></script>
