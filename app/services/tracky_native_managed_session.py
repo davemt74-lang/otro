@@ -186,6 +186,9 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
     return {
         "summary": result["summary"],
         "confidence": 0.0,  # Haar regions do not provide calibrated confidence.
+        "face_count_category": ({0: "none", 1: "one", 2: "multiple"}.get(
+            result.get("face_regions_detected"), "unknown")
+            if type(result.get("face_regions_detected")) is int else "unknown"),
     }
 
 
@@ -265,6 +268,7 @@ def _run(sample_count: int, interval: int, started: float, run_id: str,
                 with _LOCK:
                     _STATE["completed_samples"] += 1
                     _STATE["last_observed_at"] = _now()
+                    _STATE["last_completed_request_id"] = request_id
             finally:
                 with _LOCK:
                     _ALLOWED_REQUEST = ""

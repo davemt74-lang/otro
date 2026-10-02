@@ -26,6 +26,7 @@ class ConversationRename(BaseModel):
 
 
 class ContextSettingsUpdate(BaseModel):
+    include_agent_eyes: bool = False
     include_memory: bool = True
     include_knowledge: bool = True
     include_contacts: bool = True
@@ -264,6 +265,7 @@ def control_conversation_context(conversation_id: str, payload: ContextSettingsU
             include_contacts=payload.include_contacts,
             cloud_allowed=payload.cloud_allowed,
             max_context_chars=payload.max_context_chars,
+            include_agent_eyes=payload.include_agent_eyes,
         )
         return {"context_settings": settings}
     except (brain.BrainError, context_engine.ContextError) as exc:

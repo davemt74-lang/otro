@@ -80,7 +80,8 @@ def get_settings(conversation_id: str) -> dict[str, Any]:
         row = connection.execute(
             """
             SELECT conversation_id, include_memory, include_knowledge, include_contacts,
-                   cloud_allowed, max_context_chars, updated_at
+                   cloud_allowed, max_context_chars, updated_at,
+                   include_agent_eyes, agent_eyes_local_only
             FROM conversation_context_settings
             WHERE conversation_id=? LIMIT 1
             """,
@@ -93,12 +94,16 @@ def get_settings(conversation_id: str) -> dict[str, Any]:
             "include_knowledge": True,
             "include_contacts": True,
             "cloud_allowed": True,
+            "include_agent_eyes": False,
+            "agent_eyes_local_only": False,
             "max_context_chars": DEFAULT_CONTEXT_CHARS,
             "updated_at": None,
         }
     item = dict(row)
-    for key in ("include_memory", "include_knowledge", "include_contacts", "cloud_allowed"):
+    for key in ("include_memory", "include_knowledge", "include_contacts", "cloud_allowed",
+                "include_agent_eyes", "agent_eyes_local_only"):
         item[key] = bool(item[key])
+    item["cloud_allowed"] = bool(item["cloud_allowed"] and not item["agent_eyes_local_only"])
     item["max_context_chars"] = _clamp_budget(item["max_context_chars"])
     return item
 
@@ -111,14 +116,17 @@ def update_settings(
     include_contacts: bool,
     cloud_allowed: bool,
     max_context_chars: int,
+    include_agent_eyes: bool | None = None,
 ) -> dict[str, Any]:
     budget = _clamp_budget(max_context_chars)
     with db() as connection:
         exists = connection.execute(
-            "SELECT 1 FROM conversations WHERE id=? LIMIT 1", (conversation_id,)
+            "SELECT source_app_key FROM conversations WHERE id=? LIMIT 1", (conversation_id,)
         ).fetchone()
         if exists is None:
             raise ContextError("Conversation not found.", 404)
+        if include_agent_eyes and exists["source_app_key"] != "owner":
+            raise ContextError("Agent Eyes context requires a local owner conversation.", 403)
         connection.execute(
             """
             INSERT INTO conversation_context_settings(
@@ -141,6 +149,19 @@ def update_settings(
                 int(bool(cloud_allowed)),
                 budget,
             ),
+        )
+        if include_agent_eyes is not None:
+            connection.execute(
+                "UPDATE conversation_context_settings SET include_agent_eyes=?, "
+                "agent_eyes_local_only=MAX(agent_eyes_local_only,?), "
+                "updated_at=CURRENT_TIMESTAMP WHERE conversation_id=?",
+                (int(bool(include_agent_eyes)), int(bool(include_agent_eyes)), conversation_id),
+            )
+        # A previous physical-context reply can remain in history after opt-out.
+        # Keep this binding durable and enforce it in the same transaction.
+        connection.execute(
+            "UPDATE conversation_context_settings SET cloud_allowed=0 "
+            "WHERE conversation_id=? AND agent_eyes_local_only=1", (conversation_id,),
         )
     return get_settings(conversation_id)
 

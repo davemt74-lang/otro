@@ -16,6 +16,7 @@ from . import (
     storage_maintenance,
     homeserver_app_update_center,
     health_repair,
+    tracky_agent_eyes_context,
 )
 
 CANONICAL_CONTEXT_VERSION = "v4.30"
@@ -37,6 +38,7 @@ class CanonicalContext:
     storage_fragment: str
     app_update_fragment: str
     health_fragment: str
+    physical_fragment: str
     budget: dict[str, int | str]
     effective_settings: dict[str, Any]
     model_tool_permissions: set[str]
@@ -81,7 +83,10 @@ def _settings(
         "include_memory": bool(source.get("include_memory", True) and allow_memory),
         "include_knowledge": bool(source.get("include_knowledge", True) and allow_knowledge),
         "include_contacts": bool(source.get("include_contacts", True) and allow_contacts),
-        "cloud_allowed": bool(source.get("cloud_allowed", True) and cloud_allowed),
+        "cloud_allowed": bool(source.get("cloud_allowed", True) and cloud_allowed
+                              and not source.get("agent_eyes_local_only")),
+        "include_agent_eyes": bool(source.get("include_agent_eyes", False)),
+        "agent_eyes_local_only": bool(source.get("agent_eyes_local_only", False)),
         "max_context_chars": budget,
         "updated_at": source.get("updated_at"),
     }
@@ -403,6 +408,16 @@ def build_authorized_context(
     # capacity flows back into local retrieval, so the same inputs produce the
     # same bounded context without wasting available capacity.
     overlay_pool = max(0, requested_budget - context_engine.MIN_CONTEXT_CHARS)
+    allow_physical = bool(owner and source_app_key == "owner"
+                          and effective["include_agent_eyes"]
+                          and effective["agent_eyes_local_only"]
+                          and not effective["cloud_allowed"])
+    physical_limit = min(requested_budget // 8, overlay_pool,
+                         tracky_agent_eyes_context.MAX_FRAGMENT_CHARS) if allow_physical else 0
+    overlay_pool -= physical_limit
+    physical_fragment, physical_data = (tracky_agent_eyes_context.prompt_fragment(
+        max_chars=physical_limit) if physical_limit >= MIN_FRAGMENT_CHARS else ("", {}))
+    physical_used = len(physical_fragment)
     desired_collaboration = requested_budget // 4 if include_collaboration and not owner else 0
     collaboration_limit = min(desired_collaboration, overlay_pool)
     overlay_pool -= collaboration_limit
@@ -474,7 +489,7 @@ def build_authorized_context(
 
     base_budget = max(
         context_engine.MIN_CONTEXT_CHARS,
-        requested_budget - collaboration_used - surface_used - awareness_used - storage_used - app_update_used - health_used - hosting_used,
+        requested_budget - collaboration_used - surface_used - awareness_used - storage_used - app_update_used - health_used - hosting_used - physical_used,
     )
     base_settings = {**effective, "max_context_chars": base_budget}
     bundle = _base_context(
@@ -485,7 +500,7 @@ def build_authorized_context(
         source_app_key=source_app_key,
         owner=owner,
     )
-    used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used + storage_used + app_update_used + health_used + hosting_used
+    used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used + storage_used + app_update_used + health_used + hosting_used + physical_used
     if used > requested_budget:
         raise context_engine.ContextError("Canonical context budget exceeded.", 500)
 
@@ -502,7 +517,19 @@ def build_authorized_context(
         app_update_fragment,
         health_fragment,
     )
+    if physical_fragment:
+        # Metadata explains retrieval without retaining detector categories.
+        provenance.append({"layer": "agent_eyes", "source_app_key": "homeserver:tracky",
+                           "state": physical_data["state"], "chars": physical_used,
+                           "request_fingerprint": physical_data.get("request_fingerprint", ""),
+                           "local_only": True})
+        physical_ref = {"kind": "agent_eyes", "title": "Recent permitted Agent Eyes context",
+                        "updated_at": physical_data.get("observed_at")}
+        source_refs.append(physical_ref)
+        bundle.sources.append(physical_ref)
     budget = {
+        "physical_limit_chars": physical_limit,
+        "physical_used_chars": physical_used,
         "version": CANONICAL_CONTEXT_VERSION,
         "max_context_chars": requested_budget,
         "base_limit_chars": base_budget,
@@ -538,6 +565,7 @@ def build_authorized_context(
         storage_fragment=storage_fragment,
         app_update_fragment=app_update_fragment,
         health_fragment=health_fragment,
+        physical_fragment=physical_fragment,
         budget=budget,
         effective_settings=effective,
         model_tool_permissions=model_tool_permissions,
@@ -549,6 +577,7 @@ def build_authorized_context(
 def system_prompt(agent: dict[str, Any], context: CanonicalContext) -> str:
     prompt = context_engine.system_prompt(agent, context.bundle)
     for fragment in (
+        context.physical_fragment,
         context.awareness_fragment,
         str(context.collaboration.get("fragment") or ""),
         context.surface_fragment,

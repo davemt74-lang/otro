@@ -160,6 +160,9 @@ def chat(
         source_app_key, conversation_id, int(agent["id"]), text
     )
     settings = _apply_context_options(conversation_id, context_options)
+    # Physical-context conversations are permanently local and read-only:
+    # subsequent turns cannot export prior observations through model tools.
+    read_only = bool(read_only or settings.get("agent_eyes_local_only"))
 
     canonical = canonical_context.build_authorized_context(
         agent_id=int(agent["id"]),
@@ -195,9 +198,19 @@ def chat(
             "UPDATE conversations SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (conversation_id,)
         )
 
+    history = brain._history(conversation_id)
+    # Read history before rechecking the durable binding. A concurrent owner
+    # opt-in must not let a turn with earlier settings send a newer physical
+    # reply to a cloud route or export it through model tools.
+    current_settings = context_engine.get_settings(conversation_id)
+    if current_settings.get("agent_eyes_local_only"):
+        read_only = True
+        canonical.cloud_allowed = False
+        canonical.effective_settings.update({"cloud_allowed": False, "agent_eyes_local_only": True})
+        provider_key, provider_model, provider_override = _private_inference_route(inference)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": canonical_context.system_prompt(agent, canonical)},
-        *brain._history(conversation_id),
+        *history,
     ]
     if read_only:
         messages[0]["content"] += (
