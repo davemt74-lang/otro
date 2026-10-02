@@ -26,10 +26,10 @@ with tempfile.TemporaryDirectory(prefix="tracky-visual-link-v1f1-") as folder:
     base="/api/v1/control/onboarding/visual/"
     api=base+"contact-link/"
     headers={"X-Requested-With":"XMLHttpRequest"}
-    contact_id=contacts.create_contact({"display_name":"My existing local record",
-         "email":"private@example.invalid", "notes":"private local only"})["id"]
     with TestClient(app) as client:
         scheduler.stop()
+        contact_id=contacts.create_contact({"display_name":"My existing local record",
+             "email":"private@example.invalid", "notes":"private local only"})["id"]
         assert client.get(api+"status").status_code==401
         assert client.get(api+"contacts").status_code==401
         assert client.get(api+"receipt").status_code==401
