@@ -7,7 +7,7 @@ const link=fs.readFileSync('ui/tracky/owner-contact-link.js','utf8');
 const owner=fs.readFileSync('ui/tracky/owner-visual.js','utf8');
 const server=fs.readFileSync('app/services/tracky_visual_contact_link.py','utf8');
 for(const id of ['onboardVisualLink','onboardVisualLinkTarget',
-                 'onboardVisualLinkConsent','onboardVisualLinkStart',
+                 'onboardVisualLinkConsent','onboardVisualLinkSearch','onboardVisualLinkStart',
                  'onboardVisualLinkRevoke','onboardVisualLinkState']){
   assert.match(html,new RegExp('id="'+id+'"'));
 }
@@ -19,6 +19,9 @@ assert.match(link,/window\.confirm\('Attribute your browser-reported self-profil
 assert.match(link,/json\(BASE\+'associate'/);
 assert.match(link,/json\(BASE\+'revoke'/);
 assert.match(link,/cloud.*sharing.*will be enabled/i);
+assert.match(link,/needsReview = link.state === 'needs_review'/);
+assert.match(link,/encodeURIComponent\(query\)/);
+assert.match(link,/onboardVisualLinkSearch/);
 assert.doesNotMatch(link,/getUserMedia|CanvasRenderingContext|trackingEnabled\s*:\s*true/);
 const payload=link.slice(link.indexOf("state=await json(BASE+'associate'"),link.indexOf("el('onboardVisualLinkConsent').checked=false;"));
 assert.match(payload,/participant_id:owner\.id,contact_id:id/);
