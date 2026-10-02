@@ -179,6 +179,9 @@ def projection() -> dict[str, Any]:
         if (_session_reason(final) or final.get("run_id") != worker["run_id"]
                 or final.get("last_completed_request_id") != request_id):
             return _empty("session_changed")
+        age = (datetime.now(timezone.utc) - observed).total_seconds()
+        if not 0 <= age <= MAX_AGE_SECONDS:
+            return _empty("observation_expired" if age >= 0 else "timestamp_invalid", state="stale", age=age)
         return {**_empty("recent_observation"), **scene_context, "state": "recent_observation",
                 "observed_at": observed.isoformat(), "age_seconds": round(age, 1),
                 "possible_face_regions": category,

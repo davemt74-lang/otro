@@ -300,6 +300,11 @@ def _run(sample_count: int, interval: int, started: float, run_id: str,
             reason, phase = "observation_unavailable", "failed"
     finally:
         _STOP.set()
+        if _STATE.get("scene_binding"):
+            # Provider timeout/failure also revokes a blocked scene HTTP call;
+            # it must not rely solely on an explicit owner stop/watchdog call.
+            from . import tracky_agent_eyes_scene as scene
+            scene.cancel()
         tracky.unregister_provider(expected=_provider)
         with _LOCK:
             _ALLOWED_REQUEST = ""

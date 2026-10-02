@@ -5,6 +5,7 @@ import sys
 import tempfile
 import time
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -100,6 +101,17 @@ with tempfile.TemporaryDirectory() as root:
             scene.accept(consent=True,output_observed=True,release_observed=True)  # Idempotent owner click
             worker=run();assert worker['phase']=='completed',worker
             projected=context.projection();assert projected['scene']['objects']==['chair','cup'],projected
+            clock=[datetime.fromisoformat(worker['last_observed_at'])+timedelta(seconds=59)]
+            authority_calls=[0];original_reason=context._session_reason
+            class FinalClock(datetime):
+                @classmethod
+                def now(cls,tz=None):return clock[0]
+            def slow_final_authority(snapshot):
+                authority_calls[0]+=1
+                if authority_calls[0]==3:clock[0]+=timedelta(seconds=2)
+                return original_reason(snapshot)
+            with patch.object(context,'datetime',FinalClock), patch.object(context,'_session_reason',side_effect=slow_final_authority):
+                assert context.projection()['reason']=='observation_expired','Final authority check crossed freshness deadline'
             fragment,_=context.prompt_fragment(max_chars=1500)
             assert fragment and 'chair' in fragment and 'binding' not in fragment and 'vision:local' not in fragment
             with db() as connection:
@@ -129,6 +141,33 @@ with tempfile.TemporaryDirectory() as root:
             with oversize:
                 try:scene._json(oversize,'http://127.0.0.1:11434','/api/chat',deadline=time.monotonic()+2);raise AssertionError('Oversized response accepted')
                 except scene.SceneError:pass
+            # Cancellation must be checked on every received transport chunk,
+            # even when a server sends less than an aggregation buffer.
+            class Trickle(httpx.SyncByteStream):
+                count=0
+                def __iter__(self):
+                    for _ in range(16):
+                        self.count+=1
+                        if self.count==2:event.set()
+                        yield b'x'*10
+            trickle=Trickle();event=threading.Event()
+            with original_client(transport=httpx.MockTransport(lambda request:httpx.Response(200,stream=trickle))) as transport:
+                try:scene._json(transport,'http://127.0.0.1:11434','/api/chat',deadline=time.monotonic()+2,cancel=event);raise AssertionError('Cancelled transport accepted')
+                except scene.SceneError:pass
+            assert trickle.count<=2,'Buffered HTTP chunks postponed cancellation'
+            clock=[0.0]
+            class DeadlineTrickle(httpx.SyncByteStream):
+                count=0
+                def __iter__(self):
+                    for _ in range(16):
+                        self.count+=1
+                        if self.count==2:clock[0]=10.0
+                        yield b'x'*10
+            late=DeadlineTrickle()
+            with original_client(transport=httpx.MockTransport(lambda request:httpx.Response(200,stream=late))) as transport, patch.object(scene.time,'monotonic',side_effect=lambda:clock[0]):
+                try:scene._json(transport,'http://127.0.0.1:11434','/api/chat',deadline=5);raise AssertionError('Late trickling transport accepted')
+                except scene.SceneError:pass
+            assert late.count<=2,'Buffered HTTP chunks postponed the deadline'
             scene.disable();assert not scene.status()['configured']
             remote[0]=True
             try:scene.configure(**payload);raise AssertionError('Remote model accepted')
@@ -136,7 +175,9 @@ with tempfile.TemporaryDirectory() as root:
             remote[0]=False
             scene.configure(**payload)
             output[0]={**valid,'caption':'SECRET_INJECTION'}
-            worker=run(True);assert worker['phase']=='failed',worker
+            with patch.object(scene,'cancel',wraps=scene.cancel) as revoke:
+                worker=run(True);assert worker['phase']=='failed',worker
+                assert revoke.called,'Provider failure did not close scene HTTP clients'
             assert scene.status()['preview'] is None
             assert len(opened)==len(released),'Camera leak'
             assert all(r.url.host=='127.0.0.1' for r in requests)

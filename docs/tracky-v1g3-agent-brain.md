@@ -143,3 +143,13 @@ installed owner's scene output and release acceptance remain required on their
 actual device; synthetic tests are not hardware certification.
 
 Primary API contract: https://github.com/ollama/ollama/blob/main/docs/api.md
+
+### 1G3C timeout review follow-up
+
+A deterministic trickling-response test reproduced a buffered-read cancellation
+gap after the first scene PR. The follow-up removes transport chunk aggregation,
+checks cancellation/deadline on every received chunk, closes scene HTTP clients
+on provider failure/timeout as well as explicit stop, and repeats the 60-second
+clock check after final authority validation. Both cancellation and absolute
+deadline repros are required in the same focused scene CI suite. This correction
+must pass PR and merged-main release checks before section C is complete.
