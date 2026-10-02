@@ -653,6 +653,10 @@ jobs:
       - name: Verify distribution files
         shell: pwsh
         run: |
+          $schema = (& python -c "from app.database import migration_files; print(max([1] + [version for version, _ in migration_files()]))").Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 66) {
+            throw "HomeServer release manifest cannot verify its current migration version"
+          }
           $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe')
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { throw "$file was not built" }
@@ -671,7 +675,7 @@ jobs:
             version = '2.4'
             channel = 'stable'
             minimum_schema_version = 38
-            current_schema_version = 59
+            current_schema_version = [int]$schema
             feature_track = 'Tracky V2.81'
             feature_section = 3
             federated_automation_protocol = 'physical_federated_automation.v1'
@@ -680,8 +684,12 @@ jobs:
             distributed_action_execution = $true
             golden_operational_scenarios = 24
             recovery_authority = 'section7_authoritative_reconciliation'
+            owner_visual_identity_contract = 'tracky.visual.owner-contact-association.v1f6'
+            owner_visual_identity_claim = 'owner_attributed_unverified'
+            visual_cloud_transport = 'paired_scalar_revision_ack_no_biometrics'
+            native_hardware_certified = $false
             files = $hashMap
-            release_notes = 'HomeServer runtime v2.4 with Tracky V2.81 Section 2 Physical-World Trigger Runtime; canonical physical events can create durable runs while physical action execution remains disabled pending Section 3.'
+            release_notes = 'HomeServer runtime v2.4 with Tracky V2.81 Section 3 distributed physical action execution and Section 1F6 owner-governed visual attribution status sync. Visual attribution is not facial identity verification; installed-device camera certification remains separate.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
