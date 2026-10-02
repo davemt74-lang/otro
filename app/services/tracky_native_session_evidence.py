@@ -25,6 +25,7 @@ _REASONS = frozenset({
     "completed", "owner_stopped", "stopped_or_privacy", "privacy_engaged",
     "owner_presence_expired", "time_limit", "observation_unavailable",
     "startup_failed", "interrupted_by_restart", "acceptance_revoked", "unknown",
+    "watchdog_stall", "cpu_budget_exhausted",
 })
 
 
@@ -44,6 +45,7 @@ def _public(row: dict[str, Any]) -> dict[str, Any]:
         phase = "interrupted"
     return {
         "contract": CONTRACT,
+        "owner_surface": str(row.get("owner_surface") or "native_supervised")[:30],
         "phase": phase,
         "reason": "interrupted_by_restart" if restarted else str(row.get("reason") or "")[:50],
         "started_at": str(row.get("started_at") or "")[:40],
@@ -75,6 +77,7 @@ def _finish_locked(row: dict[str, Any], phase: str, reason: str,
                    finished_at=_now())
     clean = {
         "phase": phase, "reason": reason,
+        "owner_surface": str(row.get("owner_surface") or "native_supervised")[:30],
         "requested_samples": int(row["requested_samples"]),
         "completed_samples": count,
         "restarted": phase == "interrupted",
@@ -114,7 +117,9 @@ def recover_prior(*, worker_active: bool = False) -> dict[str, Any]:
         return _public(row)
 
 
-def begin(*, sample_count: int) -> str:
+def begin(*, sample_count: int, owner_surface: str = "native_supervised") -> str:
+    if owner_surface not in {"native_supervised", "agent_eyes"}:
+        raise ValueError("Invalid owner surface")
     if type(sample_count) is not int or not 1 <= sample_count <= 12:
         raise ValueError("Invalid sample limit")
     with _LOCK:
@@ -125,6 +130,7 @@ def begin(*, sample_count: int) -> str:
         row = {
             "run_id": run_id, "boot_id": _BOOT, "phase": "running",
             "reason": "owner_approved", "requested_samples": sample_count,
+            "owner_surface": owner_surface,
             "completed_samples": 0, "started_at": _now(), "finished_at": "",
         }
         system_state._write_setting(KEY, row)

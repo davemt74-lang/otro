@@ -31,8 +31,28 @@ async function request(route,payload){
 function render(state){
   active=state?.active===true;
   if(!active)armedHere=false;
+  const recovery=state?.recovery;
+  const recoveryRequired=recovery?.requires_acknowledgement===true;
+  const panel=$('trackyAgentEyesRecoveryPanel');
+  if(panel)panel.hidden=!recoveryRequired;
+  const recoveryText={
+    watchdog_stall:'The last camera request stalled. Verify the device is no longer capturing before acknowledging recovery.',
+    observation_unavailable:'A camera observation failed. Check local camera permissions and inspect the device.',
+    interrupted_by_restart:'HomeServer restarted while Agent Eyes was active. Check that camera capture stopped.',
+    startup_failed:'A previous Agent Eyes startup failed. Check the camera and native runtime before retrying.'
+  };
+  if($('trackyAgentEyesRecoveryMessage')&&recoveryRequired){
+    const message=recoveryText[recovery.last_reason]||'Inspect the installed camera before a new session.';
+    $('trackyAgentEyesRecoveryMessage').textContent=recovery.shared_camera_busy
+      ? message+' The camera worker or provider is still busy; wait for it to release.'
+      : message+' Confirm both items below to clear the operator recovery gate.';
+  }
+  const ack=$('trackyAgentEyesRecoveryAck');
+  if(ack)ack.disabled=busy||!recovery?.ready_for_owner_acknowledgement||
+    !$('trackyAgentEyesReleaseObserved')?.checked||
+    !$('trackyAgentEyesFreshConsent')?.checked||!visible();
   const ready=state?.owner_review_current===true &&
-    !state?.model_changed_requires_review && !state?.privacy_engaged;
+    !state?.model_changed_requires_review && !state?.privacy_engaged && !recoveryRequired;
   const budget=state?.resource_budget;
   const usage=$('trackyAgentEyesBudgetStatus');
   if(usage)usage.textContent=budget
@@ -53,6 +73,8 @@ function render(state){
   if(active){
     details((armedHere?'Owner-supervised':'Another local owner view has')+' observations: '+state.completed_observations+'/'+
       state.requested_observations+'. No recording or identity recognition. Leave this view to stop.');
+  }else if(recoveryRequired){
+    details('Owner recovery required. No camera restart is permitted until the previous failure is inspected and acknowledged.');
   }else if(state?.model_changed_requires_review){
     details('Installed detector changed: repeat the native test, privacy check and owner review in Agent Chat.');
   }else if(state?.privacy_engaged){
@@ -83,8 +105,24 @@ async function refresh(){
   }catch(_){details('HomeServer Agent Eyes status is unavailable; no automatic restart.');}
   finally{pending=false;}
 }
+async function acknowledgeRecovery(){
+  if(busy||!visible()||!$('trackyAgentEyesReleaseObserved')?.checked||
+     !$('trackyAgentEyesFreshConsent')?.checked)return;
+  if(!window.confirm('Confirm your installed camera has stopped and acknowledge this recovery. This does NOT certify hardware or start capture.'))return;
+  busy=true;
+  try{
+    await request('recovery/acknowledge',{
+      consent:true,camera_stopped_observed:true,fresh_consent_understood:true,
+    });
+    $('trackyAgentEyesReleaseObserved').checked=false;
+    $('trackyAgentEyesFreshConsent').checked=false;
+    await refresh();
+  }catch(error){details('Recovery could not be acknowledged: '+String(error.message));}
+  finally{busy=false;}
+}
 async function start(){
-  if(busy||active||!visible()||!$('trackyAgentEyesConsent')?.checked)return;
+  if(busy||active||!visible()||!$('trackyAgentEyesConsent')?.checked||
+     !$('trackyAgentEyesRecoveryPanel')?.hidden)return;
   if(window.TrackyOwnerEyes?.isActive()||
      window.HomeServerVisualEnrollment?.isCapturing()||
      window.TrackyOwnerSelfCheck?.isActive()){
@@ -131,6 +169,9 @@ function init(){
   $('trackyAgentEyesStart').addEventListener('click',()=>{void start();});
   $('trackyAgentEyesStop').addEventListener('click',()=>{void stop();});
   $('trackyAgentEyesRefresh').addEventListener('click',()=>{void refresh();});
+  $('trackyAgentEyesRecoveryAck').addEventListener('click',()=>{void acknowledgeRecovery();});
+  for(const id of ['trackyAgentEyesReleaseObserved','trackyAgentEyesFreshConsent'])
+    $(id).addEventListener('change',()=>{void refresh();});
   document.addEventListener('visibilitychange',()=>{
     if(document.visibilityState==='hidden'&&active&&armedHere)void stop();
   });

@@ -12,6 +12,7 @@ from . import tracky_native_managed_session as managed
 from . import tracky_native_camera as native
 from . import tracky_native_certification as cert
 from . import tracky_physical_context as physical
+from . import tracky_agent_eyes_recovery as recovery
 
 CONTRACT = "tracky.agent-eyes.supervised-live.v1g2"
 SCOPE = "owner-agent-eyes-supervised-live.v1"
@@ -31,6 +32,7 @@ def status() -> dict[str, Any]:
     active = bool(belongs and worker.get("active"))
     approval = cert.status()
     exposure = physical.provider_exposure()
+    recovery_state = recovery.status(worker=worker)
     return {
         "contract": CONTRACT,
         "mode": "bounded_owner_supervised_native",
@@ -45,6 +47,7 @@ def status() -> dict[str, Any]:
         "max_observations": managed.MAX_SAMPLES,
         "max_seconds": managed.MAX_SECONDS,
         "resource_budget": (worker.get("resource_budget") if belongs else None),
+        "recovery": recovery_state,
         "available_wall_budgets": list(managed.AGENT_WALL_OPTIONS),
         "available_cpu_budgets": list(managed.AGENT_CPU_OPTIONS),
         "watchdog_fail_closed": True,
@@ -124,7 +127,15 @@ def agent_context() -> dict[str, Any]:
         "hardware_certified": False,
         "canonical_request_ledger": True,
         "resource_budget": current["resource_budget"],
+        "recovery": {
+            "required": current["recovery"]["requires_acknowledgement"],
+            "reason": current["recovery"]["last_reason"],
+            "next_action": current["recovery"]["next_action"],
+        },
         "next_action": (
+            "owner_inspect_and_acknowledge_recovery"
+            if current["recovery"]["requires_acknowledgement"]
+            else
             "owner_stop_or_continue_visible_lease" if current["active"]
             else "repeat_installed_owner_review" if not current["owner_review_current"]
             else "request_fresh_owner_approval"

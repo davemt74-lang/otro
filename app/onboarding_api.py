@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_agent_eyes, tracky_visual_contact_link, tracky_physical_context, contacts
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_agent_eyes, tracky_agent_eyes_recovery, tracky_visual_contact_link, tracky_physical_context, contacts
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -362,6 +362,28 @@ def agent_eyes_heartbeat(x_requested_with: str | None = Header(default=None)) ->
     try:
         return tracky_agent_eyes.heartbeat()
     except tracky_agent_eyes.AgentEyesError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+class AgentEyesRecoveryAck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool = Field(strict=True)
+    camera_stopped_observed: bool = Field(strict=True)
+    fresh_consent_understood: bool = Field(strict=True)
+
+
+@router.get("/visual/agent-eyes/recovery")
+def agent_eyes_recovery_status() -> dict:
+    return tracky_agent_eyes_recovery.status()
+
+
+@router.post("/visual/agent-eyes/recovery/acknowledge")
+def agent_eyes_recovery_acknowledge(payload: AgentEyesRecoveryAck,
+                                   x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    try:
+        return tracky_agent_eyes_recovery.acknowledge(**payload.model_dump())
+    except tracky_agent_eyes_recovery.RecoveryError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 

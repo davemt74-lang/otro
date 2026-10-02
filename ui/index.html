@@ -120,6 +120,12 @@
             <button class="button secondary" id="trackyAgentEyesRefresh" type="button">Refresh status</button>
           </div>
           <p class="muted" id="trackyAgentEyesBudgetStatus" role="status">Owner-configured budgets; no unattended operation.</p>
+          <div id="trackyAgentEyesRecoveryPanel" hidden role="region" aria-label="Agent Eyes recovery" style="margin-top:12px">
+            <p id="trackyAgentEyesRecoveryMessage" class="muted" role="status">A previous Agent Eyes session requires owner inspection.</p>
+            <label class="onboard-visual-consent"><input id="trackyAgentEyesReleaseObserved" type="checkbox"><span>I inspected the installed camera and observed that capture stopped. This is an owner report, not independent hardware verification.</span></label>
+            <label class="onboard-visual-consent"><input id="trackyAgentEyesFreshConsent" type="checkbox"><span>I understand a future camera session requires fresh local owner consent and current installed-device review.</span></label>
+            <button class="button secondary" id="trackyAgentEyesRecoveryAck" type="button" disabled>Acknowledge recovery</button>
+          </div>
           <p class="muted" id="trackyAgentEyesDetails" role="status" aria-live="polite">Complete the installed camera test and owner review in Agent Chat before starting.</p>
         </div>
         <div class="panel" style="margin-top:16px">

@@ -266,8 +266,12 @@ def _run(sample_count: int, interval: int, started: float, run_id: str,
         if _STOP.is_set() and reason == "completed":
             reason, phase = _stopping_reason(), "stopped"
     except Exception:
-        # No exception messages or driver identifiers in the UI.
-        reason, phase = "observation_unavailable", "failed"
+        # Preserve watchdog/privacy/owner-revocation evidence when a driver
+        # raises during cancellation. Never publish driver exception text.
+        if _STOP.is_set():
+            reason, phase = _stopping_reason(), "stopped"
+        else:
+            reason, phase = "observation_unavailable", "failed"
     finally:
         _STOP.set()
         tracky.unregister_provider(expected=_provider)
@@ -320,6 +324,11 @@ def start(*, consent: bool, scope: str, camera_index: int,
     if not native.model_preflight()["model_integrity_verified"]:
         raise ManagedSessionError("Installed native detector does not match the reviewed offline model.", 503)
     with _LOCK:
+        # Shared hardware must never let a generic supervised session
+        # overwrite the last unresolved Agent Eyes failure evidence.
+        from . import tracky_agent_eyes_recovery as recovery
+        if recovery.status()["requires_acknowledgement"]:
+            raise ManagedSessionError("Inspect the stopped camera and acknowledge Agent Eyes recovery before a new session.", 409)
         if _WORKER is not None and _WORKER.is_alive():
             raise ManagedSessionError("A supervised session is already running.", 409)
         if native.status()["running"] or native.status()["capture_worker_active"] or native.capture_busy():
@@ -361,7 +370,7 @@ def start(*, consent: bool, scope: str, camera_index: int,
                     "timeout_seconds": native.CAPTURE_SECONDS,
                 }, replace=False,
             )
-            run_id = evidence.begin(sample_count=sample_count)
+            run_id = evidence.begin(sample_count=sample_count, owner_surface=owner_surface)
             _STATE["run_id"] = run_id
             _WORKER = threading.Thread(
                 target=_run, args=(sample_count, interval_seconds, time.monotonic(), run_id,
