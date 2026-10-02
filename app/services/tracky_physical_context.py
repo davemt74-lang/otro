@@ -979,7 +979,9 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     capability = public_capability()
     provider = capability["provider"]
     camera = capability["camera"]
-    status = "healthy" if provider["available"] and (camera["ready"] or not provider["capabilities"].get("requires_camera", True)) else "degraded"
+    # A temporary local owner lease must not make Cloud advertise a globally
+    # healthy or remotely available active-perception service.
+    status = "healthy" if provider["remote_requestable"] and (camera["ready"] or not provider["capabilities"].get("requires_camera", True)) else "degraded"
     cursor = f"hs-{max_sequence}"
     federation_request = tracky_federation_sync.cloud_sync_request()
     local_federation_site = str(federation_request.get("local_site_id") or "")
