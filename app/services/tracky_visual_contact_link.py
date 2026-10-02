@@ -337,6 +337,31 @@ def cloud_snapshot() -> dict[str, Any]:
         }
 
 
+def prepare_cloud_snapshot() -> dict[str, Any]:
+    """Safety reconciliation only when preparing an outbound Tracky sync.
+
+    If the linked contact disappeared or enrollment consent changed outside
+    the visual-link UI, promote the previously shared active state to a NEW
+    revocation revision before packaging. Read-only status polling does not
+    mutate consent or start network traffic.
+    """
+    with _LOCK:
+        row = _saved()
+        if (row.get("state") == _ACTIVE
+                and row.get("cloud_share_opt_in") is True
+                and not status()["active"]):
+            row["cloud_revision"] = _next_cloud_revision(row)
+            row["cloud_share_opt_in"] = False
+            row["cloud_projection_state"] = "revoked"
+            row["cloud_generation"] = secrets.token_hex(16)
+            row["cloud_revoked_at"] = datetime.now(timezone.utc).isoformat()
+            row["cloud_last_accepted_state"] = ""
+            row["cloud_last_accepted_generation"] = ""
+            row["cloud_last_accepted_revision"] = 0
+            _commit(row, "tracky.visual.cloud_sharing.invalidated")
+        return cloud_snapshot()
+
+
 def cloud_projection() -> str | None:
     """Only an allowlisted semantic scalar may leave HomeServer."""
     return cloud_snapshot()["state"] or None
