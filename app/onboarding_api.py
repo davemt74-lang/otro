@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session
+from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_visual_contact_link, contacts
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -322,3 +322,55 @@ def native_managed_heartbeat(x_requested_with: str | None = Header(default=None)
         return tracky_native_managed_session.heartbeat()
     except tracky_native_managed_session.ManagedSessionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+class VisualContactAssociation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool
+    scope: str = Field(max_length=80)
+    participant_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    contact_id: int = Field(strict=True, ge=1)
+
+
+class VisualContactRevoke(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool
+
+
+def _visual_link_call(fn):
+    try:
+        return fn()
+    except tracky_visual_contact_link.VisualContactLinkError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/visual/contact-link/status")
+def visual_contact_link_status() -> dict:
+    return tracky_visual_contact_link.status()
+
+
+@router.get("/visual/contact-link/contacts")
+def visual_contact_link_contacts() -> dict:
+    # Only existing local contacts, never federated Cloud mirrors. Read-only.
+    items = contacts.list_contacts(limit=100)
+    return {"items": [{"id": row["id"], "display_name": row["display_name"]}
+                      for row in items], "automatic_contact_creation": False}
+
+
+@router.post("/visual/contact-link/associate")
+def visual_contact_link_associate(payload: VisualContactAssociation,
+                                  x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _visual_link_call(lambda: tracky_visual_contact_link.associate(**payload.model_dump()))
+
+
+@router.post("/visual/contact-link/revoke")
+def visual_contact_link_revoke(payload: VisualContactRevoke,
+                               x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _visual_link_call(lambda: tracky_visual_contact_link.revoke(consent=payload.consent))
+
+
+@router.get("/visual/contact-link/receipt")
+def visual_contact_link_receipt() -> dict:
+    return tracky_visual_contact_link.local_receipt()
