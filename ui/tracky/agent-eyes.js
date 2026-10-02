@@ -6,7 +6,7 @@
 'use strict';
 const $=id=>document.getElementById(id);
 const BASE='/api/v1/control/onboarding/visual/agent-eyes/';
-let active=false, busy=false, timer=null, pending=false;
+let active=false, busy=false, timer=null, pending=false, armedHere=false;
 
 function visible(){
   return document.visibilityState==='visible' &&
@@ -30,6 +30,7 @@ async function request(route,payload){
 }
 function render(state){
   active=state?.active===true;
+  if(!active)armedHere=false;
   const ready=state?.owner_review_current===true &&
     !state?.model_changed_requires_review && !state?.privacy_engaged;
   const label=$('trackyAgentEyesState');
@@ -42,7 +43,7 @@ function render(state){
   if($('trackyAgentEyesCamera'))$('trackyAgentEyesCamera').disabled=busy||active;
   if($('trackyAgentEyesSamples'))$('trackyAgentEyesSamples').disabled=busy||active;
   if(active){
-    details('Owner-supervised observations: '+state.completed_observations+'/'+
+    details((armedHere?'Owner-supervised':'Another local owner view has')+' observations: '+state.completed_observations+'/'+
       state.requested_observations+'. No recording or identity recognition. Leave this view to stop.');
   }else if(state?.model_changed_requires_review){
     details('Installed detector changed: repeat the native test, privacy check and owner review in Agent Chat.');
@@ -63,7 +64,7 @@ async function refresh(){
     render(state);
     // Passive status never renews permission. A heartbeat comes ONLY
     // from an open, visible Tracky owner view while its session is active.
-    if(active){
+    if(active&&armedHere){
       if(!visible()){
         await stop();
       }else{
@@ -93,6 +94,7 @@ async function start(){
       camera_index:camera,sample_count:samples,interval_seconds:5,
     });
     $('trackyAgentEyesConsent').checked=false;
+    armedHere=state.active===true;
     render(state);
   }catch(error){details('Agent Eyes could not start: '+String(error.message));}
   finally{busy=false;}
@@ -114,11 +116,12 @@ function init(){
   $('trackyAgentEyesStop').addEventListener('click',()=>{void stop();});
   $('trackyAgentEyesRefresh').addEventListener('click',()=>{void refresh();});
   document.addEventListener('visibilitychange',()=>{
-    if(document.visibilityState==='hidden'&&active)void stop();
+    if(document.visibilityState==='hidden'&&active&&armedHere)void stop();
   });
   window.addEventListener('pagehide',()=>{
-    if(active){
+    if(active&&armedHere){
       active=false;
+      armedHere=false;
       void fetch(BASE+'stop',{
         method:'POST',credentials:'same-origin',keepalive:true,
         headers:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/json'},
@@ -128,7 +131,7 @@ function init(){
     if(timer){clearInterval(timer);timer=null;}
   });
   timer=window.setInterval(()=>{
-    if(active&&!visible())void stop();
+    if(active&&armedHere&&!visible())void stop();
     else if(visible())void refresh();
   },2500);
   void refresh();
