@@ -13,7 +13,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 
 from ..database import db
-from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_automation, tracky_federated_query, tracky_federated_world, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_release_hardening, tracky_site_topology, tracky_sync_visibility, vp3_os
+from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_automation, tracky_federated_query, tracky_federated_world, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_release_hardening, tracky_site_topology, tracky_sync_visibility, tracky_visual_contact_link, vp3_os
 from .https_bridge_session import load_https_session
 from .remote_identity import remote_identity_metadata
 
@@ -978,6 +978,9 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
         if federation_ready
         else None
     )
+    # Opted-in semantic status only. No raw local receipt, image, contact
+    # or participant identifier may enter the authenticated site transport.
+    visual_owner_projection = tracky_visual_contact_link.cloud_projection()
     federated_automation_projection = (
         tracky_federated_automation.cloud_projection()
         if federation_ready
@@ -1033,6 +1036,8 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
                 "federated_automation_protocol": tracky_federated_automation.PROTOCOL,
             },
             "health": {
+                **({"visual_owner_association": visual_owner_projection}
+                   if visual_owner_projection is not None else {}),
                 "runtime": "healthy",
                 "camera": "healthy" if camera["ready"] else ("available" if camera["present"] else "unavailable"),
                 "world_state": "fresh" if context else "empty",
@@ -1097,6 +1102,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "context_observed_at": context_observed_at or _now_iso(),
         },
         "event_ids": event_ids,
+        "visual_owner_projection": visual_owner_projection,
         "max_sequence": max_sequence,
         "cursor": cursor,
         "previous_cursor": str(sync_row["sync_cursor"] or "") if sync_row else "",
@@ -1216,6 +1222,9 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
     last_sequence = int(body.get("last_sequence") or package["max_sequence"])
     cursor = str(body.get("cursor") or package["cursor"])
     _record_sync_success(last_sequence, cursor, len(package["event_ids"]))
+    # Successful authenticated site delivery is NOT independent face verification.
+    if package["visual_owner_projection"] is not None:
+        tracky_visual_contact_link.mark_cloud_delivery(package["visual_owner_projection"])
     return {
         "ok": True,
         "protocol": PHYSICAL_CONTEXT_PROTOCOL,
