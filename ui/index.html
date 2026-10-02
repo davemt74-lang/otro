@@ -211,6 +211,19 @@
         <p id="onboardVisualCloudState" class="onboard-package-state" role="status" aria-live="polite">Off by default; no identity or biometric data sent.</p>
       </div>
     </div>
+        <div class="onboard-step" id="onboardVisualVerify">
+      <div class="onboard-step-head"><span>OPTIONAL LOCAL SELF-CHECK</span></div>
+      <p class="onboard-agent-line">After creating your own three-angle profile, compare one new local camera frame with your saved samples. Results remain in this browser and are only a similarity indication—not identity verification, liveness proof, contact confirmation, a login method, or automatic tracking. This uses the same pinned HTTPS face model as enrollment; offline model packaging remains a separate gate.</p>
+      <label class="onboard-visual-consent"><input id="onboardVisualVerifyConsent" type="checkbox"><span>I authorize one new camera frame to be compared locally with my own saved browser profile. Nothing is uploaded or saved.</span></label>
+      <div class="onboard-actions">
+        <button class="onboard-minor" id="onboardVisualVerifyStart" type="button">Check my local self-profile</button>
+        <button class="onboard-minor" id="onboardVisualVerifyStop" type="button" hidden>Stop this one-frame check</button>
+      </div>
+      <p class="onboard-package-state" id="onboardVisualVerifyState" role="status" aria-live="polite">Inactive · no camera is active.</p>
+      <div class="onboard-visual-capture" id="onboardVisualVerifyCapture" hidden>
+        <video id="onboardVisualVerifyVideo" playsinline autoplay muted aria-label="Private one-frame local self-profile check preview"></video>
+      </div>
+    </div>
         <div id="onboardVisualCapture" class="onboard-visual-capture" hidden>
       <video id="onboardVisualVideo" playsinline muted autoplay aria-label="Local visual enrollment camera preview"></video>
       <div id="onboardVisualProgress" role="status" aria-live="polite">Preparing local enrollment…</div>
@@ -800,6 +813,7 @@
   <script src="/assets/chat-enhancements.js" defer></script>
 <script src="/assets/chat-onboarding.js" defer></script>
   <script type="module" src="/assets/tracky/owner-visual.js"></script>
+  <script type="module" src="/assets/tracky/owner-self-verify.js"></script>
   <script type="module" src="/assets/tracky/owner-contact-link.js"></script>
   <script type="module" src="/assets/tracky/eyes-runtime.js"></script>
   <script src="/assets/tracky/native-camera.js" defer></script>
