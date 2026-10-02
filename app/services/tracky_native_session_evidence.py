@@ -24,7 +24,7 @@ _TERMINAL = frozenset({"completed", "stopped", "failed", "interrupted"})
 _REASONS = frozenset({
     "completed", "owner_stopped", "stopped_or_privacy", "privacy_engaged",
     "owner_presence_expired", "time_limit", "observation_unavailable",
-    "startup_failed", "interrupted_by_restart", "unknown",
+    "startup_failed", "interrupted_by_restart", "acceptance_revoked", "unknown",
 })
 
 
