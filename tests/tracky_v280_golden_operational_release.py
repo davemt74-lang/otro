@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v280-release-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"]=data_dir
     os.environ["VP3_OS_HARDWARE_ADAPTER"]="disabled"
 
-    from app.database import db, initialize_database
+    from app.database import db, initialize_database, migration_files
     from app.services import (
         tracky_federation_governed_operations,
         tracky_federation_policy,
@@ -39,7 +39,9 @@ with tempfile.TemporaryDirectory(prefix="tracky-v280-release-") as data_dir:
     initialize_database()
     with db() as connection:
         versions=[int(row["version"]) for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
-    assert versions==list(range(1,61))
+    declared = [1] + [version for version, _ in migration_files()]
+    assert declared == list(range(1, declared[-1] + 1))
+    assert versions == declared
 
     for site_id,label in ((HOME,"Home"),(OFFICE,"Office")):
         tracky_site_topology.register_site(site_id=site_id,label=label)
