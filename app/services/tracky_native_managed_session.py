@@ -124,6 +124,8 @@ def _cancel(reason: str) -> None:
             _STATE["cancel_reason"] = reason
             _STATE["phase"] = "stopping"
             _STOP.set()
+    from . import tracky_agent_eyes_scene as scene
+    scene.cancel()
 
 
 def heartbeat() -> dict[str, Any]:
@@ -150,6 +152,8 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
                 or _STOP.is_set()):
             raise tracky.TrackyPhysicalError("Session has no authorized observation.", 403)
         index = _CAMERA_INDEX
+        scene_key = _STATE.get("scene_binding")
+        scene_test = _STATE.get("scene_test") is True
     # A detector update or revoked owner review must immediately invalidate
     # observations even after the supervised session was initially armed.
     if not cert.status().get("owner_accepted_current_run"):
@@ -159,7 +163,15 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
     # checks revocation before capture, inference and result acceptance.
     cpu_at = time.thread_time()
     try:
-        result = native._observe(index, _STOP)
+        if scene_key:
+            from . import tracky_agent_eyes_scene as scene
+            selected = scene.binding(test=scene_test)
+            if selected["binding"] != scene_key:
+                raise scene.SceneError("Scene review changed.", 409)
+            scene.check_binding(selected)
+            result = native._observe(index, _STOP, scene_binding=selected)
+        else:
+            result = native._observe(index, _STOP)
     finally:
         used = max(0.0, time.thread_time() - cpu_at)
         with _LOCK:
@@ -184,6 +196,7 @@ def _provider(request: dict[str, Any]) -> dict[str, Any]:
     if _STOP.is_set() or native._privacy():
         raise tracky.TrackyPhysicalError("Session stopped or privacy engaged.", 403)
     return {
+        **({"scene_observation": result["scene_observation"]} if scene_key else {}),
         "summary": result["summary"],
         "confidence": 0.0,  # Haar regions do not provide calibrated confidence.
         "face_count_category": ({0: "none", 1: "one", 2: "multiple"}.get(
@@ -308,7 +321,8 @@ def start(*, consent: bool, scope: str, camera_index: int,
           sample_count: int = 3, interval_seconds: int = MIN_INTERVAL_SECONDS,
           owner_surface: str = "native_supervised",
           max_session_seconds: int = MAX_SECONDS,
-          max_cpu_seconds: int = AGENT_CPU_OPTIONS[-1]) -> dict[str, Any]:
+          max_cpu_seconds: int = AGENT_CPU_OPTIONS[-1],
+          include_scene: bool = False, scene_test: bool = False) -> dict[str, Any]:
     global _WORKER, _CAMERA_INDEX, _LAST_HEARTBEAT, _SESSION_STARTED, _ATTEMPT_STARTED, _WATCHDOG
     if consent is not True or scope != SCOPE:
         raise ManagedSessionError("Explicit fresh owner consent is required.", 403)
@@ -316,6 +330,17 @@ def start(*, consent: bool, scope: str, camera_index: int,
         raise ManagedSessionError("Unsupported owner session surface.", 422)
     if type(camera_index) is not int or camera_index not in native.CAMERA_INDICES:
         raise ManagedSessionError("Select a supported camera.", 422)
+    scene_config = None
+    if include_scene:
+        if owner_surface != "agent_eyes" or type(scene_test) is not bool or (scene_test and sample_count != 1):
+            raise ManagedSessionError("Scene test requires one owner Agent Eyes observation.", 422)
+        from . import tracky_agent_eyes_scene as scene
+        try:
+            scene_config = scene.binding(test=scene_test)
+        except scene.SceneError as exc:
+            raise ManagedSessionError(str(exc), exc.status_code) from exc
+    elif scene_test:
+        raise ManagedSessionError("Scene test must include local scene inference.", 422)
     extended = (owner_surface == "agent_eyes"
                 and type(max_session_seconds) is int
                 and max_session_seconds in AGENT_EXTENDED_WALL_OPTIONS)
@@ -381,6 +406,8 @@ def start(*, consent: bool, scope: str, camera_index: int,
             "cpu_limit_seconds": max_cpu_seconds,
             "cpu_used_seconds": 0.0,
             "extended_session": extended,
+            "scene_binding": scene_config["binding"] if scene_config else "",
+            "scene_test": scene_test,
         })
         run_id = ""
         try:

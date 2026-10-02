@@ -1556,6 +1556,13 @@ def active_perception(
                 and isinstance(category, str)
                 and category in {"none", "one", "multiple", "unknown"}):
             result["provider_result"]["face_count_category"] = category
+        if provider_name == "homeserver-owner-agent-eyes" and "scene_observation" in provider_result:
+            from . import tracky_agent_eyes_scene as scene
+            candidate = provider_result["scene_observation"]
+            scene.observation(candidate, approved=False)
+            # Only validated enums + local review binding enter this ledger.
+            # No semantic_projection ingestion or Cloud export in section C.
+            result["provider_result"]["scene_observation"] = candidate
         _set_request_status(request_id, "completed", result=result, completed=True)
     except TrackyPhysicalError as exc:
         reason = "provider_timeout" if exc.status_code == 504 else "provider_failed"

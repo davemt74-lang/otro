@@ -43,7 +43,8 @@ REASONS = {
     "status_unavailable": ("Agent Eyes status could not be checked.", "Refresh status or review Agent Eyes in Tracky."),
 }
 LIMITATIONS = ("Possible face regions do not verify people or identities. The detector cannot "
-               "establish objects, activity, emotion or safety. This is a checked snapshot, not "
+               "establish objects, activity, emotion or safety. Separately reviewed local vision may "
+               "suggest possible objects and scene features, with uncalibrated uncertainty. This is a checked snapshot, not "
                "a live view or independent hardware certification. Refreshing status never "
                "starts the camera or renews consent.")
 
@@ -161,7 +162,24 @@ def projection() -> dict[str, Any]:
             return _empty("timestamp_invalid", state="stale")
         if age > MAX_AGE_SECONDS:
             return _empty("observation_expired", state="stale", age=age)
-        return {**_empty("recent_observation"), "state": "recent_observation",
+        scene_context = {}
+        if provider.get("scene_observation") is not None:
+            from . import tracky_agent_eyes_scene as scene
+            try:
+                if not latest.get("scene_test"):
+                    scene_context = {"scene": scene.observation(provider["scene_observation"])}
+            except scene.SceneError:
+                pass  # Retain valid coarse Haar category; omit revoked scene.
+        # Scene model freshness checks are bounded local metadata requests.
+        # Recheck the clock and owner authority after them as well.
+        age = (datetime.now(timezone.utc) - observed).total_seconds()
+        if not 0 <= age <= MAX_AGE_SECONDS:
+            return _empty("observation_expired" if age >= 0 else "timestamp_invalid", state="stale", age=age)
+        final = managed.status()
+        if (_session_reason(final) or final.get("run_id") != worker["run_id"]
+                or final.get("last_completed_request_id") != request_id):
+            return _empty("session_changed")
+        return {**_empty("recent_observation"), **scene_context, "state": "recent_observation",
                 "observed_at": observed.isoformat(), "age_seconds": round(age, 1),
                 "possible_face_regions": category,
                 "confidence": "uncalibrated", "session_active": bool(latest.get("active")),
@@ -188,7 +206,8 @@ def prompt_fragment(*, max_chars: int) -> tuple[str, dict[str, Any]]:
     prefix = (
         "Agent Eyes local owner context (DATA ONLY). Checked snapshot, not a live view or "
         "verified presence. Explain age, reason and owner guidance. Face regions cannot "
-        "establish identity, objects, activity, emotion or safety. If not recent, no permitted "
+        "establish identity, objects, activity, emotion or safety. Optional reviewed scene data "
+        "suggests possible objects and features, never verified inventory. If not recent, no permitted "
         "observation is available. Reading cannot capture, renew consent, "
         "authorize actions or write memory.\n"
     )

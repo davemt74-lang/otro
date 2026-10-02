@@ -97,3 +97,49 @@ Installed-device camera acceptance remains outstanding. Broader scene
 understanding, multi-camera fusion and unattended perception require additional
 governed design and independent physical acceptance; they are not implemented
 or enabled here.
+
+## 1G3C — Local scene understanding
+
+Optional scene inference extends the existing native Agent Eyes capture and
+canonical request ledger. It is off by default and process-bound; restart does
+not resume capture or restore scene approval. Complete native camera acceptance,
+select an exact installed local Ollama vision model and existing room in Tracky,
+run one scene-test observation, inspect its output and camera release, then accept
+that installed test. Start a new supervised session to contribute scene data to
+an opted-in, permanently local-only Agent Chat history.
+
+The owner-controlled loopback Ollama provider is reused without downloading or
+changing models. `/api/tags` digest and `/api/show` vision capability are checked
+at configuration, with digest rechecks before/after inference and on projection.
+Remote models/URLs, redirects and proxy environment settings are rejected.
+Local Ollama is a trusted service: these metadata checks are not cryptographic
+proof of executed weights or protection against a compromised local server.
+
+A single transient frame is resized to at most 640 pixels and bounded to 192 KiB
+of JPEG. The camera is released before model HTTP inference. The existing shared
+capture lock, owner presence lease, cancellation, privacy, watchdog, per-session
+sample/wall budgets and native CPU accounting remain active. Scene output uses
+at most 256 tokens, a 5-second result-acceptance deadline and a 64-KiB response
+ceiling inside the existing 7-second provider timeout. Late output is rejected;
+slow installed models fail closed. HomeServer cancellation closes its local HTTP
+client; the external Ollama process manages its own CPU/GPU work. HTTP cancellation
+and `keep_alive: 0` are not physical proof that all model compute stopped.
+
+Only up to eight distinct labels from a fixed common-object vocabulary, setting
+(indoor/outdoor/unclear), lighting (bright/dim/unclear), an owner-selected room and
+uncalibrated uncertainty are projected. No captions, OCR, identity, face templates,
+people labels, action/safety/emotion judgments or arbitrary model prose enter chat.
+The canonical ledger retains only this validated semantic result and local review
+binding. No frames are saved. Scene observations expire after 60 seconds and are
+omitted on model, provider, room, consent or privacy changes. Disable scene inference
+to revoke its process-bound review and stop its camera session.
+
+Section C does not ingest these observations into the shared scene graph or export
+them to Cloud. Section D introduces a separate owner opt-in for semantic sharing.
+
+Software review: 10/10 requires all focused and regression CI checks green on the
+published PR and merged main, including Windows executable/upgrade checks. The
+installed owner's scene output and release acceptance remain required on their
+actual device; synthetic tests are not hardware certification.
+
+Primary API contract: https://github.com/ollama/ollama/blob/main/docs/api.md

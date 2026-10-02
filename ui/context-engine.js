@@ -165,7 +165,7 @@
           byId('contextAgentEyesGuidance').textContent = 'Refresh status; complete a new supervised observation in Tracky if needed.';
           return;
         }
-        byId('contextAgentEyesEvidence').textContent = `${categories[data.possible_face_regions]} · observed ${Math.ceil(currentAge)}s ago · 60s limit · confidence uncalibrated`;
+        byId('contextAgentEyesEvidence').textContent = `${categories[data.possible_face_regions]}${data.scene && Array.isArray(data.scene.objects) ? ' · possible objects: '+data.scene.objects.join(', ')+' · '+data.scene.setting+' / '+data.scene.lighting : ''} · observed ${Math.ceil(currentAge)}s ago · 60s limit · confidence uncalibrated`;
         eyesAgeTimer = setTimeout(tick, 1000);
       };
       tick();

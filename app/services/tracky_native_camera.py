@@ -103,7 +103,7 @@ def capture_busy() -> bool:
     return _CAMERA_CAPTURE_LOCK.locked()
 
 
-def _observe_exclusive(index: int, cancel: threading.Event) -> dict[str, Any]:
+def _observe_exclusive(index: int, cancel: threading.Event, scene_binding: dict | None = None) -> dict[str, Any]:
     if cancel.is_set() or _privacy():
         raise NativeCameraError("Consent or hardware privacy prevents native capture.", 403)
     try:
@@ -142,7 +142,16 @@ def _observe_exclusive(index: int, cancel: threading.Event) -> dict[str, Any]:
                                                minNeighbors=5, minSize=(60, 60))
         if cancel.is_set() or _privacy():
             raise NativeCameraError("Privacy or consent changed during inference.", 403)
+        scene_result = None
+        if scene_binding is not None:
+            # Release the camera before network inference; shared capture lock
+            # still excludes another native driver request until this returns.
+            capture.release()
+            capture = None
+            from . import tracky_agent_eyes_scene as scene
+            scene_result = scene.infer(frame, cv2, cancel, scene_binding)
         return {
+            **({"scene_observation": scene_result} if scene_result is not None else {}),
             "summary": "Owner-approved native camera inference completed; "
                        + ("no" if len(rectangles) == 0 else "one" if len(rectangles) == 1 else "multiple")
                        + " possible face regions detected.",
@@ -160,11 +169,12 @@ def _observe_exclusive(index: int, cancel: threading.Event) -> dict[str, Any]:
             released = True
 
 
-def _observe(index: int, cancel: threading.Event) -> dict[str, Any]:
+def _observe(index: int, cancel: threading.Event, scene_binding: dict | None = None) -> dict[str, Any]:
     if not _CAMERA_CAPTURE_LOCK.acquire(blocking=False):
         raise NativeCameraError('A native camera capture is already in progress.', 409)
     try:
-        return _observe_exclusive(index, cancel)
+        return (_observe_exclusive(index, cancel, scene_binding=scene_binding)
+                if scene_binding is not None else _observe_exclusive(index, cancel))
     finally:
         _CAMERA_CAPTURE_LOCK.release()
 

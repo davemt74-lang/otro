@@ -191,7 +191,7 @@ async function start(){
   const wall=Number($('trackyAgentEyesWall')?.value);
   const cpu=Number($('trackyAgentEyesCPU')?.value);
   const extended=[300,600].includes(wall);
-  if(![0,1,2].includes(camera)||![3,6,9,12,24,30,48,60].includes(samples)
+  if(![0,1,2].includes(camera)||![1,3,6,9,12,24,30,48,60].includes(samples)
      ||![5,10,15,20,30].includes(interval)||![60,120,300,600].includes(wall)
      ||![4,8,12,20,30].includes(cpu))return;
   if((extended&&!extendedEligible)||
@@ -212,6 +212,7 @@ async function start(){
       consent:true,scope:'owner-agent-eyes-supervised-live.v1',
       camera_index:camera,sample_count:samples,interval_seconds:interval,
       max_session_seconds:wall,max_cpu_seconds:cpu,
+      ...(window.TrackyAgentEyesScene?.options()||{}),
     });
     $('trackyAgentEyesConsent').checked=false;
     armedHere=state.active===true;

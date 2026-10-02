@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from .services import onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_agent_eyes, tracky_agent_eyes_recovery, tracky_agent_eyes_acceptance, tracky_visual_contact_link, tracky_physical_context, contacts
+from .services import providers, onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_agent_eyes, tracky_agent_eyes_recovery, tracky_agent_eyes_acceptance, tracky_visual_contact_link, tracky_physical_context, contacts
 
 router = APIRouter(prefix="/api/v1/control/onboarding", tags=["agent-onboarding"])
 
@@ -333,6 +333,8 @@ class AgentEyesStart(BaseModel):
     interval_seconds: int = Field(default=5, strict=True, ge=5, le=30)
     max_session_seconds: int = Field(default=120, strict=True, ge=60, le=600)
     max_cpu_seconds: int = Field(default=12, strict=True, ge=4, le=30)
+    include_scene: bool = Field(default=False, strict=True)
+    scene_test: bool = Field(default=False, strict=True)
 
 
 @router.get("/visual/agent-eyes/status")
@@ -520,3 +522,54 @@ def visual_contact_cloud_sync(
         "face_recognition_verified": False,
         "cloud_biometric_storage": False,
     }
+
+
+class AgentEyesSceneConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: str = Field(min_length=1, max_length=160)
+    room_id: str = Field(min_length=1, max_length=160)
+    consent: bool = Field(strict=True)
+
+
+class AgentEyesSceneReview(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    consent: bool = Field(strict=True)
+    output_observed: bool = Field(strict=True)
+    release_observed: bool = Field(strict=True)
+
+
+def _scene_call(fn, **kwargs):
+    from .services import tracky_agent_eyes_scene as scene
+    try:
+        return fn(**kwargs)
+    except (scene.SceneError, providers.ProviderError) as exc:
+        raise HTTPException(status_code=getattr(exc, "status_code", 503), detail=str(exc)) from exc
+
+
+@router.get("/visual/agent-eyes/scene/status")
+def agent_eyes_scene_status():
+    from .services import tracky_agent_eyes_scene as scene
+    return scene.status()
+
+
+@router.post("/visual/agent-eyes/scene/configure")
+def agent_eyes_scene_configure(payload: AgentEyesSceneConfig,
+                              x_requested_with: str | None = Header(default=None)):
+    _require_ui(x_requested_with)
+    from .services import tracky_agent_eyes_scene as scene
+    return _scene_call(scene.configure, **payload.model_dump())
+
+
+@router.post("/visual/agent-eyes/scene/accept")
+def agent_eyes_scene_accept(payload: AgentEyesSceneReview,
+                           x_requested_with: str | None = Header(default=None)):
+    _require_ui(x_requested_with)
+    from .services import tracky_agent_eyes_scene as scene
+    return _scene_call(scene.accept, **payload.model_dump())
+
+
+@router.post("/visual/agent-eyes/scene/disable")
+def agent_eyes_scene_disable(x_requested_with: str | None = Header(default=None)):
+    _require_ui(x_requested_with)
+    from .services import tracky_agent_eyes_scene as scene
+    return scene.disable()
