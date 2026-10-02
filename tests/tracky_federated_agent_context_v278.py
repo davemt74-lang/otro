@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
     os.environ["HOMESERVER_DATA_DIR"] = data_dir
     os.environ["VP3_OS_HARDWARE_ADAPTER"] = "disabled"
 
-    from app.database import db, initialize_database  # noqa: E402
+    from app.database import db, initialize_database, migration_files  # noqa: E402
     from app.services import (  # noqa: E402
         federated_data,
         tracky_federated_agent_context,
@@ -43,7 +43,9 @@ with tempfile.TemporaryDirectory(prefix="tracky-v278-s6-") as data_dir:
         versions = [int(row["version"]) for row in connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()]
-        assert versions == list(range(1, 61))
+        declared = [1] + [version for version, _ in migration_files()]
+        assert declared == list(range(1, declared[-1] + 1))
+        assert versions == declared
         for table in (
             "tracky_federated_agent_context",
             "tracky_federated_agent_context_history",
