@@ -370,7 +370,12 @@ def start(*, consent: bool, scope: str, camera_index: int,
                     "timeout_seconds": native.CAPTURE_SECONDS,
                 }, replace=False,
             )
-            run_id = evidence.begin(sample_count=sample_count, owner_surface=owner_surface)
+            review_id = (str((cert.status().get("latest_owner_review") or {}).get("id") or "")
+                         if owner_surface == "agent_eyes" else "")
+            model_digest = (str(native.model_preflight().get("model_sha256") or "")
+                            if owner_surface == "agent_eyes" else "")
+            run_id = evidence.begin(sample_count=sample_count, owner_surface=owner_surface,
+                                    owner_review_id=review_id, model_sha256=model_digest)
             _STATE["run_id"] = run_id
             _WORKER = threading.Thread(
                 target=_run, args=(sample_count, interval_seconds, time.monotonic(), run_id,

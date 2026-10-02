@@ -119,6 +119,23 @@
             <button class="button secondary" id="trackyAgentEyesStop" type="button" hidden>Stop camera</button>
             <button class="button secondary" id="trackyAgentEyesRefresh" type="button">Refresh status</button>
           </div>
+          <div class="panel" id="trackyAgentEyesAcceptancePanel" style="margin-top:12px">
+            <div class="panel-head"><div><p class="eyebrow">INSTALLED DEVICE</p><h4>Owner acceptance exercise</h4></div></div>
+            <p class="muted">Complete separate supervised sessions for owner Stop, engaging your device's privacy switch, and letting the 15-second presence lease expire. Confirm camera release on the actual device after each exercise. These reports do not certify physical disconnection or enable unattended tracking.</p>
+            <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
+              <button class="button secondary" id="trackyAgentEyesTestLease" type="button" disabled>Test presence timeout</button>
+              <label for="trackyAgentEyesAcceptanceStep">Report stage
+                <select id="trackyAgentEyesAcceptanceStep">
+                  <option value="owner_stop">Owner Stop</option>
+                  <option value="privacy_revocation">Privacy revocation</option>
+                  <option value="presence_lease">Presence lease expiry</option>
+                </select>
+              </label>
+            </div>
+            <label class="onboard-visual-consent"><input id="trackyAgentEyesAcceptanceObserved" type="checkbox"><span>I personally inspected the installed device after this completed session, and observed camera capture stop. This is an owner report, not independent hardware proof.</span></label>
+            <button class="button secondary" id="trackyAgentEyesAcceptanceRecord" type="button" disabled>Record inspected exercise</button>
+            <p class="muted" id="trackyAgentEyesAcceptanceStatus" role="status" aria-live="polite">Current-install acceptance exercises have not yet been recorded.</p>
+          </div>
           <p class="muted" id="trackyAgentEyesBudgetStatus" role="status">Owner-configured budgets; no unattended operation.</p>
           <div id="trackyAgentEyesRecoveryPanel" hidden role="region" aria-label="Agent Eyes recovery" style="margin-top:12px">
             <p id="trackyAgentEyesRecoveryMessage" class="muted" role="status">A previous Agent Eyes session requires owner inspection.</p>

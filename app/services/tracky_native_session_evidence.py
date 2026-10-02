@@ -117,9 +117,15 @@ def recover_prior(*, worker_active: bool = False) -> dict[str, Any]:
         return _public(row)
 
 
-def begin(*, sample_count: int, owner_surface: str = "native_supervised") -> str:
+def begin(*, sample_count: int, owner_surface: str = "native_supervised",
+          owner_review_id: str = "", model_sha256: str = "") -> str:
     if owner_surface not in {"native_supervised", "agent_eyes"}:
         raise ValueError("Invalid owner surface")
+    if (type(owner_review_id) is not str or len(owner_review_id) > 48
+            or type(model_sha256) is not str
+            or (model_sha256 and (len(model_sha256) != 64
+                or any(c not in "0123456789abcdef" for c in model_sha256)))):
+        raise ValueError("Invalid reviewed installed-model binding")
     if type(sample_count) is not int or not 1 <= sample_count <= 12:
         raise ValueError("Invalid sample limit")
     with _LOCK:
@@ -131,6 +137,8 @@ def begin(*, sample_count: int, owner_surface: str = "native_supervised") -> str
             "run_id": run_id, "boot_id": _BOOT, "phase": "running",
             "reason": "owner_approved", "requested_samples": sample_count,
             "owner_surface": owner_surface,
+            "owner_review_id": owner_review_id,
+            "model_sha256": model_sha256,
             "completed_samples": 0, "started_at": _now(), "finished_at": "",
         }
         system_state._write_setting(KEY, row)
