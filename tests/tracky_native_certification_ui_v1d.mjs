@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const html=readFileSync('ui/index.html','utf8');
+const js=readFileSync('ui/tracky/native-camera.js','utf8');
+assert.match(html,/id="onboardNativeReview"/);
+assert.match(html,/id="onboardNativeCertState"/);
+assert.match(js,/call\('certification'\)/);
+assert.match(js,/call\('owner-review'/);
+assert.match(js,/cert\.review_ready/);
+assert.match(js,/independent physical certification pending/i);
+assert.doesNotMatch(js,/hardware_certified\s*[:=]\s*true/);
+console.log('TRACKY_NATIVE_CERTIFICATION_UI_V1D: guided approval and honest state PASS');
