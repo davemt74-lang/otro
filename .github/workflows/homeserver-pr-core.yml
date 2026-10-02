@@ -51,6 +51,8 @@ jobs:
           python tests/tracky_native_live_diagnosis_v1c.py
           python tests/tracky_native_certification_v1d.py
           python tests/tracky_native_managed_session_v1e1.py
+          python tests/tracky_native_session_safety_v1e2.py
+          node tests/tracky_native_session_safety_ui_v1e2.mjs
           node tests/tracky_native_managed_ui_v1e1.mjs
           node tests/tracky_native_certification_ui_v1d.mjs
           node tests/tracky_native_live_diagnosis_ui_v1c.mjs
