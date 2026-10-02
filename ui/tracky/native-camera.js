@@ -23,7 +23,7 @@ async function call(path,body){
 }
 async function refresh(){
   const current=await call('diagnose');
-  const ready=Boolean(current.model?.installed&&current.model?.model_present);
+  const ready=Boolean(current.model?.installed&&current.model?.model_present&&current.model?.model_integrity_verified);
   const recovery=current.issues?.map(issue=>issue.code).join(', ')||'';
   const cert=await call('certification');
   if($('onboardNativeReview')) $('onboardNativeReview').hidden=!cert.review_ready||cert.owner_accepted_current_run;
@@ -32,7 +32,7 @@ async function refresh(){
     : 'Independent hardware certification pending · '+(cert.review_ready?'Owner review available':'Complete camera and privacy steps first');
   label(current.running?'Native camera test running':ready?'Native detector installed · not certified':'Local detector unavailable');
   if(!running){
-    if(!ready)say('Runtime or model missing. Install the signed HomeServer upgrade, then rerun diagnosis.');
+    if(!ready)say('Runtime or model missing. Install the verified HomeServer upgrade, then rerun diagnosis.');
     else if(current.last_test_status==='native_detector_completed')
       say('Previous local test completed; on-device owner review is still required for hardware certification.');
     else say(recovery
