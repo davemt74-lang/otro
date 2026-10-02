@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const js=readFileSync('ui/tracky/native-camera.js','utf8');
+assert.match(js,/call\('session\/heartbeat'/);
+assert.match(js,/visibilitychange/);
+assert.match(js,/homeserver:onboarding-hidden/);
+assert.match(js,/keepalive:true/);
+assert.match(js,/session\/stop/);
+assert.match(js,/onboardNativeManagedConsent'\)\.checked=false/);
+assert.doesNotMatch(js,/setInterval\([^)]*session\/start/);
+console.log('TRACKY_NATIVE_SESSION_SAFETY_UI_V1E2: explicit heartbeat, visibility revocation and fresh consent PASS');
