@@ -21,6 +21,12 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile Python
         run: python -m compileall app desktop tests
+      - name: Interactive capture ownership and Stop acceptance
+        run: |
+          node tests/capture-ownership-section1.mjs
+          python tests/chat_dictation_ui_contract.py
+          python tests/chat_enhancements_ui_contract.py
+          node --check ui/transcription-workspace.js
       - name: Validate control center JavaScript
         run: node --check ui/app.js
       - name: Validate Tracky overview JavaScript

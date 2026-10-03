@@ -17,6 +17,8 @@
   let mode = null;
   let transcriptionSession = false;
   let generation = 0;
+  let captureTicket = null;
+  let transcribeController = null;
   let recognition = null;
   let recorder = null;
   let stream = null;
@@ -178,8 +180,10 @@
     active = false;
     mode = null;
     generation += 1;
+    transcribeController?.abort();transcribeController=null;
     stopCapture();
     stopBrowserRecognition();
+    captureTicket?.release();captureTicket=null;
     setState('idle');
     if (message) flash(message);
     if (wasSession) window.dispatchEvent(new CustomEvent('homeserver:transcription-capture-stopped'));
@@ -309,14 +313,17 @@
     if (!active || runGeneration !== generation) return;
     const formData = new FormData();
     formData.append('file', wav, 'dictation.wav');
+    const controller=new AbortController();transcribeController=controller;
     const response = await fetch(TRANSCRIBE_ENDPOINT, {
       method: 'POST',
       body: formData,
       cache: 'no-store',
       credentials: 'same-origin',
+      signal: controller.signal,
     });
     if (!response.ok) throw await responseError(response, 'Local Whisper dictation failed.');
     const payload = await response.json();
+    if(transcribeController===controller)transcribeController=null;
     if (!active || runGeneration !== generation) return;
     const transcript = String(payload.text || '').trim();
     if (!transcript) {
@@ -369,12 +376,13 @@
     voiceStarted = false;
 
     try {
-      stream = await navigator.mediaDevices.getUserMedia(localCaptureConstraints());
-      if (!active || runGeneration !== generation) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
+      const acquired = await navigator.mediaDevices.getUserMedia(localCaptureConstraints());
+      if (!active || runGeneration !== generation || (captureTicket && !captureTicket.isCurrent())) {
+        acquired.getTracks().forEach(track => track.stop());
         return;
       }
+      stream = acquired;
+      captureTicket?.ownStream(acquired);
       audioContext = new Context();
       const source = audioContext.createMediaStreamSource(stream);
       analyser = audioContext.createAnalyser();
@@ -385,9 +393,10 @@
       const startedAt = performance.now();
       let lastVoiceAt = startedAt;
 
-      recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
-      recorder.onerror = () => localFailure(new Error('Local microphone recording failed.'));
+      recorder.ondataavailable = event => { if (active&&runGeneration===generation&&event.data?.size) chunks.push(event.data); };
+      recorder.onerror = () => {if(active&&runGeneration===generation)localFailure(new Error('Local microphone recording failed.'));};
       recorder.onstop = () => {
+        if(!active||runGeneration!==generation)return;
         const finishedChunks = chunks.slice();
         const mimeType = recorder?.mimeType || finishedChunks[0]?.type || 'audio/webm';
         const hadSpeech = voiceStarted;
@@ -407,7 +416,7 @@
           stopDictation(transcriptionSession ? 'Listening paused after silence.' : 'No speech detected. Nothing was added.');
           return;
         }
-        transcribeLocal(new Blob(finishedChunks, {type: mimeType}), runGeneration).catch(localFailure);
+        transcribeLocal(new Blob(finishedChunks, {type: mimeType}), runGeneration).catch(error=>{if(active&&runGeneration===generation)localFailure(error);});
       };
       recorder.start(250);
       setState('listening');
@@ -428,8 +437,8 @@
         }
       }, 100);
     } catch (error) {
-      stopCapture();
       if (!active || runGeneration !== generation) return;
+      stopCapture();
       localFailure(error);
     }
   }
@@ -443,7 +452,7 @@
       return;
     }
 
-    recognition = new Recognition();
+    const current=new Recognition();recognition=current;const runGeneration=generation;
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = navigator.language || document.documentElement.lang || 'en-US';
@@ -451,6 +460,7 @@
     setState('listening');
 
     recognition.onresult = event => {
+      if(!active||recognition!==current||runGeneration!==generation)return;
       let finalText = '';
       for (let i = 0; i < event.results.length; i += 1) {
         if (event.results[i].isFinal) finalText += event.results[i][0]?.transcript || '';
@@ -462,19 +472,21 @@
         recognition.onend=null;
         try { recognition.stop(); } catch (_) {}
         recognition=null;
-        setTimeout(() => { if(active && transcriptionSession)startBrowserDictation(); },350);
+        setTimeout(() => { if(active && transcriptionSession && runGeneration===generation && mode==='browser')startBrowserDictation(); },350);
         return;
       }
       const inserted = insertTranscript(text);
       stopDictation(inserted ? 'Dictation added. Review or edit it, then send when ready.' : '');
     };
     recognition.onerror = event => {
+      if(!active||recognition!==current||runGeneration!==generation)return;
       const denied = event.error === 'not-allowed' || event.error === 'service-not-allowed';
       stopDictation('');
       if (denied) flash('Microphone access was not allowed. Enable microphone permission to dictate.', true);
       else if (event.error !== 'aborted') flash(`Dictation error: ${event.error || 'speech service error'}.`, true);
     };
     recognition.onend = () => {
+      if(recognition!==current||runGeneration!==generation)return;
       recognition = null;
       if (active && transcriptionSession) stopDictation('Listening paused after silence.');
       else if (active) stopDictation('No speech detected. Nothing was added.');
@@ -496,6 +508,8 @@
 
     captureSelection();
     const startGeneration = ++generation;
+    const lease=window.StonefellowVoiceLeaseV122;
+    if(lease){captureTicket=lease.acquireCapture('dictation');if(!captureTicket){flash('Another browser surface is using voice capture. Stop it there first.',true);return;}}
     starting = true;
     setState('checking');
     const settingsController = window.HomeServerVoiceSettings;
@@ -509,14 +523,12 @@
     const browserReady = Boolean(RecognitionCtor());
 
     if (strictLocalEnabled() && !localReady) {
-      starting = false;
-      setState('idle');
+      stopDictation('');
       flash('Strict Local Dictation requires healthy Whisper STT plus local microphone capture support.', true);
       return;
     }
     if (!localReady && !browserReady) {
-      starting = false;
-      setState('idle');
+      stopDictation('');
       flash('No speech-to-text path is available. Install Whisper STT or use a browser with speech recognition.', true);
       return;
     }
@@ -599,6 +611,8 @@
   });
 
   window.addEventListener('beforeunload', () => stopDictation(''));
+  window.addEventListener('pagehide', () => stopDictation(''));
+  window.addEventListener('stonefellow:voice-lease-lost', () => {if(active||starting)stopDictation('Voice capture moved to another browser surface.');});
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
