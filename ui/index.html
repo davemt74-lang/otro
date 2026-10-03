@@ -160,6 +160,23 @@
             <button class="button secondary" id="trackyAgentEyesAcceptanceRecord" type="button" disabled>Record inspected exercise</button>
             <p class="muted" id="trackyAgentEyesAcceptanceStatus" role="status" aria-live="polite">Current-install acceptance exercises have not yet been recorded.</p>
           </div>
+          <div class="panel" id="trackyReleaseAcceptancePanel" style="margin-top:12px">
+            <div class="panel-head"><div><p class="eyebrow">INSTALLED ACCEPTANCE</p><h4>Agent Eyes checklist</h4></div></div>
+            <p class="muted">Use the existing camera/model and Stop/privacy/presence controls above. These checks record your inspected installation with software prerequisites; they do not independently certify hardware. Cloud exercises are optional.</p>
+            <div id="trackyReleaseAcceptanceChecks" role="status" aria-live="polite">Refresh to inspect acceptance prerequisites.</div>
+            <label for="trackyReleaseAcceptanceStage">Exercise to record</label>
+            <select id="trackyReleaseAcceptanceStage">
+              <option value="local_chat">Local Agent Chat</option><option value="cloud_scene">Cloud scene delivery</option><option value="cloud_expiry">Cloud scene expiry</option><option value="cloud_revocation">Cloud sharing revocation</option><option value="restart_begin">Save restart checkpoint</option><option value="restart_reset">Record restart consent reset</option><option value="disconnect_seen">Record disconnected sync checkpoint</option><option value="reconnect_seen">Record successful reconnect</option>
+            </select>
+            <p id="trackyReleaseAcceptanceGuide" class="muted"></p>
+            <label class="onboard-visual-consent"><input id="trackyReleaseAcceptanceObserved" type="checkbox"><span>I inspected the selected exercise on this installation and authorize recording my report. For local chat I inspected the currently selected owner conversation.</span></label>
+            <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
+              <button id="trackyReleaseAcceptanceRecord" class="button secondary" type="button" disabled>Record inspected exercise</button>
+              <button id="trackyReleaseAcceptanceRefresh" class="button secondary" type="button">Refresh checklist</button>
+              <a class="button secondary" href="/api/v1/control/onboarding/visual/agent-eyes/release-acceptance/report">Download redacted report</a>
+            </div>
+            <p id="trackyReleaseAcceptanceMessage" role="status" aria-live="polite"></p>
+          </div>
           <p class="muted" id="trackyAgentEyesBudgetStatus" role="status">Owner-configured budgets; no unattended operation.</p>
           <div id="trackyAgentEyesRecoveryPanel" hidden role="region" aria-label="Agent Eyes recovery" style="margin-top:12px">
             <p id="trackyAgentEyesRecoveryMessage" class="muted" role="status">A previous Agent Eyes session requires owner inspection.</p>
@@ -895,6 +912,7 @@
   <script src="/assets/tracky/agent-eyes-shared-scene.js" defer></script>
   <script src="/assets/tracky/agent-eyes-scene.js" defer></script>
   <script src="/assets/tracky/agent-eyes.js" defer></script>
+  <script src="/assets/tracky/agent-eyes-release-acceptance.js" defer></script>
   <script src="/assets/federation-control-center-v280.js" defer></script>
   <script src="/assets/physical-world-dashboard-v280.js" defer></script>
   <script src="/assets/cross-site-presence-v280.js" defer></script>

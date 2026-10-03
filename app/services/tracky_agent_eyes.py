@@ -36,7 +36,9 @@ def status() -> dict[str, Any]:
     recovery_state = recovery.status(worker=worker)
     acceptance_state = acceptance.status(approval=approval, worker=worker,
                                          exposure=exposure)
+    from . import tracky_agent_eyes_release_acceptance as release_acceptance
     return {
+        "release_acceptance": release_acceptance.agent_summary(),
         "contract": CONTRACT,
         "mode": "bounded_owner_supervised_native",
         "active": active,
@@ -143,6 +145,14 @@ def agent_context() -> dict[str, Any]:
         "canonical_request_ledger": True,
         "resource_budget": current["resource_budget"],
         "extended_supervised_eligible": current["extended_supervised_eligible"],
+        "release_acceptance": {
+            "local_owner_exercises_complete": current["release_acceptance"]["local_owner_exercises_complete"],
+            "cloud_owner_exercises_complete": current["release_acceptance"]["cloud_owner_exercises_complete"],
+            "pending_checks": [c["key"] for c in current["release_acceptance"]["checks"] if c["state"] == "pending"],
+            "owner_reported_only": True,
+            "hardware_certified": False,
+            "next_action": "open_installed_acceptance_checklist_in_tracky",
+        },
         "installed_exercise": {
             "complete": current["installed_exercise"]["owner_exercise_complete"],
             "pending_steps": current["installed_exercise"]["pending_steps"],

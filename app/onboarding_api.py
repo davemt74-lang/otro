@@ -597,3 +597,46 @@ def agent_eyes_scene_share(payload: AgentEyesSceneShare,
         return shared.set_sharing(**payload.model_dump())
     except (shared.SharedSceneError, scene.SceneError, providers.ProviderError) as exc:
         raise HTTPException(status_code=getattr(exc, "status_code", 503), detail=str(exc)) from exc
+
+
+class AgentEyesReleaseExercise(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    inspection_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    stage: str = Field(max_length=30)
+    consent: bool = Field(strict=True)
+    owner_observed: bool = Field(strict=True)
+    expected_fingerprint: str = Field(default="", pattern=r"^(?:[a-f0-9]{16})?$")
+    conversation_id: str = Field(default="", max_length=100)
+
+
+@router.get("/visual/agent-eyes/release-acceptance")
+def agent_eyes_release_acceptance_status(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    from .services import tracky_agent_eyes_release_acceptance as acceptance
+    try:
+        return acceptance.status()
+    except acceptance.ReleaseAcceptanceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/visual/agent-eyes/release-acceptance/report")
+def agent_eyes_release_acceptance_report(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Content-Disposition"] = 'attachment; filename="Agent-Eyes-Installed-Acceptance.json"'
+    from .services import tracky_agent_eyes_release_acceptance as acceptance
+    try:
+        return acceptance.redacted(acceptance.status())
+    except acceptance.ReleaseAcceptanceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/visual/agent-eyes/release-acceptance/record")
+def agent_eyes_release_acceptance_record(payload: AgentEyesReleaseExercise, response: Response,
+                                          x_requested_with: str | None = Header(default=None)):
+    response.headers["Cache-Control"] = "no-store"
+    _require_ui(x_requested_with)
+    from .services import tracky_agent_eyes_release_acceptance as acceptance
+    try:
+        return acceptance.record(**payload.model_dump())
+    except acceptance.ReleaseAcceptanceError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
