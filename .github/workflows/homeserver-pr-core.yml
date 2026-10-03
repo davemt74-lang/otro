@@ -24,6 +24,12 @@ jobs:
         run: pip install -r requirements.txt
       - name: Compile core Python
         run: python -m compileall app tests
+      - name: Interactive capture ownership and Stop acceptance
+        run: |
+          node tests/capture-ownership-section1.mjs
+          python tests/chat_dictation_ui_contract.py
+          python tests/chat_enhancements_ui_contract.py
+          node --check ui/transcription-workspace.js
       - name: First-run welcome contract and browser syntax
         run: |
           python tests/first_run_v2.py

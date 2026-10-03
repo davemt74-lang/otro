@@ -25,6 +25,8 @@
   let captureTimer = null;
   let captureChunks = [];
   let captureGeneration = 0;
+  let captureTicket = null;
+  let transcribeController = null;
   let captureVoiceStarted = false;
   let playbackContext = null;
   let playbackSource = null;
@@ -340,7 +342,9 @@
     speaking = false;
     voicePath = {stt: null, tts: null};
     captureGeneration += 1;
+    transcribeController?.abort();transcribeController=null;
     cleanupLocalCapture();
+    captureTicket?.release();captureTicket=null;
     if (recognition) {
       try { recognition.abort(); } catch (_) {}
       recognition = null;
@@ -383,7 +387,7 @@
     pendingTranscript = '';
     input.value = '';
     input.dispatchEvent(new Event('input', {bubbles: true}));
-    recognition = new Recognition();
+    const current=new Recognition();recognition=current;const generation=captureGeneration;
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = navigator.language || document.documentElement.lang || 'en-US';
@@ -391,6 +395,7 @@
     setVoiceState('listening');
 
     recognition.onresult = event => {
+      if(!conversationMode||recognition!==current||generation!==captureGeneration)return;
       let finalText = '';
       let interimText = '';
       for (let i = 0; i < event.results.length; i += 1) {
@@ -407,6 +412,7 @@
     };
 
     recognition.onerror = event => {
+      if(!conversationMode||recognition!==current||generation!==captureGeneration)return;
       const denied = event.error === 'not-allowed' || event.error === 'service-not-allowed';
       if (denied) {
         stopConversationMode('');
@@ -417,6 +423,7 @@
     };
 
     recognition.onend = () => {
+      if(recognition!==current||generation!==captureGeneration)return;
       recognition = null;
       if (!conversationMode) {
         setVoiceState('idle');
@@ -424,7 +431,7 @@
       }
       if (pendingTranscript) {
         const transcript = pendingTranscript;
-        setTimeout(() => autoSubmitSpeech(transcript), 0);
+        setTimeout(() => {if(conversationMode&&generation===captureGeneration)autoSubmitSpeech(transcript);}, 0);
         return;
       }
       resumeListening();
@@ -477,12 +484,13 @@
     captureVoiceStarted = false;
 
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia(localCaptureConstraints());
-      if (!conversationMode || generation !== captureGeneration) {
-        mediaStream.getTracks().forEach(track => track.stop());
-        mediaStream = null;
+      const acquired = await navigator.mediaDevices.getUserMedia(localCaptureConstraints());
+      if (!conversationMode || generation !== captureGeneration || (captureTicket && !captureTicket.isCurrent())) {
+        acquired.getTracks().forEach(track => track.stop());
         return;
       }
+      mediaStream = acquired;
+      captureTicket?.ownStream(acquired);
       captureAudioContext = new Context();
       const source = captureAudioContext.createMediaStreamSource(mediaStream);
       captureAnalyser = captureAudioContext.createAnalyser();
@@ -493,7 +501,7 @@
       const timing = captureTiming();
       const startedAt = performance.now();
       let lastVoiceAt = startedAt;
-      mediaRecorder.ondataavailable = event => { if (event.data?.size) captureChunks.push(event.data); };
+      mediaRecorder.ondataavailable = event => { if (conversationMode&&generation===captureGeneration&&event.data?.size) captureChunks.push(event.data); };
       mediaRecorder.onerror = () => {
         if (generation !== captureGeneration || !conversationMode) return;
         cleanupLocalCapture();
@@ -506,6 +514,7 @@
         }
       };
       mediaRecorder.onstop = () => {
+        if(!conversationMode||generation!==captureGeneration)return;
         const chunks = captureChunks.slice();
         const mimeType = mediaRecorder?.mimeType || chunks[0]?.type || 'audio/webm';
         const hadSpeech = captureVoiceStarted;
@@ -525,7 +534,7 @@
           resumeListening();
           return;
         }
-        processLocalRecording(new Blob(chunks, {type: mimeType}), generation).catch(err => handleLocalSttFailure(err));
+        processLocalRecording(new Blob(chunks, {type: mimeType}), generation).catch(err => {if(conversationMode&&generation===captureGeneration)handleLocalSttFailure(err);});
       };
       mediaRecorder.start(250);
       setVoiceState('listening');
@@ -546,8 +555,8 @@
         }
       }, 100);
     } catch (err) {
-      cleanupLocalCapture();
       if (generation !== captureGeneration || !conversationMode) return;
+      cleanupLocalCapture();
       if (strictLocalEnabled()) {
         stopConversationMode('');
         flash('Microphone access was not allowed or local capture could not start.', true);
@@ -634,14 +643,17 @@
     if (!conversationMode || generation !== captureGeneration) return;
     const formData = new FormData();
     formData.append('file', wav, 'conversation.wav');
+    const controller=new AbortController();transcribeController=controller;
     const response = await fetch(LOCAL_STT_ENDPOINT, {
       method: 'POST',
       body: formData,
       cache: 'no-store',
       credentials: 'same-origin',
+      signal: controller.signal,
     });
     if (!response.ok) throw await responseError(response, 'Local Whisper transcription failed.');
     const payload = await response.json();
+    if(transcribeController===controller)transcribeController=null;
     if (!conversationMode || generation !== captureGeneration) return;
     const transcript = String(payload.text || '').trim();
     if (!transcript) {
@@ -771,6 +783,9 @@
     // Mark setup as engaged before awaiting status so Dictate, Voice Settings,
     // or a second Talk click can reliably cancel this startup transaction.
     conversationStarting = true;
+    const setupGeneration=++captureGeneration;
+    const lease=window.StonefellowVoiceLeaseV122;
+    if(lease){captureTicket=lease.acquireCapture('conversation');if(!captureTicket){conversationStarting=false;setVoiceState('idle');flash('Another browser surface is using voice capture. Stop it there first.',true);return;}}
     setVoiceState('checking');
 
     // Unlock local audio synchronously inside the user's click gesture. This
@@ -780,9 +795,9 @@
     if (settingsController?.load) {
       try { await settingsController.load(); } catch (_) {}
     }
-    if (!conversationStarting) return;
+    if (!conversationStarting || setupGeneration!==captureGeneration) return;
     const status = await refreshLocalVoiceStatus();
-    if (!conversationStarting) return;
+    if (!conversationStarting || setupGeneration!==captureGeneration) return;
     const strict = strictLocalEnabled();
     const localStt = Boolean(status?.stt?.available && hasLocalCapture());
     const localTts = Boolean(status?.tts?.available && AudioContextCtor());
@@ -790,6 +805,7 @@
     const browserTts = Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
 
     if (strict && (!localStt || !localTts)) {
+      captureTicket?.release();captureTicket=null;
       conversationStarting = false;
       closePlaybackContext();
       setVoiceState('idle');
@@ -797,6 +813,7 @@
       return;
     }
     if (!localStt && !browserRecognition) {
+      captureTicket?.release();captureTicket=null;
       conversationStarting = false;
       closePlaybackContext();
       setVoiceState('idle');
@@ -804,6 +821,7 @@
       return;
     }
     if (!localTts && !browserTts) {
+      captureTicket?.release();captureTicket=null;
       conversationStarting = false;
       closePlaybackContext();
       setVoiceState('idle');
@@ -896,13 +914,9 @@
     stop: () => stopConversationMode(''),
   });
 
-  window.addEventListener('beforeunload', () => {
-    conversationStarting = false;
-    conversationMode = false;
-    captureGeneration += 1;
-    cleanupLocalCapture();
-    closePlaybackContext();
-  });
+  window.addEventListener('beforeunload', () => stopConversationMode(''));
+  window.addEventListener('pagehide', () => stopConversationMode(''));
+  window.addEventListener('stonefellow:voice-lease-lost', () => {if(conversationMode||conversationStarting)stopConversationMode('Voice capture moved to another browser surface.');});
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once: true});
   else boot();
