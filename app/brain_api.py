@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .services import agent_routing, agent_tools, brain, context_chat, context_engine, provider_secrets, providers, tracky_agent_eyes_context
 from .services.pairing import authenticate
@@ -398,3 +398,30 @@ def control_agent_tools_update(payload: AgentToolPolicyUpdate) -> dict:
     except agent_tools.AgentToolError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"policy": policy, "mode": "approval_gated"}
+
+
+class AgentEyesCorrection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    object_label: str = Field(min_length=1, max_length=20)
+    present: bool = Field(strict=True)
+    expected_fingerprint: str = Field(pattern=r"^[a-f0-9]{16}$")
+
+
+@router.post("/api/v1/control/conversations/{conversation_id}/agent-eyes-correction")
+def control_conversation_agent_eyes_correction(conversation_id: str, payload: AgentEyesCorrection,
+                                              response: Response,
+                                              x_requested_with: str | None = Header(default=None)):
+    response.headers["Cache-Control"] = "no-store"
+    if x_requested_with != "XMLHttpRequest":
+        raise HTTPException(status_code=403, detail="Use the authorized owner chat controls.")
+    from .services import tracky_agent_eyes_shared_scene as shared
+    try:
+        brain.get_conversation("owner", conversation_id)
+        settings = context_engine.ensure_settings(conversation_id)
+        if not (settings.get("include_agent_eyes") is True and settings.get("agent_eyes_local_only") is True
+                and settings.get("cloud_allowed") is False):
+            raise HTTPException(status_code=403, detail="Enable local Agent Eyes context in this owner conversation first.")
+        shared.correct(**payload.model_dump())
+        return {"agent_eyes_context": tracky_agent_eyes_context.owner_status(settings)}
+    except (brain.BrainError, context_engine.ContextError, shared.SharedSceneError) as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

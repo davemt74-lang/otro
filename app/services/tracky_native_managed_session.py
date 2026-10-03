@@ -286,6 +286,9 @@ def _run(sample_count: int, interval: int, started: float, run_id: str,
                 with _LOCK:
                     _ALLOWED_REQUEST = ""
                     _ATTEMPT_STARTED = 0.0
+            if owner_surface == "agent_eyes" and not _STATE.get("scene_test"):
+                from . import tracky_agent_eyes_shared_scene as shared
+                shared.record_current()
             if index + 1 < sample_count and _STOP.wait(interval):
                 reason, phase = _stopping_reason(), "stopped"
                 break

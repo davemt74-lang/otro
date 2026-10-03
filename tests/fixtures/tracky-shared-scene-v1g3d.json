@@ -1,0 +1,48 @@
+[
+  {
+    "revision": 1,
+    "summary": {
+      "protocol": "tracky.agent-eyes.shared-scene.v1g3d",
+      "state": "available",
+      "reason": "recent_observation",
+      "observed_at": "2026-10-02T12:00:00.123456+00:00",
+      "room_id": "studio",
+      "objects": [
+        "chair",
+        "cup",
+        "window"
+      ],
+      "setting": "indoor",
+      "lighting": "bright",
+      "owner_corrections": [
+        {
+          "object": "cup",
+          "present": false
+        },
+        {
+          "object": "phone",
+          "present": true
+        }
+      ]
+    },
+    "fingerprint": "0aa43107ed403c9c33309f019c4d0c83b7c5cfefa88aedd0208e10e5cc98055f"
+  },
+  {
+    "revision": 2,
+    "summary": {
+      "protocol": "tracky.agent-eyes.shared-scene.v1g3d",
+      "state": "revoked",
+      "reason": "owner_revoked"
+    },
+    "fingerprint": "6dbeae7358a2a1fb83bedabf9003ddb8c14e7b0a70bc8afbfcdb269dfef0f22e"
+  },
+  {
+    "revision": 3,
+    "summary": {
+      "protocol": "tracky.agent-eyes.shared-scene.v1g3d",
+      "state": "unavailable",
+      "reason": "observation_expired"
+    },
+    "fingerprint": "667388aab030318d2b5f39a787391c324dcb7aaa6da71912873a4e437f484e26"
+  }
+]

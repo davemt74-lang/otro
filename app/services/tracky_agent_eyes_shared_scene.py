@@ -1,6 +1,6 @@
 """Shared scene meaning through canonical Tracky rows and existing HTTPS sync.
 
-DRAFT: integration, owner controls and focused tests are not complete.
+Only typed meanings leave this process. Camera and conversation authority stay local.
 """
 from __future__ import annotations
 import hashlib
@@ -83,12 +83,12 @@ def correct(*, object_label: str, present: bool, expected_fingerprint: str) -> d
     from . import tracky_agent_eyes_context as context
     if object_label not in scene.OBJECTS or type(present) is not bool:
         raise SharedSceneError("Select a supported object and a present/absent owner report.")
-    current = context.projection()
-    observation = current.get("scene")
-    if (current.get("state") != "recent_observation" or not observation
-            or current.get("request_fingerprint") != expected_fingerprint):
-        raise SharedSceneError("Observation changed or expired; refresh before correcting it.", 409)
     with _LOCK:
+        current = context.projection()
+        observation = current.get("scene")
+        if (current.get("state") != "recent_observation" or not observation
+                or current.get("request_fingerprint") != expected_fingerprint):
+            raise SharedSceneError("Observation changed or expired; refresh before correcting it.", 409)
         saved = _read(CORRECTION_KEY)
         claims = saved.get("claims", {}) if saved.get("request_fingerprint") == expected_fingerprint else {}
         claims = {k: v for k, v in claims.items() if k in scene.OBJECTS and type(v) is bool}
@@ -123,21 +123,25 @@ def reserved(row: dict) -> bool:
 def record_current() -> None:
     from . import tracky_agent_eyes_context as context
     from . import tracky_physical_context as physical
-    rows = graph_rows(context.projection())
-    if not rows:
-        return
-    with db() as connection:
-        sequence = connection.execute("SELECT COALESCE(MAX(sequence_no),0)+1 FROM tracky_physical_world_state").fetchone()[0]
-        for row in rows:
-            key = physical._relation_key(row)
-            connection.execute("INSERT INTO tracky_physical_world_state(relation_key,subject_id,predicate,object_id,value_json,confidence,temporal_state,source_event_id,sequence_no,as_of) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(relation_key) DO UPDATE SET value_json=excluded.value_json,source_event_id=excluded.source_event_id,sequence_no=excluded.sequence_no,as_of=excluded.as_of",
-                (key, row["subject_id"], row["predicate"], row["object_id"], json.dumps(row["value"]),
-                 0, "inferred", row["source_event_id"], sequence, row["as_of"]))
+    with _LOCK:
+        rows = graph_rows(context.projection()) if _PROCESS_CONSENT else []
+        with db() as connection:
+            connection.execute("DELETE FROM tracky_physical_world_state WHERE source_event_id LIKE 'agent-eyes:%' OR subject_id LIKE 'agent-eyes-object:%' OR subject_id LIKE 'agent-eyes-owner:%'")
+            sequence = connection.execute("SELECT COALESCE(MAX(sequence_no),0)+1 FROM tracky_physical_world_state").fetchone()[0]
+            for row in rows:
+                key = physical._relation_key(row)
+                connection.execute("INSERT INTO tracky_physical_world_state(relation_key,subject_id,predicate,object_id,value_json,confidence,temporal_state,source_event_id,sequence_no,as_of) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(relation_key) DO UPDATE SET value_json=excluded.value_json,source_event_id=excluded.source_event_id,sequence_no=excluded.sequence_no,as_of=excluded.as_of",
+                    (key, row["subject_id"], row["predicate"], row["object_id"], json.dumps(row["value"]),
+                     0, "inferred", row["source_event_id"], sequence, row["as_of"]))
 
 def local_world(rows: list[dict]) -> list[dict]:
     from . import tracky_agent_eyes_context as context
-    return [r for r in rows if not reserved(r)] + graph_rows(context.projection())
+    # General Agent context may use Cloud inference. Scene meaning enters this
+    # shared view only under the separate semantic-sharing consent. Local-only
+    # conversations use their existing, independent per-chat opt-in instead.
+    with _LOCK:
+        return [r for r in rows if not reserved(r)] + (graph_rows(context.projection()) if _PROCESS_CONSENT else [])
 
 def snapshot() -> dict | None:
     from . import tracky_agent_eyes_context as context
@@ -174,22 +178,27 @@ def set_sharing(*, enabled: bool, consent: bool) -> dict:
     if type(enabled) is not bool or consent is not True:
         raise SharedSceneError("Explicit owner consent is required for semantic sharing.", 403)
     with _LOCK:
+        if enabled:
+            selected = scene.binding()
+            scene.check_binding(selected)
         _PROCESS_CONSENT = enabled
-    snapshot()
+        snapshot()
     return status()
 
 def pending() -> bool:
-    package = snapshot()
-    if package is None:
-        return False
     with _LOCK:
+        package = snapshot()
+        if package is None:
+            return False
         saved = _read(KEY)
-    return saved.get("acknowledged_revision") != package["revision"]
+        return saved.get("acknowledged_revision") != package["revision"]
 
 def acknowledge(sent: dict | None, receipt: Any, *, site_id: str) -> bool:
     if sent is None or not isinstance(receipt, dict) or receipt.get("site_id") != site_id:
         return False
     with _LOCK:
+        # Recheck consent and observation age after the network round trip.
+        snapshot()
         saved = _read(KEY)
         current = saved.get("revision") == sent["revision"] and saved.get("fingerprint") == sent["fingerprint"]
         accepted = (receipt.get("accepted") is True and type(receipt.get("revision")) is int
@@ -206,8 +215,8 @@ def acknowledge(sent: dict | None, receipt: Any, *, site_id: str) -> bool:
         return True
 
 def status() -> dict:
-    package = snapshot()
     with _LOCK:
+        package = snapshot()
         saved = _read(KEY)
         enabled = _PROCESS_CONSENT
     return {"protocol": CONTRACT, "enabled": enabled, "fresh_process_consent_required": True,
