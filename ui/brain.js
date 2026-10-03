@@ -2,6 +2,26 @@
   'use strict';
 
   let activeConversationId = null;
+  let chatTurnSequence = 0;
+  let pendingChatTurn = null;
+  let conversationRevision = 0;
+  const emitChatTurn = (turn, status, extra = {}) => window.dispatchEvent(new CustomEvent('homeserver:chat-turn', {detail:{requestId:turn.id,conversationId:turn.conversationId,status,...extra}}));
+  function cancelChatTurn(requestId = null){
+    const turn=pendingChatTurn;
+    if(!turn || (requestId != null && requestId !== turn.id))return false;
+    pendingChatTurn=null;
+    turn.controller.abort();clearTimeout(turn.timer);
+    emitChatTurn(turn,'cancelled');
+    const input=byId('chatInput'),submit=byId('chatForm')?.querySelector('button[type="submit"]');
+    if(input)input.disabled=false;if(submit)submit.disabled=false;
+    return true;
+  }
+  function leaveConversation(){
+    conversationRevision+=1;cancelChatTurn();
+    window.HomeServerConversationVoice?.stop?.();
+  }
+  window.HomeServerChatTurn=Object.freeze({isBusy:()=>Boolean(pendingChatTurn),cancel:cancelChatTurn});
+  window.addEventListener('pagehide',()=>cancelChatTurn());
   const byId = id => document.getElementById(id);
   const escapeHtml = (value = '') => String(value).replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
   const timeLabel = value => value ? new Date(value).toLocaleString() : '';
@@ -106,8 +126,10 @@
     node.scrollTop = node.scrollHeight;
   }
 
-  async function loadConversation(id) {
+  async function loadConversation(id, revision = null, turnId = null) {
+    if(revision === null){leaveConversation();revision=conversationRevision;}
     const data = await brainApi(`/api/v1/control/conversations/${encodeURIComponent(id)}`);
+    if(revision !== conversationRevision || (turnId !== null && turnId !== chatTurnSequence))return;
     activeConversationId = id;
     setChatTitle(data.conversation?.title || 'Conversation');
     renderMessages(data);
@@ -139,6 +161,7 @@
 
   async function deleteConversation(id) {
     if (!confirm('Delete this local conversation?')) return;
+    if(activeConversationId === id)leaveConversation();
     await brainApi(`/api/v1/control/conversations/${encodeURIComponent(id)}`, {method: 'DELETE'});
     if (activeConversationId === id) {
       activeConversationId = null;
@@ -313,6 +336,7 @@
     }
 
     if (event.target.id === 'newChat') {
+      leaveConversation();
       activeConversationId = null;
       setChatTitle();
       renderMessages({messages: []});
@@ -365,41 +389,64 @@
     }
   });
 
-  byId('chatForm')?.addEventListener('submit', async event => {
+  async function submitChatTurn(event) {
     event.preventDefault();
     const input = byId('chatInput');
     const message = input.value.trim();
-    if (!message) return;
+    if (!message || pendingChatTurn) return;
     const submit = event.target.querySelector('button[type="submit"]');
+    const turn={id:++chatTurnSequence,conversationId:activeConversationId,controller:new AbortController(),revision:conversationRevision};
+    pendingChatTurn=turn;
+    turn.timer=setTimeout(()=>turn.controller.abort(),120000);
     submit.disabled = true;
     input.disabled = true;
+    emitChatTurn(turn,'started');
     const existing = byId('chatMessages');
     if (existing && existing.querySelector('.chat-empty')) existing.innerHTML = '';
     existing?.insertAdjacentHTML('beforeend', chatMessageMarkup({role:'user',content:message}));
     input.value = '';
     input.style.height = 'auto';
     try {
-      const data = await brainApi('/api/v1/control/chat', {method:'POST', body:JSON.stringify({message, conversation_id:activeConversationId})});
+      // Settle promptly on cancellation even if a transport ignores its signal.
+      const data = await new Promise((resolve,reject)=>{
+        const abort=()=>reject(new DOMException('Chat turn cancelled or timed out.','AbortError'));
+        turn.controller.signal.addEventListener('abort',abort,{once:true});
+        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, conversation_id:turn.conversationId})})
+          .then(resolve,reject).finally(()=>turn.controller.signal.removeEventListener('abort',abort));
+      });
+      if(pendingChatTurn !== turn || turn.revision !== conversationRevision || turn.controller.signal.aborted)return;
+      if(!data.conversation_id || typeof data.reply !== 'string')throw new Error('Agent returned an invalid chat response. Try again.');
+      clearTimeout(turn.timer);
       activeConversationId = data.conversation_id;
-      await Promise.all([loadConversation(activeConversationId), loadConversations(false)]);
+      const reply=String(data.reply || '').trim();
+      if(reply)existing?.insertAdjacentHTML('beforeend',chatMessageMarkup({role:'assistant',content:reply}));
+      emitChatTurn(turn,'completed',{conversationId:data.conversation_id,runId:data.run_id,reply});
       const context = byId('chatContext');
       if (context) {
         const toolText = data.tools?.call_count ? ` · ${data.tools.call_count} tool call${data.tools.call_count === 1 ? '' : 's'}` : '';
         const pending = data.tools?.action_request_ids?.length || 0;
         const approvalText = pending ? ` · ${pending} approval${pending === 1 ? '' : 's'} pending` : '';
         const computeText = data.compute_source === 'homeserver_local' ? 'HomeServer local' : 'user provider';
-        context.textContent = `${computeText} · 0 VP3 cloud tokens · ${data.context.memory_count} memories · ${data.context.knowledge_count} knowledge matches${toolText}${approvalText} · ${data.model}`;
+        context.textContent = `${computeText} · 0 VP3 cloud tokens · ${data.context?.memory_count || 0} memories · ${data.context?.knowledge_count || 0} knowledge matches${toolText}${approvalText} · ${data.model || ''}`;
       }
       if (data.tools?.action_request_ids?.length) brainFlash('Agent created a pending action. Review it in Approvals.');
+      // Sidebar/history availability must not turn a successful reply into a
+      // failed turn or hold the composer disabled.
+      void Promise.allSettled([loadConversation(activeConversationId,turn.revision,turn.id),loadConversations(false)]).then(results=>{
+        if(turn.id===chatTurnSequence && turn.revision===conversationRevision && results.some(result=>result.status==='rejected'))brainFlash('Reply received. Conversation history refresh failed; retry from the conversation list.',true);
+      });
     } catch (err) {
-      existing?.insertAdjacentHTML('beforeend', chatMessageMarkup({role:'assistant',content:err.message}));
-      brainFlash(err.message, true);
+      if(pendingChatTurn !== turn)return;
+      emitChatTurn(turn,'failed',{message:err.name==='AbortError'?'Chat request timed out. Try again.':err.message});
+      brainFlash(err.name==='AbortError'?'Chat request timed out. Try again.':err.message,true);
     } finally {
-      submit.disabled = false;
-      input.disabled = false;
-      input.focus();
+      clearTimeout(turn.timer);
+      if(pendingChatTurn===turn){
+        pendingChatTurn=null;submit.disabled=false;input.disabled=false;input.focus();
+      }
     }
-  });
+  }
+  byId('chatForm')?.addEventListener('submit',submitChatTurn);
 
   byId('providerForm')?.addEventListener('submit', async event => {
     event.preventDefault();
