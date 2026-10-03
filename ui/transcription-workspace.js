@@ -67,7 +67,7 @@ function saveQueue(){
  })().catch(e=>{
   status('Save pending: '+e.message+' Text is retained for recovery. You can export unsaved text.',true);
   window.HomeServerDictation?.stopTranscription();scheduleSaveRetry();controls();throw e;
- }).finally(()=>{saving=null;});
+ }).finally(()=>{saving=null;controls();});
  return saving;
 }
 

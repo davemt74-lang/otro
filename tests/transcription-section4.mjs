@@ -142,6 +142,11 @@ if(cloud){
  await test('late Cloud-share acknowledgement cannot mix another document into the shared response',async()=>{
   const b=browser();clock(b);b.window.confirm=()=>true;const waiting=deferred();b.window.fetch=(_url,init)=>init.method==='PUT'?waiting.promise:Promise.resolve(response({sessions:[]}));const api=workspace(b);api.select({id,status:'completed',segments:[{text:'A'}]});const sharing=api.share();await api.open(other).catch(()=>{});api.select({id:other,status:'completed',segments:[{text:'B'}]});waiting.resolve(response({session:{id,status:'completed',cloud_shared:true}}));await sharing;assert.notEqual(api.state().selected?.id,id);
  });
+ await test('a failed recovered save re-enables Clear recovery after the request settles',async()=>{
+  const storage=new Map([['homeserver:transcription-outbox:v1:old',JSON.stringify({version:1,queue:[{sessionId:id,segment:{client_key:other,text:'blocked recovery',started_ms:1}}]})]]),b=browser({storage}),timer=clock(b);
+  b.window.fetch=async(_url,init)=>init.method==='GET'?response({sessions:[]}):{ok:false,json:async()=>({detail:'original document unavailable'})};
+  const api=workspace(b);await api.refresh();assert.equal(b.element('hsTranscriptRecoveryClear').disabled,false);await timer.advance(4000);assert.equal(api.state().queue.length,1);assert.equal(b.element('hsTranscriptRecoveryClear').disabled,false);assert.equal(b.element('hsTranscriptRecoveryExport').disabled,false);
+ });
  await test('backup quota failure preserves accepted text and explicitly releases capture',async()=>{
   const b=browser();clock(b);b.context.localStorage.setItem=()=>{throw Error('quota');};b.window.fetch=()=>new Promise(()=>{});const api=workspace(b);let stops=0;b.window.HomeServerDictation.stopTranscription=()=>stops++;api.seed(id);api.onSegment({detail:{text:'retained'}});assert(stops>0);assert.equal(api.state().queue[0].segment.text,'retained');assert(b.element('hsTranscriptStatus').textContent.includes('storage is full'));
  });
