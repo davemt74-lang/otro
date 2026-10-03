@@ -36,7 +36,7 @@ HomeServer Dictate/local transcript service. No database migration.
 ## Acceptance
 
 Run `node tests/transcription-section4.mjs` in either repository: sixteen Cloud and
-seven HomeServer browser cases. HomeServer also runs
+eight HomeServer browser cases. HomeServer also runs
 `python tests/transcription_integrity_section4.py`: eight cases against real temporary
 SQLite databases, including concurrent Start, replay and limit enforcement.
 Cloud runs `php tests/transcription_integrity_section4.php`: five canonical PHP
