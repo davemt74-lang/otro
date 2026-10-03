@@ -103,6 +103,16 @@ if(cloud){
  await test('editor barge permission cannot revive after release',async()=>{
   const b=browser(),pending=deferred(),audio=stream();b.context.navigator.mediaDevices.getUserMedia=()=>pending.promise;load('editor-voice-barge-v117.js',b);const barge=b.window.StonefellowEditorVoiceBarge({isSpeaking:()=>true});const opening=barge.ensure();barge.release();pending.resolve(audio);await opening;assert.equal(audio.track.readyState,'ended');
  });
+ await test('old editor callbacks cannot reset a newer listener or revive a destroyed owner',async()=>{
+  const b=browser(),recognizers=[];b.context.navigator.mediaDevices.getUserMedia=async()=>stream();
+  b.window.SpeechRecognition=class {constructor(){recognizers.push(this);}start(){}stop(){queueMicrotask(()=>this.onend?.({type:'end'}));}abort(){queueMicrotask(()=>this.onend?.({type:'end'}));}};
+  load('voice-lease-v122.js',b);load('conversation-voice-v122.js',b);
+  const owner=b.window.StonefellowConversationVoiceV122.create({userId:1});owner.setEnabled(true,{persist:false,immediate:true});
+  const old=recognizers[0];assert(old);old.onstart();owner.setEnabled(false,{persist:false});owner.setEnabled(true,{persist:false,immediate:true});
+  const fresh=recognizers[1];assert(fresh);fresh.onstart();const errors=owner.proof.recognitionErrors;
+  old.onend();old.onerror({error:'not-allowed'});assert(owner.isListening());assert.equal(owner.proof.recognitionErrors,errors);
+  owner.destroy();assert.equal(owner.setEnabled(true,{persist:false,immediate:true}),false);assert.equal(owner.isEnabled(),false);await Promise.resolve();assert.equal(b.window.StonefellowVoiceLeaseV122.owns(),false);
+ });
  function meeting(b){b.window.VP3Meeting={userId:1,meeting:'m',tokenEndpoint:'/token',presenceEndpoint:'/presence'};load('video-meetings-v1800.js',b,'renderParticipant=()=>{};populateDevices=async()=>{};window.Test={join,leave,toggleMic,seed:value=>{room=value;connected=true;},state:()=>({room,connected,joining})};');return b.window.Test;}
  await test('leaving during meeting authorization prevents media creation',async()=>{
   const b=browser(),token=deferred();let rooms=0;b.window.fetch=async url=>url==='/token'?token.promise:response({ok:true});b.window.LivekitClient={Room:class{constructor(){rooms++;}}};const api=meeting(b);const joining=api.join();await api.leave();token.resolve(response({ok:true,server_url:'x',participant_token:'t'}));await joining;assert.equal(rooms,0);assert.equal(api.state().connected,false);
