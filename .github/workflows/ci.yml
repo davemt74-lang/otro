@@ -38,6 +38,7 @@ jobs:
           python tests/tracky_agent_eyes_evidence_v1g3b.py
           python tests/tracky_agent_eyes_scene_v1g3c.py
           python tests/tracky_agent_eyes_shared_scene_v1g3d.py
+          python tests/tracky_agent_eyes_experience_v1g4.py
           node tests/tracky_agent_eyes_shared_scene_ui_v1g3d.mjs
           node tests/tracky_agent_eyes_scene_ui_v1g3c.mjs
           node --check ui/tracky/agent-eyes-scene.js
@@ -699,9 +700,11 @@ jobs:
             owner_visual_identity_contract = 'tracky.visual.owner-contact-association.v1f6'
             owner_visual_identity_claim = 'owner_attributed_unverified'
             visual_cloud_transport = 'paired_scalar_revision_ack_no_biometrics'
+            agent_eyes_section = '1G4'
+            agent_eyes_experience_contract = 'tracky.agent-eyes.experience.v1g4'
             native_hardware_certified = $false
             files = $hashMap
-            release_notes = 'HomeServer runtime v2.4 with Tracky V2.81 Section 3 distributed physical action execution and Section 1F6 owner-governed visual attribution status sync. Visual attribution is not facial identity verification; installed-device camera certification remains separate.'
+            release_notes = 'Agent Eyes 1G4 adds local consent and Cloud delivery/revocation guidance. HomeServer runtime v2.4 with Tracky V2.81 Section 3 distributed physical action execution and Section 1F6 owner-governed visual attribution status sync. Visual attribution is not facial identity verification; installed-device camera certification remains separate.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
