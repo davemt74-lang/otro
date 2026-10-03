@@ -26,7 +26,7 @@ function saveQueue(){
    const item=queue[0];
    const j=await request('/'+item.sessionId+'/segments','POST',item.segment);
    queue.shift();
-   if(selected?.id===item.sessionId){selected={...j.session,segments:[...(selected.segments||[]),{...item.segment,text:item.segment.text}]};renderSession(selected);}
+   if(selected?.id===item.sessionId){const segments=[...(selected.segments||[])];if(!segments.some(s=>s.client_key===item.segment.client_key))segments.push(item.segment);selected={...j.session,segments};renderSession(selected);}
    status((listening?'Listening · ':'Saving · ')+j.session.segment_count+' transcript segments saved locally.');
   }
  })().catch(e=>{
