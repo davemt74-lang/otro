@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import os
+import io
+import wave
+import asyncio
+import threading
+import time
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +20,7 @@ MAX_AUDIO_BYTES = 16 * 1024 * 1024
 MAX_TTS_CHARS = 4000
 TRANSCRIBE_TIMEOUT_SECONDS = 90
 SYNTHESIZE_TIMEOUT_SECONDS = 60
+_TRANSCRIBE_SLOT = threading.BoundedSemaphore(1)
 
 
 class LocalVoiceError(RuntimeError):
@@ -158,32 +164,38 @@ def _validate_wav(audio: bytes) -> None:
     if len(audio) < 44 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
         raise LocalVoiceError("Local transcription requires a 16-bit PCM WAV recording.", 415)
 
-    offset = 12
-    audio_format = None
-    bits_per_sample = None
-    while offset + 8 <= len(audio):
-        chunk_id = audio[offset:offset + 4]
-        chunk_size = int.from_bytes(audio[offset + 4:offset + 8], "little", signed=False)
-        data_start = offset + 8
-        data_end = data_start + chunk_size
-        if data_end > len(audio):
-            raise LocalVoiceError("Recorded WAV is truncated.", 422)
-        if chunk_id == b"fmt " and chunk_size >= 16:
-            audio_format = int.from_bytes(audio[data_start:data_start + 2], "little", signed=False)
-            bits_per_sample = int.from_bytes(audio[data_start + 14:data_start + 16], "little", signed=False)
-            break
-        offset = data_end + (chunk_size & 1)
-    if audio_format != 1 or bits_per_sample != 16:
-        raise LocalVoiceError("Local transcription requires 16-bit PCM WAV audio.", 415)
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as recording:
+            channels, width, rate, frames = recording.getnchannels(), recording.getsampwidth(), recording.getframerate(), recording.getnframes()
+            if width != 2 or channels not in (1, 2) or not 8000 <= rate <= 192000:
+                raise LocalVoiceError("Local transcription requires mono or stereo 16-bit PCM WAV audio.", 415)
+            if frames < 1:
+                raise LocalVoiceError("Recorded WAV contains no audio samples.", 422)
+            if frames / rate > 120:
+                raise LocalVoiceError("Local transcription segments are limited to 120 seconds.", 413)
+            if len(recording.readframes(frames)) != frames * channels * width:
+                raise LocalVoiceError("Recorded WAV is truncated.", 422)
+    except (wave.Error, EOFError) as exc:
+        raise LocalVoiceError("Local transcription requires a valid 16-bit PCM WAV recording.", 415) from exc
 
 
-def transcribe(audio: bytes) -> dict[str, Any]:
+def transcribe(audio: bytes, *, cancel: threading.Event | None = None) -> dict[str, Any]:
     _validate_wav(audio)
     preferences, stt_model, _ = _active_preferences()
     executable = _resolve_managed_file(stt_model["app_key"], "runtime/Release/whisper-cli.exe")
     model = _resolve_managed_file(stt_model["app_key"], stt_model["path"])
 
-    work = Path(tempfile.mkdtemp(prefix="stt-", dir=_voice_temp_root()))
+    if not _TRANSCRIBE_SLOT.acquire(blocking=False):
+        raise LocalVoiceError("Local Whisper is busy. Retry this recording shortly.", 429)
+    work = None
+    process = None
+    try:
+        if cancel is not None and cancel.is_set():
+            raise LocalVoiceError("Local transcription was cancelled.", 499)
+        work = Path(tempfile.mkdtemp(prefix="stt-", dir=_voice_temp_root()))
+    except BaseException:
+        _TRANSCRIBE_SLOT.release()
+        raise
     input_path = work / "input.wav"
     output_prefix = work / "result"
     output_path = work / "result.txt"
@@ -199,26 +211,29 @@ def transcribe(audio: bytes) -> dict[str, Any]:
             "-nt",
         ]
         try:
-            completed = subprocess.run(
-                command,
-                cwd=str(executable.parent),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=TRANSCRIBE_TIMEOUT_SECONDS,
-                check=False,
-                shell=False,
-                creationflags=_creationflags(),
+            process = subprocess.Popen(
+                command, cwd=str(executable.parent), stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                shell=False, creationflags=_creationflags(),
             )
+            deadline = time.monotonic() + TRANSCRIBE_TIMEOUT_SECONDS
+            while True:
+                if cancel is not None and cancel.is_set():
+                    raise LocalVoiceError("Local transcription was cancelled.", 499)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, TRANSCRIBE_TIMEOUT_SECONDS)
+                try:
+                    process.wait(timeout=min(0.1, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
         except subprocess.TimeoutExpired as exc:
             raise LocalVoiceError("Local Whisper transcription timed out.", 504) from exc
         except OSError as exc:
             raise LocalVoiceError("Local Whisper runtime could not start. Repair Whisper STT in Local Apps.", 503) from exc
 
-        if completed.returncode != 0 or not output_path.is_file():
+        if process.returncode != 0 or not output_path.is_file():
             raise LocalVoiceError("Local Whisper could not transcribe this recording.", 422)
         try:
             text = output_path.read_text(encoding="utf-8", errors="replace").strip()
@@ -231,7 +246,37 @@ def transcribe(audio: bytes) -> dict[str, Any]:
             "model": preferences["stt_model"],
         }
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        try:
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.wait()
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+            _TRANSCRIBE_SLOT.release()
+
+
+async def transcribe_request(audio: bytes, request) -> dict[str, Any]:
+    """Keep owner control responsive and terminate Whisper on disconnect/Stop."""
+    cancel = threading.Event()
+    task = asyncio.create_task(asyncio.to_thread(transcribe, audio, cancel=cancel))
+    try:
+        while not task.done():
+            if await request.is_disconnected():
+                cancel.set()
+                # Await the worker so private audio and the process are cleaned up.
+                try:
+                    await task
+                except LocalVoiceError:
+                    pass
+                raise LocalVoiceError("Local transcription was cancelled.", 499)
+            await asyncio.wait({task}, timeout=0.1)
+        return await task
+    finally:
+        cancel.set()
+        if not task.done():
+            # A cancelled handler must not cancel the task that owns cleanup.
+            task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+
 
 
 def synthesize(
@@ -298,3 +343,4 @@ def synthesize(
         return audio
     finally:
         shutil.rmtree(work, ignore_errors=True)
+

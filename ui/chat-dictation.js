@@ -19,6 +19,11 @@
   let generation = 0;
   let captureTicket = null;
   let transcribeController = null;
+  let segmentQueue = [];
+  let queuedBytes = 0;
+  let processingGeneration = null;
+  const MAX_QUEUED_SEGMENTS = 6;
+  const MAX_QUEUED_BYTES = 8 * 1024 * 1024;
   let recognition = null;
   let recorder = null;
   let stream = null;
@@ -181,6 +186,7 @@
     mode = null;
     generation += 1;
     transcribeController?.abort();transcribeController=null;
+    segmentQueue = []; queuedBytes = 0; processingGeneration = null;
     stopCapture();
     stopBrowserRecognition();
     captureTicket?.release();captureTicket=null;
@@ -308,37 +314,64 @@
 
   async function transcribeLocal(blob, runGeneration) {
     if (!active || runGeneration !== generation) return;
-    setState('transcribing');
-    const wav = await recordingToWav(blob);
-    if (!active || runGeneration !== generation) return;
-    const formData = new FormData();
-    formData.append('file', wav, 'dictation.wav');
-    const controller=new AbortController();transcribeController=controller;
-    const response = await fetch(TRANSCRIBE_ENDPOINT, {
-      method: 'POST',
-      body: formData,
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal: controller.signal,
+    if (!transcriptionSession) setState('transcribing');
+    const controller = new AbortController(); transcribeController = controller;
+    let timer;
+    const cancelled = new Promise((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(new Error('Local transcription cancelled or timed out.')), {once:true});
+      timer = setTimeout(() => controller.abort(), 100000);
     });
-    if (!response.ok) throw await responseError(response, 'Local Whisper dictation failed.');
-    const payload = await response.json();
-    if(transcribeController===controller)transcribeController=null;
-    if (!active || runGeneration !== generation) return;
-    const transcript = String(payload.text || '').trim();
-    if (!transcript) {
-      stopDictation(transcriptionSession ? 'No speech detected; listening paused.' : 'No speech detected. Nothing was added.');
-      return;
+    try {
+      const payload = await Promise.race([cancelled, (async () => {
+        const wav = await recordingToWav(blob);
+        if (controller.signal.aborted || !active || runGeneration !== generation) return null;
+        const formData = new FormData(); formData.append('file', wav, 'dictation.wav');
+        const response = await fetch(TRANSCRIBE_ENDPOINT, {method:'POST', body:formData,
+          cache:'no-store', credentials:'same-origin', signal:controller.signal});
+        if (!response.ok) throw await responseError(response, 'Local Whisper dictation failed.');
+        return await response.json();
+      })()]);
+      if (!payload || !active || runGeneration !== generation) return;
+      const transcript = String(payload.text || '').trim();
+      if (transcriptionSession) {
+        if (transcript) window.dispatchEvent(new CustomEvent('homeserver:transcription-segment', {detail:{text:transcript,provider:'local_whisper'}}));
+      } else {
+        const inserted = insertTranscript(transcript);
+        stopDictation(inserted ? 'Dictation added. Review or edit it, then send when ready.' : 'No speech detected. Nothing was added.');
+      }
+    } catch (error) {
+      if (!active || runGeneration !== generation) return;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      if (transcribeController === controller) transcribeController = null;
     }
-    if (transcriptionSession) {
-      window.dispatchEvent(new CustomEvent('homeserver:transcription-segment',{detail:{text:transcript,provider:'local_whisper'}}));
-      // Release the previous stream before beginning the next segment.
-      stopCapture();
-      setTimeout(() => { if(active && transcriptionSession && runGeneration===generation) startLocalDictation(); },350);
-      return;
+  }
+
+  async function processSegments(runGeneration) {
+    if (processingGeneration === runGeneration) return;
+    processingGeneration = runGeneration;
+    try {
+      while (active && runGeneration === generation && segmentQueue.length) {
+        const blob = segmentQueue[0];
+        await transcribeLocal(blob, runGeneration);
+        if (!active || runGeneration !== generation) return;
+        segmentQueue.shift(); queuedBytes -= blob.size;
+      }
+    } catch (error) {
+      if (active && runGeneration === generation) localFailure(error);
+    } finally {
+      if (processingGeneration === runGeneration) processingGeneration = null;
     }
-    const inserted = insertTranscript(transcript);
-    stopDictation(inserted ? 'Dictation added. Review or edit it, then send when ready.' : '');
+  }
+
+  function enqueueSegment(blob, runGeneration) {
+    segmentQueue.push(blob); queuedBytes += blob.size;
+    void processSegments(runGeneration);
+    if (segmentQueue.length >= MAX_QUEUED_SEGMENTS || queuedBytes >= MAX_QUEUED_BYTES) {
+      stopDictation('');
+      flash('Transcription stopped: Whisper cannot keep up. Unprocessed audio was cancelled; saved text remains available.', true);
+    }
   }
 
   function localFailure(error) {
@@ -346,7 +379,7 @@
     if (transcriptionSession) {
       // Never silently switch a private transcription to a browser cloud STT.
       stopDictation('');
-      flash('Local transcription stopped. Check Whisper and restart explicitly.',true);
+      flash(`Local transcription stopped: ${error.message || 'Whisper failed'}. Unprocessed audio was cancelled; saved text remains available.`,true);
       return;
     }
     if (strictLocalEnabled()) {
@@ -365,81 +398,66 @@
     flash(error.message || 'Local Whisper dictation failed.', true);
   }
 
-  async function startLocalDictation() {
-    const Context = AudioContextCtor();
-    if (!active || !localCaptureSupported() || !Context) {
-      localFailure(new Error('Local microphone capture is unavailable.'));
-      return;
-    }
-    const runGeneration = generation;
-    chunks = [];
-    voiceStarted = false;
+  function recordLocalSegment(runGeneration) {
+    if (!active || runGeneration !== generation || !stream) return;
+    const current = new MediaRecorder(stream, recorderOptions()); recorder = current;
+    const timing = captureTiming(), startedAt = performance.now();
+    let lastVoiceAt = startedAt, hadSpeech = false, bytes = 0;
+    const parts = [];
+    current.ondataavailable = event => {
+      if (!active || runGeneration !== generation || recorder !== current || !event.data?.size) return;
+      bytes += event.data.size;
+      if (bytes > 2 * 1024 * 1024) {
+        localFailure(new Error('Microphone segment exceeded the capture size limit.')); return;
+      }
+      parts.push(event.data);
+    };
+    current.onerror = () => {if(active && runGeneration === generation) localFailure(new Error('Local microphone recording failed.'));};
+    current.onstop = () => {
+      if (!active || runGeneration !== generation || recorder !== current) return;
+      clearInterval(monitorTimer); monitorTimer = null; recorder = null;
+      const blob = new Blob(parts, {type:current.mimeType || parts[0]?.type || 'audio/webm'});
+      if (transcriptionSession) {
+        // Keep the microphone/context open; processing never delays the next capture.
+        recordLocalSegment(runGeneration);
+        if (hadSpeech && blob.size) enqueueSegment(blob, runGeneration);
+      } else {
+        stopCapture();
+        if (!hadSpeech || !blob.size) stopDictation('No speech detected. Nothing was added.');
+        else transcribeLocal(blob, runGeneration).catch(error => {if(active && runGeneration === generation) localFailure(error);});
+      }
+    };
+    current.start(250); setState('listening');
+    monitorTimer = setInterval(() => {
+      if (!active || runGeneration !== generation || recorder !== current || current.state === 'inactive') return;
+      const now = performance.now();
+      if (rmsLevel(analyser) >= VAD_THRESHOLD) {hadSpeech = true; lastVoiceAt = now;}
+      if ((hadSpeech && now-lastVoiceAt >= timing.listenSilenceMs) ||
+          (!hadSpeech && now-startedAt >= timing.noSpeechTimeoutMs) || now-startedAt >= timing.maxSegmentMs) {
+        try {current.stop();} catch (error) {localFailure(error);}
+      }
+    }, 100);
+  }
 
+  async function startLocalDictation() {
+    const Context = AudioContextCtor(), runGeneration = generation;
+    if (!active || !localCaptureSupported() || !Context) {localFailure(new Error('Local microphone capture is unavailable.')); return;}
     try {
       const acquired = await navigator.mediaDevices.getUserMedia(localCaptureConstraints());
       if (!active || runGeneration !== generation || (captureTicket && !captureTicket.isCurrent())) {
-        acquired.getTracks().forEach(track => track.stop());
-        return;
+        acquired.getTracks().forEach(track => track.stop()); return;
       }
-      stream = acquired;
-      captureTicket?.ownStream(acquired);
+      stream = acquired; captureTicket?.ownStream(acquired);
       audioContext = new Context();
       const source = audioContext.createMediaStreamSource(stream);
-      analyser = audioContext.createAnalyser();
-      analyser.fftSize = 1024;
-      source.connect(analyser);
-      recorder = new MediaRecorder(stream, recorderOptions());
-      const timing = captureTiming();
-      const startedAt = performance.now();
-      let lastVoiceAt = startedAt;
-
-      recorder.ondataavailable = event => { if (active&&runGeneration===generation&&event.data?.size) chunks.push(event.data); };
-      recorder.onerror = () => {if(active&&runGeneration===generation)localFailure(new Error('Local microphone recording failed.'));};
-      recorder.onstop = () => {
-        if(!active||runGeneration!==generation)return;
-        const finishedChunks = chunks.slice();
-        const mimeType = recorder?.mimeType || finishedChunks[0]?.type || 'audio/webm';
-        const hadSpeech = voiceStarted;
-        recorder = null;
-        clearInterval(monitorTimer);
-        monitorTimer = null;
-        if (stream) stream.getTracks().forEach(track => track.stop());
-        stream = null;
-        analyser = null;
-        if (audioContext) {
-          try { audioContext.close(); } catch (_) {}
-        }
-        audioContext = null;
-        chunks = [];
-        if (!active || runGeneration !== generation) return;
-        if (!hadSpeech || !finishedChunks.length) {
-          stopDictation(transcriptionSession ? 'Listening paused after silence.' : 'No speech detected. Nothing was added.');
-          return;
-        }
-        transcribeLocal(new Blob(finishedChunks, {type: mimeType}), runGeneration).catch(error=>{if(active&&runGeneration===generation)localFailure(error);});
-      };
-      recorder.start(250);
-      setState('listening');
-
-      monitorTimer = setInterval(() => {
-        if (!active || runGeneration !== generation || !recorder || recorder.state === 'inactive') return;
-        const now = performance.now();
-        const level = rmsLevel(analyser);
-        if (level >= VAD_THRESHOLD) {
-          voiceStarted = true;
-          lastVoiceAt = now;
-        }
-        const silenceDone = voiceStarted && now - lastVoiceAt >= timing.listenSilenceMs;
-        const noSpeechDone = !voiceStarted && now - startedAt >= timing.noSpeechTimeoutMs;
-        const maxDone = now - startedAt >= timing.maxSegmentMs;
-        if (silenceDone || noSpeechDone || maxDone) {
-          try { recorder.stop(); } catch (_) {}
-        }
-      }, 100);
+      analyser = audioContext.createAnalyser(); analyser.fftSize = 1024; source.connect(analyser);
+      for (const track of stream.getTracks()) track.addEventListener?.('ended', () => {
+        if (active && runGeneration === generation) localFailure(new Error('Microphone disconnected.'));
+      }, {once:true});
+      recordLocalSegment(runGeneration);
     } catch (error) {
       if (!active || runGeneration !== generation) return;
-      stopCapture();
-      localFailure(error);
+      stopCapture(); localFailure(error);
     }
   }
 
@@ -459,20 +477,18 @@
     recognition.maxAlternatives = 1;
     setState('listening');
 
+    const delivered = new Set();
     recognition.onresult = event => {
       if(!active||recognition!==current||runGeneration!==generation)return;
       let finalText = '';
-      for (let i = 0; i < event.results.length; i += 1) {
-        if (event.results[i].isFinal) finalText += event.results[i][0]?.transcript || '';
+      for (let i = event.resultIndex || 0; i < event.results.length; i += 1) {
+        if (event.results[i].isFinal && !delivered.has(i)) { delivered.add(i); finalText += (event.results[i][0]?.transcript || '') + ' '; }
       }
       const text = finalText.trim();
       if (!text) return;
       if(transcriptionSession){
         window.dispatchEvent(new CustomEvent('homeserver:transcription-segment',{detail:{text,provider:'browser_fallback'}}));
-        recognition.onend=null;
-        try { recognition.stop(); } catch (_) {}
-        recognition=null;
-        setTimeout(() => { if(active && transcriptionSession && runGeneration===generation && mode==='browser')startBrowserDictation(); },350);
+        return;
         return;
       }
       const inserted = insertTranscript(text);
@@ -480,6 +496,7 @@
     };
     recognition.onerror = event => {
       if(!active||recognition!==current||runGeneration!==generation)return;
+      if (transcriptionSession && event.error === 'no-speech') return;
       const denied = event.error === 'not-allowed' || event.error === 'service-not-allowed';
       stopDictation('');
       if (denied) flash('Microphone access was not allowed. Enable microphone permission to dictate.', true);
@@ -488,7 +505,7 @@
     recognition.onend = () => {
       if(recognition!==current||runGeneration!==generation)return;
       recognition = null;
-      if (active && transcriptionSession) stopDictation('Listening paused after silence.');
+      if (active && transcriptionSession) setTimeout(() => {if(active && transcriptionSession && runGeneration === generation && mode === 'browser') startBrowserDictation();},200);
       else if (active) stopDictation('No speech detected. Nothing was added.');
     };
     try { recognition.start(); }

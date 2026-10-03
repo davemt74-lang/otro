@@ -51,6 +51,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-local-voice-v041-") as data_
 
     original_resolver = local_voice._resolve_managed_file
     original_run = subprocess.run
+    original_popen = subprocess.Popen
     calls: list[dict] = []
     private_text = "SYNTHETIC_PRIVATE_SPEECH_91827 ; & should-never-be-command"
 
@@ -79,8 +80,16 @@ with tempfile.TemporaryDirectory(prefix="homeserver-local-voice-v041-") as data_
             raise AssertionError(f"unexpected executable: {command[0]}")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
+    class FakeWhisper:
+        def __init__(self, command, **kwargs):
+            self.returncode = fake_run(command, **kwargs, timeout=local_voice.TRANSCRIBE_TIMEOUT_SECONDS).returncode
+        def wait(self, timeout=None): return self.returncode
+        def poll(self): return self.returncode
+        def kill(self): self.returncode = -9
+
     local_voice._resolve_managed_file = fake_resolver
     subprocess.run = fake_run
+    subprocess.Popen = FakeWhisper
     try:
         with TestClient(app) as client:
             scheduler.stop()
@@ -152,7 +161,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-local-voice-v041-") as data_
             def no_output_run(command, **kwargs):
                 return SimpleNamespace(returncode=0, stdout="", stderr="decode failed")
 
-            subprocess.run = no_output_run
+            class NoOutputWhisper(FakeWhisper):
+                def __init__(self, command, **kwargs): self.returncode = 0
+            subprocess.Popen = NoOutputWhisper
             missing_output = client.post(
                 "/api/v1/control/voice/transcribe",
                 files={"file": ("speech.wav", pcm16_wav(), "audio/wav")},
@@ -161,5 +172,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-local-voice-v041-") as data_
     finally:
         local_voice._resolve_managed_file = original_resolver
         subprocess.run = original_run
+        subprocess.Popen = original_popen
 
 print("HomeServer v0.42 local Whisper/Piper voice runtime regression passed")
+
