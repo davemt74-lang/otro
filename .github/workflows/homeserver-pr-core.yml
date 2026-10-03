@@ -27,6 +27,9 @@ jobs:
       - name: Interactive capture ownership and Stop acceptance
         run: |
           node tests/capture-ownership-section1.mjs
+          node tests/listening-section2.mjs
+          node --check ui/brain.js
+          node --check ui/chat-enhancements.js
           python tests/chat_dictation_ui_contract.py
           python tests/chat_enhancements_ui_contract.py
           node --check ui/transcription-workspace.js

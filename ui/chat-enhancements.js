@@ -12,7 +12,13 @@
   let awaitingAgent = false;
   let speaking = false;
   let pendingTranscript = '';
-  let assistantBaselineCount = 0;
+  let waitingRequestId = null;
+  let waitingGeneration = 0;
+  let outputGeneration = 0;
+  let ttsController = null;
+  let speechWatchdog = null;
+  let resumeTimer = null;
+  let browserStartTimer = null;
   let lastSpokenText = '';
   let drawerRefreshTimer = null;
   let localVoiceStatus = null;
@@ -338,7 +344,11 @@
     conversationStarting = false;
     conversationMode = false;
     pendingTranscript = '';
+    const requestId=waitingRequestId;waitingRequestId=null;
     awaitingAgent = false;
+    outputGeneration+=1;ttsController?.abort();ttsController=null;
+    clearTimeout(speechWatchdog);clearTimeout(resumeTimer);clearTimeout(browserStartTimer);
+    if(requestId !== null)window.HomeServerChatTurn?.cancel?.(requestId);
     speaking = false;
     voicePath = {stt: null, tts: null};
     captureGeneration += 1;
@@ -359,19 +369,22 @@
     const input = byId('chatInput');
     const form = byId('chatForm');
     if (!conversationMode || !input || !form || !transcript.trim()) return;
-    assistantBaselineCount = document.querySelectorAll('#chatMessages .chat-message.assistant').length;
+    if(window.HomeServerChatTurn?.isBusy?.()){flash('Wait for the current chat turn to finish.');resumeListening();return;}
+    waitingRequestId=null;waitingGeneration=captureGeneration;
     awaitingAgent = true;
     pendingTranscript = '';
     input.value = transcript.trim().slice(0, Number(input.maxLength || 32000));
     input.dispatchEvent(new Event('input', {bubbles: true}));
     setVoiceState('thinking');
-    form.requestSubmit();
+    try{form.requestSubmit();}
+    catch(err){awaitingAgent=false;flash(err.message || 'Chat submission failed.',true);resumeListening();return;}
+    if(waitingRequestId === null){awaitingAgent=false;flash('Chat was not submitted. Try again.',true);resumeListening();}
   }
 
   function resumeListening() {
     if (!conversationMode || awaitingAgent || speaking) return;
-    if (voicePath.stt === 'local') setTimeout(() => startLocalListening(), 250);
-    else setTimeout(() => startBrowserListening(), 250);
+    clearTimeout(resumeTimer);const generation=captureGeneration;
+    resumeTimer=setTimeout(()=>{if(!conversationMode||generation!==captureGeneration)return;if(voicePath.stt==='local')startLocalListening();else startBrowserListening();},250);
   }
 
   function startBrowserListening() {
@@ -394,25 +407,31 @@
     recognition.maxAlternatives = 1;
     setVoiceState('listening');
 
+    clearTimeout(browserStartTimer);
+    browserStartTimer=setTimeout(()=>{if(conversationMode && recognition===current && generation===captureGeneration){stopConversationMode('');flash('Speech recognition did not start. Check microphone permission and try again.',true);}},5000);
+    current.onstart=()=>{if(recognition===current && generation===captureGeneration)clearTimeout(browserStartTimer);};
+    const deliveredFinals=new Set();
     recognition.onresult = event => {
       if(!conversationMode||recognition!==current||generation!==captureGeneration)return;
       let finalText = '';
       let interimText = '';
-      for (let i = 0; i < event.results.length; i += 1) {
+      for (let i = Number(event.resultIndex || 0); i < event.results.length; i += 1) {
         const text = event.results[i][0]?.transcript || '';
-        if (event.results[i].isFinal) finalText += text;
+        if (event.results[i].isFinal){if(deliveredFinals.has(i))continue;deliveredFinals.add(i);finalText += `${finalText?' ':''}${text}`;}
         else interimText += text;
       }
-      input.value = `${finalText}${interimText}`.trimStart().slice(0, Number(input.maxLength || 32000));
+      input.value = [pendingTranscript,`${finalText}${interimText}`].filter(Boolean).join(' ').trimStart().slice(0, Number(input.maxLength || 32000));
       input.dispatchEvent(new Event('input', {bubbles: true}));
       if (finalText.trim()) {
-        pendingTranscript = finalText.trim();
+        pendingTranscript = [pendingTranscript,finalText.trim()].filter(Boolean).join(' ');
         try { recognition.stop(); } catch (_) {}
       }
     };
 
     recognition.onerror = event => {
       if(!conversationMode||recognition!==current||generation!==captureGeneration)return;
+      clearTimeout(browserStartTimer);
+      if(event.error === 'audio-capture'){stopConversationMode('');flash('No usable microphone input is available. Check the device and try again.',true);return;}
       const denied = event.error === 'not-allowed' || event.error === 'service-not-allowed';
       if (denied) {
         stopConversationMode('');
@@ -424,6 +443,7 @@
 
     recognition.onend = () => {
       if(recognition!==current||generation!==captureGeneration)return;
+      clearTimeout(browserStartTimer);
       recognition = null;
       if (!conversationMode) {
         setVoiceState('idle');
@@ -681,98 +701,95 @@
     flash(err.message || 'Local Whisper transcription failed.', true);
   }
 
-  function finishSpeaking() {
+  function currentOutput(generation){return conversationMode && generation===outputGeneration;}
+  function finishSpeaking(generation) {
+    if(!currentOutput(generation))return;
+    outputGeneration+=1;
+    clearTimeout(speechWatchdog);ttsController?.abort();ttsController=null;
     speaking = false;
     cleanupPlayback();
-    if (conversationMode) resumeListening();
+    try{window.speechSynthesis?.cancel();}catch(_){}
+    resumeListening();
   }
 
-  function speakBrowserReply(text) {
-    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
-      if (strictLocalEnabled()) {
-        stopConversationMode('');
-        flash('Strict Local Voice does not permit browser speech synthesis fallback.', true);
-      } else {
-        finishSpeaking();
-      }
-      return;
+  function speakBrowserReply(text,generation) {
+    if(!currentOutput(generation))return;
+    if(strictLocalEnabled()){
+      stopConversationMode('');flash('Strict Local Voice does not permit browser speech synthesis fallback.',true);return;
     }
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {finishSpeaking(generation);return;}
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = navigator.language || document.documentElement.lang || 'en-US';
     utterance.rate = Number(window.HomeServerVoiceSettings?.getPreferences?.().speaking_rate || 1);
     utterance.pitch = 1;
-    utterance.onend = finishSpeaking;
-    utterance.onerror = finishSpeaking;
-    window.speechSynthesis.speak(utterance);
+    utterance.onend = ()=>finishSpeaking(generation);
+    utterance.onerror = ()=>finishSpeaking(generation);
+    try{window.speechSynthesis.speak(utterance);}catch(err){flash(err.message || 'Speech playback failed.',true);finishSpeaking(generation);}
   }
 
-  async function speakLocalReply(text) {
+  async function speakLocalReply(text,generation) {
+    const controller=new AbortController();ttsController=controller;
     const response = await fetch(LOCAL_TTS_ENDPOINT, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({text}),
-      cache: 'no-store',
-      credentials: 'same-origin',
+      method: 'POST',headers: {'Content-Type': 'application/json'},body: JSON.stringify({text}),
+      cache: 'no-store',credentials: 'same-origin',signal:controller.signal,
     });
+    if(!currentOutput(generation))return;
     if (!response.ok) throw await responseError(response, 'Local Piper speech synthesis failed.');
     const audioBytes = await response.arrayBuffer();
-    if (!conversationMode) return;
+    if(!currentOutput(generation))return;
     const context = playbackContext;
     if (!context || context.state === 'closed') throw new Error('Local audio playback context is unavailable.');
     await context.resume();
+    if(!currentOutput(generation)||context!==playbackContext)return;
     await window.HomeServerVoiceSettings?.applyOutputSink?.(context);
+    if(!currentOutput(generation)||context!==playbackContext)return;
     const decoded = await context.decodeAudioData(audioBytes.slice(0));
-    if (!conversationMode || context !== playbackContext) return;
+    if(!currentOutput(generation)||context!==playbackContext)return;
     cleanupPlayback();
-    const source = context.createBufferSource();
-    playbackSource = source;
-    source.buffer = decoded;
-    source.connect(context.destination);
+    const source = context.createBufferSource();playbackSource = source;
+    source.buffer = decoded;source.connect(context.destination);
     source.onended = () => {
-      if (playbackSource === source) playbackSource = null;
-      try { source.disconnect(); } catch (_) {}
-      finishSpeaking();
+      if(!currentOutput(generation)||playbackSource!==source)return;
+      playbackSource=null;try{source.disconnect();}catch(_){}finishSpeaking(generation);
     };
+    clearTimeout(speechWatchdog);
+    speechWatchdog=setTimeout(()=>finishSpeaking(generation),Math.max(10000,Number(decoded.duration || 0)*1000+5000));
     source.start(0);
   }
 
-  function handleLocalTtsFailure(err) {
+  function handleLocalTtsFailure(err,generation,text) {
+    if(!currentOutput(generation))return;
     cleanupPlayback();
-    if (!conversationMode) return;
-    if (strictLocalEnabled()) {
-      stopConversationMode('');
-      flash(err.message || 'Strict Local Piper speech synthesis failed.', true);
-      return;
-    }
+    if (strictLocalEnabled()) {stopConversationMode('');flash(err.message || 'Strict Local Piper speech synthesis failed.',true);return;}
     if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
-      voicePath.tts = 'browser';
-      flash('Local Piper failed; using browser speech synthesis fallback for this conversation.', true);
-      speakBrowserReply(lastSpokenText);
-      return;
+      voicePath.tts = 'browser';flash('Local Piper failed; using browser speech synthesis fallback for this conversation.',true);
+      speakBrowserReply(text,generation);return;
     }
-    finishSpeaking();
+    finishSpeaking(generation);
   }
 
   function speakAgentReply(text) {
-    if (!conversationMode || !text || text === lastSpokenText) return;
-    lastSpokenText = text;
-    speaking = true;
-    setVoiceState('speaking');
-    if (voicePath.tts === 'local') speakLocalReply(text).catch(handleLocalTtsFailure);
-    else speakBrowserReply(text);
+    const message=String(text || '').trim();
+    if (!conversationMode || !message) {if(conversationMode)resumeListening();return;}
+    const generation=++outputGeneration;
+    ttsController?.abort();cleanupPlayback();clearTimeout(speechWatchdog);
+    lastSpokenText=message;speaking=true;setVoiceState('speaking');
+    speechWatchdog=setTimeout(()=>finishSpeaking(generation),Math.min(180000,Math.max(15000,message.length*100+5000)));
+    if (voicePath.tts === 'local') speakLocalReply(message,generation).catch(err=>handleLocalTtsFailure(err,generation,message));
+    else speakBrowserReply(message,generation);
   }
 
-  function checkForAgentReply() {
-    if (!conversationMode || !awaitingAgent) return;
-    const assistants = [...document.querySelectorAll('#chatMessages .chat-message.assistant')];
-    if (assistants.length <= assistantBaselineCount) return;
-    const latest = assistants[assistants.length - 1];
-    const reply = latest?.childNodes?.[0]?.textContent?.trim() || latest?.textContent?.trim() || '';
-    if (!reply) return;
-    awaitingAgent = false;
-    speakAgentReply(reply);
-  }
+  window.addEventListener('homeserver:chat-turn',event=>{
+    const turn=event.detail || {};
+    if(!conversationMode || !awaitingAgent || waitingGeneration!==captureGeneration)return;
+    if(turn.status==='started' && waitingRequestId===null){waitingRequestId=turn.requestId;return;}
+    if(waitingRequestId===null || turn.requestId!==waitingRequestId)return;
+    if(!['completed','failed','cancelled'].includes(turn.status))return;
+    waitingRequestId=null;awaitingAgent=false;
+    if(turn.status==='completed' && String(turn.reply || '').trim())speakAgentReply(turn.reply);
+    else{if(turn.status==='failed')flash(turn.message || 'Chat turn failed. Listening again.',true);resumeListening();}
+  });
 
   async function toggleConversationMode() {
     if (conversationMode || conversationStarting) {
@@ -890,7 +907,6 @@
   });
 
   function onChatMutation() {
-    checkForAgentReply();
     scheduleDrawerRefresh();
   }
 
