@@ -74,6 +74,9 @@ jobs:
           python tests/tracky_agent_eyes_scene_v1g3c.py
           python tests/tracky_agent_eyes_shared_scene_v1g3d.py
           python tests/tracky_agent_eyes_experience_v1g4.py
+          python tests/tracky_agent_eyes_release_acceptance_v1g5.py
+          node tests/tracky_agent_eyes_release_acceptance_ui_v1g5.mjs
+          node --check ui/tracky/agent-eyes-release-acceptance.js
           node tests/tracky_agent_eyes_shared_scene_ui_v1g3d.mjs
           node tests/tracky_agent_eyes_scene_ui_v1g3c.mjs
           node --check ui/tracky/agent-eyes-scene.js
