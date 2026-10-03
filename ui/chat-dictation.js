@@ -312,7 +312,7 @@
     }
   }
 
-  async function transcribeLocal(blob, runGeneration) {
+  async function transcribeLocal(blob, runGeneration, capturedAt = performance.now()) {
     if (!active || runGeneration !== generation) return;
     if (!transcriptionSession) setState('transcribing');
     const controller = new AbortController(); transcribeController = controller;
@@ -334,7 +334,7 @@
       if (!payload || !active || runGeneration !== generation) return;
       const transcript = String(payload.text || '').trim();
       if (transcriptionSession) {
-        if (transcript) window.dispatchEvent(new CustomEvent('homeserver:transcription-segment', {detail:{text:transcript,provider:'local_whisper'}}));
+        if (transcript) window.dispatchEvent(new CustomEvent('homeserver:transcription-segment', {detail:{text:transcript,provider:'local_whisper',capturedAt}}));
       } else {
         const inserted = insertTranscript(transcript);
         stopDictation(inserted ? 'Dictation added. Review or edit it, then send when ready.' : 'No speech detected. Nothing was added.');
@@ -353,10 +353,10 @@
     processingGeneration = runGeneration;
     try {
       while (active && runGeneration === generation && segmentQueue.length) {
-        const blob = segmentQueue[0];
-        await transcribeLocal(blob, runGeneration);
+        const item = segmentQueue[0];
+        await transcribeLocal(item.blob, runGeneration, item.capturedAt);
         if (!active || runGeneration !== generation) return;
-        segmentQueue.shift(); queuedBytes -= blob.size;
+        segmentQueue.shift(); queuedBytes -= item.blob.size;
       }
     } catch (error) {
       if (active && runGeneration === generation) localFailure(error);
@@ -365,8 +365,8 @@
     }
   }
 
-  function enqueueSegment(blob, runGeneration) {
-    segmentQueue.push(blob); queuedBytes += blob.size;
+  function enqueueSegment(blob, runGeneration, capturedAt = performance.now()) {
+    segmentQueue.push({blob,capturedAt}); queuedBytes += blob.size;
     void processSegments(runGeneration);
     if (segmentQueue.length >= MAX_QUEUED_SEGMENTS || queuedBytes >= MAX_QUEUED_BYTES) {
       stopDictation('');
@@ -420,7 +420,7 @@
       if (transcriptionSession) {
         // Keep the microphone/context open; processing never delays the next capture.
         recordLocalSegment(runGeneration);
-        if (hadSpeech && blob.size) enqueueSegment(blob, runGeneration);
+        if (hadSpeech && blob.size) enqueueSegment(blob, runGeneration, startedAt);
       } else {
         stopCapture();
         if (!hadSpeech || !blob.size) stopDictation('No speech detected. Nothing was added.');
@@ -487,7 +487,7 @@
       const text = finalText.trim();
       if (!text) return;
       if(transcriptionSession){
-        window.dispatchEvent(new CustomEvent('homeserver:transcription-segment',{detail:{text,provider:'browser_fallback'}}));
+        window.dispatchEvent(new CustomEvent('homeserver:transcription-segment',{detail:{text,provider:'browser_fallback',capturedAt:performance.now()}}));
         return;
         return;
       }

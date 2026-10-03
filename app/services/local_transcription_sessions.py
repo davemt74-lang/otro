@@ -41,16 +41,17 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         "cloud_shared":bool(row["cloud_share"]),"started_at":row["started_at"],
         "ended_at":row["ended_at"],"segment_count":int(row["segment_count"]),
         "source":"homeserver_local_transcription",
+        "timeline_ms":int(connection.execute("SELECT COALESCE(MAX(started_ms),0) FROM local_transcription_segments WHERE session_id=?",(row["id"],)).fetchone()[0]),
     }
     if with_segments:
         segments=connection.execute(
             "SELECT id,client_key,text,started_ms,created_at FROM local_transcription_segments "
-            "WHERE session_id=? ORDER BY started_ms,created_at,id",(row["id"],)
+            "WHERE session_id=? ORDER BY rowid",(row["id"],)
         ).fetchall()
         result["segments"]=[
             {"id":s["id"],"client_key":s["client_key"],"text":s["text"],
-             "started_ms":s["started_ms"],"created_at":s["created_at"],"speaker":"Speaker 1"}
-            for s in segments
+             "started_ms":s["started_ms"],"created_at":s["created_at"],"speaker":"Speaker 1","segment_index":index}
+            for index,s in enumerate(segments)
         ]
     return result
 
@@ -58,6 +59,7 @@ def start(title:str="Untitled transcription")->dict[str,Any]:
     title=str(title or "").strip()[:190] or "Untitled transcription"
     sid=secrets.token_hex(16)
     with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         # Only one local active transcription: avoid accidental parallel listening.
         active=conn.execute(
             "SELECT id FROM local_transcription_sessions WHERE status='active' LIMIT 1"
@@ -80,23 +82,28 @@ def append(session_id:str,text:str,client_key:str,started_ms:int=0)->dict[str,An
     if type(started_ms) is not int or started_ms<0 or started_ms>24*60*60*1000:
         raise TranscriptError("Invalid transcription segment timing.")
     with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row=_get(conn,sid)
-        if row["status"]!="active":
-            raise TranscriptError("Transcription must be active before appending.",409)
         existing=conn.execute(
-            "SELECT id FROM local_transcription_segments WHERE session_id=? AND client_key=?",
+            "SELECT id,text FROM local_transcription_segments WHERE session_id=? AND client_key=?",
             (sid,client_key),
         ).fetchone()
         if existing is not None:
+            if existing["text"]!=text:
+                raise TranscriptError("This segment key already belongs to different text.",409)
             return {"contract":CONTRACT,"duplicate":True,"session":_payload(conn,row)}
+        if row["status"]!="active":
+            raise TranscriptError("Transcription must be active before appending.",409)
         if int(row["segment_count"])>=MAX_SEGMENTS:
             raise TranscriptError("Transcription segment limit reached.",409)
         length=conn.execute(
-            "SELECT COALESCE(SUM(LENGTH(text)),0) FROM local_transcription_segments "
+            "SELECT COALESCE(SUM(LENGTH(CAST(text AS BLOB))),0) FROM local_transcription_segments "
             "WHERE session_id=?",(sid,),
         ).fetchone()[0]
         if int(length)+len(text.encode("utf-8"))>MAX_SESSION_CHARS:
             raise TranscriptError("Transcription document size limit reached.",409)
+        previous=conn.execute("SELECT COALESCE(MAX(started_ms),0) FROM local_transcription_segments WHERE session_id=?",(sid,)).fetchone()[0]
+        started_ms=max(started_ms,int(previous))
         conn.execute(
             "INSERT INTO local_transcription_segments"
             "(id,session_id,client_key,text,started_ms,created_at) VALUES(?,?,?,?,?,?)",
@@ -111,6 +118,7 @@ def append(session_id:str,text:str,client_key:str,started_ms:int=0)->dict[str,An
 def stop(session_id:str)->dict[str,Any]:
     sid=_id(session_id)
     with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row=_get(conn,sid)
         if row["status"]=="active":
             conn.execute(
@@ -148,6 +156,7 @@ def share_with_cloud(session_id:str,allowed:bool)->dict[str,Any]:
     sid=_id(session_id)
     if type(allowed) is not bool:raise TranscriptError("Share setting must be explicit.")
     with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row=_get(conn,sid)
         if allowed and row["status"]!="completed":
             raise TranscriptError("Stop listening before sharing a transcription.",409)
@@ -161,6 +170,7 @@ def share_with_cloud(session_id:str,allowed:bool)->dict[str,Any]:
 def delete(session_id:str)->dict[str,Any]:
     sid=_id(session_id)
     with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         row=_get(conn,sid)
         if row["status"]=="active":
             raise TranscriptError("Stop listening before deleting a transcription.",409)
