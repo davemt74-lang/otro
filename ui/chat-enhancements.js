@@ -659,21 +659,31 @@
   async function processLocalRecording(blob, generation) {
     if (!conversationMode || generation !== captureGeneration) return;
     setVoiceState('transcribing');
-    const wav = await recordingToWav(blob);
-    if (!conversationMode || generation !== captureGeneration) return;
-    const formData = new FormData();
-    formData.append('file', wav, 'conversation.wav');
-    const controller=new AbortController();transcribeController=controller;
-    const response = await fetch(LOCAL_STT_ENDPOINT, {
-      method: 'POST',
-      body: formData,
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal: controller.signal,
+    const controller = new AbortController(); transcribeController = controller;
+    let deadline;
+    const cancelled = new Promise((_,reject) => {
+      controller.signal.addEventListener('abort',()=>reject(new Error('Local Whisper cancelled or timed out.')),{once:true});
+      deadline = setTimeout(()=>controller.abort(),100000);
     });
-    if (!response.ok) throw await responseError(response, 'Local Whisper transcription failed.');
-    const payload = await response.json();
-    if(transcribeController===controller)transcribeController=null;
+    let payload;
+    try {
+      payload = await Promise.race([cancelled, (async()=>{
+        const wav = await recordingToWav(blob);
+        if (controller.signal.aborted || !conversationMode || generation !== captureGeneration) return null;
+        const formData = new FormData(); formData.append('file',wav,'conversation.wav');
+        const response = await fetch(LOCAL_STT_ENDPOINT,{method:'POST',body:formData,
+          cache:'no-store',credentials:'same-origin',signal:controller.signal});
+        if (!response.ok) throw await responseError(response,'Local Whisper transcription failed.');
+        return await response.json();
+      })()]);
+    } catch (error) {
+      if (!conversationMode || generation !== captureGeneration) return;
+      throw error;
+    } finally {
+      clearTimeout(deadline);
+      if(transcribeController === controller) transcribeController = null;
+    }
+    if (!payload) return;
     if (!conversationMode || generation !== captureGeneration) return;
     const transcript = String(payload.text || '').trim();
     if (!transcript) {

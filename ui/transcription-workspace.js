@@ -2,16 +2,40 @@
 (()=>{
 'use strict';
 const base='/api/v1/control/transcription-sessions';
-let active=null,selected=null,queue=Promise.resolve(),listening=false,finishing=false,drawer=null;
+let active=null,selected=null,queue=[],saving=null,retryTimer=null,finishRequested=false,listening=false,finishing=false,drawer=null;
 const $=id=>document.getElementById(id);
 const labels={};
 async function request(path='',method='GET',body){
-  const r=await fetch(base+path,{method,credentials:'same-origin',cache:'no-store',
+ const controller=new AbortController();let timer;
+ try{return await Promise.race([(async()=>{
+  const r=await fetch(base+path,{method,signal:controller.signal,credentials:'same-origin',cache:'no-store',
     headers:{Accept:'application/json',...(method==='GET'?{}:{'X-Requested-With':'XMLHttpRequest','Content-Type':'application/json'})},
     ...(body?{body:JSON.stringify(body)}:{})});
-  const j=await r.json();if(!r.ok)throw new Error(j.detail||'Transcription request failed.');
-  return j;
+  const j=await r.json();if(!r.ok)throw new Error(j.detail||'Transcription request failed.');return j;
+ })(),new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Transcription save timed out.'));},30000);})]);}
+ finally{clearTimeout(timer);}
 }
+function scheduleSaveRetry(){
+ if(retryTimer)return;
+ retryTimer=setTimeout(()=>{retryTimer=null;void saveQueue().then(()=>{if(finishRequested)return finish();}).catch(()=>{});},4000);
+}
+function saveQueue(){
+ if(saving)return saving;
+ saving=(async()=>{
+  while(queue.length){
+   const item=queue[0];
+   const j=await request('/'+item.sessionId+'/segments','POST',item.segment);
+   queue.shift();
+   if(selected?.id===item.sessionId){selected={...j.session,segments:[...(selected.segments||[]),{...item.segment,text:item.segment.text}]};renderSession(selected);}
+   status((listening?'Listening · ':'Saving · ')+j.session.segment_count+' transcript segments saved locally.');
+  }
+ })().catch(e=>{
+  status('Save pending: '+e.message+' Keep this page open while it retries.',true);
+  window.HomeServerDictation?.stopTranscription();scheduleSaveRetry();throw e;
+ }).finally(()=>{saving=null;});
+ return saving;
+}
+
 function status(s,error=false){const n=$('hsTranscriptStatus');if(n){n.textContent=s;n.dataset.error=error?'yes':'no';}}
 function ensure(){
  if(drawer||!document.getElementById('chatForm'))return;
@@ -46,7 +70,7 @@ function ensure(){
 function controls(){
  const session=selected;
  $('hsTranscriptStop').disabled=!active;
- $('hsTranscriptResume').disabled=!active||listening;
+ $('hsTranscriptResume').disabled=!active||listening||finishRequested;
  $('hsTranscriptStart').disabled=!!active;
  const complete=session?.status==='completed';
  $('hsTranscriptShare').disabled=!complete;
@@ -87,7 +111,7 @@ async function refresh(){
 }
 async function open(id){const data=await request('/'+encodeURIComponent(id));renderSession(data.session);}
 async function start(create){
- if(listening||finishing)return;
+ if(listening||finishing||finishRequested)return;
  if(!window.HomeServerDictation)throw Error('Speech capture is not ready.');
  if(create){
   if(active)throw Error('Finish the active session first.');
@@ -106,29 +130,28 @@ async function start(create){
  controls();
 }
 function onSegment(event){
- if(!active||!listening||!event.detail?.text)return;
+ if(!active||!listening||!event.detail?.text||queue.length>=200)return;
  const sessionId=active.id;
  const segment={text:String(event.detail.text).slice(0,8000),
    client_key:Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join(''),
    started_ms:Math.min(86400000,Math.max(0,Math.round(performance.now())))};
- queue=queue.then(async()=>{
-  const j=await request('/'+sessionId+'/segments','POST',segment);
-  if(selected?.id===sessionId)await open(sessionId);
-  status('Listening · '+j.session.segment_count+' transcript segments saved locally.');
- }).catch(e=>{status('Save failed. Listening stopped: '+e.message,true);window.HomeServerDictation?.stopTranscription();});
+ queue.push({sessionId,segment});
+ void saveQueue().catch(()=>{});
+ if(queue.length>=200){status('Listening stopped at the unsaved text limit. Keep this page open while saves retry.',true);window.HomeServerDictation?.stopTranscription();}
+
 }
 async function finish(){
  if(finishing||!active)return;
- finishing=true;listening=false;
+ finishRequested=true;finishing=true;listening=false;
  window.HomeServerDictation?.stopTranscription();
  $('hsTranscriptStop').disabled=true;
  try{
-  await queue;
+  await saveQueue();
   const id=active.id;
   const j=await request('/'+id+'/stop','POST');
-  active=null;renderSession(j.session);status('Transcription saved locally. Cloud sharing is optional.');
+  active=null;finishRequested=false;renderSession(j.session);status('Transcription saved locally. Cloud sharing is optional.');
   await refresh();
- }finally{finishing=false;controls();}
+ }catch(e){scheduleSaveRetry();throw e;}finally{finishing=false;controls();}
 }
 async function share(){
  if(!selected||selected.status!=='completed')return;
@@ -152,3 +175,4 @@ async function remove(){
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensure,{once:true});else ensure();
 })();
+

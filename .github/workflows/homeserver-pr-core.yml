@@ -28,6 +28,8 @@ jobs:
         run: |
           node tests/capture-ownership-section1.mjs
           node tests/listening-section2.mjs
+          node tests/transcription-section3.mjs
+          python tests/transcription_processing_section3.py
           node --check ui/brain.js
           node --check ui/chat-enhancements.js
           python tests/chat_dictation_ui_contract.py

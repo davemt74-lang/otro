@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -227,12 +227,12 @@ def synthesize_agent_voice(agent_id: int, payload: SpeechRequest) -> Response:
 
 
 @router.post("/transcribe")
-async def transcribe_local_voice(file: UploadFile = File(...)) -> dict:
+async def transcribe_local_voice(request: Request, file: UploadFile = File(...)) -> dict:
     try:
         content = await file.read(local_voice.MAX_AUDIO_BYTES + 1)
         if len(content) > local_voice.MAX_AUDIO_BYTES:
             raise local_voice.LocalVoiceError("Recorded audio exceeds the local voice size limit.", 413)
-        return local_voice.transcribe(content)
+        return await local_voice.transcribe_request(content, request)
     except local_voice.LocalVoiceError as exc:
         _raise(exc)
     finally:
@@ -273,3 +273,4 @@ def synthesize_local_voice(payload: SpeechRequest) -> Response:
     if not any(value is not None for value in resolved["overrides"].values()):
         return _global_audio(payload.text)
     return _profile_audio(payload.text, resolved)
+
