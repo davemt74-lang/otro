@@ -219,10 +219,32 @@ def status() -> dict:
         package = snapshot()
         saved = _read(KEY)
         enabled = _PROCESS_CONSENT
-    return {"protocol": CONTRACT, "enabled": enabled, "fresh_process_consent_required": True,
+    reason = package["summary"]["reason"] if package else "never_shared"
+    delivery = "pending" if package and saved.get("acknowledged_revision") != package["revision"] else "acknowledged" if package else "not_requested"
+    presentation = experience(enabled=enabled, delivery=delivery, reason=reason)
+    return {"reason": reason, "experience": presentation, "protocol": CONTRACT, "enabled": enabled, "fresh_process_consent_required": True,
         "revision": package["revision"] if package else 0,
         "state": package["summary"]["state"] if package else "never_shared",
         "delivery": "pending" if package and saved.get("acknowledged_revision") != package["revision"]
             else "acknowledged" if package else "not_requested",
         "scope": "filtered_scene_enums_and_owner_reports_only", "chat_history_exported": False,
         "raw_media_exported": False, "capture_authority": False}
+
+
+def experience(*, enabled: bool, delivery: str, reason: str) -> dict:
+    """Explain local consent separately from the last Cloud acknowledgment."""
+    if not enabled:
+        title = "Sharing off locally"
+        guidance = ("Cloud revocation is pending. The prior snapshot still expires at its original 60-second limit; keep HomeServer paired so the existing sync can deliver the revocation."
+                    if delivery == "pending" else "Cloud confirmed sharing is off." if delivery == "acknowledged" else "No scene has been shared. Finish camera/model review before enabling sharing if desired.")
+    elif delivery == "pending":
+        title = "Sharing enabled — delivery pending"
+        guidance = "Cloud has not acknowledged this state. Check HomeServer pairing and connection; the existing sync retries automatically."
+    else:
+        title = "Sharing enabled — Cloud acknowledged"
+        guidance = "Cloud acknowledged this state; that acknowledgment does not make an expired scene current."
+    if enabled and reason != "recent_observation":
+        from .tracky_agent_eyes_context import REASONS
+        advice = REASONS.get(reason)
+        guidance += " " + (advice[1] if advice else "Review Agent Eyes status locally before a new supervised observation.")
+    return {"title": title, "guidance": guidance, "capture_authority": False, "automatic_recovery": False}

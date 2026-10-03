@@ -134,7 +134,8 @@
             <p class="muted">Off by default. Share possible object categories, scene features and your corrections for this process. Images, identities and chat history stay local. Observations expire after 60 seconds. Turning sharing off sends a revocation when Cloud reconnects.</p>
             <button class="button secondary" id="trackySceneShareEnable" type="button">Enable scene sharing</button>
             <button class="button secondary" id="trackySceneShareDisable" type="button">Turn sharing off</button>
-            <p id="trackySceneShareStatus" role="status">Scene sharing is off.</p>
+            <p id="trackySceneShareStatus" role="status" aria-live="polite">Scene sharing is off.</p>
+            <p class="muted">Cloud shows its last received state. Local sharing and delivery acknowledgment are shown here. Turning sharing off may require reconnecting to deliver revocation.</p>
           </div>
           <label class="onboard-visual-consent"><input id="trackyAgentEyesConsent" type="checkbox"><span>I authorize a new bounded, supervised local camera session. I will keep this view open and can stop it at any time.</span></label>
           <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
