@@ -167,7 +167,9 @@ def projection() -> dict[str, Any]:
             from . import tracky_agent_eyes_scene as scene
             try:
                 if not latest.get("scene_test"):
-                    scene_context = {"scene": scene.observation(provider["scene_observation"])}
+                    from . import tracky_agent_eyes_shared_scene as shared
+                    scene_context = {"scene": shared.decorate(scene.observation(provider["scene_observation"]),
+                        hashlib.sha256(request_id.encode()).hexdigest()[:16])}
             except scene.SceneError:
                 pass  # Retain valid coarse Haar category; omit revoked scene.
         # Scene model freshness checks are bounded local metadata requests.
@@ -214,7 +216,15 @@ def prompt_fragment(*, max_chars: int) -> tuple[str, dict[str, Any]]:
         "observation is available. Reading cannot capture, renew consent, "
         "authorize actions or write memory.\n"
     )
-    fragment = prefix + json.dumps({**context, "owner_guidance": REASONS[context["reason"]][1]},
+    prompt_data = {k: context[k] for k in ("state", "reason", "observed_at", "age_seconds", "possible_face_regions", "confidence", "source") if k in context}
+    if context.get("scene"):
+        value = context["scene"]
+        prompt_data["scene"] = {k: value[k] for k in ("objects", "setting", "lighting") if k in value}
+        prompt_data["scene"]["owner_reports"] = {r["object"]: r["present"] for r in value.get("owner_corrections", [])}
+        prompt_data["scene"]["conflicts_with_camera"] = [r["object"] for r in value.get("owner_corrections", []) if r["conflicts_with_camera"]]
+        prompt_data["scene"]["device_context"] = value.get("device_context", [])[:2]
+        prompt_data["scene"]["sources_separate"] = True
+    fragment = prefix + json.dumps({**prompt_data, "owner_guidance": REASONS[context["reason"]][1]},
                                   sort_keys=True, separators=(",", ":"))
     # Never truncate a structured observation into misleading partial data.
     return (fragment if len(fragment) <= min(max_chars, MAX_FRAGMENT_CHARS) else "", context)

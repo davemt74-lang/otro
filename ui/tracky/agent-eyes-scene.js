@@ -18,8 +18,9 @@ function render(data, started=Date.now()){
  $('Room').replaceChildren();
  for(const room of data.rooms||[]){const option=document.createElement('option');option.value=room.room_id;option.textContent=room.name;$('Room').append(option);}
  $('Room').value=data.room_id||selected;
+ if(data.model)$('Model').value=data.model;
  $('Accept').disabled=busy||!data.test_completed||!$('Observed').checked;
- $('Status').textContent=reviewed?'Local scene review accepted for this process. Start a new permitted observation to include scenes in chat.':data.configured?'Model selected. Enable scene inference, choose one observation and start Agent Eyes to test it. Inspect output and camera release before accepting.':'Scene inference is off. Select an installed local vision model and room after camera acceptance.';
+ $('Status').textContent=data.review_expired?'Scene review expired. Repeat model selection and the installed scene test.':reviewed?'Local scene review accepted for this process. Start a new permitted observation to include scenes in chat.':data.configured?'Model selected. Enable scene inference, choose one observation and start Agent Eyes to test it. Inspect output and camera release before accepting.':'Scene inference is off. Select an installed local vision model and room after camera acceptance.';
  const p=data.preview;
  const age=p?.age_seconds+(Date.now()-started)/1000;
  const fresh=p&&Number.isFinite(age)&&age>=0&&age<=60&&visible();

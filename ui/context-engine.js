@@ -127,6 +127,7 @@
 
   function clearEyes(text = 'Checking Agent Eyes context…') {
     eyesRevision++;
+    window.TrackySceneCorrections?.clear();
     clearTimeout(eyesPoll);
     clearTimeout(eyesAgeTimer);
     if (byId('contextAgentEyesStatus')) byId('contextAgentEyesStatus').textContent = text;
@@ -160,14 +161,16 @@
         const elapsed = (Date.now() - checkedAt) / 1000;
         const currentAge = age + elapsed;
         if (!eyesEnabled() || !chatVisible() || elapsed < 0 || currentAge > 60) {
+          window.TrackySceneCorrections?.clear();
           byId('contextAgentEyesEvidence').textContent = '';
           byId('contextAgentEyesStatus').textContent = 'No current checked observation is available.';
           byId('contextAgentEyesGuidance').textContent = 'Refresh status; complete a new supervised observation in Tracky if needed.';
           return;
         }
-        byId('contextAgentEyesEvidence').textContent = `${categories[data.possible_face_regions]}${data.scene && Array.isArray(data.scene.objects) ? ' · possible objects: '+data.scene.objects.join(', ')+' · '+data.scene.setting+' / '+data.scene.lighting : ''} · observed ${Math.ceil(currentAge)}s ago · 60s limit · confidence uncalibrated`;
+        byId('contextAgentEyesEvidence').textContent = `${categories[data.possible_face_regions]}${data.scene && Array.isArray(data.scene.objects) ? ' · possible objects: '+data.scene.objects.join(', ')+' · '+data.scene.setting+' / '+data.scene.lighting+' · owner reports: '+(data.scene.owner_corrections||[]).map(r=>r.object+' '+(r.present?'present':'absent')+(r.conflicts_with_camera?' (differs from camera)':'')).join(', ') : ''} · observed ${Math.ceil(currentAge)}s ago · 60s limit · confidence uncalibrated`;
         eyesAgeTimer = setTimeout(tick, 1000);
       };
+      window.TrackySceneCorrections?.render(data, {conversationId: activeConversationId(), requestStarted});
       tick();
     } else if (data.state === 'stale' && Number.isFinite(age) && age >= 0) {
       byId('contextAgentEyesEvidence').textContent = `Expired observation · ${Math.ceil(age)}s old when checked · 60s limit`;

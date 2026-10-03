@@ -1,0 +1,15 @@
+# Agent Eyes 1G3D — Shared physical scene meaning
+
+HomeServer owns camera capture, installed model review and perception evidence. Optional semantic sharing uses the existing authenticated HTTPS Tracky synchronization path. This section connects the previously saved backend draft to the canonical worker, Agent Chat, Agent Brain, world-state projection, owner controls and VP3 Cloud.
+
+Sharing defaults off and resets off on process restart. It exports only bounded possible-object enums, setting/lighting, original UTC observation time, a canonical room key and typed owner reports. No images, identities, model/provider prose, session identifiers or chat history are exported. The original observation must remain current under the installed model/owner review and 60-second freshness limit. Stopped, privacy-revoked, replaced, future, stale and unavailable observations expose no scene labels.
+
+Owner corrections require an authenticated owner conversation with Agent Eyes opted in, permanently local-only routing and cloud_allowed=false. They are bound to the checked observation fingerprint. Camera suggestions, owner reports, conflicts and local room-device evidence retain distinct provenance. Corrections never convert possible classes into verified objects or identities.
+
+Shared world rows are inferred class hints. General HomeServer context includes them only under separate semantic-sharing consent; per-chat local context retains its independent opt-in. Reserved rows are excluded from ordinary Cloud uploads. Cloud derives scene rows at read time from the fresh ordered mirror; generic world-state uploads cannot substitute for scene sharing.
+
+The durable sender revision and canonical SHA-256 bind each snapshot. Cloud serializes per-account/per-site arrivals in the existing sync transaction. Newer revisions win, identical repeats are idempotent, equal conflicts and stale arrivals cannot change consent. The sender acknowledges only an exact site/revision/fingerprint/state receipt after rechecking current authority. Backup revision repair preserves the current desired state. Retries do not renew observation age; revocation remains pending until acknowledged while remote observations independently expire.
+
+Validation: focused owner/CSRF/type/correction tests, canonical graph/upload exclusion, late receipts, expiry, restart, backoff and backup revision repair; Python/PHP golden fingerprints; behavioral UI expiry/latency/visibility/conversation isolation; actual InnoDB row-lock concurrency, canonical Cloud ingest/context/graph, account/site/device isolation, rollback and cascade. Existing PR Core, Recovery Baseline, retained local scene/evidence/context and release/installer gates remain required.
+
+Deployment: install the paired Cloud and Windows HomeServer packages. Run Cloud upgrade.php to create the scene ordering metadata table through the existing schema bootstrap. Owner installed-camera and scene-model acceptance remain required; synthetic CI does not certify the physical device or authorize unattended perception.

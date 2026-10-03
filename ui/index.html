@@ -129,6 +129,13 @@
             <button class="button secondary" id="trackySceneRefresh" type="button">Refresh scene status</button>
             <button class="button secondary" id="trackySceneDisable" type="button">Disable scene inference</button>
           </div>
+          <div class="panel" id="trackySceneSharePanel" style="margin-top:12px">
+            <h4>Share scene meaning with your Cloud Agent</h4>
+            <p class="muted">Off by default. Share possible object categories, scene features and your corrections for this process. Images, identities and chat history stay local. Observations expire after 60 seconds. Turning sharing off sends a revocation when Cloud reconnects.</p>
+            <button class="button secondary" id="trackySceneShareEnable" type="button">Enable scene sharing</button>
+            <button class="button secondary" id="trackySceneShareDisable" type="button">Turn sharing off</button>
+            <p id="trackySceneShareStatus" role="status">Scene sharing is off.</p>
+          </div>
           <label class="onboard-visual-consent"><input id="trackyAgentEyesConsent" type="checkbox"><span>I authorize a new bounded, supervised local camera session. I will keep this view open and can stop it at any time.</span></label>
           <div class="top-actions" style="justify-content:flex-start;flex-wrap:wrap">
             <button class="button primary" id="trackyAgentEyesStart" type="button" disabled>Start Agent Eyes</button>
@@ -884,6 +891,7 @@
   <script src="/assets/local-apps.js" defer></script>
   <script src="/assets/homeserver-apps.js" defer></script>
   <script src="/assets/tracky-overview.js" defer></script>
+  <script src="/assets/tracky/agent-eyes-shared-scene.js" defer></script>
   <script src="/assets/tracky/agent-eyes-scene.js" defer></script>
   <script src="/assets/tracky/agent-eyes.js" defer></script>
   <script src="/assets/federation-control-center-v280.js" defer></script>

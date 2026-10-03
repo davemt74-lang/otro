@@ -37,6 +37,8 @@ jobs:
           python tests/tracky_agent_eyes_context_v1g3a.py
           python tests/tracky_agent_eyes_evidence_v1g3b.py
           python tests/tracky_agent_eyes_scene_v1g3c.py
+          python tests/tracky_agent_eyes_shared_scene_v1g3d.py
+          node tests/tracky_agent_eyes_shared_scene_ui_v1g3d.mjs
           node tests/tracky_agent_eyes_scene_ui_v1g3c.mjs
           node --check ui/tracky/agent-eyes-scene.js
           node tests/tracky_agent_eyes_context_ui_v1g3a.mjs

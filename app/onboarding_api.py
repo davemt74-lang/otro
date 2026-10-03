@@ -1,7 +1,7 @@
 """Owner-only scripted Agent Chat onboarding and approved provisioning."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 from .services import providers, onboarding_chat, onboarding_visual, tracky_owner_perception, tracky_native_camera, tracky_native_diagnosis, tracky_native_certification, tracky_native_managed_session, tracky_agent_eyes, tracky_agent_eyes_recovery, tracky_agent_eyes_acceptance, tracky_visual_contact_link, tracky_physical_context, contacts
 
@@ -573,3 +573,27 @@ def agent_eyes_scene_disable(x_requested_with: str | None = Header(default=None)
     _require_ui(x_requested_with)
     from .services import tracky_agent_eyes_scene as scene
     return scene.disable()
+
+
+class AgentEyesSceneShare(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(strict=True)
+    consent: bool = Field(strict=True)
+
+
+@router.get("/visual/agent-eyes/scene/share")
+def agent_eyes_scene_share_status(response: Response):
+    response.headers["Cache-Control"] = "no-store"
+    from .services import tracky_agent_eyes_shared_scene as shared
+    return shared.status()
+
+
+@router.post("/visual/agent-eyes/scene/share")
+def agent_eyes_scene_share(payload: AgentEyesSceneShare,
+                          x_requested_with: str | None = Header(default=None)):
+    _require_ui(x_requested_with)
+    from .services import tracky_agent_eyes_shared_scene as shared, tracky_agent_eyes_scene as scene
+    try:
+        return shared.set_sharing(**payload.model_dump())
+    except (shared.SharedSceneError, scene.SceneError, providers.ProviderError) as exc:
+        raise HTTPException(status_code=getattr(exc, "status_code", 503), detail=str(exc)) from exc

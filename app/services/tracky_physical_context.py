@@ -207,7 +207,8 @@ def _invoke_provider_with_timeout(
 def sync_due(now: datetime | None = None) -> bool:
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     status = sync_status()
-    if int(status.get("pending_events") or 0) < 1:
+    from . import tracky_agent_eyes_shared_scene as shared
+    if int(status.get("pending_events") or 0) < 1 and not shared.pending():
         return False
     retry_at = _parse_datetime(status.get("next_retry_at"))
     return retry_at is None or retry_at <= now
@@ -609,6 +610,8 @@ def current_context() -> dict[str, Any]:
             item["value"] = {}
             item.pop("value_json", None)
         world.append(item)
+    from . import tracky_agent_eyes_shared_scene as shared
+    world = shared.local_world(world)
     return {
         "protocol": PHYSICAL_CONTEXT_PROTOCOL,
         "sequence": sequence,
@@ -947,7 +950,11 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
         max_sequence = max(max_sequence, int(row["sequence_no"] or 0))
 
     world: list[dict[str, Any]] = []
+    from . import tracky_agent_eyes_shared_scene as shared
+    scene_share = shared.snapshot()
     for row in relations:
+        if shared.reserved(dict(row)):
+            continue
         try:
             value = json.loads(row["value_json"] or "{}")
         except (TypeError, ValueError, json.JSONDecodeError):
@@ -1156,12 +1163,14 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
             "federation_fleet_health": federation_fleet_health_projection,
             "federation_governed_operations": federation_governed_operations_projection,
             "federated_automation": federated_automation_projection,
+            **({"agent_scene_share": scene_share} if scene_share is not None else {}),
             "events": events,
             "world_state": world,
             "context": context,
             "context_sequence": context_sequence,
             "context_observed_at": context_observed_at or _now_iso(),
         },
+        "scene_share": scene_share,
         "event_ids": event_ids,
         "visual_owner_projection": visual_owner_projection,
         "visual_owner_generation": visual_owner_snapshot["generation"],
@@ -1311,8 +1320,11 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
                     revision=package["visual_owner_revision"],
                 )
             )
+    from . import tracky_agent_eyes_shared_scene as shared
+    scene_ack = shared.acknowledge(package["scene_share"], body.get("agent_scene_share"), site_id=device_id)
     return {
         "ok": True,
+        "agent_scene_share_acknowledged": scene_ack,
         "protocol": PHYSICAL_CONTEXT_PROTOCOL,
         "federation_operation_requests": len(federation_operation_request_result),
         "cloud": body,
