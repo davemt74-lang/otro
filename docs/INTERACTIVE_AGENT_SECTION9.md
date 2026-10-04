@@ -102,9 +102,15 @@ changes immediately refresh enrollment controls.
 Overlap from any evidence row rejects local verified-voice identity in the API
 and both canonical fusion implementations, while separately isolated LiveKit
 track identities retain their existing overlap behavior. Regression coverage
-includes ten production-module lifecycle cases, real Chromium transaction
+includes eleven production-module lifecycle cases, real Chromium transaction
 rollback and picker interaction, mixed-overlap API validation, and PHP/Python
 canonical parity. Device accuracy remains pending Section 10.
+
+The release follow-up also cancels enrollment still waiting to arm when Clear
+is pressed. The existing Tracky provider deadline regression now uses a blocked
+provider and asserts that the request returns its timeout before that provider
+finishes, rather than timing unrelated database work against a 0.75-second
+runner-dependent budget. It explicitly releases and joins the test provider.
 
 9D: meeting/recording integration, overlap-aware intelligence and correction
 propagation. Hardware accuracy and installed-device certification stay in

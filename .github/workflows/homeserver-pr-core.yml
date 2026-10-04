@@ -40,6 +40,7 @@ jobs:
           node tests/speaker_fusion_section9.mjs
           node --experimental-vm-modules tests/speaker_fusion_lifecycle_section9.mjs
           python tests/speaker_fusion_ui_section9.py
+          python tests/tracky_reliability_v274.py
           python tests/knowledge_backup_v032.py
           python tests/governed_recordings_v502.py
           python tests/local_transcription_sessions_v503.py

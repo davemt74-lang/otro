@@ -4,7 +4,7 @@ import json
 import os
 import sys
 import tempfile
-import time
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -161,9 +161,16 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
     assert prior["superseded_by"] == "tracky-new-corr-request"
 
     # Provider deadlines must fail closed rather than hanging the relay.
+    provider_started = threading.Event()
+    provider_release = threading.Event()
+    provider_finished = threading.Event()
     def slow_provider(request: dict) -> dict:
-        time.sleep(1.0)
-        return {"summary": "late", "confidence": 1.0}
+        provider_started.set()
+        try:
+            provider_release.wait(30.0)  # Test watchdog, not a latency assertion.
+            return {"summary": "late", "confidence": 1.0}
+        finally:
+            provider_finished.set()
 
     tracky_physical_context.register_provider(
         slow_provider,
@@ -171,18 +178,21 @@ with tempfile.TemporaryDirectory(prefix="tracky-v274-") as data_dir:
         capabilities={"requires_camera": False, "timeout_seconds": 0.25},
     )
     try:
-        started = time.monotonic()
         timed = tracky_physical_context.active_perception(
             "refresh_current_view",
             request_id="tracky-timeout-request",
             correlation_id="tracky-timeout-correlation",
             site_id=site_id,
         )
-        elapsed = time.monotonic() - started
-        assert elapsed < 0.75
+        # Database commits and runner scheduling are outside the provider's
+        # deadline. Prove timeout isolation directly, independent of their cost.
+        assert provider_started.wait(5.0), "provider was never invoked"
+        assert not provider_finished.is_set(), "request waited for the blocked provider"
         assert timed["request"]["status"] == "failed"
         assert timed["request"]["result"]["reason"] == "provider_timeout"
     finally:
+        provider_release.set()
+        assert provider_finished.wait(5.0), "test provider did not shut down"
         tracky_physical_context.unregister_provider()
 
     migration = (ROOT / "database" / "migrations" / "040_tracky_reliability_hardening.sql").read_text(encoding="utf-8")
