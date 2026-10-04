@@ -57,4 +57,11 @@ f = attribution.fuse([
 check(f["source"] == "manual_correction" and f["participant_id"] == 4, "manual correction priority failed")
 cases += 1
 
+f = attribution.fuse([
+    {"source": "verified_voice", "speaker_label": "Wrong", "participant_id": 7, "confidence": .97},
+    {"source": "manual_correction", "speaker_label": "Jamie", "participant_id": 4, "confidence": 1},
+])
+check(not f["identity_conflict"] and f["source"] == "manual_correction" and f["participant_id"] == 4, "manual correction conflicted with lower evidence")
+cases += 1
+
 print(f"SPEAKER_ATTRIBUTION_SECTION9A=PASS ({cases} canonical HomeServer cases)")
