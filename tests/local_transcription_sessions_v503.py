@@ -101,6 +101,35 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert owner_turn["attribution"]["visual_corroborated"] is True
         assert owner_turn["attribution"]["authentication_authority"] is False
         assert owner_turn["attribution"]["diarization_source"]=="provider_diarization"
+        conflict={
+            "text":"Voice and camera disagree.","client_key":"f"*32,"started_ms":1500,"ended_ms":1900,
+            "speaker_label":"Speaker 1",
+            "speaker_evidence":[
+                {"source":"provider_diarization","speaker_label":"Speaker 1","confidence":0},
+                {"source":"verified_voice","speaker_label":"Speaker 1","confidence":0.97,
+                 "participant_identity":"tracky:owner-one"},
+                {"source":"visual_corroboration","speaker_label":"Speaker 1","confidence":0.93,
+                 "participant_identity":"tracky:other"},
+            ]
+        }
+        conflicted=client.post(f"{base}/{sid}/segments",json=conflict,headers=req)
+        assert conflicted.status_code==200,conflicted.text
+        overlap_identity={
+            "text":"Overlapping identity attempt.","client_key":"9"*32,"started_ms":2000,"ended_ms":2400,
+            "speaker_label":"Speaker 1",
+            "speaker_evidence":[
+                {"source":"provider_diarization","speaker_label":"Speaker 1","confidence":0,"overlap":True,"overlap_group":"g"},
+                {"source":"verified_voice","speaker_label":"Speaker 1","confidence":0.99,
+                 "participant_identity":"tracky:owner-one","overlap":True,"overlap_group":"g"},
+            ]
+        }
+        assert client.post(f"{base}/{sid}/segments",json=overlap_identity,headers=req).status_code==422
+        live_doc=client.get(f"{base}/{sid}").json()["session"]
+        assert live_doc["segment_count"]==4
+        conflict_turn=live_doc["segments"][3]
+        assert conflict_turn["attribution"]["visual_conflict"] is True
+        assert conflict_turn["attribution"]["speaker_identity_verified"] is False
+        assert conflict_turn["attribution"]["participant_identity"]==""
         assert client.get(base).json()["sessions"][0]["cloud_shared"] is False
         assert tx.list_sessions(paired=True)["sessions"]==[]
         try:tx.get(sid,paired=True)
@@ -126,6 +155,9 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert shared["session"]["segments"][2]["attribution"]["participant_identity"]==""
         assert shared["session"]["segments"][2]["attribution"]["speaker_identity_verified"] is False
         assert shared["session"]["segments"][2]["attribution"]["visual_corroborated"] is False
+        assert shared["session"]["segments"][3]["attribution"]["source"]=="provider_diarization"
+        assert shared["session"]["segments"][3]["attribution"]["participant_identity"]==""
+        assert shared["session"]["segments"][3]["attribution"]["visual_conflict"] is False
         assert shared["local_identity_included"] is False
         assert "tracky:owner-one" not in str(shared)
         assert "audio" not in str(shared["session"]["segments"])
