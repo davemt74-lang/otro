@@ -37,6 +37,8 @@ jobs:
           python tests/speaker_attribution_section9.py
           python tests/speaker_diarization_section9.py
           python tests/speaker_diarization_ui_section9.py
+          node tests/speaker_fusion_section9.mjs
+          python tests/speaker_fusion_ui_section9.py
           python tests/knowledge_backup_v032.py
           python tests/governed_recordings_v502.py
           python tests/local_transcription_sessions_v503.py
