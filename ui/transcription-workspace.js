@@ -169,8 +169,8 @@ function renderSession(session){
   const line=document.createElement('p');
   const speaker=document.createElement('strong');speaker.textContent=String(segment.speaker||segment.speaker_label||'Speaker 1');
   if(segment.attribution?.overlap)speaker.textContent+=' · overlap';
-  line.append(speaker,document.createTextNode(' · '+String(segment.text||'')));
-  out.appendChild(line);
+  const words=document.createElement('span');words.textContent=' · '+String(segment.text||'');
+  line.appendChild(speaker);line.appendChild(words);out.appendChild(line);
  }
  if(!session)out.textContent='Choose or create a transcription.';
  controls();
