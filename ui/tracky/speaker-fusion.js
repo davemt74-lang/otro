@@ -164,18 +164,19 @@ async function cameraScan(token){
     const result=await cameraEngine.detect(cameraVideo);
     if(token!==cameraGeneration||!cameraStream)return;
     const rows=await refreshParticipants();
+    const faces=Array.isArray(result?.face)?result.face:[];
     const matches=[];
-    for(const face of Array.isArray(result?.face)?result.face:[]){
+    for(const face of faces){
       const embedding=Array.isArray(face.embedding)?face.embedding:Array.from(face.embedding||[]);
       const match=bestParticipantMatch(embedding,rows,0.62,0.05,3);
       if(match.matched&&match.participant)matches.push(match);
     }
     const unique=new Map(matches.map(match=>[String(match.participant.id),match]));
-    if(unique.size===1){
+    if(faces.length===1&&unique.size===1){
       const match=[...unique.values()][0];
       visualHistory.push({at:performance.now(),observedAt:new Date().toISOString(),
         participantIdentity:trackyIdentity(match.participant),confidence:match.similarity});
-    }else if(unique.size>1){
+    }else if(faces.length>1||unique.size>1){
       visualHistory.push({at:performance.now(),observedAt:new Date().toISOString(),ambiguous:true});
     }
     visualHistory=visualHistory.filter(item=>performance.now()-item.at<=VISUAL_HISTORY_MS);
