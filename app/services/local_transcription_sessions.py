@@ -117,7 +117,7 @@ def _get(connection,session_id:str):
     if row is None:raise TranscriptError("Transcription session unavailable.",404)
     return row
 
-def _payload(connection,row,with_segments:bool=False,*,paired:bool=False)->dict[str,Any]:
+def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
     diarized=int(connection.execute(
         "SELECT COUNT(*) FROM local_transcription_segment_attribution WHERE session_id=? AND "
         "(source='provider_diarization' OR attribution_json LIKE '%\"diarization_source\":\"provider_diarization\"%')",
@@ -137,8 +137,8 @@ def _payload(connection,row,with_segments:bool=False,*,paired:bool=False)->dict[
         "cloud_shared":bool(row["cloud_share"]),"started_at":row["started_at"],
         "ended_at":row["ended_at"],"segment_count":int(row["segment_count"]),
         "source":"homeserver_local_transcription",
-        "speaker_attribution":"verified_voice" if (identified and not paired) else ("provider_diarization" if diarized else "unidentified_single_channel"),
-        "speaker_identity_verified":bool(identified and not paired),
+        "speaker_attribution":"verified_voice" if identified else ("provider_diarization" if diarized else "unidentified_single_channel"),
+        "speaker_identity_verified":bool(identified),
         "diarization_available":diarized,
         "attribution":_unknown_attribution(),
         "timeline_ms":int(timeline or 0),
@@ -156,7 +156,6 @@ def _payload(connection,row,with_segments:bool=False,*,paired:bool=False)->dict[
                 try:
                     parsed=json.loads(s["attribution_json"])
                     attribution=_sanitize_attribution(parsed,s["speaker_label"] or "Speaker 1")
-                    if paired:attribution=_paired_attribution(attribution)
                 except (ValueError,TypeError,TranscriptError):
                     attribution=_unknown_attribution()
             payload.append({
@@ -170,6 +169,22 @@ def _payload(connection,row,with_segments:bool=False,*,paired:bool=False)->dict[
             })
         result["segments"]=payload
     return result
+
+def _paired_payload(payload:dict[str,Any])->dict[str,Any]:
+    safe=dict(payload)
+    segments=[]
+    for segment in list(payload.get("segments") or []):
+        item=dict(segment)
+        attribution=_paired_attribution(dict(item.get("attribution") or _unknown_attribution()))
+        item["attribution"]=attribution
+        item["speaker_attribution"]=attribution["source"]
+        item["speaker_identity_verified"]=False
+        segments.append(item)
+    if "segments" in payload:safe["segments"]=segments
+    diarized=any((s.get("attribution") or {}).get("diarization_source")=="provider_diarization" for s in segments)
+    safe["speaker_attribution"]="provider_diarization" if diarized else "unidentified_single_channel"
+    safe["speaker_identity_verified"]=False
+    return safe
 
 def start(title:str="Untitled transcription")->dict[str,Any]:
     title=str(title or "").strip()[:190] or "Untitled transcription"
@@ -282,7 +297,8 @@ def get(session_id:str,*,paired:bool=False)->dict[str,Any]:
         row=_get(conn,sid)
         if paired and (not row["cloud_share"] or row["status"]!="completed"):
             raise TranscriptError("This transcription is not shared with Cloud.",403)
-        payload=_payload(conn,row,True,paired=paired)
+        payload=_payload(conn,row,True)
+        if paired:payload=_paired_payload(payload)
         return {"contract":CONTRACT,"session":payload,
                 "raw_audio_included":False,
                 "local_identity_included":bool(not paired and payload.get("speaker_identity_verified"))}
