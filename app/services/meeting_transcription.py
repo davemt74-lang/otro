@@ -16,7 +16,7 @@ from urllib.parse import ParseResult, urlparse
 
 import httpx
 
-from . import cloud_pairing, local_voice, voice_settings
+from . import cloud_pairing, local_voice, speaker_attribution, voice_settings
 
 RUNTIME_VERSION = "v18.6"
 CONTRACT = "vp3.meeting.transcription.v1"
@@ -554,6 +554,15 @@ async def _transcribe_segment(
         "source": "homeserver",
         "source_key": _source_key(job, participant_identity, track_sid, sequence, start_ms, end_ms, text),
         "is_final": True,
+        "speaker_attribution": speaker_attribution.fuse([
+            {
+                "source": "livekit_track",
+                "speaker_label": speaker_name[:190],
+                "participant_identity": participant_identity[:160],
+                "track_id": track_sid,
+                "confidence": 1.0,
+            }
+        ]),
     }
     try:
         await asyncio.to_thread(_post_callback, job, body)
