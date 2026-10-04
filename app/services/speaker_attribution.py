@@ -26,8 +26,15 @@ def _hash_ref(value: Any) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24] if text else ""
 
 
+def _participant_id(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _identity_key(item: dict[str, Any]) -> str:
-    participant_id = max(0, int(item.get("participant_id") or 0))
+    participant_id = _participant_id(item.get("participant_id"))
     if participant_id:
         return f"participant:{participant_id}"
     identity = _text(item.get("participant_identity"), 160)
@@ -39,7 +46,7 @@ def evidence(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     source = str(raw.get("source") or "unknown").strip().lower()
     if source not in SOURCES:
         source = "unknown"
-    participant_id = max(0, int(raw.get("participant_id") or 0))
+    participant_id = _participant_id(raw.get("participant_id"))
     participant_identity = _text(raw.get("participant_identity"), 160)
     label = _text(raw.get("speaker_label"), 190)
     identity_capable = source in {"verified_voice", "livekit_track", "manual_correction", "account_identity"}
