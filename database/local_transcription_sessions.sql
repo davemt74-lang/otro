@@ -33,3 +33,11 @@ CREATE TABLE IF NOT EXISTS local_transcription_segment_attribution (
 );
 CREATE INDEX IF NOT EXISTS idx_local_transcription_attribution_session
   ON local_transcription_segment_attribution(session_id, ended_ms, segment_id);
+
+
+CREATE TABLE IF NOT EXISTS local_transcription_speaker_corrections (
+  segment_id TEXT PRIMARY KEY REFERENCES local_transcription_segments(id) ON DELETE CASCADE,
+  speaker_label TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK(revision > 0),
+  corrected_at TEXT NOT NULL
+);

@@ -19,7 +19,7 @@ from typing import Any
 
 from ..config import settings
 from ..database import db
-from . import device_audio, homeserver_media_tools, local_voice, physical_meeting, vp3_os
+from . import device_audio, homeserver_media_tools, local_voice, physical_meeting, vp3_os, meeting_speaker_context
 
 CONTRACT = "vp3.homeserver.governed-recordings.v1"
 MAX_CLIP_SECONDS = 30
@@ -339,6 +339,7 @@ def transcribe_saved(recording_id: str) -> dict[str, Any]:
         if prior is not None and prior["transcript"] is not None:
             return {"contract": CONTRACT, "recording_id":recording_id,
                     "transcript":str(prior["transcript"]), "source":"local_whisper",
+                    "speaker_attribution":meeting_speaker_context.attribution(None,"Room"),
                     "sent_to_agent":False,"sent_to_cloud":False}
         if not local_voice.status().get("stt",{}).get("available"):
             raise RecordingError("transcription_unavailable",503)
@@ -360,7 +361,8 @@ def transcribe_saved(recording_id: str) -> dict[str, Any]:
             )
         return {"contract":CONTRACT,"recording_id":recording_id,
                 "transcript":text,"source":"local_whisper",
-                "sent_to_agent":False,"sent_to_cloud":False}
+                "speaker_attribution":meeting_speaker_context.attribution(None,"Room"),
+                    "sent_to_agent":False,"sent_to_cloud":False}
     finally:
         _CAPTURE.release()
 
@@ -378,7 +380,8 @@ def private_transcript(recording_id: str) -> dict[str, Any]:
         raise RecordingError("transcription_unavailable",404)
     return {"contract":CONTRACT,"recording_id":recording_id,
             "transcript":str(row["transcript"]),"created_at":row["transcript_at"],
-            "sent_to_agent":False,"sent_to_cloud":False}
+            "speaker_attribution":meeting_speaker_context.attribution(None,"Room"),
+                    "sent_to_agent":False,"sent_to_cloud":False}
 
 
 def delete(recording_id: str) -> dict[str, Any]:
@@ -420,3 +423,4 @@ def readiness() -> dict[str, Any]:
         "saved_camera_video_tested": False,
         "raw_device_identifiers_exposed": False,
     }
+

@@ -20,6 +20,7 @@ from . import (
     local_voice,
     meeting_cards,
     meeting_intelligence,
+    meeting_speaker_context,
     physical_agent,
     vp3_os,
 )
@@ -424,7 +425,7 @@ class PhysicalMeetingRuntime:
                 segment = {
                     "sequence": int(sequence),
                     "speaker_name": "Room",
-                    "speaker_attribution": "shared_room_channel",
+                    "speaker_attribution": meeting_speaker_context.attribution(None, "Room"),
                     "speaker_identity_verified": False,
                     "start_ms": max(0, int(start_ms)),
                     "end_ms": max(int(start_ms), int(end_ms)),
@@ -830,4 +831,5 @@ def handle_start_voice_command(text: str) -> bool:
         return False
     result = runtime.start_meeting(trigger="voice_command")
     return bool(result.get("started"))
+
 

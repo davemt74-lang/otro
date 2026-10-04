@@ -115,3 +115,35 @@ runner-dependent budget. It explicitly releases and joins the test provider.
 9D: meeting/recording integration, overlap-aware intelligence and correction
 propagation. Hardware accuracy and installed-device certification stay in
 Section 10.
+
+
+## 9D — meetings, recordings and correction propagation
+
+Meeting ingestion commits immutable capture text, canonical speaker evidence and
+its transcript mirror under the current meeting lock. Closed state is rechecked,
+retries return first committed evidence, and roster display names take precedence
+over worker labels. The existing upgrade creates cascading speaker metadata.
+
+Meeting playback, transcript analysis, private HomeServer analysis and existing
+Agent Chat / Agent Brain handoffs use the reviewed canonical transcript.
+Cross-track time overlap stays visible while isolated LiveKit identities remain
+valid. Prompts require explicit words naming commitment owners; overlapping or
+unverified speaker attribution cannot establish ownership. Private intelligence
+caches include normalized content, mode and permissions.
+
+Organizers can correct meeting labels with optimistic revisions. Canonical
+editor label/text changes propagate to playback and invalidate summary freshness.
+Corrections are owner annotations, never biometric/account verification. Feed
+prefix hashes refresh corrections without resetting pagination on new speech.
+HomeServer completed transcripts use separate cascading correction records,
+leaving original append keys, text and attribution immutable. Corrections revoke
+paired relay access until the owner shares again. Previously imported Cloud
+copies remain independent; local corrections do not silently edit them. Paired
+sharing still strips local voice/camera identity. Saved recording transcripts and
+physical-room segments carry canonical unknown evidence on shared microphones.
+
+Acceptance covers rollback, immutable retries, overlap, correction ownership and
+stale revisions, editor projection, summary hashes, durable local corrections,
+relay revocation/identity stripping and content/mode/permission-sensitive caching.
+Installed microphone/camera accuracy remains Section 10. Cloud deployments must
+run the existing database upgrade to create video_meeting_speaker_evidence.

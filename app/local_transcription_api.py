@@ -31,6 +31,11 @@ class Segment(BaseModel):
     attribution:dict[str,Any]|None=None
     speaker_evidence:list[SpeakerEvidence]|None=Field(default=None,max_length=16)
 
+class Correction(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    speaker_label:str=Field(min_length=1,max_length=80)
+    revision:int=Field(default=0,ge=0)
+
 class Share(BaseModel):
     model_config=ConfigDict(extra="forbid")
     cloud_share:bool
@@ -114,3 +119,9 @@ def share_local_session(session_id:str,body:Share,request:Request,requested_with
 def delete_local_session(session_id:str,request:Request,requested_with:str|None=Header(None,alias="X-Requested-With"))->dict:
     _mutation(request,requested_with)
     return _call(sessions.delete,session_id)
+
+
+@router.put("/{session_id}/segments/{segment_id}/speaker")
+def correct_local_speaker(session_id:str,segment_id:str,body:Correction,request:Request,requested_with:str|None=Header(None,alias="X-Requested-With"))->dict:
+    _mutation(request,requested_with)
+    return _call(sessions.correct_speaker,session_id,segment_id,body.speaker_label,body.revision)
