@@ -67,7 +67,7 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         "speaker_attribution":"unidentified_single_channel",
         "speaker_identity_verified":False,
         "diarization_available":False,
-        "speaker_attribution":_unknown_attribution(),
+        "attribution":_unknown_attribution(),
         "timeline_ms":int(connection.execute("SELECT COALESCE(MAX(started_ms),0) FROM local_transcription_segments WHERE session_id=?",(row["id"],)).fetchone()[0]),
     }
     if with_segments:
