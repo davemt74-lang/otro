@@ -2,10 +2,25 @@
 (()=>{
 'use strict';
 const base='/api/v1/control/transcription-sessions';
-let active=null,selected=null,queue=[],saving=null,retryTimer=null,finishRequested=false,listening=false,finishing=false,drawer=null,selectionEpoch=0,refreshEpoch=0,starting=false,finishSessionId=null,captureSessionId=null,timelineBase=0,captureClock=0,lastTimeline=0,recovered=false;
+let active=null,selected=null,queue=[],saving=null,retryTimer=null,finishRequested=false,listening=false,finishing=false,drawer=null,selectionEpoch=0,refreshEpoch=0,starting=false,finishSessionId=null,captureSessionId=null,timelineBase=0,captureClock=0,lastTimeline=0,recovered=false,diarizationAvailable=false;
 const recoveryPrefix="homeserver:transcription-outbox:v1:";
 const outboxKey=recoveryPrefix+crypto.randomUUID();
 const validId=value=>typeof value==="string"&&/^[0-9a-f]{32}$/.test(value);
+const validAttribution=value=>{
+ if(value==null)return true;if(!value||typeof value!=='object'||Array.isArray(value))return false;
+ if(value.contract!=='speaker-attribution-v1-20261004')return false;
+ if(!['unknown','provider_diarization','heuristic_acoustic'].includes(String(value.source||'')))return false;
+ if(value.participant_id&&Number(value.participant_id)!==0)return false;
+ if(value.participant_identity)return false;
+ return value.authentication_authority!==true&&value.speaker_identity_verified!==true;
+};
+const validSegment=s=>{
+ if(!s||typeof s.text!=='string'||!s.text.trim()||s.text.length>8000||!validId(s.client_key))return false;
+ if(!Number.isInteger(s.started_ms)||s.started_ms<0||s.started_ms>86400000)return false;
+ if(s.ended_ms!=null&&(!Number.isInteger(s.ended_ms)||s.ended_ms<s.started_ms||s.ended_ms>86400000))return false;
+ if(s.speaker_label!=null&&(typeof s.speaker_label!=='string'||s.speaker_label.length>80))return false;
+ return validAttribution(s.attribution);
+};
 const $=id=>document.getElementById(id);
 const labels={};
 async function request(path='',method='GET',body){
@@ -37,7 +52,7 @@ function recoverQueue(){
   const raw=localStorage.getItem(key);let backup;
   try{backup=JSON.parse(raw);}catch(e){continue;}
   if(backup?.version!==1||!Array.isArray(backup.queue)||backup.queue.length>200)continue;
-  if(backup.queue.some(x=>!validId(x.sessionId)||!validId(x.segment?.client_key)||typeof x.segment.text!=='string'||!x.segment.text.trim()||x.segment.text.length>8000||!Number.isInteger(x.segment.started_ms)||x.segment.started_ms<0||x.segment.started_ms>86400000))continue;
+  if(backup.queue.some(x=>!validId(x.sessionId)||!validSegment(x.segment)))continue;
   if(backup.finishSessionId&&!validId(backup.finishSessionId))continue;
   if(queue.length+backup.queue.length>200||finishSessionId&&backup.finishSessionId&&finishSessionId!==backup.finishSessionId)continue;
   const previous=queue;const previousFinish=finishSessionId;
@@ -80,6 +95,8 @@ function ensure(){
  drawer.innerHTML='<div class="hs-transcription-head"><div><small>AGENT CHAT · LISTENING</small><h3>Transcriptions</h3></div><button type="button" id="hsTranscriptClose" aria-label="Close transcription workspace">×</button></div>'+
  '<p>Conversation/Talk sends spoken turns to Agent Chat. Transcription builds a private document without invoking the Agent. Cloud can import only sessions you explicitly share.</p>'+
  '<div class="hs-transcription-actions"><button type="button" id="hsTranscriptStart">New transcription</button><button type="button" id="hsTranscriptStop" disabled>Stop listening</button><button type="button" id="hsTranscriptResume" disabled>Resume listening</button></div>'+
+ '<label class="hs-transcription-note"><input type="checkbox" id="hsTranscriptDiarization"> Enhanced speaker separation · uses ElevenLabs Scribe for transient audio chunks; this workspace does not retain the audio. Speaker separation is not identity verification.</label>'+
+ '<p id="hsTranscriptDiarizationState" class="hs-transcription-note">Checking enhanced speaker separation…</p>'+
  '<p id="hsTranscriptStatus" role="status" aria-live="polite">Transcriptions are private until shared.</p>'+
  '<div class="hs-transcription-columns"><nav aria-label="Saved transcripts"><h4>My transcriptions</h4><div id="hsTranscriptList"></div></nav>'+
  '<div class="hs-transcription-document"><h4 id="hsTranscriptTitle">Choose a transcription</h4><div id="hsTranscriptText" aria-label="Transcript document"></div><div class="hs-transcription-actions"><button type="button" id="hsTranscriptShare" disabled>Share text with paired Cloud</button><button type="button" id="hsTranscriptExport" disabled>Export text</button><button type="button" id="hsTranscriptDelete" disabled>Delete</button></div></div></div>'+
@@ -90,7 +107,7 @@ function ensure(){
  button.setAttribute('aria-label','Open persistent transcription workspace');
  const group=document.querySelector('#chatForm .chat-voice-options');
  (group||document.getElementById('chatForm')).append(button);
- button.addEventListener('click',()=>{drawer.hidden=false;refresh();});
+ button.addEventListener('click',()=>{drawer.hidden=false;void Promise.allSettled([refresh(),refreshDiarizationOption()]);});
  $('hsTranscriptClose').addEventListener('click',()=>{drawer.hidden=true;});
  $('hsTranscriptStart').addEventListener('click',()=>{start(true).catch(e=>status(e.message,true));});
  $('hsTranscriptResume').addEventListener('click',()=>{start(false).catch(e=>status(e.message,true));});
@@ -112,7 +129,23 @@ function ensure(){
  $('hsTranscriptDelete').addEventListener('click',()=>{remove().catch(e=>status(e.message,true));});
  window.addEventListener('homeserver:transcription-segment',onSegment);
  window.addEventListener('homeserver:transcription-capture-stopped',()=>{if(listening&&!finishing)finish().catch(e=>status(e.message,true));});
+ window.addEventListener('homeserver:transcription-diarization-status',event=>{
+  const message=String(event.detail?.message||'');if(message)status(message,event.detail?.state!=='ready');
+ });
  window.addEventListener('beforeunload',()=>{persistQueue();window.HomeServerDictation?.stopTranscription();});
+}
+async function refreshDiarizationOption(){
+ const checkbox=$('hsTranscriptDiarization'),state=$('hsTranscriptDiarizationState');if(!checkbox||!state)return;
+ try{
+  const response=await fetch('/api/v1/control/voice/status',{credentials:'same-origin',cache:'no-store'});
+  const payload=response.ok?await response.json():null;
+  diarizationAvailable=Boolean(payload?.speaker_diarization?.available);
+ }catch(e){diarizationAvailable=false;}
+ const strict=Boolean($('strictLocalVoice')?.checked);
+ checkbox.disabled=listening||!diarizationAvailable||strict;
+ if(strict)state.textContent='Strict Local voice is enabled · speaker separation stays on HomeServer Whisper only.';
+ else if(diarizationAvailable)state.textContent='Available · opt in for Scribe v2 speaker separation. Audio is sent transiently with provider history disabled.';
+ else state.textContent='Unavailable · add an ElevenLabs API key in Agent Brain to enable enhanced speaker separation.';
 }
 function controls(){
  const session=selected;
@@ -126,6 +159,7 @@ function controls(){
  $('hsTranscriptExport').disabled=!session?.segments?.length;
  $('hsTranscriptDelete').disabled=!complete;
  if(complete)$('hsTranscriptShare').textContent=session.cloud_shared?'Revoke Cloud access':'Share text with paired Cloud';
+ const diarize=$('hsTranscriptDiarization');if(diarize)diarize.disabled=listening||!diarizationAvailable||Boolean($('strictLocalVoice')?.checked);
 }
 function renderSession(session){
  selected=session;
@@ -133,7 +167,9 @@ function renderSession(session){
  const out=$('hsTranscriptText');out.replaceChildren();
  for(const segment of session?.segments||[]){
   const line=document.createElement('p');
-  line.textContent=segment.text;
+  const speaker=document.createElement('strong');speaker.textContent=String(segment.speaker||segment.speaker_label||'Speaker 1');
+  if(segment.attribution?.overlap)speaker.textContent+=' · overlap';
+  line.append(speaker,document.createTextNode(' · '+String(segment.text||'')));
   out.appendChild(line);
  }
  if(!session)out.textContent='Choose or create a transcription.';
@@ -179,9 +215,9 @@ async function start(create){
  timelineBase=Math.max(Number(active.timeline_ms||0),Math.max(0,Date.now()-Date.parse(active.started_at||new Date().toISOString())));
  lastTimeline=Math.min(86400000,timelineBase);status('Checking microphone and transcription provider…');
  try{
-  listening=await window.HomeServerDictation.startTranscription();
+  listening=await window.HomeServerDictation.startTranscription({speakerDiarization:Boolean($('hsTranscriptDiarization')?.checked)});
   if(!listening){await finish();status('Speech capture is unavailable. Check Voice Settings.',true);return;}
-  status('Listening · your speech is added to this document, never sent as an Agent Chat command.');
+  status($('hsTranscriptDiarization')?.checked?'Listening · enhanced speaker separation requested; identity remains unverified.':'Listening · your speech is added to this document, never sent as an Agent Chat command.');
  }catch(e){await finish();throw e;}
  controls();
  }finally{starting=false;controls();}
@@ -189,10 +225,14 @@ async function start(create){
 function onSegment(event){
  if(!active||!listening||!event.detail?.text||queue.length>=200)return;
  const sessionId=captureSessionId||active.id;
+ const started=Math.min(86400000,Math.max(lastTimeline,Math.round(timelineBase+Math.max(0,Number(event.detail.capturedAt??performance.now())-captureClock))));
+ const ended=Math.min(86400000,Math.max(started,Math.round(timelineBase+Math.max(0,Number(event.detail.endedAt??event.detail.capturedAt??performance.now())-captureClock))));
  const segment={text:String(event.detail.text).slice(0,8000),
    client_key:Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join(''),
-   started_ms:Math.min(86400000,Math.max(lastTimeline,Math.round(timelineBase+Math.max(0,Number(event.detail.capturedAt??performance.now())-captureClock))))};
- lastTimeline=segment.started_ms;
+   started_ms:started,ended_ms:ended,
+   speaker_label:String(event.detail.speaker_label||'Speaker 1').slice(0,80),
+   attribution:validAttribution(event.detail.attribution)?event.detail.attribution:null};
+ lastTimeline=segment.ended_ms;
  queue.push({sessionId,segment});persistQueue();controls();
  void saveQueue().catch(()=>{});
  if(queue.length>=200){status('Listening stopped at the unsaved text limit. Keep this page open while saves retry.',true);window.HomeServerDictation?.stopTranscription();}
@@ -234,6 +274,7 @@ async function remove(){
  if(!window.confirm('Permanently delete this local transcript? Previously imported Cloud copies are managed separately.'))return;
  const id=selected.id,epoch=selectionEpoch;await request('/'+id,'DELETE');if(epoch===selectionEpoch&&selected?.id===id)renderSession(null);status('Local transcription deleted.');await refresh();
 }
+window.addEventListener('homeserver:voice-settings-loaded',()=>{if(drawer&&!drawer.hidden)void refreshDiarizationOption();});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensure,{once:true});else ensure();
 })();
 
