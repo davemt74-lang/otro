@@ -31,6 +31,9 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert created.status_code==200,created.text
         sid=created.json()["session"]["id"]
         assert created.json()["session"]["cloud_shared"] is False
+        assert created.json()["session"]["diarization_available"] is False
+        assert created.json()["session"]["speaker_attribution"]["source"] == "unknown"
+        assert created.json()["session"]["speaker_attribution"]["authentication_authority"] is False
         assert client.post(base,json={"title":"Overlapping"},headers=req).status_code==409
         key="a"*32
         segment={"text":"My private local transcript.","client_key":key,"started_ms":100}
@@ -54,6 +57,8 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert allow.status_code==200 and allow.json()["session"]["cloud_shared"]
         shared=tx.get(sid,paired=True)
         assert shared["session"]["segments"][0]["text"]=="My private local transcript."
+        assert shared["session"]["segments"][0]["attribution"]["source"] == "unknown"
+        assert shared["session"]["segments"][0]["attribution"]["speaker_identity_verified"] is False
         assert "audio" not in str(shared["session"]["segments"])
         assert [s["id"] for s in tx.list_sessions(paired=True)["sessions"]]==[sid]
         # The same consent gate applies at the existing paired HTTPS relay;
