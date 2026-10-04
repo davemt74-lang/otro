@@ -1,6 +1,6 @@
 """Owner-only persistent transcription workspace, not an Agent Chat command stream."""
 from __future__ import annotations
-from typing import Any
+from typing import Any, Literal
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from .services import local_transcription_sessions as sessions, speaker_attribution
@@ -10,6 +10,17 @@ class Start(BaseModel):
     model_config=ConfigDict(extra="forbid")
     title:str=Field(default="Untitled transcription",max_length=190)
 
+class SpeakerEvidence(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    source:Literal["unknown","heuristic_acoustic","provider_diarization","verified_voice","visual_corroboration"]="unknown"
+    speaker_label:str=Field(default="Speaker 1",max_length=80)
+    confidence:float=Field(default=0.0,ge=0.0,le=1.0)
+    participant_identity:str=Field(default="",max_length=160)
+    overlap:bool=False
+    overlap_group:str=Field(default="",max_length=80)
+    observed_at:str=Field(default="",max_length=40)
+    authentication_authority:bool=False
+
 class Segment(BaseModel):
     model_config=ConfigDict(extra="forbid")
     text:str=Field(min_length=1,max_length=8000)
@@ -18,7 +29,7 @@ class Segment(BaseModel):
     ended_ms:int|None=Field(default=None,ge=0,le=86400000)
     speaker_label:str=Field(default="Speaker 1",max_length=80)
     attribution:dict[str,Any]|None=None
-    speaker_evidence:list[dict[str,Any]]|None=Field(default=None,max_length=16)
+    speaker_evidence:list[SpeakerEvidence]|None=Field(default=None,max_length=16)
 
 class Share(BaseModel):
     model_config=ConfigDict(extra="forbid")
@@ -42,26 +53,24 @@ def _fused_attribution(body:Segment)->dict[str,Any]|None:
             raise HTTPException(422,detail="Identity-capable speaker attribution requires canonical evidence fusion.")
         return body.attribution
     rows=[]
-    for raw in body.speaker_evidence:
-        if not isinstance(raw,dict):
-            raise HTTPException(422,detail="Invalid speaker evidence.")
-        source=str(raw.get("source") or "unknown").strip().lower()
-        if source not in {"unknown","heuristic_acoustic","provider_diarization","verified_voice","visual_corroboration"}:
-            raise HTTPException(422,detail="Unsupported local speaker evidence.")
-        item=dict(raw)
+    for model in body.speaker_evidence:
+        item=model.model_dump()
+        source=item["source"]
         item["speaker_label"]=body.speaker_label
-        identity=str(item.get("participant_identity") or "").strip()
+        identity=item["participant_identity"].strip()
         if source in {"verified_voice","visual_corroboration"}:
             if not identity.startswith("tracky:") or len(identity)>160:
                 raise HTTPException(422,detail="Local voice/camera evidence requires an opaque Tracky participant reference.")
         else:
             item["participant_identity"]=""
-            item["participant_id"]=0
         if source=="verified_voice":
-            try:confidence=float(item.get("confidence") or 0)
-            except (TypeError,ValueError):confidence=0
-            if confidence<0.90:
+            if item["confidence"]<0.90:
                 raise HTTPException(422,detail="Local voice evidence is below the trusted software match threshold.")
+            if item["overlap"]:
+                raise HTTPException(422,detail="Overlapping speech cannot establish a local voice identity.")
+        if item["authentication_authority"]:
+            raise HTTPException(422,detail="Speaker evidence cannot grant authentication authority.")
+        item["participant_id"]=0
         item["authentication_authority"]=False
         rows.append(item)
     result=speaker_attribution.fuse(rows)
