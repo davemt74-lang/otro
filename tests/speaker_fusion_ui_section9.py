@@ -12,7 +12,7 @@ sessions=(ROOT/'app'/'services'/'local_transcription_sessions.py').read_text(enc
 assert '/assets/tracky/speaker-fusion.js?v=section9c-20261004' in index
 for marker in [
     'Enroll next voice samples','raw enrollment audio is not stored','Start camera corroboration',
-    'camera evidence can only confirm or challenge a voice match','stopCameraCorroboration',
+    'camera evidence can only corroborate or conflict with a voice match','stopCameraCorroboration',
     'speaker_evidence'
 ]:
     assert marker in workspace, marker
