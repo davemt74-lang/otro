@@ -31,6 +31,7 @@ CALLBACK_TIMEOUT_SECONDS = 12.0
 MAX_ACTIVE_AUDIO_TRACKS = 32
 FINAL_DRAIN_SECONDS = 120.0
 STARTUP_WAIT_SECONDS = 18.0
+DISCONNECT_TIMEOUT_SECONDS = 5.0
 
 _PUBLIC_ID = re.compile(r"^[a-f0-9]{32}$")
 _IDEMPOTENCY = re.compile(r"^vp3-meeting-transcription:[a-f0-9]{32}$")
@@ -280,7 +281,8 @@ def _prune_jobs_locked(now: float) -> None:
     stale = [
         key
         for key, job in _JOBS.items()
-        if job.status in {"completed", "failed", "stopped", "expired"} and now - job.updated_at > 3600
+        if job.status in {"completed", "failed", "stopped", "expired"}
+        and not (job.thread and job.thread.is_alive()) and now - job.updated_at > 3600
     ]
     for key in stale[:100]:
         _JOBS.pop(key, None)
@@ -302,6 +304,8 @@ def _snapshot(job: _MeetingJob, *, status_override: str | None = None) -> dict[s
 
 def _set_status(job: _MeetingJob, state: str, error: str | None = None) -> None:
     with _JOBS_LOCK:
+        if state in {"starting", "connecting", "running", "reconnecting"} and job.stop_event.is_set():
+            return
         job.status = state
         job.updated_at = time.time()
         if error is not None:
@@ -351,6 +355,9 @@ def start(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
     permissions = {str(value) for value in identity.get("permissions", []) if isinstance(value, str)}
     if "agent.chat" not in permissions:
         raise MeetingTranscriptionError("Permission required: agent.chat", 403)
+    app_key = str(identity.get("app_key") or "").strip()[:80]
+    if not app_key:
+        raise MeetingTranscriptionError("Paired app identity is invalid.", 403)
 
     runtime = status()
     if not runtime["available"]:
@@ -364,11 +371,13 @@ def start(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
         _prune_jobs_locked(now)
         existing = _JOBS.get(clean["idempotency_key"])
         if existing is not None:
+            if existing.app_key != app_key:
+                raise MeetingTranscriptionError("Meeting transcription job was not found.", 404)
             if existing.public_id != clean["public_id"] or existing.room_name != clean["room_name"]:
                 raise MeetingTranscriptionError("Idempotency key is already bound to another meeting.", 409)
-            if existing.thread is not None and existing.thread.is_alive() and existing.status in {
-                "starting", "connecting", "running"
-            }:
+            if existing.thread is not None and existing.thread.is_alive():
+                if existing.stop_event.is_set() or existing.status not in {"starting", "connecting", "running", "reconnecting"}:
+                    raise MeetingTranscriptionError("Previous meeting worker is still stopping. Try again after shutdown.", 409)
                 existing_job = existing
 
         if existing_job is None:
@@ -377,7 +386,7 @@ def start(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
                 public_id=clean["public_id"],
                 room_name=clean["room_name"],
                 title=clean["title"],
-                app_key=str(identity.get("app_key") or "")[:80],
+                app_key=app_key,
                 livekit_url=clean["livekit_url"],
                 livekit_identity=clean["livekit_identity"],
                 livekit_token=clean["livekit_token"],
@@ -481,6 +490,8 @@ def _post_callback(job: _MeetingJob, body: dict[str, Any]) -> None:
     }
     last_error: Exception | None = None
     for attempt in range(MAX_CALLBACK_ATTEMPTS):
+        if job.stop_event.is_set():
+            return
         if datetime.now(timezone.utc) >= job.callback_expires_at:
             raise MeetingTranscriptionError("Meeting callback capability expired.", 409)
         try:
@@ -623,6 +634,10 @@ async def _consume_track(job: _MeetingJob, rtc: Any, track: Any, publication: An
 
 
 async def _run_job(job: _MeetingJob) -> None:
+    if job.stop_event.is_set():
+        if job.status not in {"failed", "expired"}:
+            _set_status(job, "stopped")
+        return
     rtc = _rtc_module()
     if rtc is None:
         _set_status(job, "failed", "livekit_sdk_unavailable")
@@ -632,32 +647,44 @@ async def _run_job(job: _MeetingJob) -> None:
     room = rtc.Room()
     disconnected = asyncio.Event()
     stream_tasks: set[asyncio.Task] = set()
-    active_tracks: set[str] = set()
+    track_tasks: dict[str, asyncio.Task] = {}
+    pending_tracks: dict[str, tuple[Any, Any, Any]] = {}
+    closing = False
 
     def schedule_track(track: Any, publication: Any, participant: Any) -> None:
+        if closing or job.stop_event.is_set():
+            return
         if getattr(track, "kind", None) != rtc.TrackKind.KIND_AUDIO:
             return
         sid = str(getattr(publication, "sid", "") or getattr(track, "sid", "") or id(track))
-        if sid in active_tracks or len(active_tracks) >= MAX_ACTIVE_AUDIO_TRACKS:
+        if sid in track_tasks:
+            if track_tasks[sid].cancelling():
+                pending_tracks[sid] = (track, publication, participant)
             return
-        active_tracks.add(sid)
+        if len(track_tasks) >= MAX_ACTIVE_AUDIO_TRACKS:
+            return
         task = asyncio.create_task(_consume_track(job, rtc, track, publication, participant))
+        track_tasks[sid] = task
         stream_tasks.add(task)
 
         def release_track(completed: asyncio.Task, *, track_sid: str = sid) -> None:
             stream_tasks.discard(completed)
-            active_tracks.discard(track_sid)
-            if completed.cancelled():
-                return
-            error = completed.exception()
+            if track_tasks.get(track_sid) is completed:
+                track_tasks.pop(track_sid, None)
+            error = None if completed.cancelled() else completed.exception()
             if error is not None and not job.stop_event.is_set():
                 _set_status(job, "failed", "audio_track_failed")
                 job.stop_event.set()
+            replacement = pending_tracks.pop(track_sid, None)
+            if replacement is not None:
+                schedule_track(*replacement)
 
         task.add_done_callback(release_track)
 
     @room.on("track_published")
     def on_track_published(publication: Any, participant: Any) -> None:
+        if closing or job.stop_event.is_set():
+            return
         if getattr(publication, "kind", None) == rtc.TrackKind.KIND_AUDIO:
             try:
                 publication.set_subscribed(True)
@@ -668,18 +695,39 @@ async def _run_job(job: _MeetingJob) -> None:
     def on_track_subscribed(track: Any, publication: Any, participant: Any) -> None:
         schedule_track(track, publication, participant)
 
+    @room.on("track_unsubscribed")
+    def on_track_unsubscribed(track: Any, publication: Any, participant: Any) -> None:
+        sid = str(getattr(publication, "sid", "") or getattr(track, "sid", "") or id(track))
+        pending_tracks.pop(sid, None)
+        task = track_tasks.get(sid)
+        if task is not None:
+            task.cancel()
+
+    @room.on("reconnecting")
+    def on_reconnecting(*_: Any) -> None:
+        if not closing and not job.stop_event.is_set():
+            _set_status(job, "reconnecting")
+
+    @room.on("reconnected")
+    def on_reconnected(*_: Any) -> None:
+        if not closing and not job.stop_event.is_set():
+            _set_status(job, "running")
+
     @room.on("disconnected")
-    def on_disconnected(*_: Any) -> None:
+    def on_disconnected(reason: Any = None, *_: Any) -> None:
+        reasons = getattr(rtc, "DisconnectReason", None)
+        terminal = tuple(getattr(reasons, name, -1) for name in (
+            "ROOM_DELETED", "ROOM_CLOSED", "PARTICIPANT_REMOVED", "DUPLICATE_IDENTITY"
+        ))
+        if reason in terminal and not job.stop_event.is_set():
+            job.stop_event.set()
+            _set_status(job, "stopping")
         disconnected.set()
 
     try:
         options = rtc.RoomOptions(auto_subscribe=False, connect_timeout=15.0)
         await room.connect(job.livekit_url, job.livekit_token, options=options)
         if job.stop_event.is_set():
-            try:
-                await room.disconnect()
-            except Exception:
-                pass
             return
         _set_status(job, "running")
 
@@ -702,27 +750,31 @@ async def _run_job(job: _MeetingJob) -> None:
                 break
             await asyncio.sleep(0.25)
 
-        if job.stop_event.is_set() and not disconnected.is_set():
-            try:
-                await room.disconnect()
-            except Exception:
-                pass
-
-        if stream_tasks:
-            _, pending = await asyncio.wait(tuple(stream_tasks), timeout=FINAL_DRAIN_SECONDS)
+    except Exception:
+        if not job.stop_event.is_set():
+            _set_status(job, "failed", "livekit_runtime_failed")
+            job.stop_event.set()
+    finally:
+        closing = True
+        pending_tracks.clear()
+        try:
+            await asyncio.wait_for(room.disconnect(), timeout=DISCONNECT_TIMEOUT_SECONDS)
+        except Exception:
+            pass
+        # Track iterators may never finish after a failed transport. Cancellation
+        # closes their streams; Stop prevents any buffered speech from being sent.
+        tasks = tuple(stream_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            _, pending = await asyncio.wait(tasks, timeout=FINAL_DRAIN_SECONDS if not job.stop_event.is_set() else DISCONNECT_TIMEOUT_SECONDS)
             for task in pending:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
-        if job.status not in {"failed", "stopped", "expired"}:
-            _set_status(job, "completed")
-    except Exception:
-        _set_status(job, "failed", "livekit_runtime_failed")
-    finally:
-        try:
-            await room.disconnect()
-        except Exception:
-            pass
+        with _JOBS_LOCK:
+            if job.status not in {"failed", "stopped", "expired"}:
+                _set_status(job, "stopped" if job.stop_event.is_set() else "completed")
 
 
 def stop_all(join_timeout: float = 8.0) -> None:

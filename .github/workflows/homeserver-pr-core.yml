@@ -32,6 +32,9 @@ jobs:
           python tests/transcription_processing_section3.py
           node tests/transcription-section4.mjs
           node tests/participants-section5.mjs
+          python tests/meetings_reliability_section6.py
+          python tests/meeting_transcription_v1860.py
+          python tests/meeting_transcription_control_v1880.py
           python tests/transcription_integrity_section4.py
           node --check ui/brain.js
           node --check ui/chat-enhancements.js
@@ -136,4 +139,3 @@ jobs:
         run: python tests/agent_tools.py
       - name: Verify action approval contract
         run: python tests/action_approvals.py
-
