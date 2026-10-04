@@ -39,10 +39,12 @@ check(f["participant_id"] == 0 and f["source"] == "unknown" and not f["speaker_i
 cases += 1
 
 f = attribution.fuse([
+    {"source": "provider_diarization", "speaker_label": "Speaker 1", "confidence": 0},
     {"source": "verified_voice", "speaker_label": "Speaker 1", "participant_identity": "tracky:owner-1", "confidence": .94},
     {"source": "visual_corroboration", "participant_identity": "tracky:owner-1", "confidence": .91},
 ])
 check(f["participant_identity"] == "tracky:owner-1" and f["visual_corroborated"] and f["speaker_identity_verified"], "opaque local voice/visual fusion failed")
+check(f["diarization_source"] == "provider_diarization", "identity fusion lost separation provenance")
 cases += 1
 
 f = attribution.fuse([
