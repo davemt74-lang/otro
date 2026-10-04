@@ -118,12 +118,24 @@ export function saveParticipant(input) {
   });
 }
 
-export function patchParticipant(id, patch) {
+export function patchParticipant(id, patch, guard = () => true) {
   return storeAction(PARTICIPANTS,'readwrite',async store => {
     const current = await requestToPromise(store.get(id));
     if (!current) throw new Error('Participant not found.');
-    const record = participantRecord({...current,...patch,id,createdAt:current.createdAt});
+    const check = () => {
+      if (!guard()) {
+        const error = new Error('Participant update was cancelled.');
+        error.name = 'AbortError';
+        throw error;
+      }
+    };
+    check();
+    const changes = typeof patch === 'function' ? patch(current) : patch;
+    const record = participantRecord({...current,...changes,id,createdAt:current.createdAt});
     await requestToPromise(store.put(record));
+    // An owner stop/clear while the write was awaiting must abort this
+    // transaction before it commits, rather than restoring a cleared profile.
+    check();
     return record;
   });
 }

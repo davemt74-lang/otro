@@ -343,6 +343,20 @@
     }
   }
 
+  async function enrichSpeakerTurns(wav, turns, capturedAt) {
+    const fusion=window.HomeServerSpeakerFusion;
+    if(!transcriptionSession||!fusion?.analyzeChunk)return turns;
+    try{
+      const enriched=await fusion.analyzeChunk(wav,turns,capturedAt);
+      return Array.isArray(enriched)&&enriched.length?enriched:turns;
+    }catch(error){
+      window.dispatchEvent(new CustomEvent('homeserver:speaker-fusion-status',{detail:{
+        state:'degraded',message:'Local speaker fusion skipped this chunk: '+String(error.message||'unavailable'),error:true
+      }}));
+      return turns;
+    }
+  }
+
   async function transcribeLocal(blob, runGeneration, capturedAt = performance.now()) {
     if (!active || runGeneration !== generation) return;
     if (!transcriptionSession) setState('transcribing');
@@ -356,12 +370,15 @@
         try{
           payload=await postWav(DIARIZE_ENDPOINT,wav,controller,'Enhanced speaker separation failed.');
           if(payload&&active&&runGeneration===generation&&Array.isArray(payload.turns)&&payload.turns.length){
-            for(const turn of payload.turns){
+            const turns=await enrichSpeakerTurns(wav,payload.turns,capturedAt);
+            if(!active||runGeneration!==generation)return;
+            for(const turn of turns){
               const text=String(turn?.text||'').trim();if(!text)continue;
               const started=Math.max(0,Number(turn.started_ms||0)),ended=Math.max(started,Number(turn.ended_ms||started));
               window.dispatchEvent(new CustomEvent('homeserver:transcription-segment',{detail:{
                 text,provider:'elevenlabs_scribe_v2',speaker_label:String(turn.speaker_label||'Speaker 1').slice(0,80),
                 attribution:turn.attribution||unknownAttribution(String(turn.speaker_label||'Speaker 1')),
+                speaker_evidence:Array.isArray(turn.speaker_evidence)?turn.speaker_evidence:null,
                 capturedAt:capturedAt+started,endedAt:capturedAt+ended
               }}));
             }
@@ -379,10 +396,18 @@
       if (!payload || !active || runGeneration !== generation) return;
       const transcript = String(payload.text || '').trim();
       if (transcriptionSession) {
-        if (transcript) window.dispatchEvent(new CustomEvent('homeserver:transcription-segment', {detail:{
-          text:transcript,provider:'local_whisper',speaker_label:'Speaker 1',
-          attribution:unknownAttribution(),capturedAt,endedAt:capturedAt
-        }}));
+        if (transcript) {
+          const base={text:transcript,speaker_label:'Speaker 1',started_ms:0,ended_ms:null,overlap:false,attribution:unknownAttribution()};
+          const turns=await enrichSpeakerTurns(wav,[base],capturedAt);
+          if(!active||runGeneration!==generation)return;
+          const turn=turns[0]||base;
+          window.dispatchEvent(new CustomEvent('homeserver:transcription-segment', {detail:{
+            text:transcript,provider:'local_whisper',speaker_label:'Speaker 1',
+            attribution:turn.attribution||unknownAttribution(),
+            speaker_evidence:Array.isArray(turn.speaker_evidence)?turn.speaker_evidence:null,
+            capturedAt,endedAt:capturedAt
+          }}));
+        }
       } else {
         const inserted = insertTranscript(transcript);
         stopDictation(inserted ? 'Dictation added. Review or edit it, then send when ready.' : 'No speech detected. Nothing was added.');

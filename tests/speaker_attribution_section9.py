@@ -21,6 +21,10 @@ f = attribution.fuse([{"source": "heuristic_acoustic", "speaker_label": "Speaker
 check(f["participant_id"] == 0 and not f["speaker_identity_verified"], "heuristic claimed identity")
 cases += 1
 
+f = attribution.fuse([{"source": "verified_voice", "speaker_label": "Speaker 2", "confidence": .99, "participant_id": "not-an-id"}])
+check(f["participant_id"] == 0 and not f["speaker_identity_verified"], "malformed participant ID did not fail closed")
+cases += 1
+
 f = attribution.fuse([{"source": "provider_diarization", "speaker_label": "Speaker 3", "confidence": .91, "provider_speaker_id": "secret-provider-id"}])
 check(f["diarization_source"] == "provider_diarization" and not f["speaker_identity_verified"], "diarization claimed identity")
 check("secret-provider-id" not in str(f), "provider ID leaked")
@@ -36,6 +40,22 @@ cases += 1
 
 f = attribution.fuse([{"source": "visual_corroboration", "speaker_label": "Owner", "participant_id": 7, "confidence": .99}])
 check(f["participant_id"] == 0 and f["source"] == "unknown" and not f["speaker_identity_verified"], "visual-only speaker identity accepted")
+cases += 1
+
+f = attribution.fuse([
+    {"source": "provider_diarization", "speaker_label": "Speaker 1", "confidence": 0},
+    {"source": "verified_voice", "speaker_label": "Speaker 1", "participant_identity": "tracky:owner-1", "confidence": .94},
+    {"source": "visual_corroboration", "participant_identity": "tracky:owner-1", "confidence": .91},
+])
+check(f["participant_identity"] == "tracky:owner-1" and f["visual_corroborated"] and f["speaker_identity_verified"], "opaque local voice/visual fusion failed")
+check(f["diarization_source"] == "provider_diarization", "identity fusion lost separation provenance")
+cases += 1
+
+f = attribution.fuse([
+    {"source": "verified_voice", "speaker_label": "Speaker 1", "participant_identity": "tracky:owner-1", "confidence": .96},
+    {"source": "visual_corroboration", "participant_identity": "tracky:guest-2", "confidence": .92},
+])
+check(f["visual_conflict"] and not f["speaker_identity_verified"] and f["participant_identity"] == "" and f["identity_confidence"] == 0, "visual conflict did not fail closed")
 cases += 1
 
 f = attribution.fuse([
@@ -64,4 +84,14 @@ f = attribution.fuse([
 check(not f["identity_conflict"] and f["source"] == "manual_correction" and f["participant_id"] == 4, "manual correction conflicted with lower evidence")
 cases += 1
 
-print(f"SPEAKER_ATTRIBUTION_SECTION9A=PASS ({cases} canonical HomeServer cases)")
+for overlap_source in ["verified_voice", "provider_diarization"]:
+    f = attribution.fuse([
+        {"source": "verified_voice", "participant_identity": "tracky:owner", "confidence": .95, "overlap": overlap_source == "verified_voice"},
+        {"source": "provider_diarization", "overlap": overlap_source == "provider_diarization"},
+        {"source": "visual_corroboration", "participant_identity": "tracky:owner", "confidence": .95},
+    ])
+    check(f["overlap"] and not f["speaker_identity_verified"] and not f["participant_identity"] and f["identity_confidence"] == 0 and not f["visual_corroborated"], "overlapping evidence retained voice identity")
+    check(f["diarization_source"] == "provider_diarization", "overlap rejection lost diarization provenance")
+    cases += 1
+
+print(f"SPEAKER_ATTRIBUTION_SECTION9=PASS ({cases} canonical HomeServer cases)")

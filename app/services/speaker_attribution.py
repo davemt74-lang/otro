@@ -26,8 +26,15 @@ def _hash_ref(value: Any) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24] if text else ""
 
 
+def _participant_id(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _identity_key(item: dict[str, Any]) -> str:
-    participant_id = max(0, int(item.get("participant_id") or 0))
+    participant_id = _participant_id(item.get("participant_id"))
     if participant_id:
         return f"participant:{participant_id}"
     identity = _text(item.get("participant_identity"), 160)
@@ -39,15 +46,16 @@ def evidence(raw: dict[str, Any] | None = None) -> dict[str, Any]:
     source = str(raw.get("source") or "unknown").strip().lower()
     if source not in SOURCES:
         source = "unknown"
-    participant_id = max(0, int(raw.get("participant_id") or 0))
+    participant_id = _participant_id(raw.get("participant_id"))
     participant_identity = _text(raw.get("participant_identity"), 160)
     label = _text(raw.get("speaker_label"), 190)
     identity_capable = source in {"verified_voice", "livekit_track", "manual_correction", "account_identity"}
     if not identity_capable and source != "visual_corroboration":
         participant_id = 0
         participant_identity = ""
-    if source == "visual_corroboration":
-        participant_identity = ""
+    # Visual evidence may carry the same opaque participant reference as a
+    # voice/manual source so fusion can corroborate or conflict. It is never
+    # identity-capable by itself.
     identity_verified = bool(identity_capable and (participant_id or participant_identity))
     return {
         "source": source,
@@ -123,7 +131,9 @@ def fuse(raw_evidence: list[dict[str, Any]] | None) -> dict[str, Any]:
     if visual_corroborated:
         identity_confidence = min(1.0, identity_confidence + 0.05)
     if visual_conflict:
-        identity_confidence = max(0.0, identity_confidence - 0.15)
+        # A strong camera mismatch never proves the camera is right, but it is
+        # enough to fail a voice identity closed until another turn/review.
+        identity_confidence = 0.0
 
     overlap = bool(primary["overlap"])
     overlap_group = str(primary["overlap_group"])
@@ -134,9 +144,16 @@ def fuse(raw_evidence: list[dict[str, Any]] | None) -> dict[str, Any]:
                 overlap_group = str(item["overlap_group"])
 
     source = str(primary["source"])
-    if source in {"provider_diarization", "livekit_track"}:
-        diarization_source = source
-    elif source == "heuristic_acoustic":
+    voice_overlap = source == "verified_voice" and overlap
+    if voice_overlap:
+        identity_confidence = 0.0
+        visual_corroborated = False
+    evidence_sources = {str(item["source"]) for item in primary_evidence}
+    if "livekit_track" in evidence_sources:
+        diarization_source = "livekit_track"
+    elif "provider_diarization" in evidence_sources:
+        diarization_source = "provider_diarization"
+    elif "heuristic_acoustic" in evidence_sources:
         diarization_source = "heuristic_acoustic"
     else:
         diarization_source = "none"
@@ -146,9 +163,9 @@ def fuse(raw_evidence: list[dict[str, Any]] | None) -> dict[str, Any]:
         "speaker_label": primary["speaker_label"] or "Speaker",
         "source": source,
         "confidence": primary["confidence"],
-        "participant_id": 0 if identity_conflict else primary["participant_id"],
-        "participant_identity": "" if identity_conflict else primary["participant_identity"],
-        "speaker_identity_verified": bool(not identity_conflict and primary["identity_verified"]),
+        "participant_id": 0 if (identity_conflict or visual_conflict or voice_overlap) else primary["participant_id"],
+        "participant_identity": "" if (identity_conflict or visual_conflict or voice_overlap) else primary["participant_identity"],
+        "speaker_identity_verified": bool(not identity_conflict and not visual_conflict and not voice_overlap and primary["identity_verified"]),
         "identity_confidence": round(identity_confidence, 4),
         "authentication_authority": False,
         "visual_corroborated": visual_corroborated,

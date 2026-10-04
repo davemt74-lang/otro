@@ -223,8 +223,29 @@ export function advanceScan(track, options = {}) {
   };
 }
 
+function cleanVoiceEmbeddings(value){
+  if(!Array.isArray(value))return [];
+  const rows=[];
+  for(const item of value.slice(-5)){
+    const row=Array.isArray(item)?item.map(Number):[];
+    if(row.length>=16&&row.length<=64&&row.every(Number.isFinite))rows.push(row);
+  }
+  return rows;
+}
+function cleanVoiceSamples(value){
+  if(!Array.isArray(value))return [];
+  return value.slice(-5).map(item=>({
+    capturedAt:typeof item?.capturedAt==='string'&&!Number.isNaN(Date.parse(item.capturedAt))?item.capturedAt:null,
+    durationMs:Math.max(0,Math.min(120000,Math.round(Number(item?.durationMs)||0))),
+    feature:String(item?.feature||'').slice(0,60),
+    rawAudioStored:false
+  })).filter(item=>item.capturedAt&&item.feature);
+}
+
 export function participantRecord(input = {}) {
   const now = input.now || new Date().toISOString();
+  const voiceEmbeddings=cleanVoiceEmbeddings(input.voiceEmbeddings);
+  const voiceProfileReady=input.voiceProfileReady===true&&voiceEmbeddings.length>=3;
   return {
     id: String(input.id || cryptoRandomId()),
     name: String(input.name || '').trim(),
@@ -244,11 +265,11 @@ export function participantRecord(input = {}) {
           trackingEnabled:false,cloudSync:false,
           contactCreation:'requires_owner_approval'}
       : null,
-    voiceEmbeddings: Array.isArray(input.voiceEmbeddings) ? input.voiceEmbeddings.map((v) => Array.from(v)) : [],
-    voiceRecognitionEnabled: input.voiceRecognitionEnabled !== false,
-    voiceProfileSamples: Array.isArray(input.voiceProfileSamples) ? input.voiceProfileSamples : [],
-    voiceProfileReady: input.voiceProfileReady === true,
-    voiceUpdatedAt: input.voiceUpdatedAt || null,
+    voiceEmbeddings,
+    voiceRecognitionEnabled: input.voiceRecognitionEnabled===true&&voiceProfileReady,
+    voiceProfileSamples: cleanVoiceSamples(input.voiceProfileSamples),
+    voiceProfileReady,
+    voiceUpdatedAt: typeof input.voiceUpdatedAt==='string'&&!Number.isNaN(Date.parse(input.voiceUpdatedAt))?input.voiceUpdatedAt:null,
     createdAt: input.createdAt || now,
     updatedAt: now,
     lastSeenAt: input.lastSeenAt || null,
