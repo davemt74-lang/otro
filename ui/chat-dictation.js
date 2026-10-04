@@ -334,18 +334,14 @@
     if (!active || runGeneration !== generation) return;
     if (!transcriptionSession) setState('transcribing');
     const controller = new AbortController(); transcribeController = controller;
-    let timer;
-    const cancelled = new Promise((_, reject) => {
-      controller.signal.addEventListener('abort', () => reject(new Error('Local transcription cancelled or timed out.')), {once:true});
-      timer = setTimeout(() => controller.abort(), 100000);
-    });
+    const timer=setTimeout(()=>controller.abort(),100000);
     try {
       const wav=await recordingToWav(blob);
       if(controller.signal.aborted||!active||runGeneration!==generation)return;
       let payload=null;
       if(transcriptionSession&&transcriptionOptions.speakerDiarization&&!strictLocalEnabled()){
         try{
-          payload=await Promise.race([cancelled,postWav(DIARIZE_ENDPOINT,wav,controller,'Enhanced speaker separation failed.')]);
+          payload=await postWav(DIARIZE_ENDPOINT,wav,controller,'Enhanced speaker separation failed.');
           if(payload&&active&&runGeneration===generation&&Array.isArray(payload.turns)&&payload.turns.length){
             for(const turn of payload.turns){
               const text=String(turn?.text||'').trim();if(!text)continue;
@@ -365,7 +361,7 @@
           }}));
         }
       }
-      payload=await Promise.race([cancelled,postWav(TRANSCRIBE_ENDPOINT,wav,controller,'Local Whisper dictation failed.')]);
+      payload=await postWav(TRANSCRIBE_ENDPOINT,wav,controller,'Local Whisper dictation failed.');
       if (!payload || !active || runGeneration !== generation) return;
       const transcript = String(payload.text || '').trim();
       if (transcriptionSession) {
