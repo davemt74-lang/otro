@@ -149,6 +149,7 @@ function ensure(){
  window.addEventListener('homeserver:transcription-diarization-status',event=>{
   const message=String(event.detail?.message||'');if(message)status(message,event.detail?.state!=='ready');
  });
+ window.addEventListener('homeserver:speaker-fusion-ready',()=>{if(!drawer.hidden)void refreshFusionProfiles();});
  window.addEventListener('homeserver:speaker-fusion-status',event=>{
   const message=String(event.detail?.message||'');if(message)fusionStatus(message,event.detail?.error===true);
   void refreshFusionProfiles();syncFusionControls();
