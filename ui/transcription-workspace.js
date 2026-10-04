@@ -232,7 +232,7 @@ function onSegment(event){
    started_ms:started,ended_ms:ended,
    speaker_label:String(event.detail.speaker_label||'Speaker 1').slice(0,80),
    attribution:validAttribution(event.detail.attribution)?event.detail.attribution:null};
- lastTimeline=segment.ended_ms;
+ lastTimeline=segment.started_ms;
  queue.push({sessionId,segment});persistQueue();controls();
  void saveQueue().catch(()=>{});
  if(queue.length>=200){status('Listening stopped at the unsaved text limit. Keep this page open while saves retry.',true);window.HomeServerDictation?.stopTranscription();}
