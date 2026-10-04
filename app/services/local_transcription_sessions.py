@@ -9,6 +9,7 @@ import re
 import secrets
 from typing import Any
 from ..database import db
+from . import speaker_attribution
 
 CONTRACT="vp3.homeserver.transcription-session.v1"
 _ID=re.compile(r"^[0-9a-f]{32}$")
@@ -44,6 +45,9 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         "speaker_attribution":"unidentified_single_channel",
         "speaker_identity_verified":False,
         "diarization_available":False,
+        "speaker_attribution":speaker_attribution.fuse([{
+            "source":"unknown","speaker_label":"Speaker 1","confidence":0.0
+        }]),
         "timeline_ms":int(connection.execute("SELECT COALESCE(MAX(started_ms),0) FROM local_transcription_segments WHERE session_id=?",(row["id"],)).fetchone()[0]),
     }
     if with_segments:
@@ -54,7 +58,10 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         result["segments"]=[
             {"id":s["id"],"client_key":s["client_key"],"text":s["text"],
              "started_ms":s["started_ms"],"created_at":s["created_at"],"speaker":"Speaker 1","segment_index":index,
-             "speaker_attribution":"unidentified_single_channel","speaker_identity_verified":False}
+             "speaker_attribution":"unidentified_single_channel","speaker_identity_verified":False,
+             "attribution":speaker_attribution.fuse([{
+                 "source":"unknown","speaker_label":"Speaker 1","confidence":0.0
+             }])}
             for index,s in enumerate(segments)
         ]
     return result
