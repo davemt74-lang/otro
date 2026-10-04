@@ -179,11 +179,13 @@ def append(session_id:str,text:str,client_key:str,started_ms:int=0,*,speaker_lab
             if existing["attribution_json"]:
                 try:current=_sanitize_attribution(json.loads(existing["attribution_json"]),existing["speaker_label"] or "Speaker 1")
                 except (ValueError,TypeError,TranscriptError):current=None
-            same=(existing["text"]==text and int(existing["started_ms"])==started_ms and
-                  int(existing["ended_ms"] if existing["ended_ms"] is not None else existing["started_ms"])==ended_ms and
-                  _clean_label(existing["speaker_label"] or "Speaker 1")==speaker_label and current==sanitized)
-            legacy_same=(existing["text"]==text and int(existing["started_ms"])==started_ms and existing["attribution_json"] is None and
-                         ended_ms==started_ms and sanitized["source"]=="unknown" and speaker_label=="Speaker 1")
+            # A retry may repeat the caller's pre-normalized timing after the
+            # first write was moved forward to keep the session monotonic.
+            # Client key + text + canonical attribution are immutable identity;
+            # retry timing is never allowed to rewrite the stored row.
+            same=(existing["text"]==text and _clean_label(existing["speaker_label"] or "Speaker 1")==speaker_label and current==sanitized)
+            legacy_same=(existing["text"]==text and existing["attribution_json"] is None and
+                         sanitized["source"]=="unknown" and speaker_label=="Speaker 1")
             if not (same or legacy_same):
                 raise TranscriptError("This segment key already belongs to different transcript content or speaker attribution.",409)
             return {"contract":CONTRACT,"duplicate":True,"session":_payload(conn,row)}
@@ -199,6 +201,7 @@ def append(session_id:str,text:str,client_key:str,started_ms:int=0,*,speaker_lab
             raise TranscriptError("Transcription document size limit reached.",409)
         previous=conn.execute("SELECT COALESCE(MAX(started_ms),0) FROM local_transcription_segments WHERE session_id=?",(sid,)).fetchone()[0]
         started_ms=max(started_ms,int(previous))
+        ended_ms=max(ended_ms,started_ms)
         segment_id=secrets.token_hex(16)
         created=_utc()
         conn.execute(
