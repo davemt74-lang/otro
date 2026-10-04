@@ -32,8 +32,9 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         sid=created.json()["session"]["id"]
         assert created.json()["session"]["cloud_shared"] is False
         assert created.json()["session"]["diarization_available"] is False
-        assert created.json()["session"]["speaker_attribution"]["source"] == "unknown"
-        assert created.json()["session"]["speaker_attribution"]["authentication_authority"] is False
+        assert created.json()["session"]["speaker_attribution"] == "unidentified_single_channel"
+        assert created.json()["session"]["attribution"]["source"] == "unknown"
+        assert created.json()["session"]["attribution"]["authentication_authority"] is False
         assert client.post(base,json={"title":"Overlapping"},headers=req).status_code==409
         key="a"*32
         segment={"text":"My private local transcript.","client_key":key,"started_ms":100}
