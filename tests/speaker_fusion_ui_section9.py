@@ -28,9 +28,13 @@ for marker in [
 assert "fetch('/api/v1/control/onboarding/visual/status'" in fusion
 assert 'vp3' not in fusion.lower() and '/cloud' not in fusion.lower(), 'fusion runtime must not send biometric/profile data to Cloud'
 assert 'voiceRecognitionEnabled: input.voiceRecognitionEnabled===true&&voiceProfileReady' in participant
-assert 'speaker_evidence:list[dict[str,Any]]|None' in api
+assert 'class SpeakerEvidence(BaseModel)' in api
+assert 'model_config=ConfigDict(extra="forbid")' in api
+assert 'speaker_evidence:list[SpeakerEvidence]|None' in api
 assert 'speaker_attribution.fuse(rows)' in api
-assert 'confidence<0.90' in api
+assert 'item["confidence"]<0.90' in api
+assert 'Overlapping speech cannot establish a local voice identity.' in api
+assert 'Speaker evidence cannot grant authentication authority.' in api
 assert 'Identity-capable speaker attribution requires canonical evidence fusion.' in api
 assert 'def _paired_attribution' in sessions
 assert '"participant_identity":""' in sessions
