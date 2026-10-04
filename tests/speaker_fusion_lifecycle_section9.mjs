@@ -99,6 +99,14 @@ await check('page hide cancels enrollment before a delayed write commits',async(
  const pending=r.api.analyzeChunk(wav(),[turn],0);await tick();r.fire('pagehide');writeGate.resolve();await pending;
  assert.equal(r.writes(),0);assert.equal(r.api.enrollmentState(),null);
 });
+await check('Clear cancels enrollment still arming on a delayed participant read',async()=>{
+ const listGate=deferred(),r=await runtime({listGate});
+ const pending=r.api.beginVoiceEnrollment('owner');await tick();
+ const clearing=r.api.clearVoiceProfile('owner');await tick();listGate.resolve();
+ assert.equal(await pending,null);await clearing;
+ assert.equal(r.api.enrollmentState(),null);assert.equal(r.rows()[0].voiceEmbeddings.length,0);
+ assert.equal(r.rows()[0].voiceRecognitionEnabled,false);
+});
 await check('overlap on base attribution blocks enrollment and voice evidence',async()=>{
  const r=await runtime();await r.api.beginVoiceEnrollment('owner');
  const output=await r.api.analyzeChunk(wav(),[{...turn,attribution:{source:'provider_diarization',overlap:true}}],0);

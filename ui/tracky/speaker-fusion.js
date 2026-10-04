@@ -111,7 +111,8 @@ export async function beginVoiceEnrollment(participantIdValue){
 }
 export function cancelVoiceEnrollment(){enrollmentGeneration+=1;if(enrollment){enrollment=null;emit('stopped','Voice enrollment cancelled. No raw audio was stored.');}}
 export async function clearVoiceProfile(participantIdValue){
-  if(enrollment?.participantId===participantIdValue)cancelVoiceEnrollment();
+  // Also invalidate a begin operation still awaiting its participant read.
+  cancelVoiceEnrollment();
   const current=await getParticipant(participantIdValue);if(!current)throw new Error('Participant not found.');
   const saved=await patchParticipant(current.id,{voiceEmbeddings:[],voiceProfileSamples:[],voiceProfileReady:false,voiceRecognitionEnabled:false,voiceUpdatedAt:new Date().toISOString()});
   if(enrollment?.participantId===current.id)enrollment=null;
