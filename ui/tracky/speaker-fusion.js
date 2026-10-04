@@ -201,7 +201,11 @@ export async function startCameraCorroboration(videoElement=null){
   if(token!==cameraGeneration)return false;
   const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:960},height:{ideal:720},facingMode:{ideal:'user'}}});
   if(token!==cameraGeneration){stream.getTracks().forEach(t=>t.stop());return false;}
-  cameraStream=stream;cameraVideo=videoElement||document.createElement('video');
+  cameraStream=stream;
+  for(const track of stream.getTracks())track.addEventListener?.('ended',()=>{
+    if(cameraStream===stream){stopCameraCorroboration();emit('camera_stopped','Camera corroboration stopped because the camera disconnected.',{error:true});}
+  },{once:true});
+  cameraVideo=videoElement||document.createElement('video');
   cameraVideo.muted=true;cameraVideo.playsInline=true;cameraVideo.srcObject=stream;
   await cameraVideo.play();
   visualHistory=[];privacyCheckedAt=Date.now();
@@ -227,6 +231,7 @@ window.HomeServerSpeakerFusion=Object.freeze({
   analyzeChunk,beginVoiceEnrollment,cancelVoiceEnrollment,clearVoiceProfile,profileSummary,
   startCameraCorroboration,stopCameraCorroboration,isCameraActive,resolveParticipantName,enrollmentState
 });
+window.dispatchEvent(new CustomEvent('homeserver:speaker-fusion-ready'));
 window.addEventListener('tracky:visual-state-changed',()=>{participantsLoadedAt=0;});
 window.addEventListener('pagehide',stopCameraCorroboration);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCameraCorroboration();});
