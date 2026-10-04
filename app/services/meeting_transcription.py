@@ -552,6 +552,7 @@ async def _transcribe_segment(
         "text": text[:20_000],
         "confidence": None,
         "source": "homeserver",
+        "track_id": track_sid,
         "source_key": _source_key(job, participant_identity, track_sid, sequence, start_ms, end_ms, text),
         "is_final": True,
         "speaker_attribution": speaker_attribution.fuse([
