@@ -415,7 +415,9 @@ def _attachment_paths(metadata_json: str | None) -> list[Path]:
         return []
 
     root = settings.knowledge_files_dir.resolve()
-    attachments_root = (root / "attachments").resolve()
+    attachments_root = root / "attachments"
+    if attachments_root.is_symlink():
+        return []
     paths: list[Path] = []
     for asset in metadata["assets"][:500]:
         if not isinstance(asset, dict):
@@ -426,7 +428,7 @@ def _attachment_paths(metadata_json: str | None) -> list[Path]:
         relative = Path(stored_name)
         if relative.is_absolute() or ".." in relative.parts:
             continue
-        target = (root / relative).resolve()
+        target = root / relative
         if target.parent != attachments_root:
             continue
         paths.append(target)
@@ -437,6 +439,7 @@ def delete_knowledge_item(item_id: int) -> bool:
     stored_name: str | None = None
     attachment_paths: list[Path] = []
     with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         item = connection.execute(
             "SELECT metadata_json FROM knowledge_items WHERE id=? LIMIT 1",
             (item_id,),

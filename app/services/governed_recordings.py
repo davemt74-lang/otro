@@ -92,6 +92,7 @@ def _prune() -> int:
     removed = 0
     now = _now().isoformat()
     with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         rows = connection.execute(
             "SELECT * FROM governed_recordings ORDER BY created_at,recording_id"
         ).fetchall()
@@ -102,9 +103,8 @@ def _prune() -> int:
             if not (expired or total > MAX_TOTAL_BYTES or count > MAX_CLIPS):
                 continue
             target = _file(str(row["recording_id"]), str(row["media_type"]))
-            if target.is_symlink():
-                raise RecordingError("storage_unavailable", 503)
             try:
+                # Unlinking a managed symlink removes only the link, never its target.
                 target.unlink(missing_ok=True)
             except OSError as exc:
                 raise RecordingError("storage_unavailable", 503) from exc
@@ -255,6 +255,7 @@ def capture(kind: str, seconds: int, *, consent: bool, capture_ack: bool) -> dic
         except Exception:
             target.unlink(missing_ok=True)
             raise
+        _prune()  # Enforce count/byte limits before acknowledging the new clip.
         return {
             "contract": CONTRACT, "recording": {
                 "id": recording_id, "kind": kind, "seconds": seconds, "bytes": size,
@@ -283,6 +284,25 @@ def list_recordings(limit: int = 30) -> dict[str, Any]:
             "expired_deleted": removed, "owner_only": True,
             "retention_days": RETENTION_DAYS, "max_total_bytes": MAX_TOTAL_BYTES,
         }
+
+
+def maintain_retention() -> dict[str, Any]:
+    """Scheduler maintenance must not wait behind capture or model inference."""
+    if not _CAPTURE.acquire(blocking=False):
+        return {"deferred": True, "expired_deleted": 0}
+    try:
+        removed = _prune()
+        # Crash leftovers are limited to canonical generated names and are never followed.
+        with db() as connection:
+            ids = {str(row[0]) for row in connection.execute("SELECT recording_id FROM governed_recordings")}
+        cutoff = time.time() - 3600
+        for path in _store().iterdir():
+            match = re.fullmatch(r"([a-f0-9]{32})(?:\.pending)?\.(?:wav|mp4)", path.name)
+            if match and match[1] not in ids and path.lstat().st_mtime < cutoff and not path.is_dir():
+                path.unlink(missing_ok=True)
+        return {"deferred": False, "expired_deleted": removed}
+    finally:
+        _CAPTURE.release()
 
 
 def resolve(recording_id: str) -> tuple[Path, dict[str, Any]]:
@@ -330,6 +350,8 @@ def transcribe_saved(recording_id: str) -> dict[str, Any]:
         # Keep output bounded. Do not retain Whisper output paths or raw audio in DB.
         if len(text)>12000:
             text=text[:12000]
+        # Expiry may occur during inference. Do not save or return expired audio's text.
+        resolve(recording_id)
         with db() as connection:
             connection.execute(
                 "UPDATE governed_recordings SET transcript=?,transcript_at=? "
@@ -361,9 +383,16 @@ def private_transcript(recording_id: str) -> dict[str, Any]:
 
 def delete(recording_id: str) -> dict[str, Any]:
     with _CAPTURE:
-        path, _ = resolve(recording_id)
+        if not isinstance(recording_id, str) or not _ID_RE.fullmatch(recording_id):
+            raise RecordingError("capture_failed", 404)
+        with db() as connection:
+            row = connection.execute("SELECT media_type FROM governed_recordings WHERE recording_id=?", (recording_id,)).fetchone()
+        if row is None:
+            return {"contract": CONTRACT, "deleted": True, "recording_id": recording_id}
+        # Deletion remains possible for expired, missing or damaged clips.
+        path = _file(recording_id, str(row["media_type"]))
         try:
-            path.unlink()
+            path.unlink(missing_ok=True)
         except OSError as exc:
             raise RecordingError("storage_unavailable", 503) from exc
         with db() as connection:

@@ -134,6 +134,9 @@ def stop(session_id:str)->dict[str,Any]:
 def get(session_id:str,*,paired:bool=False)->dict[str,Any]:
     sid=_id(session_id)
     with db() as conn:
+        # Consent and segment rows are one SQLite snapshot. A concurrent revoke
+        # cannot splice a different document state into an authorized response.
+        conn.execute("BEGIN")
         row=_get(conn,sid)
         if paired and (not row["cloud_share"] or row["status"]!="completed"):
             raise TranscriptError("This transcription is not shared with Cloud.",403)
@@ -142,6 +145,7 @@ def get(session_id:str,*,paired:bool=False)->dict[str,Any]:
 
 def list_sessions(*,paired:bool=False,limit:int=50)->dict[str,Any]:
     with db() as conn:
+        conn.execute("BEGIN")
         if paired:
             rows=conn.execute(
                 "SELECT * FROM local_transcription_sessions WHERE cloud_share=1 "
@@ -181,4 +185,3 @@ def delete(session_id:str)->dict[str,Any]:
         conn.execute("DELETE FROM local_transcription_segments WHERE session_id=?",(sid,))
         conn.execute("DELETE FROM local_transcription_sessions WHERE id=?",(sid,))
     return {"contract":CONTRACT,"deleted":True,"session_id":sid}
-
