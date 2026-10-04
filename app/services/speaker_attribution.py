@@ -87,9 +87,14 @@ def fuse(raw_evidence: list[dict[str, Any]] | None) -> dict[str, Any]:
         (visual if item["source"] == "visual_corroboration" else primary_evidence).append(item)
 
     primary_evidence.sort(key=lambda item: (_rank(item["source"]), item["confidence"]), reverse=True)
+    manual = [
+        item for item in primary_evidence
+        if item["source"] == "manual_correction" and item["identity_verified"] and item["confidence"] >= 0.72
+    ]
+    conflict_pool = manual or primary_evidence
     strong = {
         _identity_key(item)
-        for item in primary_evidence
+        for item in conflict_pool
         if item["identity_verified"] and item["confidence"] >= 0.72 and _identity_key(item)
     }
     identity_conflict = len(strong) > 1
