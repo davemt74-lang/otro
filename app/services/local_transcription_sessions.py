@@ -16,7 +16,8 @@ _ID=re.compile(r"^[0-9a-f]{32}$")
 MAX_SEGMENTS=300
 MAX_TEXT=8000
 MAX_SESSION_CHARS=120000
-_ATTRIBUTION_SOURCES={"unknown","provider_diarization","heuristic_acoustic"}
+_ATTRIBUTION_SOURCES={"unknown","provider_diarization","heuristic_acoustic","verified_voice","manual_correction"}
+_LOCAL_PARTICIPANT=re.compile(r"^tracky:[A-Za-z0-9._:-]{1,150}$")
 
 def _clean_label(value:Any)->str:
     label=" ".join(str(value or "").split())[:80]
@@ -30,18 +31,47 @@ def _sanitize_attribution(value:Any,speaker_label:str="Speaker 1")->dict[str,Any
     label=_clean_label(source.get("speaker_label") or speaker_label)
     try:confidence=max(0.0,min(1.0,float(source.get("confidence") or 0.0)))
     except (TypeError,ValueError):confidence=0.0
+    try:identity_confidence=max(0.0,min(1.0,float(source.get("identity_confidence") or 0.0)))
+    except (TypeError,ValueError):identity_confidence=0.0
     overlap=bool(source.get("overlap"))
     overlap_group=" ".join(str(source.get("overlap_group") or "").split())[:80] if overlap else ""
-    diarization="provider_diarization" if source_name=="provider_diarization" else ("heuristic_acoustic" if source_name=="heuristic_acoustic" else "none")
+    participant_identity=str(source.get("participant_identity") or "").strip()[:160]
+    identity_capable=source_name in {"verified_voice","manual_correction"}
+    if not identity_capable:participant_identity=""
+    if participant_identity and not _LOCAL_PARTICIPANT.fullmatch(participant_identity):
+        raise TranscriptError("Invalid local participant speaker reference.")
+    identity_conflict=bool(source.get("identity_conflict"))
+    visual_conflict=bool(source.get("visual_conflict"))
+    verified=bool(identity_capable and participant_identity and source.get("speaker_identity_verified") is True
+                  and not identity_conflict and not visual_conflict)
+    diarization=str(source.get("diarization_source") or "").strip().lower()
+    if diarization not in {"provider_diarization","heuristic_acoustic","none"}:
+        diarization="provider_diarization" if source_name=="provider_diarization" else ("heuristic_acoustic" if source_name=="heuristic_acoustic" else "none")
     return {
         "contract":"speaker-attribution-v1-20261004","speaker_label":label,
         "source":source_name,"confidence":round(confidence,4),
-        "participant_id":0,"participant_identity":"",
-        "speaker_identity_verified":False,"identity_confidence":0.0,
-        "authentication_authority":False,"visual_corroborated":False,
-        "visual_conflict":False,"identity_conflict":False,
+        "participant_id":0,"participant_identity":participant_identity if verified else "",
+        "speaker_identity_verified":verified,
+        "identity_confidence":round(identity_confidence if verified else 0.0,4),
+        "authentication_authority":False,
+        "visual_corroborated":bool(source.get("visual_corroborated")) and verified,
+        "visual_conflict":visual_conflict,"identity_conflict":identity_conflict,
         "overlap":overlap,"overlap_group":overlap_group,
         "diarization_source":diarization,"evidence":[],
+    }
+
+def _paired_attribution(value:dict[str,Any])->dict[str,Any]:
+    attribution=_sanitize_attribution(value,value.get("speaker_label") or "Speaker 1")
+    separation=attribution["diarization_source"]
+    source="provider_diarization" if separation=="provider_diarization" else ("heuristic_acoustic" if separation=="heuristic_acoustic" else "unknown")
+    return {
+        "contract":"speaker-attribution-v1-20261004","speaker_label":attribution["speaker_label"],
+        "source":source,"confidence":0.0,"participant_id":0,"participant_identity":"",
+        "speaker_identity_verified":False,"identity_confidence":0.0,"authentication_authority":False,
+        "visual_corroborated":False,"visual_conflict":False,"identity_conflict":False,
+        "overlap":attribution["overlap"],"overlap_group":attribution["overlap_group"],
+        "diarization_source":separation if separation in {"provider_diarization","heuristic_acoustic"} else "none",
+        "evidence":[],
     }
 
 
@@ -87,9 +117,15 @@ def _get(connection,session_id:str):
     if row is None:raise TranscriptError("Transcription session unavailable.",404)
     return row
 
-def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
+def _payload(connection,row,with_segments:bool=False,*,paired:bool=False)->dict[str,Any]:
     diarized=int(connection.execute(
-        "SELECT COUNT(*) FROM local_transcription_segment_attribution WHERE session_id=? AND source='provider_diarization'",
+        "SELECT COUNT(*) FROM local_transcription_segment_attribution WHERE session_id=? AND "
+        "(source='provider_diarization' OR attribution_json LIKE '%\"diarization_source\":\"provider_diarization\"%')",
+        (row["id"],)
+    ).fetchone()[0])>0
+    identified=int(connection.execute(
+        "SELECT COUNT(*) FROM local_transcription_segment_attribution WHERE session_id=? AND "
+        "(source='verified_voice' OR source='manual_correction')",
         (row["id"],)
     ).fetchone()[0])>0
     timeline=connection.execute(
@@ -101,8 +137,8 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         "cloud_shared":bool(row["cloud_share"]),"started_at":row["started_at"],
         "ended_at":row["ended_at"],"segment_count":int(row["segment_count"]),
         "source":"homeserver_local_transcription",
-        "speaker_attribution":"provider_diarization" if diarized else "unidentified_single_channel",
-        "speaker_identity_verified":False,
+        "speaker_attribution":"verified_voice" if (identified and not paired) else ("provider_diarization" if diarized else "unidentified_single_channel"),
+        "speaker_identity_verified":bool(identified and not paired),
         "diarization_available":diarized,
         "attribution":_unknown_attribution(),
         "timeline_ms":int(timeline or 0),
@@ -120,6 +156,7 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
                 try:
                     parsed=json.loads(s["attribution_json"])
                     attribution=_sanitize_attribution(parsed,s["speaker_label"] or "Speaker 1")
+                    if paired:attribution=_paired_attribution(attribution)
                 except (ValueError,TypeError,TranscriptError):
                     attribution=_unknown_attribution()
             payload.append({
@@ -128,7 +165,7 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
                 "created_at":s["created_at"],"speaker":_clean_label(s["speaker_label"] or attribution["speaker_label"]),
                 "segment_index":index,
                 "speaker_attribution":str(attribution["source"]),
-                "speaker_identity_verified":False,
+                "speaker_identity_verified":bool(attribution["speaker_identity_verified"]),
                 "attribution":attribution,
             })
         result["segments"]=payload
@@ -245,8 +282,8 @@ def get(session_id:str,*,paired:bool=False)->dict[str,Any]:
         row=_get(conn,sid)
         if paired and (not row["cloud_share"] or row["status"]!="completed"):
             raise TranscriptError("This transcription is not shared with Cloud.",403)
-        return {"contract":CONTRACT,"session":_payload(conn,row,True),
-                "raw_audio_included":False}
+        return {"contract":CONTRACT,"session":_payload(conn,row,True,paired=paired),
+                "raw_audio_included":False,"local_identity_included":False if paired else True}
 
 def list_sessions(*,paired:bool=False,limit:int=50)->dict[str,Any]:
     with db() as conn:
