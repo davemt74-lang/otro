@@ -237,9 +237,18 @@ with tempfile.TemporaryDirectory(prefix="homeserver-meeting-v1860-") as data_dir
             assert segment["meeting"] == "a" * 32
             assert segment["room_name"] == "vp3-meeting-aabbcc"
             assert segment["source"] == "homeserver"
+            assert segment["track_id"] == "track-1"
             assert segment["is_final"] is True
             assert segment["text"] == "Local transcript segment"
             assert segment["source_key"].startswith("hs-") and len(segment["source_key"]) == 43
+            attribution = segment["speaker_attribution"]
+            assert attribution["contract"] == "speaker-attribution-v1-20261004"
+            assert attribution["source"] == "livekit_track"
+            assert attribution["participant_identity"] == "user-alice"
+            assert attribution["speaker_label"] == "Alice"
+            assert attribution["speaker_identity_verified"] is True
+            assert attribution["authentication_authority"] is False
+            assert "track-1" not in json.dumps(attribution)
             serialized = json.dumps(segment)
             assert clean["livekit_token"] not in serialized
             assert clean["callback_token"] not in serialized
