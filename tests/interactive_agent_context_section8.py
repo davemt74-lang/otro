@@ -22,7 +22,8 @@ class InteractiveAgentContextSection8(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.addCleanup(object.__setattr__, settings, "data_dir", previous)
         initialize_database()
-        self.agent_id = int(db().__enter__().execute("SELECT id FROM agents WHERE is_primary=1 LIMIT 1").fetchone()[0])
+        with db() as connection:
+            self.agent_id = int(connection.execute("SELECT id FROM agents WHERE is_primary=1 LIMIT 1").fetchone()[0])
 
     def _completed_transcript(self, title: str, text: str) -> str:
         session = tx.start(title)["session"]["id"]
