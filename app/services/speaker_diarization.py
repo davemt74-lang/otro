@@ -95,7 +95,10 @@ def parse_response(payload: Any) -> dict[str, Any]:
             raise SpeakerDiarizationError("Speaker diarization returned an invalid word order.", 502)
         last_word_end = max(last_word_end, end)
 
-        speaker_id = _speaker(item.get("speaker_id")) or "unidentified"
+        speaker_id = _speaker(item.get("speaker_id"))
+        if not speaker_id and kind == "spacing" and turns:
+            speaker_id = str(turns[-1]["_speaker_id"])
+        speaker_id = speaker_id or "unidentified"
         if speaker_id not in speaker_indexes:
             speaker_indexes[speaker_id] = len(speaker_indexes) + 1
         label = _label(speaker_indexes[speaker_id])
