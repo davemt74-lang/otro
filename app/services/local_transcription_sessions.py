@@ -125,7 +125,7 @@ def _payload(connection,row,with_segments:bool=False,*,paired:bool=False)->dict[
     ).fetchone()[0])>0
     identified=int(connection.execute(
         "SELECT COUNT(*) FROM local_transcription_segment_attribution WHERE session_id=? AND "
-        "(source='verified_voice' OR source='manual_correction')",
+        "attribution_json LIKE '%\"speaker_identity_verified\":true%'",
         (row["id"],)
     ).fetchone()[0])>0
     timeline=connection.execute(
@@ -282,8 +282,10 @@ def get(session_id:str,*,paired:bool=False)->dict[str,Any]:
         row=_get(conn,sid)
         if paired and (not row["cloud_share"] or row["status"]!="completed"):
             raise TranscriptError("This transcription is not shared with Cloud.",403)
-        return {"contract":CONTRACT,"session":_payload(conn,row,True,paired=paired),
-                "raw_audio_included":False,"local_identity_included":False if paired else True}
+        payload=_payload(conn,row,True,paired=paired)
+        return {"contract":CONTRACT,"session":payload,
+                "raw_audio_included":False,
+                "local_identity_included":bool(not paired and payload.get("speaker_identity_verified"))}
 
 def list_sessions(*,paired:bool=False,limit:int=50)->dict[str,Any]:
     with db() as conn:
