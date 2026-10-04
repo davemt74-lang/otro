@@ -9,13 +9,35 @@ import re
 import secrets
 from typing import Any
 from ..database import db
-from . import speaker_attribution
 
 CONTRACT="vp3.homeserver.transcription-session.v1"
 _ID=re.compile(r"^[0-9a-f]{32}$")
 MAX_SEGMENTS=300
 MAX_TEXT=8000
 MAX_SESSION_CHARS=120000
+
+
+def _unknown_attribution()->dict[str,Any]:
+    # Keep this tiny fallback local so Section 4's isolated import harness can
+    # load the transcription service without importing the full services package.
+    return {
+        "contract":"speaker-attribution-v1-20261004",
+        "speaker_label":"Speaker 1",
+        "source":"unknown",
+        "confidence":0.0,
+        "participant_id":0,
+        "participant_identity":"",
+        "speaker_identity_verified":False,
+        "identity_confidence":0.0,
+        "authentication_authority":False,
+        "visual_corroborated":False,
+        "visual_conflict":False,
+        "identity_conflict":False,
+        "overlap":False,
+        "overlap_group":"",
+        "diarization_source":"none",
+        "evidence":[],
+    }
 
 class TranscriptError(ValueError):
     def __init__(self, message:str, status_code:int=422):
@@ -45,9 +67,7 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         "speaker_attribution":"unidentified_single_channel",
         "speaker_identity_verified":False,
         "diarization_available":False,
-        "speaker_attribution":speaker_attribution.fuse([{
-            "source":"unknown","speaker_label":"Speaker 1","confidence":0.0
-        }]),
+        "speaker_attribution":_unknown_attribution(),
         "timeline_ms":int(connection.execute("SELECT COALESCE(MAX(started_ms),0) FROM local_transcription_segments WHERE session_id=?",(row["id"],)).fetchone()[0]),
     }
     if with_segments:
@@ -59,9 +79,7 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
             {"id":s["id"],"client_key":s["client_key"],"text":s["text"],
              "started_ms":s["started_ms"],"created_at":s["created_at"],"speaker":"Speaker 1","segment_index":index,
              "speaker_attribution":"unidentified_single_channel","speaker_identity_verified":False,
-             "attribution":speaker_attribution.fuse([{
-                 "source":"unknown","speaker_label":"Speaker 1","confidence":0.0
-             }])}
+             "attribution":_unknown_attribution()}
             for index,s in enumerate(segments)
         ]
     return result
