@@ -215,7 +215,7 @@ export function stopCameraCorroboration(){
 export async function profileSummary(){
   const rows=await refreshParticipants(true);
   return rows.map(p=>({id:p.id,name:p.name||p.nickname||'Unnamed participant',
-    voiceReady:p.voiceProfileReady===true&&(p.voiceEmbeddings||[]).length>=VOICE_PROFILE_MIN_SAMPLES,
+    voiceReady:p.voiceRecognitionEnabled===true&&p.voiceProfileReady===true&&(p.voiceEmbeddings||[]).length>=VOICE_PROFILE_MIN_SAMPLES,
     voiceSamples:(p.voiceEmbeddings||[]).length,visualReady:p.recognitionEnabled!==false&&(p.embeddings||[]).length>=3}));
 }
 export function isCameraActive(){return Boolean(cameraStream);}
