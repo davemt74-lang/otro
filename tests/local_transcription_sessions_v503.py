@@ -66,6 +66,41 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert live_doc["segments"][1]["speaker"]=="Speaker 2"
         assert live_doc["segments"][1]["attribution"]["overlap"] is True
         assert live_doc["segments"][1]["attribution"]["speaker_identity_verified"] is False
+        identified={
+            "text":"The enrolled owner is speaking.","client_key":"d"*32,"started_ms":900,"ended_ms":1400,
+            "speaker_label":"Speaker 1",
+            "speaker_evidence":[
+                {"source":"provider_diarization","speaker_label":"Speaker 1","confidence":0},
+                {"source":"verified_voice","speaker_label":"Speaker 1","confidence":0.96,
+                 "participant_identity":"tracky:owner-one"},
+                {"source":"visual_corroboration","speaker_label":"Speaker 1","confidence":0.91,
+                 "participant_identity":"tracky:owner-one"},
+            ]
+        }
+        identity_write=client.post(f"{base}/{sid}/segments",json=identified,headers=req)
+        assert identity_write.status_code==200,identity_write.text
+        identity_retry=client.post(f"{base}/{sid}/segments",json=identified,headers=req)
+        assert identity_retry.status_code==200 and identity_retry.json()["duplicate"] is True
+        forged={**identified,"client_key":"e"*32,"speaker_evidence":None,
+                "attribution":{"contract":"speaker-attribution-v1-20261004","source":"verified_voice",
+                               "speaker_label":"Speaker 1","participant_identity":"tracky:owner-one",
+                               "speaker_identity_verified":True}}
+        assert client.post(f"{base}/{sid}/segments",json=forged,headers=req).status_code==422
+        changed_identity={**identified,"speaker_evidence":[
+            identified["speaker_evidence"][0],
+            {**identified["speaker_evidence"][1],"participant_identity":"tracky:other"},
+        ]}
+        assert client.post(f"{base}/{sid}/segments",json=changed_identity,headers=req).status_code==409
+        live_doc=client.get(f"{base}/{sid}").json()["session"]
+        assert live_doc["segment_count"]==3
+        assert live_doc["speaker_attribution"]=="verified_voice" and live_doc["speaker_identity_verified"] is True
+        owner_turn=live_doc["segments"][2]
+        assert owner_turn["speaker"]=="Speaker 1"
+        assert owner_turn["attribution"]["participant_identity"]=="tracky:owner-one"
+        assert owner_turn["attribution"]["speaker_identity_verified"] is True
+        assert owner_turn["attribution"]["visual_corroborated"] is True
+        assert owner_turn["attribution"]["authentication_authority"] is False
+        assert owner_turn["attribution"]["diarization_source"]=="provider_diarization"
         assert client.get(base).json()["sessions"][0]["cloud_shared"] is False
         assert tx.list_sessions(paired=True)["sessions"]==[]
         try:tx.get(sid,paired=True)
@@ -86,6 +121,13 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert shared["session"]["segments"][1]["speaker"]=="Speaker 2"
         assert shared["session"]["segments"][1]["attribution"]["source"]=="provider_diarization"
         assert shared["session"]["segments"][1]["attribution"]["speaker_identity_verified"] is False
+        assert shared["session"]["segments"][2]["speaker"]=="Speaker 1"
+        assert shared["session"]["segments"][2]["attribution"]["source"]=="provider_diarization"
+        assert shared["session"]["segments"][2]["attribution"]["participant_identity"]==""
+        assert shared["session"]["segments"][2]["attribution"]["speaker_identity_verified"] is False
+        assert shared["session"]["segments"][2]["attribution"]["visual_corroborated"] is False
+        assert shared["local_identity_included"] is False
+        assert "tracky:owner-one" not in str(shared)
         assert "audio" not in str(shared["session"]["segments"])
         assert [s["id"] for s in tx.list_sessions(paired=True)["sessions"]]==[sid]
         # The same consent gate applies at the existing paired HTTPS relay;
@@ -101,6 +143,8 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
             relay_doc=remote_bridge.dispatch_remote_request(
                 "transcription.shared.fetch",{"session_id":sid},"t"*40)
             assert relay_doc["payload"]["session"]["segments"][0]["text"]=="My private local transcript."
+            assert relay_doc["payload"]["session"]["segments"][2]["attribution"]["participant_identity"]==""
+            assert "tracky:owner-one" not in str(relay_doc["payload"])
             assert relay_doc["payload"]["raw_audio_included"] is False
             vp3.assert_called()
             scope.assert_called()
