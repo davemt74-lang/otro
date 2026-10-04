@@ -10,7 +10,6 @@ import re
 import secrets
 from typing import Any
 from ..database import db
-from . import speaker_attribution
 
 CONTRACT="vp3.homeserver.transcription-session.v1"
 _ID=re.compile(r"^[0-9a-f]{32}$")
@@ -160,6 +159,7 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
                 except (ValueError,TypeError,TranscriptError):
                     attribution=_unknown_attribution()
             if s["corrected_label"]:
+                from . import speaker_attribution
                 original=attribution
                 attribution=speaker_attribution.fuse([{"source":"manual_correction","speaker_label":s["corrected_label"],"confidence":1.0,"overlap":original["overlap"],"overlap_group":original["overlap_group"]}])
                 attribution["diarization_source"]=original["diarization_source"]
