@@ -424,6 +424,8 @@ class PhysicalMeetingRuntime:
                 segment = {
                     "sequence": int(sequence),
                     "speaker_name": "Room",
+                    "speaker_attribution": "shared_room_channel",
+                    "speaker_identity_verified": False,
                     "start_ms": max(0, int(start_ms)),
                     "end_ms": max(int(start_ms), int(end_ms)),
                     "text": text,
@@ -828,3 +830,4 @@ def handle_start_voice_command(text: str) -> bool:
         return False
     result = runtime.start_meeting(trigger="voice_command")
     return bool(result.get("started"))
+

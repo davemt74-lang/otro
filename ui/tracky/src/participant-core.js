@@ -2,7 +2,7 @@ export const MATCH_THRESHOLD = 0.58;
 export const MAX_TRACK_DISTANCE = 0.22;
 
 export function clamp(value, min = 0, max = 1) {
-  return Math.max(min, Math.min(max, value));
+  return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : min;
 }
 
 export function normalizeBox(box, frameWidth = 1, frameHeight = 1) {
@@ -32,6 +32,9 @@ export function normalizeBox(box, frameWidth = 1, frameHeight = 1) {
 }
 
 export function faceQuality(face, frameWidth = 1, frameHeight = 1) {
+  const raw = Array.isArray(face?.box) ? face.box : [face?.box?.x ?? face?.box?.left, face?.box?.y ?? face?.box?.top, face?.box?.width ?? face?.box?.w, face?.box?.height ?? face?.box?.h];
+  if (!Number.isFinite(frameWidth) || !Number.isFinite(frameHeight) || frameWidth <= 0 || frameHeight <= 0 ||
+      raw.length !== 4 || raw.some(v => !Number.isFinite(v)) || raw[2] <= 0 || raw[3] <= 0) return 0;
   const box = normalizeBox(face?.box, frameWidth, frameHeight);
   const detection = clamp(Number(face?.score ?? face?.confidence ?? 0.5));
   const area = box.width * box.height;
@@ -53,24 +56,32 @@ export function faceQuality(face, frameWidth = 1, frameHeight = 1) {
   );
 }
 
-export function cosineSimilarity(a, b) {
-  if (!a || !b || a.length !== b.length || a.length === 0) return 0;
-  let dot = 0;
-  let aa = 0;
-  let bb = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    const av = Number(a[i]) || 0;
-    const bv = Number(b[i]) || 0;
-    dot += av * bv;
-    aa += av * av;
-    bb += bv * bv;
+export function validEmbedding(value, dimensions = null) {
+  if (!value || typeof value.length !== 'number' || value.length < 1 || value.length > 4096 ||
+      (dimensions !== null && value.length !== dimensions)) return false;
+  let scale = 0;
+  for (const n of value) {
+    if (typeof n !== 'number' || !Number.isFinite(n)) return false;
+    scale = Math.max(scale,Math.abs(n));
   }
-  if (!aa || !bb) return 0;
+  return scale > 0;
+}
+
+export function cosineSimilarity(a, b) {
+  if (!validEmbedding(a) || !validEmbedding(b,a.length)) return 0;
+  const scaleA = Math.max(...Array.from(a,Math.abs));
+  const scaleB = Math.max(...Array.from(b,Math.abs));
+  let dot = 0, aa = 0, bb = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    const av = a[i] / scaleA, bv = b[i] / scaleB;
+    dot += av * bv; aa += av * av; bb += bv * bv;
+  }
   return clamp(dot / (Math.sqrt(aa) * Math.sqrt(bb)), -1, 1);
 }
 
 export function robustProfileSimilarity(embedding, references, topK = 2) {
   const scores = (references || [])
+    .filter(reference => validEmbedding(reference,embedding?.length))
     .map((reference) => cosineSimilarity(embedding, reference))
     .filter(Number.isFinite)
     .sort((a, b) => b - a);
@@ -88,10 +99,11 @@ export function bestParticipantMatch(
   minSamples = 3
 ) {
   const candidates = [];
+  if (!validEmbedding(embedding)) return {matched:false,participant:null,similarity:0,secondSimilarity:0,margin:0,ambiguous:false};
 
   for (const participant of participants || []) {
     if (participant.recognitionEnabled === false) continue;
-    const references = participant.embeddings || [];
+    const references = (participant.embeddings || []).filter(v => validEmbedding(v,embedding.length));
     if (references.length < minSamples) continue;
 
     candidates.push({
@@ -147,7 +159,10 @@ export function assignTracks(previousTracks, detections, now = 0, options = {}) 
   const maxDistance = options.maxDistance ?? MAX_TRACK_DISTANCE;
   const nextId = options.nextId || (() => 'T' + String(Math.floor(Math.random() * 9999)).padStart(4, '0'));
 
-  const remainingTracks = [...(previousTracks || [])];
+  // A spatial track is not identity evidence. Expired tracks cannot reclaim identity.
+  const maxAge = options.maxAgeMs ?? 1500;
+  const remainingTracks = [...(previousTracks || [])].filter(track =>
+    Number.isFinite(track.lastSeenAt) && now >= track.lastSeenAt && now - track.lastSeenAt <= maxAge);
   const assignedTrackIds = new Set();
   const output = [];
 
@@ -173,7 +188,8 @@ export function assignTracks(previousTracks, detections, now = 0, options = {}) 
         cx: detection.box.cx,
         cy: detection.box.cy,
         quality: detection.quality || 0,
-        embedding: detection.embedding || bestTrack.embedding,
+        embedding: detection.embedding || null,
+        participantId:null,participantName:null,similarity:0,
         lastSeenAt: now
       };
     }
@@ -244,3 +260,4 @@ export function cryptoRandomId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
   return 'p-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
+

@@ -49,6 +49,10 @@ with tempfile.TemporaryDirectory(prefix='transcript-integrity-') as temp:
     assert [s['segment_index'] for s in result['segments']]==[0,1,2]
     assert [s['started_ms'] for s in result['segments']]==[900,900,1000]
     assert result['timeline_ms']==1000
+    assert result['speaker_attribution']=='unidentified_single_channel'
+    assert result['speaker_identity_verified'] is False
+    assert result['diarization_available'] is False
+    assert all(segment['speaker_identity_verified'] is False for segment in result['segments'])
     print('PASS append order and monotonic session timing survive page clock reset')
     rejects(lambda:service.append(sid,'conflicting words',keys[0],900),409)
     assert service.get(sid)['session']['segment_count']==3
@@ -97,3 +101,4 @@ with tempfile.TemporaryDirectory(prefix='transcript-integrity-') as temp:
     assert sum(outcomes)==2 and service.get(limited)['session']['segment_count']==2
     print('PASS concurrent appends cannot exceed the segment limit')
 print('TRANSCRIPTION_INTEGRITY_SECTION4=PASS (8 SQLite service cases)')
+
