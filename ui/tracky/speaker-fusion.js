@@ -114,10 +114,12 @@ export async function analyzeChunk(wav,turns,capturedAt=performance.now()){
   const enrollmentEligible=Boolean(enrollment&&cleanTurns.length===1&&!cleanTurns[0]?.overlap);
   const output=[];
   for(const turn of cleanTurns){
-    const start=Math.max(0,Number(turn.started_ms||0)),end=Math.max(start,Number(turn.ended_ms??start));
+    const start=Math.max(0,Number(turn.started_ms||0));
+    const suppliedEnd=turn.ended_ms==null?null:Number(turn.ended_ms);
+    const end=suppliedEnd!=null&&Number.isFinite(suppliedEnd)&&suppliedEnd>start?suppliedEnd:null;
     let embedding=null,durationMs=0;
     try{
-      const pcm=await pcmSlice(wav,start,end||null);durationMs=pcm.durationMs;
+      const pcm=await pcmSlice(wav,start,end);durationMs=pcm.durationMs;
       embedding=voiceEmbeddingFromPcm(pcm.samples,pcm.rate);
     }catch(_){embedding=null;}
     if(enrollmentEligible&&embedding)await enrollEmbedding(embedding,durationMs);
@@ -129,7 +131,7 @@ export async function analyzeChunk(wav,turns,capturedAt=performance.now()){
           confidence:match.similarity,participant_identity:trackyIdentity(match.participant),observed_at:new Date().toISOString()});
       }
     }
-    const midpoint=capturedAt+(start+Math.max(start,end))/2;
+    const midpoint=capturedAt+(end==null?Math.max(0,durationMs/2):(start+end)/2);
     const visual=nearestVisual(midpoint);
     if(visual)evidence.push({source:'visual_corroboration',speaker_label:String(turn.speaker_label||'Speaker 1').slice(0,80),
       confidence:visual.confidence,participant_identity:visual.participantIdentity,observed_at:visual.observedAt});
