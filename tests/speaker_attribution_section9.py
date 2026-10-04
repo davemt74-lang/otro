@@ -84,4 +84,14 @@ f = attribution.fuse([
 check(not f["identity_conflict"] and f["source"] == "manual_correction" and f["participant_id"] == 4, "manual correction conflicted with lower evidence")
 cases += 1
 
-print(f"SPEAKER_ATTRIBUTION_SECTION9A=PASS ({cases} canonical HomeServer cases)")
+for overlap_source in ["verified_voice", "provider_diarization"]:
+    f = attribution.fuse([
+        {"source": "verified_voice", "participant_identity": "tracky:owner", "confidence": .95, "overlap": overlap_source == "verified_voice"},
+        {"source": "provider_diarization", "overlap": overlap_source == "provider_diarization"},
+        {"source": "visual_corroboration", "participant_identity": "tracky:owner", "confidence": .95},
+    ])
+    check(f["overlap"] and not f["speaker_identity_verified"] and not f["participant_identity"] and f["identity_confidence"] == 0 and not f["visual_corroborated"], "overlapping evidence retained voice identity")
+    check(f["diarization_source"] == "provider_diarization", "overlap rejection lost diarization provenance")
+    cases += 1
+
+print(f"SPEAKER_ATTRIBUTION_SECTION9=PASS ({cases} canonical HomeServer cases)")

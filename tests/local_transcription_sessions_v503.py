@@ -124,6 +124,11 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
             ]
         }
         assert client.post(f"{base}/{sid}/segments",json=overlap_identity,headers=req).status_code==422
+        mixed_overlap={**overlap_identity,"speaker_evidence":[
+            overlap_identity["speaker_evidence"][0],
+            {**overlap_identity["speaker_evidence"][1],"overlap":False,"overlap_group":""},
+        ]}
+        assert client.post(f"{base}/{sid}/segments",json=mixed_overlap,headers=req).status_code==422
         live_doc=client.get(f"{base}/{sid}").json()["session"]
         assert live_doc["segment_count"]==4
         conflict_turn=live_doc["segments"][3]

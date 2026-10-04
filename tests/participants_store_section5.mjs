@@ -44,6 +44,27 @@ try {
   ok(await s.saveDialogueTurn({id:'late-turn',participantId:'b',text:'late'})===null&&!(await s.listDialogueTurns()).some(t=>t.id==='late-turn'),'delayed dialogue cannot reintroduce a deleted participant');
   await Promise.all([s.saveDialogueTurn({id:'race-turn',participantId:'c',text:'race'}),s.deleteParticipant('c')]);
   ok(!(await s.listDialogueTurns()).some(t=>t.participantId==='c'),'dialogue write and deletion share one transaction boundary');
+  await s.saveParticipant({id:'voice',name:'Voice',notes:'unchanged'});
+  const cancelled=await s.patchParticipant('voice',{notes:'must not commit'},()=>false).then(()=>false,e=>e.name==='AbortError');
+  ok(cancelled&&(await s.getParticipant('voice')).notes==='unchanged','cancelled guarded patch does not commit');
+  let guardCalls=0;
+  const aborted=await s.patchParticipant('voice',{notes:'must roll back'},()=>++guardCalls===1).then(()=>false,e=>e.name==='AbortError');
+  ok(aborted&&guardCalls===2&&(await s.getParticipant('voice')).notes==='unchanged','cancellation after put rolls back the real IndexedDB transaction');
+  await Promise.all([s.patchParticipant('voice',p=>({notes:p.notes+' A'})),s.patchParticipant('voice',p=>({notes:p.notes+' B'}))]);
+  ok((await s.getParticipant('voice')).notes==='unchanged A B','functional patches use the current transactional record');
+
+  document.body.innerHTML='<form id="chatForm"><div class="chat-voice-options"></div></form>';
+  window.HomeServerSpeakerFusion={profileSummary:async()=>[{id:'voice',name:'Voice',voiceSamples:0}],
+   beginVoiceEnrollment(){},clearVoiceProfile(){},isCameraActive:()=>false};
+  window.fetch=async()=>({ok:true,json:async()=>({sessions:[],speaker_diarization:{available:false}})});
+  await import('/ui/transcription-workspace.js');
+  document.getElementById('hsTranscriptOpen').click();
+  for(let attempt=0;attempt<20&&!document.querySelector('#hsVoiceParticipant option[value="voice"]');attempt++)await new Promise(r=>setTimeout(r,0));
+  const picker=document.getElementById('hsVoiceParticipant');
+  picker.value='voice';picker.dispatchEvent(new Event('change'));
+  ok(!document.getElementById('hsVoiceEnroll').disabled&&!document.getElementById('hsVoiceClear').disabled,'participant selection immediately enables enrollment and clearing');
+  picker.value='';picker.dispatchEvent(new Event('change'));
+  ok(document.getElementById('hsVoiceEnroll').disabled&&document.getElementById('hsVoiceClear').disabled,'clearing selection immediately disables enrollment and clearing');
   return checks;
  });
  assert.deepEqual(errors,[]);

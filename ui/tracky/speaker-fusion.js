@@ -10,7 +10,8 @@ const TRACKY_PREFIX='tracky:';
 const VISUAL_MAX_AGE_MS=1600;
 const VISUAL_HISTORY_MS=30000;
 let participants=[],participantsLoadedAt=0;
-let enrollment=null;
+let enrollment=null,enrollmentGeneration=0;
+let cameraStarting=false;
 let cameraStream=null,cameraEngine=null,cameraVideo=null,cameraTimer=null,cameraGeneration=0,privacyCheckedAt=0;
 let visualHistory=[];
 
@@ -66,41 +67,51 @@ function nearestVisual(targetAt){
     const delta=Math.abs(Number(item.at)-Number(targetAt));
     if(delta<=VISUAL_MAX_AGE_MS&&delta<distance){best=item;distance=delta;}
   }
-  return best;
+  // An ambiguous observation is a barrier, not a reason to reuse an older face.
+  return best&&!best.ambiguous&&best.participantIdentity&&Number.isFinite(best.confidence)?best:null;
 }
-async function enrollEmbedding(embedding,durationMs){
-  if(!enrollment)return null;
-  const selected=enrollment;
-  const current=await getParticipant(selected.participantId);
-  if(!current){enrollment=null;emit('stopped','Voice enrollment stopped because the participant was deleted.');return null;}
-  const existing=(current.voiceEmbeddings||[]).filter(Array.isArray).slice(-(VOICE_PROFILE_MAX_SAMPLES-1));
-  const embeddings=[...existing,Array.from(embedding)].slice(-VOICE_PROFILE_MAX_SAMPLES);
-  const samples=[...(current.voiceProfileSamples||[]),{
-    capturedAt:new Date().toISOString(),durationMs:Math.round(durationMs),feature:VOICE_FEATURE_VERSION,rawAudioStored:false
-  }].slice(-VOICE_PROFILE_MAX_SAMPLES);
-  const ready=embeddings.length>=VOICE_PROFILE_MIN_SAMPLES;
-  const saved=await patchParticipant(current.id,{
-    voiceEmbeddings:embeddings,voiceProfileSamples:samples,voiceProfileReady:ready,
-    voiceRecognitionEnabled:true,voiceUpdatedAt:new Date().toISOString()
-  });
+async function enrollEmbedding(embedding,durationMs,selected){
+  const current=()=>Boolean(selected&&enrollment===selected&&selected.generation===enrollmentGeneration&&!document.hidden);
+  if(!current())return null;
+  let saved;
+  try{
+    saved=await patchParticipant(selected.participantId,participant=>{
+      const existing=(participant.voiceEmbeddings||[]).filter(Array.isArray).slice(-(VOICE_PROFILE_MAX_SAMPLES-1));
+      const embeddings=[...existing,Array.from(embedding)].slice(-VOICE_PROFILE_MAX_SAMPLES);
+      const samples=[...(participant.voiceProfileSamples||[]),{
+        capturedAt:new Date().toISOString(),durationMs:Math.round(durationMs),feature:VOICE_FEATURE_VERSION,rawAudioStored:false
+      }].slice(-VOICE_PROFILE_MAX_SAMPLES);
+      return {voiceEmbeddings:embeddings,voiceProfileSamples:samples,
+        voiceProfileReady:embeddings.length>=VOICE_PROFILE_MIN_SAMPLES,
+        voiceRecognitionEnabled:true,voiceUpdatedAt:new Date().toISOString()};
+    },current);
+  }catch(error){
+    if(!current()||error.name==='AbortError')return null;
+    cancelVoiceEnrollment();throw error;
+  }
+  if(!current())return null;
   participantsLoadedAt=0;await refreshParticipants(true);
-  selected.remaining=Math.max(0,VOICE_PROFILE_MIN_SAMPLES-embeddings.length);
-  if(ready){
+  if(!current())return saved;
+  selected.remaining=Math.max(0,VOICE_PROFILE_MIN_SAMPLES-saved.voiceEmbeddings.length);
+  if(saved.voiceProfileReady){
     enrollment=null;
     emit('ready',`${saved.name||'Participant'} voice profile ready · local feature samples only; not authentication.`,{participantId:saved.id});
   }else emit('enrolling',`Voice sample saved locally · ${selected.remaining} more clean sample${selected.remaining===1?'':'s'} needed.`,{participantId:saved.id,remaining:selected.remaining});
   return saved;
 }
 export async function beginVoiceEnrollment(participantIdValue){
+  const generation=++enrollmentGeneration;enrollment=null;
   const rows=await refreshParticipants(true);
+  if(generation!==enrollmentGeneration||document.hidden)return null;
   const participant=rows.find(p=>String(p.id)===String(participantIdValue));
   if(!participant)throw new Error('Choose an existing local Tracky participant.');
-  enrollment={participantId:participant.id,remaining:Math.max(1,VOICE_PROFILE_MIN_SAMPLES-(participant.voiceEmbeddings||[]).length)};
+  enrollment={participantId:participant.id,generation,remaining:Math.max(1,VOICE_PROFILE_MIN_SAMPLES-(participant.voiceEmbeddings||[]).length)};
   emit('enrolling',`Voice enrollment armed for ${participant.name||'participant'} · speak alone for the next clean transcription chunks.`,{participantId:participant.id,remaining:enrollment.remaining});
   return {participantId:participant.id,remaining:enrollment.remaining};
 }
-export function cancelVoiceEnrollment(){if(enrollment){enrollment=null;emit('stopped','Voice enrollment cancelled. No raw audio was stored.');}}
+export function cancelVoiceEnrollment(){enrollmentGeneration+=1;if(enrollment){enrollment=null;emit('stopped','Voice enrollment cancelled. No raw audio was stored.');}}
 export async function clearVoiceProfile(participantIdValue){
+  if(enrollment?.participantId===participantIdValue)cancelVoiceEnrollment();
   const current=await getParticipant(participantIdValue);if(!current)throw new Error('Participant not found.');
   const saved=await patchParticipant(current.id,{voiceEmbeddings:[],voiceProfileSamples:[],voiceProfileReady:false,voiceRecognitionEnabled:false,voiceUpdatedAt:new Date().toISOString()});
   if(enrollment?.participantId===current.id)enrollment=null;
@@ -109,9 +120,10 @@ export async function clearVoiceProfile(participantIdValue){
   return saved;
 }
 export async function analyzeChunk(wav,turns,capturedAt=performance.now()){
+  const selectedEnrollment=enrollment;
   const rows=await refreshParticipants();
   const cleanTurns=Array.isArray(turns)?turns:[];
-  const enrollmentEligible=Boolean(enrollment&&cleanTurns.length===1&&!cleanTurns[0]?.overlap);
+  const enrollmentEligible=Boolean(selectedEnrollment&&cleanTurns.length===1&&!baseEvidence(cleanTurns[0]).overlap);
   const output=[];
   for(const turn of cleanTurns){
     const start=Math.max(0,Number(turn.started_ms||0));
@@ -122,9 +134,9 @@ export async function analyzeChunk(wav,turns,capturedAt=performance.now()){
       const pcm=await pcmSlice(wav,start,end);durationMs=pcm.durationMs;
       embedding=voiceEmbeddingFromPcm(pcm.samples,pcm.rate);
     }catch(_){embedding=null;}
-    if(enrollmentEligible&&embedding)await enrollEmbedding(embedding,durationMs);
+    if(enrollmentEligible&&embedding)await enrollEmbedding(embedding,durationMs,selectedEnrollment);
     const evidence=[baseEvidence(turn)];
-    if(embedding&&!turn.overlap){
+    if(embedding&&!evidence[0].overlap){
       const match=bestVoiceParticipantMatch(embedding,await refreshParticipants());
       if(match.matched&&match.participant){
         evidence.push({source:'verified_voice',speaker_label:String(turn.speaker_label||'Speaker 1').slice(0,80),
@@ -164,6 +176,7 @@ async function cameraScan(token){
     const result=await cameraEngine.detect(cameraVideo);
     if(token!==cameraGeneration||!cameraStream)return;
     const rows=await refreshParticipants();
+    if(token!==cameraGeneration||!cameraStream)return;
     const faces=Array.isArray(result?.face)?result.face:[];
     const matches=[];
     for(const face of faces){
@@ -176,7 +189,7 @@ async function cameraScan(token){
       const match=[...unique.values()][0];
       visualHistory.push({at:performance.now(),observedAt:new Date().toISOString(),
         participantIdentity:trackyIdentity(match.participant),confidence:match.similarity});
-    }else if(faces.length>1||unique.size>1){
+    }else{
       visualHistory.push({at:performance.now(),observedAt:new Date().toISOString(),ambiguous:true});
     }
     visualHistory=visualHistory.filter(item=>performance.now()-item.at<=VISUAL_HISTORY_MS);
@@ -188,31 +201,53 @@ async function cameraScan(token){
 }
 export async function startCameraCorroboration(videoElement=null){
   if(cameraStream)return true;
+  if(cameraStarting)return false;
   if(window.TrackyOwnerSelfCheck?.isActive()||window.HomeServerVisualEnrollment?.isCapturing?.()||
      window.TrackyOwnerEyes?.isActive()||window.TrackyNativeCamera?.isActive?.())
     throw new Error('Stop the other Tracky camera surface before starting transcription corroboration.');
   if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)throw new Error('A secure browser and camera permission are required.');
-  if(!await privacyClear())throw new Error('Camera privacy is engaged.');
-  await refreshParticipants(true);
-  if(!participants.some(p=>p.recognitionEnabled!==false&&(p.embeddings||[]).length>=3))
-    throw new Error('No enrolled local visual participant is available for corroboration.');
   const token=++cameraGeneration;
-  cameraEngine=await loadCameraEngine();
-  if(token!==cameraGeneration)return false;
-  const stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:960},height:{ideal:720},facingMode:{ideal:'user'}}});
-  if(token!==cameraGeneration){stream.getTracks().forEach(t=>t.stop());return false;}
-  cameraStream=stream;
-  for(const track of stream.getTracks())track.addEventListener?.('ended',()=>{
-    if(cameraStream===stream){stopCameraCorroboration();emit('camera_stopped','Camera corroboration stopped because the camera disconnected.',{error:true});}
-  },{once:true});
-  cameraVideo=videoElement||document.createElement('video');
-  cameraVideo.muted=true;cameraVideo.playsInline=true;cameraVideo.srcObject=stream;
-  await cameraVideo.play();
-  visualHistory=[];privacyCheckedAt=Date.now();
-  emit('camera_ready','Camera corroboration active · local face similarity can only confirm or challenge a voice match.');
-  void cameraScan(token);return true;
+  cameraStarting=true;
+  let acquired=null,playTimer=null;
+  const current=()=>token===cameraGeneration&&!document.hidden;
+  try{
+    if(!await privacyClear())throw new Error('Camera privacy is engaged.');
+    if(!current())return false;
+    await refreshParticipants(true);
+    if(!current())return false;
+    if(!participants.some(p=>p.recognitionEnabled!==false&&(p.embeddings||[]).length>=3))
+      throw new Error('No enrolled local visual participant is available for corroboration.');
+    const engine=await loadCameraEngine();
+    if(!current())return false;
+    acquired=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:960},height:{ideal:720},facingMode:{ideal:'user'}}});
+    if(!current()){acquired.getTracks().forEach(t=>t.stop());return false;}
+    // Permission prompts/model loading may outlive the initial privacy check.
+    if(!await privacyClear())throw new Error('Camera privacy is engaged.');
+    if(!current()){acquired.getTracks().forEach(t=>t.stop());return false;}
+    const stream=acquired,video=videoElement||document.createElement('video');
+    cameraEngine=engine;cameraStream=stream;cameraVideo=video;
+    for(const track of stream.getTracks())track.addEventListener?.('ended',()=>{
+      if(cameraStream===stream){stopCameraCorroboration();emit('camera_stopped','Camera corroboration stopped because the camera disconnected.',{error:true});}
+    },{once:true});
+    video.muted=true;video.playsInline=true;video.srcObject=stream;
+    await Promise.race([video.play(),new Promise((_,reject)=>{
+      playTimer=setTimeout(()=>reject(new Error('Camera preview startup timed out.')),10000);
+    })]);
+    if(!current())return false;
+    visualHistory=[];privacyCheckedAt=Date.now();
+    emit('camera_ready','Camera corroboration active · local face similarity can only confirm or challenge a voice match.');
+    void cameraScan(token);return true;
+  }catch(error){
+    if(token===cameraGeneration){stopCameraCorroboration();throw error;}
+    return false;
+  }finally{
+    if(playTimer!==null)clearTimeout(playTimer);
+    if(token===cameraGeneration)cameraStarting=false;
+    if(acquired&&cameraStream!==acquired)acquired.getTracks().forEach(t=>t.stop());
+  }
 }
 export function stopCameraCorroboration(){
+  cameraStarting=false;
   cameraGeneration+=1;if(cameraTimer!==null)clearTimeout(cameraTimer);cameraTimer=null;
   cameraStream?.getTracks().forEach(track=>track.stop());cameraStream=null;
   if(cameraVideo)cameraVideo.srcObject=null;cameraVideo=null;cameraEngine=null;visualHistory=[];
@@ -223,7 +258,7 @@ export async function profileSummary(){
     voiceReady:p.voiceRecognitionEnabled===true&&p.voiceProfileReady===true&&(p.voiceEmbeddings||[]).length>=VOICE_PROFILE_MIN_SAMPLES,
     voiceSamples:(p.voiceEmbeddings||[]).length,visualReady:p.recognitionEnabled!==false&&(p.embeddings||[]).length>=3}));
 }
-export function isCameraActive(){return Boolean(cameraStream);}
+export function isCameraActive(){return Boolean(cameraStream||cameraStarting);}
 export function resolveParticipantName(identity){return cachedName(identity);}
 export function enrollmentState(){return enrollment?{...enrollment}:null;}
 
@@ -233,5 +268,5 @@ window.HomeServerSpeakerFusion=Object.freeze({
 });
 window.dispatchEvent(new CustomEvent('homeserver:speaker-fusion-ready'));
 window.addEventListener('tracky:visual-state-changed',()=>{participantsLoadedAt=0;});
-window.addEventListener('pagehide',stopCameraCorroboration);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCameraCorroboration();});
+window.addEventListener('pagehide',()=>{cancelVoiceEnrollment();stopCameraCorroboration();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelVoiceEnrollment();stopCameraCorroboration();}});

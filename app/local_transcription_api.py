@@ -73,6 +73,8 @@ def _fused_attribution(body:Segment)->dict[str,Any]|None:
         item["participant_id"]=0
         item["authentication_authority"]=False
         rows.append(item)
+    if any(item["overlap"] for item in rows) and any(item["source"]=="verified_voice" for item in rows):
+        raise HTTPException(422,detail="Overlapping speech cannot establish a local voice identity.")
     result=speaker_attribution.fuse(rows)
     if result["speaker_label"]!=body.speaker_label:
         raise HTTPException(409,detail="Speaker evidence label changed during fusion.")

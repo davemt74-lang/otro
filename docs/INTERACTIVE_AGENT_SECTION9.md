@@ -88,6 +88,24 @@ device certification rather than a software-only claim.
 
 ## Remaining Section 9 work
 
+### 9C review repairs
+
+Camera startup is cancellable while permission or preview playback is pending,
+rechecks privacy after acquisition, and cleans up on failure. Ambiguous or
+unmatched camera observations suppress only visual corroboration; valid voice
+evidence survives. Enrollment uses guarded functional patches inside the
+canonical IndexedDB transaction, so cancellation aborts a pending write and
+clearing a profile cannot be undone by an older enrollment operation. Drawer
+close and page lifecycle boundaries also cancel enrollment. Participant picker
+changes immediately refresh enrollment controls.
+
+Overlap from any evidence row rejects local verified-voice identity in the API
+and both canonical fusion implementations, while separately isolated LiveKit
+track identities retain their existing overlap behavior. Regression coverage
+includes ten production-module lifecycle cases, real Chromium transaction
+rollback and picker interaction, mixed-overlap API validation, and PHP/Python
+canonical parity. Device accuracy remains pending Section 10.
+
 9D: meeting/recording integration, overlap-aware intelligence and correction
 propagation. Hardware accuracy and installed-device certification stay in
 Section 10.

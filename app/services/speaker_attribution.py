@@ -144,6 +144,10 @@ def fuse(raw_evidence: list[dict[str, Any]] | None) -> dict[str, Any]:
                 overlap_group = str(item["overlap_group"])
 
     source = str(primary["source"])
+    voice_overlap = source == "verified_voice" and overlap
+    if voice_overlap:
+        identity_confidence = 0.0
+        visual_corroborated = False
     evidence_sources = {str(item["source"]) for item in primary_evidence}
     if "livekit_track" in evidence_sources:
         diarization_source = "livekit_track"
@@ -159,9 +163,9 @@ def fuse(raw_evidence: list[dict[str, Any]] | None) -> dict[str, Any]:
         "speaker_label": primary["speaker_label"] or "Speaker",
         "source": source,
         "confidence": primary["confidence"],
-        "participant_id": 0 if (identity_conflict or visual_conflict) else primary["participant_id"],
-        "participant_identity": "" if (identity_conflict or visual_conflict) else primary["participant_identity"],
-        "speaker_identity_verified": bool(not identity_conflict and not visual_conflict and primary["identity_verified"]),
+        "participant_id": 0 if (identity_conflict or visual_conflict or voice_overlap) else primary["participant_id"],
+        "participant_identity": "" if (identity_conflict or visual_conflict or voice_overlap) else primary["participant_identity"],
+        "speaker_identity_verified": bool(not identity_conflict and not visual_conflict and not voice_overlap and primary["identity_verified"]),
         "identity_confidence": round(identity_confidence, 4),
         "authentication_authority": False,
         "visual_corroborated": visual_corroborated,

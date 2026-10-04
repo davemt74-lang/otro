@@ -121,7 +121,7 @@ function ensure(){
  const group=document.querySelector('#chatForm .chat-voice-options');
  (group||document.getElementById('chatForm')).append(button);
  button.addEventListener('click',()=>{drawer.hidden=false;void Promise.allSettled([refresh(),refreshDiarizationOption(),refreshFusionProfiles()]);});
- $('hsTranscriptClose').addEventListener('click',()=>{window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();syncFusionControls();drawer.hidden=true;});
+ $('hsTranscriptClose').addEventListener('click',()=>{window.HomeServerSpeakerFusion?.cancelVoiceEnrollment?.();window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();syncFusionControls();drawer.hidden=true;});
  $('hsTranscriptStart').addEventListener('click',()=>{start(true).catch(e=>status(e.message,true));});
  $('hsTranscriptResume').addEventListener('click',()=>{start(false).catch(e=>status(e.message,true));});
  $('hsTranscriptStop').addEventListener('click',()=>{finish().catch(e=>status(e.message,true));});
@@ -141,6 +141,7 @@ function ensure(){
  });
  $('hsTranscriptDelete').addEventListener('click',()=>{remove().catch(e=>status(e.message,true));});
  $('hsVoiceEnroll').addEventListener('click',()=>{armVoiceEnrollment().catch(e=>fusionStatus(e.message,true));});
+ $('hsVoiceParticipant').addEventListener('change',syncFusionControls);
  $('hsVoiceClear').addEventListener('click',()=>{clearVoiceProfile().catch(e=>fusionStatus(e.message,true));});
  $('hsFusionCameraStart').addEventListener('click',()=>{startFusionCamera().catch(e=>fusionStatus(e.message,true));});
  $('hsFusionCameraStop').addEventListener('click',()=>{window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();fusionStatus('Camera corroboration stopped.');syncFusionControls();});
@@ -154,7 +155,7 @@ function ensure(){
   const message=String(event.detail?.message||'');if(message)fusionStatus(message,event.detail?.error===true);
   void refreshFusionProfiles();syncFusionControls();
  });
- window.addEventListener('beforeunload',()=>{persistQueue();window.HomeServerDictation?.stopTranscription();window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();});
+ window.addEventListener('beforeunload',()=>{persistQueue();window.HomeServerDictation?.stopTranscription();window.HomeServerSpeakerFusion?.cancelVoiceEnrollment?.();window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();});
 }
 function fusionStatus(message,error=false){const node=$('hsSpeakerFusionState');if(node){node.textContent=message;node.dataset.error=error?'yes':'no';}}
 async function refreshFusionProfiles(){
@@ -195,7 +196,8 @@ async function clearVoiceProfile(){
 async function startFusionCamera(){
  const fusion=window.HomeServerSpeakerFusion;if(!fusion?.startCameraCorroboration)throw Error('Local speaker fusion is not ready.');
  if(!window.confirm('Start local camera corroboration for this transcription workspace? Face descriptors stay in this browser; camera evidence can only corroborate or conflict with a voice match and never identifies a speaker by itself.'))return;
- await fusion.startCameraCorroboration($('hsFusionCameraPreview'));syncFusionControls();
+ const pending=fusion.startCameraCorroboration($('hsFusionCameraPreview'));syncFusionControls();
+ try{await pending;}finally{syncFusionControls();}
 }
 
 async function refreshDiarizationOption(){

@@ -4,12 +4,14 @@ on:
     paths:
       - ui/tracky/**
       - tests/participants_store_section5.mjs
+      - ui/transcription-workspace.js
       - .github/workflows/participants-section5.yml
   push:
     branches: [main]
     paths:
       - ui/tracky/**
       - tests/participants_store_section5.mjs
+      - ui/transcription-workspace.js
       - .github/workflows/participants-section5.yml
 permissions:
   contents: read
