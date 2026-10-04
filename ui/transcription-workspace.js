@@ -325,7 +325,7 @@ async function finish(){
 async function share(){
  if(!selected||selected.status!=='completed')return;
  const target=selected,epoch=selectionEpoch;const allow=!target.cloud_shared;
- if(allow&&!window.confirm('Allow your paired VP3 Cloud account to import the text of this completed transcription? Raw audio stays on HomeServer.'))return;
+ if(allow&&!window.confirm('Allow your paired VP3 Cloud account to import the text of this completed transcription? Raw audio and local Tracky speaker identity stay on HomeServer; Cloud receives generic speaker separation/timing only.'))return;
  const j=await request('/'+target.id+'/cloud-share','PUT',{cloud_share:allow});
  if(epoch===selectionEpoch&&selected?.id===target.id)renderSession({...j.session,segments:target.segments});
  status(allow?'This transcript is available for explicit import in Cloud Transcriptions.':'Cloud access revoked for future imports.');
