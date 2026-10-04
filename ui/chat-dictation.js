@@ -7,6 +7,7 @@
 
   const STATUS_ENDPOINT = '/api/v1/control/voice/status';
   const TRANSCRIBE_ENDPOINT = '/api/v1/control/voice/transcribe';
+  const DIARIZE_ENDPOINT = '/api/v1/control/voice/transcribe-diarized';
   const SILENCE_MS = 900;
   const NO_SPEECH_MS = 8000;
   const MAX_SEGMENT_MS = 30000;
@@ -16,6 +17,7 @@
   let starting = false;
   let mode = null;
   let transcriptionSession = false;
+  let transcriptionOptions = {speakerDiarization:false};
   let generation = 0;
   let captureTicket = null;
   let transcribeController = null;
@@ -312,29 +314,75 @@
     }
   }
 
+  function unknownAttribution(label='Speaker 1') {
+    return {contract:'speaker-attribution-v1-20261004',speaker_label:label,source:'unknown',
+      confidence:0,participant_id:0,participant_identity:'',speaker_identity_verified:false,
+      identity_confidence:0,authentication_authority:false,visual_corroborated:false,
+      visual_conflict:false,identity_conflict:false,overlap:false,overlap_group:'',
+      diarization_source:'none',evidence:[]};
+  }
+
+  async function postWav(endpoint,wav,controller,fallback) {
+    const formData=new FormData();formData.append('file',wav,'dictation.wav');
+    let onAbort;
+    const aborted=new Promise((_,reject)=>{
+      onAbort=()=>reject(new Error('Local transcription cancelled or timed out.'));
+      if(controller.signal.aborted)onAbort();
+      else controller.signal.addEventListener('abort',onAbort,{once:true});
+    });
+    try{
+      const response=await Promise.race([
+        fetch(endpoint,{method:'POST',body:formData,cache:'no-store',
+          credentials:'same-origin',signal:controller.signal}),
+        aborted,
+      ]);
+      if(!response.ok)throw await responseError(response,fallback);
+      return await response.json();
+    }finally{
+      if(onAbort)controller.signal.removeEventListener('abort',onAbort);
+    }
+  }
+
   async function transcribeLocal(blob, runGeneration, capturedAt = performance.now()) {
     if (!active || runGeneration !== generation) return;
     if (!transcriptionSession) setState('transcribing');
     const controller = new AbortController(); transcribeController = controller;
-    let timer;
-    const cancelled = new Promise((_, reject) => {
-      controller.signal.addEventListener('abort', () => reject(new Error('Local transcription cancelled or timed out.')), {once:true});
-      timer = setTimeout(() => controller.abort(), 100000);
-    });
+    const timer=setTimeout(()=>controller.abort(),100000);
     try {
-      const payload = await Promise.race([cancelled, (async () => {
-        const wav = await recordingToWav(blob);
-        if (controller.signal.aborted || !active || runGeneration !== generation) return null;
-        const formData = new FormData(); formData.append('file', wav, 'dictation.wav');
-        const response = await fetch(TRANSCRIBE_ENDPOINT, {method:'POST', body:formData,
-          cache:'no-store', credentials:'same-origin', signal:controller.signal});
-        if (!response.ok) throw await responseError(response, 'Local Whisper dictation failed.');
-        return await response.json();
-      })()]);
+      const wav=await recordingToWav(blob);
+      if(controller.signal.aborted||!active||runGeneration!==generation)return;
+      let payload=null;
+      if(transcriptionSession&&transcriptionOptions.speakerDiarization&&!strictLocalEnabled()){
+        try{
+          payload=await postWav(DIARIZE_ENDPOINT,wav,controller,'Enhanced speaker separation failed.');
+          if(payload&&active&&runGeneration===generation&&Array.isArray(payload.turns)&&payload.turns.length){
+            for(const turn of payload.turns){
+              const text=String(turn?.text||'').trim();if(!text)continue;
+              const started=Math.max(0,Number(turn.started_ms||0)),ended=Math.max(started,Number(turn.ended_ms||started));
+              window.dispatchEvent(new CustomEvent('homeserver:transcription-segment',{detail:{
+                text,provider:'elevenlabs_scribe_v2',speaker_label:String(turn.speaker_label||'Speaker 1').slice(0,80),
+                attribution:turn.attribution||unknownAttribution(String(turn.speaker_label||'Speaker 1')),
+                capturedAt:capturedAt+started,endedAt:capturedAt+ended
+              }}));
+            }
+            return;
+          }
+        }catch(error){
+          if(!active||runGeneration!==generation)return;
+          if(controller.signal.aborted)throw error;
+          window.dispatchEvent(new CustomEvent('homeserver:transcription-diarization-status',{detail:{
+            state:'degraded',message:'Speaker separation unavailable for this chunk. Local Whisper preserved the transcript without speaker identity.'
+          }}));
+        }
+      }
+      payload=await postWav(TRANSCRIBE_ENDPOINT,wav,controller,'Local Whisper dictation failed.');
       if (!payload || !active || runGeneration !== generation) return;
       const transcript = String(payload.text || '').trim();
       if (transcriptionSession) {
-        if (transcript) window.dispatchEvent(new CustomEvent('homeserver:transcription-segment', {detail:{text:transcript,provider:'local_whisper',capturedAt}}));
+        if (transcript) window.dispatchEvent(new CustomEvent('homeserver:transcription-segment', {detail:{
+          text:transcript,provider:'local_whisper',speaker_label:'Speaker 1',
+          attribution:unknownAttribution(),capturedAt,endedAt:capturedAt
+        }}));
       } else {
         const inserted = insertTranscript(transcript);
         stopDictation(inserted ? 'Dictation added. Review or edit it, then send when ready.' : 'No speech detected. Nothing was added.');
@@ -538,6 +586,15 @@
     if (!starting || startGeneration !== generation) return;
     const localReady = Boolean(status?.stt?.available && localCaptureSupported());
     const browserReady = Boolean(RecognitionCtor());
+    const requestedDiarization=Boolean(transcriptionSession&&transcriptionOptions.speakerDiarization);
+    transcriptionOptions.speakerDiarization=Boolean(requestedDiarization&&!strictLocalEnabled()&&status?.speaker_diarization?.available);
+    if(requestedDiarization&&!transcriptionOptions.speakerDiarization){
+      window.dispatchEvent(new CustomEvent('homeserver:transcription-diarization-status',{detail:{
+        state:'unavailable',message:strictLocalEnabled()
+          ?'Enhanced speaker separation is off because Strict Local voice is enabled.'
+          :'Enhanced speaker separation is unavailable. Configure ElevenLabs in Agent Brain; local Whisper will continue.'
+      }}));
+    }
 
     if (strictLocalEnabled() && !localReady) {
       stopDictation('');
@@ -555,7 +612,11 @@
     mode = localReady ? 'local' : 'browser';
     setState('listening');
     flash(localReady
-      ? (transcriptionSession ? 'Transcription session listening locally. Audio is not retained by transcription.' : 'Dictation on · local Whisper. Speak once; the transcript will be inserted without sending.')
+      ? (transcriptionSession
+          ? (transcriptionOptions.speakerDiarization
+              ? 'Transcription listening · Scribe speaker separation is on. Audio chunks are transient and are not retained by this workspace.'
+              : 'Transcription session listening locally. Audio is not retained by transcription.')
+          : 'Dictation on · local Whisper. Speak once; the transcript will be inserted without sending.')
       : (transcriptionSession ? 'Transcription using browser speech service. No audio is saved locally.' : 'Dictation on · browser speech fallback. Speak once; the transcript will be inserted without sending.'));
     if (mode === 'local') await startLocalDictation();
     else startBrowserDictation();
@@ -571,9 +632,10 @@
   }
 
   window.HomeServerDictation={
-    startTranscription:async ()=>{
+    startTranscription:async (options={})=>{
       if(active || starting)stopDictation('');
       transcriptionSession=true;
+      transcriptionOptions={speakerDiarization:options?.speakerDiarization===true};
       await startDictation();
       return active;
     },

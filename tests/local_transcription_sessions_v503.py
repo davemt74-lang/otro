@@ -8,6 +8,7 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
     os.environ["HOMESERVER_DATA_DIR"]=folder
     from fastapi.testclient import TestClient
     from app.runtime import app
+    from app.database import db
     from app.security import OWNER_CONTROL_TOKEN
     from app.services import local_transcription_sessions as tx, remote_bridge
     from app.services.tasks import scheduler
@@ -43,6 +44,28 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         again=client.post(f"{base}/{sid}/segments",json=segment,headers=req)
         assert again.status_code==200 and again.json()["duplicate"] is True
         assert client.get(f"{base}/{sid}").json()["session"]["segment_count"]==1
+        diarized={
+            "text":"A second speaker overlaps.","client_key":"c"*32,"started_ms":200,"ended_ms":850,
+            "speaker_label":"Speaker 2",
+            "attribution":{
+                "contract":"speaker-attribution-v1-20261004","source":"provider_diarization",
+                "speaker_label":"Speaker 2","confidence":0,"participant_id":0,
+                "participant_identity":"","speaker_identity_verified":False,
+                "authentication_authority":False,"overlap":True,"overlap_group":"overlap-1"
+            }
+        }
+        second=client.post(f"{base}/{sid}/segments",json=diarized,headers=req)
+        assert second.status_code==200,second.text
+        retry=client.post(f"{base}/{sid}/segments",json=diarized,headers=req)
+        assert retry.status_code==200 and retry.json()["duplicate"] is True
+        changed={**diarized,"speaker_label":"Speaker 3"}
+        assert client.post(f"{base}/{sid}/segments",json=changed,headers=req).status_code==409
+        live_doc=client.get(f"{base}/{sid}").json()["session"]
+        assert live_doc["segment_count"]==2 and live_doc["diarization_available"] is True
+        assert live_doc["speaker_attribution"]=="provider_diarization"
+        assert live_doc["segments"][1]["speaker"]=="Speaker 2"
+        assert live_doc["segments"][1]["attribution"]["overlap"] is True
+        assert live_doc["segments"][1]["attribution"]["speaker_identity_verified"] is False
         assert client.get(base).json()["sessions"][0]["cloud_shared"] is False
         assert tx.list_sessions(paired=True)["sessions"]==[]
         try:tx.get(sid,paired=True)
@@ -60,6 +83,9 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert shared["session"]["segments"][0]["text"]=="My private local transcript."
         assert shared["session"]["segments"][0]["attribution"]["source"] == "unknown"
         assert shared["session"]["segments"][0]["attribution"]["speaker_identity_verified"] is False
+        assert shared["session"]["segments"][1]["speaker"]=="Speaker 2"
+        assert shared["session"]["segments"][1]["attribution"]["source"]=="provider_diarization"
+        assert shared["session"]["segments"][1]["attribution"]["speaker_identity_verified"] is False
         assert "audio" not in str(shared["session"]["segments"])
         assert [s["id"] for s in tx.list_sessions(paired=True)["sessions"]]==[sid]
         # The same consent gate applies at the existing paired HTTPS relay;
@@ -89,4 +115,6 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         deleted=client.delete(f"{base}/{sid}",headers=req)
         assert deleted.status_code==200
         assert client.get(f"{base}/{sid}").status_code==404
+        with db() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM local_transcription_segment_attribution WHERE session_id=?",(sid,)).fetchone()[0]==0
 print("Persistent local transcript permissions, dedupe and consented revocable paired text sharing PASS")

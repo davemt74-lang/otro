@@ -21,3 +21,15 @@ CREATE TABLE IF NOT EXISTS local_transcription_segments (
 );
 CREATE INDEX IF NOT EXISTS idx_local_transcription_sessions_recent ON local_transcription_sessions(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_local_transcription_segments_order ON local_transcription_segments(session_id,started_ms,created_at);
+
+CREATE TABLE IF NOT EXISTS local_transcription_segment_attribution (
+  segment_id TEXT PRIMARY KEY REFERENCES local_transcription_segments(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES local_transcription_sessions(id) ON DELETE CASCADE,
+  ended_ms INTEGER NOT NULL,
+  speaker_label TEXT NOT NULL,
+  source TEXT NOT NULL,
+  attribution_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_local_transcription_attribution_session
+  ON local_transcription_segment_attribution(session_id, ended_ms, segment_id);
