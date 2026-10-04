@@ -306,25 +306,20 @@ def _safe_provenance(
     storage_fragment: str,
     app_update_fragment: str,
     health_fragment: str,
-    interactive_sources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for ref in bundle.sources:
-        result.append(
-            {
-                "layer": str(ref.get("kind") or "context"),
-                "source_app_key": source_app_key,
-                "resource_id": int(ref.get("id") or 0),
-                "updated_at": ref.get("updated_at"),
-            }
-        )
-    for ref in interactive_sources:
         raw_id = ref.get("id")
-        resource_id = int(raw_id) if isinstance(raw_id, int) else 0
+        resource_id = 0
+        try:
+            resource_id = int(raw_id or 0)
+        except (TypeError, ValueError):
+            resource_id = 0
+        layer = str(ref.get("kind") or "context")
         result.append(
             {
-                "layer": str(ref.get("kind") or "interactive_context"),
-                "source_app_key": "homeserver:interactive",
+                "layer": layer,
+                "source_app_key": "homeserver:interactive" if layer in {"local_transcription", "meeting_summary"} else source_app_key,
                 "resource_id": resource_id,
                 "resource_key": str(raw_id or "")[:96] if not resource_id else "",
                 "updated_at": ref.get("updated_at"),
@@ -528,7 +523,9 @@ def build_authorized_context(
     if used > requested_budget:
         raise context_engine.ContextError("Canonical context budget exceeded.", 500)
 
-    source_refs = [*bundle.sources, *awareness_sources, *list(interactive.get("sources") or [])]
+    interactive_sources = [ref for ref in list(interactive.get("sources") or []) if isinstance(ref, dict)]
+    bundle.sources.extend(interactive_sources)
+    source_refs = [*bundle.sources, *awareness_sources]
     collaboration_sources = list(collaboration.get("sources") or [])
     provenance = _safe_provenance(
         source_app_key,
@@ -540,7 +537,6 @@ def build_authorized_context(
         storage_fragment,
         app_update_fragment,
         health_fragment,
-        list(interactive.get("sources") or []),
     )
     if physical_fragment:
         # Metadata explains retrieval without retaining detector categories.
