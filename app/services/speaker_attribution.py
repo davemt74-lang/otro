@@ -137,9 +137,12 @@ def fuse(raw_evidence: list[dict[str, Any]] | None) -> dict[str, Any]:
                 overlap_group = str(item["overlap_group"])
 
     source = str(primary["source"])
-    if source in {"provider_diarization", "livekit_track"}:
-        diarization_source = source
-    elif source == "heuristic_acoustic":
+    evidence_sources = {str(item["source"]) for item in primary_evidence}
+    if "livekit_track" in evidence_sources:
+        diarization_source = "livekit_track"
+    elif "provider_diarization" in evidence_sources:
+        diarization_source = "provider_diarization"
+    elif "heuristic_acoustic" in evidence_sources:
         diarization_source = "heuristic_acoustic"
     else:
         diarization_source = "none"
