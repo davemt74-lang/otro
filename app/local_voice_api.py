@@ -6,7 +6,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .services import agent_voice_profiles, local_apps, local_voice, voice_settings
+from .services import agent_voice_profiles, local_apps, local_voice, speaker_diarization, voice_settings
 
 router = APIRouter(prefix="/api/v1/control/voice", tags=["local-voice"])
 
@@ -135,7 +135,9 @@ def _profile_audio(text: str, resolved: dict) -> Response:
 
 @router.get("/status")
 def local_voice_status() -> dict:
-    return local_voice.status()
+    result=local_voice.status()
+    result["speaker_diarization"]=speaker_diarization.status()
+    return result
 
 
 @router.get("/catalog")
@@ -235,6 +237,19 @@ async def transcribe_local_voice(request: Request, file: UploadFile = File(...))
         return await local_voice.transcribe_request(content, request)
     except local_voice.LocalVoiceError as exc:
         _raise(exc)
+    finally:
+        await file.close()
+
+
+@router.post("/transcribe-diarized")
+async def transcribe_diarized_voice(request: Request, file: UploadFile = File(...)) -> dict:
+    try:
+        content=await file.read(local_voice.MAX_AUDIO_BYTES+1)
+        if len(content)>local_voice.MAX_AUDIO_BYTES:
+            raise speaker_diarization.SpeakerDiarizationError("Recorded audio exceeds the local voice size limit.",413)
+        return await speaker_diarization.transcribe_request(content,request,use_speaker_library=True)
+    except speaker_diarization.SpeakerDiarizationError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     finally:
         await file.close()
 
