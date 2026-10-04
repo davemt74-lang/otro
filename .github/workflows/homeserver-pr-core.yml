@@ -35,6 +35,7 @@ jobs:
           python tests/transfer_retention_section7.py
           python tests/interactive_agent_context_section8.py
           python tests/speaker_attribution_section9.py
+          python tests/meeting_recording_section9.py
           python tests/speaker_diarization_section9.py
           python tests/speaker_diarization_ui_section9.py
           node tests/speaker_fusion_section9.mjs
@@ -151,3 +152,4 @@ jobs:
         run: python tests/agent_tools.py
       - name: Verify action approval contract
         run: python tests/action_approvals.py
+

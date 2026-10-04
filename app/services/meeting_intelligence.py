@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Any
 
-from . import agent_routing, canonical_context, providers
+from . import agent_routing, canonical_context, providers, meeting_speaker_context
 from .inference_cancellation import CancellationToken, InferenceCancelled
 
 RUNTIME_VERSION = "v18.9"
@@ -79,10 +79,10 @@ def _normalize_segments(raw: Any) -> list[dict[str, Any]]:
         speaker = _clean(item.get("speaker_name") or item.get("speaker") or "Participant", 120) or "Participant"
         start_ms = max(0, int(item.get("start_ms") or 0))
         end_ms = max(start_ms, int(item.get("end_ms") or start_ms))
-        result.append({"speaker_name": speaker, "start_ms": start_ms, "end_ms": end_ms, "text": text})
+        result.append({"speaker_name": speaker, "start_ms": start_ms, "end_ms": end_ms, "text": text, "speaker_attribution":item.get("speaker_attribution"), "overlap":item.get("overlap") is True})
     if not result:
         raise MeetingIntelligenceError("Meeting transcript does not contain analyzable text.", 422)
-    return result
+    return meeting_speaker_context.normalize(result)
 
 
 def _validate(payload: dict[str, Any]) -> dict[str, Any]:
@@ -184,11 +184,7 @@ def _normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _transcript_text(segments: list[dict[str, Any]]) -> str:
-    lines = []
-    for item in segments:
-        seconds = int(item["start_ms"]) // 1000
-        lines.append(f"[{seconds // 60:02d}:{seconds % 60:02d}] {item['speaker_name']}: {item['text']}")
-    return "\n".join(lines)
+    return meeting_speaker_context.transcript_text(segments)
 
 
 def analyze(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
@@ -196,7 +192,10 @@ def analyze(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]
     app_key = str(identity.get("app_key") or "").strip()
     if not app_key:
         raise MeetingIntelligenceError("Paired app identity is invalid.", 403)
-    cache_key = f"{app_key}|{job['idempotency_key']}"
+    permissions = _permissions(identity)
+    if "agent.chat" not in permissions:
+        raise MeetingIntelligenceError("Permission required: agent.chat", 403)
+    cache_key = f"{app_key}|{job['idempotency_key']}|{job['mode']}|{meeting_speaker_context.digest(job['segments'])}|{','.join(sorted(permissions))}"
     with _CACHE_LOCK:
         cached = _CACHE.get(cache_key)
         if cached is not None:
@@ -245,6 +244,7 @@ def analyze(payload: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]
         "For crm_candidates use suggested_update plus optional contact and signal. "
         "For task_candidates use title plus optional owner and due_date. Never include private source excerpts in metadata."
     )
+    system += meeting_speaker_context.PROMPT_RULE
     user = (
         f"Meeting: {job['title']}\nMode: {job['mode']}\n"
         f"Transcript source hash: {job['source_hash']}\n\nTRANSCRIPT DATA:\n{_transcript_text(job['segments'])}"
@@ -293,7 +293,7 @@ def analyze_owner(
 ) -> dict[str, Any]:
     """Run the existing private meeting intelligence contract for owner hardware."""
     job = _validate(payload)
-    cache_key = f"owner|{job['idempotency_key']}"
+    cache_key = f"owner|{job['idempotency_key']}|{job['mode']}|{meeting_speaker_context.digest(job['segments'])}"
     with _CACHE_LOCK:
         cached = _CACHE.get(cache_key)
         if cached is not None:
@@ -347,6 +347,7 @@ def analyze_owner(
         "For crm_candidates use suggested_update plus optional contact and signal. "
         "For task_candidates use title plus optional owner and due_date. Never include private source excerpts in metadata."
     )
+    system += meeting_speaker_context.PROMPT_RULE
     user = (
         f"Meeting: {job['title']}\nMode: {job['mode']}\n"
         f"Transcript source hash: {job['source_hash']}\n\nTRANSCRIPT DATA:\n{_transcript_text(job['segments'])}"
@@ -392,3 +393,4 @@ def analyze_owner(
         while len(_CACHE) > _CACHE_LIMIT:
             _CACHE.pop(next(iter(_CACHE)))
     return result
+

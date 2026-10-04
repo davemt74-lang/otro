@@ -241,7 +241,14 @@ function renderSession(session){
   if(segment.attribution?.visual_conflict)speaker.textContent+=' · identity conflict';
   if(segment.attribution?.overlap)speaker.textContent+=' · overlap';
   const words=document.createElement('span');words.textContent=' · '+String(segment.text||'');
-  line.appendChild(speaker);line.appendChild(words);out.appendChild(line);
+  line.appendChild(speaker);line.appendChild(words);
+  if(session.status==='completed'&&segment.id){const correct=document.createElement('button');correct.type='button';correct.textContent='Correct speaker';correct.addEventListener('click',async()=>{
+   const label=window.prompt('Speaker label (owner annotation; does not verify identity):',String(segment.speaker||'Speaker 1'));if(label===null||!label.trim())return;
+   const epoch=selectionEpoch,target=session.id;correct.disabled=true;
+   try{const result=await request('/'+target+'/segments/'+segment.id+'/speaker','PUT',{speaker_label:label.trim(),revision:Number(segment.correction_revision||0)});if(epoch===selectionEpoch&&selected?.id===target){renderSession(result.session);status('Speaker corrected. Existing Cloud imports remain independent; review and re-share explicitly if needed.');}}
+   catch(error){status(error.message,true);}finally{correct.disabled=false;}
+  });line.appendChild(correct);}
+  out.appendChild(line);
  }
  if(!session)out.textContent='Choose or create a transcription.';
  controls();
@@ -351,4 +358,5 @@ window.addEventListener('homeserver:voice-settings-loaded',()=>{if(drawer&&!draw
 window.addEventListener('tracky:visual-state-changed',()=>{if(drawer&&!drawer.hidden)void refreshFusionProfiles();});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensure,{once:true});else ensure();
 })();
+
 

@@ -10,6 +10,7 @@ import re
 import secrets
 from typing import Any
 from ..database import db
+from . import speaker_attribution
 
 CONTRACT="vp3.homeserver.transcription-session.v1"
 _ID=re.compile(r"^[0-9a-f]{32}$")
@@ -124,8 +125,8 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         (row["id"],)
     ).fetchone()[0])>0
     identified=int(connection.execute(
-        "SELECT COUNT(*) FROM local_transcription_segment_attribution WHERE session_id=? AND "
-        "attribution_json LIKE '%\"speaker_identity_verified\":true%'",
+        "SELECT COUNT(*) FROM local_transcription_segment_attribution a LEFT JOIN local_transcription_speaker_corrections c ON c.segment_id=a.segment_id WHERE a.session_id=? AND c.segment_id IS NULL AND "
+        "a.attribution_json LIKE '%\"speaker_identity_verified\":true%'",
         (row["id"],)
     ).fetchone()[0])>0
     timeline=connection.execute(
@@ -145,9 +146,9 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
     }
     if with_segments:
         segments=connection.execute(
-            "SELECT s.id,s.client_key,s.text,s.started_ms,s.created_at,a.ended_ms,a.speaker_label,a.source,a.attribution_json "
+            "SELECT s.id,s.client_key,s.text,s.started_ms,s.created_at,a.ended_ms,a.speaker_label,a.source,a.attribution_json,c.speaker_label AS corrected_label,c.revision "
             "FROM local_transcription_segments s LEFT JOIN local_transcription_segment_attribution a ON a.segment_id=s.id "
-            "WHERE s.session_id=? ORDER BY s.rowid",(row["id"],)
+            "LEFT JOIN local_transcription_speaker_corrections c ON c.segment_id=s.id WHERE s.session_id=? ORDER BY s.rowid",(row["id"],)
         ).fetchall()
         payload=[]
         for index,s in enumerate(segments):
@@ -158,14 +159,18 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
                     attribution=_sanitize_attribution(parsed,s["speaker_label"] or "Speaker 1")
                 except (ValueError,TypeError,TranscriptError):
                     attribution=_unknown_attribution()
+            if s["corrected_label"]:
+                original=attribution
+                attribution=speaker_attribution.fuse([{"source":"manual_correction","speaker_label":s["corrected_label"],"confidence":1.0,"overlap":original["overlap"],"overlap_group":original["overlap_group"]}])
+                attribution["diarization_source"]=original["diarization_source"]
             payload.append({
                 "id":s["id"],"client_key":s["client_key"],"text":s["text"],
                 "started_ms":s["started_ms"],"ended_ms":int(s["ended_ms"] if s["ended_ms"] is not None else s["started_ms"]),
-                "created_at":s["created_at"],"speaker":_clean_label(s["speaker_label"] or attribution["speaker_label"]),
+                "created_at":s["created_at"],"speaker":_clean_label(s["corrected_label"] or s["speaker_label"] or attribution["speaker_label"]),
                 "segment_index":index,
                 "speaker_attribution":str(attribution["source"]),
                 "speaker_identity_verified":bool(attribution["speaker_identity_verified"]),
-                "attribution":attribution,
+                "attribution":attribution,"correction_revision":int(s["revision"] or 0),
             })
         result["segments"]=payload
     return result
@@ -345,3 +350,22 @@ def delete(session_id:str)->dict[str,Any]:
         conn.execute("DELETE FROM local_transcription_segments WHERE session_id=?",(sid,))
         conn.execute("DELETE FROM local_transcription_sessions WHERE id=?",(sid,))
     return {"contract":CONTRACT,"deleted":True,"session_id":sid}
+
+
+def correct_speaker(session_id:str,segment_id:str,label:str,revision:int=0)->dict[str,Any]:
+    sid=_id(session_id);segment_id=_id(segment_id)
+    if not isinstance(label,str) or not label.strip() or len(label)>80 or type(revision) is not int or revision<0:
+        raise TranscriptError("A speaker label and current correction revision are required.")
+    label=_clean_label(label)
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        session=_get(conn,sid)
+        if session["status"]!="completed":raise TranscriptError("Stop listening before correcting speakers.",409)
+        row=conn.execute("SELECT s.id,c.revision FROM local_transcription_segments s LEFT JOIN local_transcription_speaker_corrections c ON c.segment_id=s.id WHERE s.id=? AND s.session_id=?",(segment_id,sid)).fetchone()
+        if row is None:raise TranscriptError("Transcript segment unavailable.",404)
+        if int(row["revision"] or 0)!=revision:raise TranscriptError("Speaker correction changed. Refresh and try again.",409)
+        conn.execute("INSERT INTO local_transcription_speaker_corrections(segment_id,speaker_label,revision,corrected_at) VALUES(?,?,?,?) ON CONFLICT(segment_id) DO UPDATE SET speaker_label=excluded.speaker_label,revision=excluded.revision,corrected_at=excluded.corrected_at",(segment_id,label,revision+1,_utc()))
+        # Existing imported Cloud copies remain independent; renewed relay access
+        # requires the owner to explicitly share the corrected document again.
+        conn.execute("UPDATE local_transcription_sessions SET cloud_share=0 WHERE id=?",(sid,))
+        return {"contract":CONTRACT,"session":_payload(conn,_get(conn,sid),True),"cloud_access_revoked":bool(session["cloud_share"]),"existing_cloud_copy_is_independent":True}
