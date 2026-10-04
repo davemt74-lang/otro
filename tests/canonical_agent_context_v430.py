@@ -15,7 +15,7 @@ brain = (ROOT / "app" / "services" / "brain.py").read_text(encoding="utf-8")
 
 # One production authorization/retrieval boundary owns base HomeServer context,
 # collection scope, awareness, collaboration and VP3 surface/workspace context.
-assert 'CANONICAL_CONTEXT_VERSION = "v4.30"' in canonical
+assert 'CANONICAL_CONTEXT_VERSION = "v4.31"' in canonical
 assert "def build_authorized_context(" in canonical
 assert "knowledge_collection_policy.filter_items_for_app(" in canonical
 assert "app_collaboration.eligible_grants(" in canonical
@@ -44,6 +44,12 @@ assert '"layer": "homeserver_health"' in canonical
 assert '"health_limit_chars"' in canonical
 assert '"health_used_chars"' in canonical
 assert "context.health_fragment" in canonical
+assert "interactive_agent_context.collect_owner(" in canonical
+assert '"interactive_limit_chars"' in canonical
+assert '"interactive_used_chars"' in canonical
+assert "context.interactive" in canonical
+assert '"interactive_transcript_count"' in context_chat
+assert '"interactive_meeting_count"' in context_chat
 
 # Stateful owner + paired-app text chat and delegated/streamed VP3 chat both
 # enter the same builder. The old delegated duplicate collector is gone.
@@ -81,4 +87,4 @@ assert "def chat(" in brain
 assert "brain._generate_with_agent_tools(" in context_chat
 assert "brain._generate_with_agent_tools(" in delegation
 
-print("HomeServer Canonical Agent Context & Retrieval Boundary v4.30 contract passed")
+print("HomeServer Canonical Agent Context & Retrieval Boundary v4.31 contract passed")

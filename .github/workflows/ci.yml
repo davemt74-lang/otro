@@ -30,6 +30,7 @@ jobs:
           node tests/transcription-section4.mjs
           node tests/participants-section5.mjs
           python tests/transfer_retention_section7.py
+          python tests/interactive_agent_context_section8.py
           python tests/knowledge_backup_v032.py
           python tests/governed_recordings_v502.py
           python tests/local_transcription_sessions_v503.py

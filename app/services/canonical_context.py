@@ -16,10 +16,11 @@ from . import (
     storage_maintenance,
     homeserver_app_update_center,
     health_repair,
+    interactive_agent_context,
     tracky_agent_eyes_context,
 )
 
-CANONICAL_CONTEXT_VERSION = "v4.30"
+CANONICAL_CONTEXT_VERSION = "v4.31"
 MIN_FRAGMENT_CHARS = 180
 MAX_SURFACE_CONTEXT_CHARS = 8000
 MAX_AWARENESS_CONTEXT_CHARS = 2400
@@ -39,6 +40,7 @@ class CanonicalContext:
     app_update_fragment: str
     health_fragment: str
     physical_fragment: str
+    interactive: dict[str, Any]
     budget: dict[str, int | str]
     effective_settings: dict[str, Any]
     model_tool_permissions: set[str]
@@ -307,11 +309,19 @@ def _safe_provenance(
 ) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for ref in bundle.sources:
+        raw_id = ref.get("id")
+        resource_id = 0
+        try:
+            resource_id = int(raw_id or 0)
+        except (TypeError, ValueError):
+            resource_id = 0
+        layer = str(ref.get("kind") or "context")
         result.append(
             {
-                "layer": str(ref.get("kind") or "context"),
-                "source_app_key": source_app_key,
-                "resource_id": int(ref.get("id") or 0),
+                "layer": layer,
+                "source_app_key": "homeserver:interactive" if layer in {"local_transcription", "meeting_summary"} else source_app_key,
+                "resource_id": resource_id,
+                "resource_key": str(raw_id or "")[:96] if not resource_id else "",
                 "updated_at": ref.get("updated_at"),
             }
         )
@@ -438,6 +448,9 @@ def build_authorized_context(
     overlay_pool -= health_limit
     desired_hosting = requested_budget // 12 if owner or source_app_key == "app:vp3" else 0
     hosting_limit = min(desired_hosting, overlay_pool, 1800)
+    overlay_pool -= hosting_limit
+    desired_interactive = requested_budget // 6 if owner and source_app_key == "owner" and effective["include_knowledge"] else 0
+    interactive_limit = min(desired_interactive, overlay_pool, interactive_agent_context.MAX_FRAGMENT_CHARS)
 
     collaboration_grants = (
         app_collaboration.eligible_grants(
@@ -486,10 +499,16 @@ def build_authorized_context(
     health_used = len(health_fragment)
     hosting_fragment = hosting_runtime.agent_context_fragment(query, max_chars=hosting_limit) if hosting_limit >= MIN_FRAGMENT_CHARS else ""
     hosting_used = len(hosting_fragment)
+    interactive = (
+        interactive_agent_context.collect_owner(query, max_chars=interactive_limit)
+        if interactive_limit >= MIN_FRAGMENT_CHARS
+        else {"version": interactive_agent_context.INTERACTIVE_CONTEXT_VERSION, "fragment": "", "sources": [], "transcript_count": 0, "meeting_count": 0, "context_chars": 0}
+    )
+    interactive_used = int(interactive.get("context_chars") or 0)
 
     base_budget = max(
         context_engine.MIN_CONTEXT_CHARS,
-        requested_budget - collaboration_used - surface_used - awareness_used - storage_used - app_update_used - health_used - hosting_used - physical_used,
+        requested_budget - collaboration_used - surface_used - awareness_used - storage_used - app_update_used - health_used - hosting_used - physical_used - interactive_used,
     )
     base_settings = {**effective, "max_context_chars": base_budget}
     bundle = _base_context(
@@ -500,10 +519,12 @@ def build_authorized_context(
         source_app_key=source_app_key,
         owner=owner,
     )
-    used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used + storage_used + app_update_used + health_used + hosting_used + physical_used
+    used = int(bundle.context_chars) + collaboration_used + surface_used + awareness_used + storage_used + app_update_used + health_used + hosting_used + physical_used + interactive_used
     if used > requested_budget:
         raise context_engine.ContextError("Canonical context budget exceeded.", 500)
 
+    interactive_sources = [ref for ref in list(interactive.get("sources") or []) if isinstance(ref, dict)]
+    bundle.sources.extend(interactive_sources)
     source_refs = [*bundle.sources, *awareness_sources]
     collaboration_sources = list(collaboration.get("sources") or [])
     provenance = _safe_provenance(
@@ -550,6 +571,8 @@ def build_authorized_context(
         "health_used_chars": health_used,
         "hosting_limit_chars": hosting_limit,
         "hosting_used_chars": hosting_used,
+        "interactive_limit_chars": interactive_limit,
+        "interactive_used_chars": interactive_used,
         "used_chars": used,
         "remaining_chars": max(0, requested_budget - used),
     }
@@ -568,6 +591,7 @@ def build_authorized_context(
         app_update_fragment=app_update_fragment,
         health_fragment=health_fragment,
         physical_fragment=physical_fragment,
+        interactive=interactive,
         budget=budget,
         effective_settings=effective,
         model_tool_permissions=model_tool_permissions,
@@ -587,6 +611,7 @@ def system_prompt(agent: dict[str, Any], context: CanonicalContext) -> str:
         context.app_update_fragment,
         context.health_fragment,
         context.hosting_fragment,
+        str(context.interactive.get("fragment") or ""),
     ):
         if fragment:
             prompt += "\n\n" + fragment
