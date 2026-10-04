@@ -39,6 +39,20 @@ check(f["participant_id"] == 0 and f["source"] == "unknown" and not f["speaker_i
 cases += 1
 
 f = attribution.fuse([
+    {"source": "verified_voice", "speaker_label": "Speaker 1", "participant_identity": "tracky:owner-1", "confidence": .94},
+    {"source": "visual_corroboration", "participant_identity": "tracky:owner-1", "confidence": .91},
+])
+check(f["participant_identity"] == "tracky:owner-1" and f["visual_corroborated"] and f["speaker_identity_verified"], "opaque local voice/visual fusion failed")
+cases += 1
+
+f = attribution.fuse([
+    {"source": "verified_voice", "speaker_label": "Speaker 1", "participant_identity": "tracky:owner-1", "confidence": .96},
+    {"source": "visual_corroboration", "participant_identity": "tracky:guest-2", "confidence": .92},
+])
+check(f["visual_conflict"] and not f["speaker_identity_verified"] and f["participant_identity"] == "" and f["identity_confidence"] == 0, "visual conflict did not fail closed")
+cases += 1
+
+f = attribution.fuse([
     {"source": "verified_voice", "speaker_label": "Owner", "participant_id": 7, "confidence": .94},
     {"source": "account_identity", "speaker_label": "Guest", "participant_id": 8, "confidence": .99},
 ])
