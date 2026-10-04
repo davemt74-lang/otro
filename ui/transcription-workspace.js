@@ -14,12 +14,24 @@ const validAttribution=value=>{
  if(value.participant_identity)return false;
  return value.authentication_authority!==true&&value.speaker_identity_verified!==true;
 };
+const validSpeakerEvidence=value=>{
+ if(value==null)return true;if(!Array.isArray(value)||value.length>16)return false;
+ return value.every(item=>{
+  if(!item||typeof item!=='object'||Array.isArray(item))return false;
+  const source=String(item.source||'unknown');
+  if(!['unknown','provider_diarization','heuristic_acoustic','verified_voice','visual_corroboration'].includes(source))return false;
+  if(item.speaker_label!=null&&(typeof item.speaker_label!=='string'||item.speaker_label.length>80))return false;
+  const identity=String(item.participant_identity||'');
+  if(['verified_voice','visual_corroboration'].includes(source)&&(!identity.startsWith('tracky:')||identity.length>160))return false;
+  return item.authentication_authority!==true;
+ });
+};
 const validSegment=s=>{
  if(!s||typeof s.text!=='string'||!s.text.trim()||s.text.length>8000||!validId(s.client_key))return false;
  if(!Number.isInteger(s.started_ms)||s.started_ms<0||s.started_ms>86400000)return false;
  if(s.ended_ms!=null&&(!Number.isInteger(s.ended_ms)||s.ended_ms<s.started_ms||s.ended_ms>86400000))return false;
  if(s.speaker_label!=null&&(typeof s.speaker_label!=='string'||s.speaker_label.length>80))return false;
- return validAttribution(s.attribution);
+ return validAttribution(s.attribution)&&validSpeakerEvidence(s.speaker_evidence);
 };
 const $=id=>document.getElementById(id);
 const labels={};
@@ -97,6 +109,7 @@ function ensure(){
  '<div class="hs-transcription-actions"><button type="button" id="hsTranscriptStart">New transcription</button><button type="button" id="hsTranscriptStop" disabled>Stop listening</button><button type="button" id="hsTranscriptResume" disabled>Resume listening</button></div>'+
  '<label class="hs-transcription-note"><input type="checkbox" id="hsTranscriptDiarization"> Enhanced speaker separation · uses ElevenLabs Scribe for transient audio chunks; this workspace does not retain the audio. Speaker separation is not identity verification.</label>'+
  '<p id="hsTranscriptDiarizationState" class="hs-transcription-note">Checking enhanced speaker separation…</p>'+
+ '<div id="hsSpeakerFusionPanel" class="hs-transcription-note"><strong>Local speaker identity</strong><p>Optional voice profiles use local numeric features only; raw enrollment audio is not stored. Camera corroboration is separately started and can only confirm or challenge a voice match.</p><div class="hs-transcription-actions"><select id="hsVoiceParticipant" aria-label="Tracky participant for voice profile"><option value="">Loading participants…</option></select><button type="button" id="hsVoiceEnroll">Enroll next voice samples</button><button type="button" id="hsVoiceClear">Clear voice profile</button></div><div class="hs-transcription-actions"><button type="button" id="hsFusionCameraStart">Start camera corroboration</button><button type="button" id="hsFusionCameraStop" disabled>Stop camera</button></div><video id="hsFusionCameraPreview" muted playsinline hidden style="max-width:220px"></video><p id="hsSpeakerFusionState" role="status" aria-live="polite">Local speaker fusion is optional.</p></div>'+
  '<p id="hsTranscriptStatus" role="status" aria-live="polite">Transcriptions are private until shared.</p>'+
  '<div class="hs-transcription-columns"><nav aria-label="Saved transcripts"><h4>My transcriptions</h4><div id="hsTranscriptList"></div></nav>'+
  '<div class="hs-transcription-document"><h4 id="hsTranscriptTitle">Choose a transcription</h4><div id="hsTranscriptText" aria-label="Transcript document"></div><div class="hs-transcription-actions"><button type="button" id="hsTranscriptShare" disabled>Share text with paired Cloud</button><button type="button" id="hsTranscriptExport" disabled>Export text</button><button type="button" id="hsTranscriptDelete" disabled>Delete</button></div></div></div>'+
@@ -107,8 +120,8 @@ function ensure(){
  button.setAttribute('aria-label','Open persistent transcription workspace');
  const group=document.querySelector('#chatForm .chat-voice-options');
  (group||document.getElementById('chatForm')).append(button);
- button.addEventListener('click',()=>{drawer.hidden=false;void Promise.allSettled([refresh(),refreshDiarizationOption()]);});
- $('hsTranscriptClose').addEventListener('click',()=>{drawer.hidden=true;});
+ button.addEventListener('click',()=>{drawer.hidden=false;void Promise.allSettled([refresh(),refreshDiarizationOption(),refreshFusionProfiles()]);});
+ $('hsTranscriptClose').addEventListener('click',()=>{window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();syncFusionControls();drawer.hidden=true;});
  $('hsTranscriptStart').addEventListener('click',()=>{start(true).catch(e=>status(e.message,true));});
  $('hsTranscriptResume').addEventListener('click',()=>{start(false).catch(e=>status(e.message,true));});
  $('hsTranscriptStop').addEventListener('click',()=>{finish().catch(e=>status(e.message,true));});
@@ -127,13 +140,63 @@ function ensure(){
   status('Browser recovery cleared. Saved transcripts remain available.');controls();
  });
  $('hsTranscriptDelete').addEventListener('click',()=>{remove().catch(e=>status(e.message,true));});
+ $('hsVoiceEnroll').addEventListener('click',()=>{armVoiceEnrollment().catch(e=>fusionStatus(e.message,true));});
+ $('hsVoiceClear').addEventListener('click',()=>{clearVoiceProfile().catch(e=>fusionStatus(e.message,true));});
+ $('hsFusionCameraStart').addEventListener('click',()=>{startFusionCamera().catch(e=>fusionStatus(e.message,true));});
+ $('hsFusionCameraStop').addEventListener('click',()=>{window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();fusionStatus('Camera corroboration stopped.');syncFusionControls();});
  window.addEventListener('homeserver:transcription-segment',onSegment);
  window.addEventListener('homeserver:transcription-capture-stopped',()=>{if(listening&&!finishing)finish().catch(e=>status(e.message,true));});
  window.addEventListener('homeserver:transcription-diarization-status',event=>{
   const message=String(event.detail?.message||'');if(message)status(message,event.detail?.state!=='ready');
  });
- window.addEventListener('beforeunload',()=>{persistQueue();window.HomeServerDictation?.stopTranscription();});
+ window.addEventListener('homeserver:speaker-fusion-status',event=>{
+  const message=String(event.detail?.message||'');if(message)fusionStatus(message,event.detail?.error===true);
+  void refreshFusionProfiles();syncFusionControls();
+ });
+ window.addEventListener('beforeunload',()=>{persistQueue();window.HomeServerDictation?.stopTranscription();window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();});
 }
+function fusionStatus(message,error=false){const node=$('hsSpeakerFusionState');if(node){node.textContent=message;node.dataset.error=error?'yes':'no';}}
+async function refreshFusionProfiles(){
+ const fusion=window.HomeServerSpeakerFusion,picker=$('hsVoiceParticipant');if(!picker)return;
+ if(!fusion?.profileSummary){picker.innerHTML='<option value="">Speaker fusion loading…</option>';return;}
+ const current=picker.value,rows=await fusion.profileSummary();picker.replaceChildren();
+ const prompt=document.createElement('option');prompt.value='';prompt.textContent=rows.length?'Choose local participant':'No local Tracky participants';picker.append(prompt);
+ for(const row of rows){
+  const option=document.createElement('option');option.value=String(row.id);
+  option.textContent=row.name+' · '+(row.voiceReady?'voice ready':row.voiceSamples+' / 3 voice samples')+(row.visualReady?' · visual ready':'');
+  picker.append(option);
+ }
+ if([...picker.options].some(option=>option.value===current))picker.value=current;
+ syncFusionControls();
+}
+function syncFusionControls(){
+ const fusion=window.HomeServerSpeakerFusion,picker=$('hsVoiceParticipant');
+ const chosen=Boolean(picker?.value),camera=Boolean(fusion?.isCameraActive?.());
+ if($('hsVoiceEnroll'))$('hsVoiceEnroll').disabled=!chosen||!fusion?.beginVoiceEnrollment;
+ if($('hsVoiceClear'))$('hsVoiceClear').disabled=!chosen||!fusion?.clearVoiceProfile;
+ if($('hsFusionCameraStart'))$('hsFusionCameraStart').disabled=camera||!fusion?.startCameraCorroboration;
+ if($('hsFusionCameraStop'))$('hsFusionCameraStop').disabled=!camera;
+ const video=$('hsFusionCameraPreview');if(video)video.hidden=!camera;
+}
+async function armVoiceEnrollment(){
+ const fusion=window.HomeServerSpeakerFusion,id=$('hsVoiceParticipant')?.value;
+ if(!fusion?.beginVoiceEnrollment)throw Error('Local speaker fusion is not ready.');
+ if(!id)throw Error('Choose a local participant first.');
+ if(!window.confirm('Use the next clean solo speech chunks to build this participant voice profile? Only local numeric features are stored; raw enrollment audio is not retained. This is not authentication.'))return;
+ await fusion.beginVoiceEnrollment(id);syncFusionControls();
+}
+async function clearVoiceProfile(){
+ const fusion=window.HomeServerSpeakerFusion,id=$('hsVoiceParticipant')?.value;
+ if(!fusion?.clearVoiceProfile||!id)throw Error('Choose a local participant first.');
+ if(!window.confirm('Clear this participant voice profile from the local Tracky browser database?'))return;
+ await fusion.clearVoiceProfile(id);await refreshFusionProfiles();
+}
+async function startFusionCamera(){
+ const fusion=window.HomeServerSpeakerFusion;if(!fusion?.startCameraCorroboration)throw Error('Local speaker fusion is not ready.');
+ if(!window.confirm('Start local camera corroboration for this transcription workspace? Face descriptors stay in this browser; camera evidence can only corroborate or conflict with a voice match and never identifies a speaker by itself.'))return;
+ await fusion.startCameraCorroboration($('hsFusionCameraPreview'));syncFusionControls();
+}
+
 async function refreshDiarizationOption(){
  const checkbox=$('hsTranscriptDiarization'),state=$('hsTranscriptDiarizationState');if(!checkbox||!state)return;
  try{
@@ -160,6 +223,7 @@ function controls(){
  $('hsTranscriptDelete').disabled=!complete;
  if(complete)$('hsTranscriptShare').textContent=session.cloud_shared?'Revoke Cloud access':'Share text with paired Cloud';
  const diarize=$('hsTranscriptDiarization');if(diarize)diarize.disabled=listening||!diarizationAvailable||Boolean($('strictLocalVoice')?.checked);
+ syncFusionControls();
 }
 function renderSession(session){
  selected=session;
@@ -168,6 +232,10 @@ function renderSession(session){
  for(const segment of session?.segments||[]){
   const line=document.createElement('p');
   const speaker=document.createElement('strong');speaker.textContent=String(segment.speaker||segment.speaker_label||'Speaker 1');
+  const identity=segment.attribution?.speaker_identity_verified?String(segment.attribution.participant_identity||''):'';
+  const localName=identity?window.HomeServerSpeakerFusion?.resolveParticipantName?.(identity):'';
+  if(localName)speaker.textContent+=' · '+localName+' · voice match'+(segment.attribution?.visual_corroborated?' + camera':'');
+  if(segment.attribution?.visual_conflict)speaker.textContent+=' · identity conflict';
   if(segment.attribution?.overlap)speaker.textContent+=' · overlap';
   const words=document.createElement('span');words.textContent=' · '+String(segment.text||'');
   line.appendChild(speaker);line.appendChild(words);out.appendChild(line);
@@ -231,7 +299,8 @@ function onSegment(event){
    client_key:Array.from(crypto.getRandomValues(new Uint8Array(16)),x=>x.toString(16).padStart(2,'0')).join(''),
    started_ms:started,ended_ms:ended,
    speaker_label:String(event.detail.speaker_label||'Speaker 1').slice(0,80),
-   attribution:validAttribution(event.detail.attribution)?event.detail.attribution:null};
+   attribution:validAttribution(event.detail.attribution)?event.detail.attribution:null,
+   speaker_evidence:validSpeakerEvidence(event.detail.speaker_evidence)?event.detail.speaker_evidence:null};
  lastTimeline=segment.started_ms;
  queue.push({sessionId,segment});persistQueue();controls();
  void saveQueue().catch(()=>{});
@@ -242,7 +311,8 @@ async function finish(){
  if(finishing||(!finishSessionId&&!active))return;
  const id=finishSessionId||captureSessionId||active.id;
  finishSessionId=id;finishRequested=true;finishing=true;listening=false;persistQueue();
- window.HomeServerDictation?.stopTranscription();
+ window.HomeServerDictation?.stopTranscription();window.HomeServerSpeakerFusion?.cancelVoiceEnrollment?.();
+ window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();syncFusionControls();
  $('hsTranscriptStop').disabled=true;
  try{
   await saveQueue();
@@ -275,6 +345,7 @@ async function remove(){
  const id=selected.id,epoch=selectionEpoch;await request('/'+id,'DELETE');if(epoch===selectionEpoch&&selected?.id===id)renderSession(null);status('Local transcription deleted.');await refresh();
 }
 window.addEventListener('homeserver:voice-settings-loaded',()=>{if(drawer&&!drawer.hidden)void refreshDiarizationOption();});
+window.addEventListener('tracky:visual-state-changed',()=>{if(drawer&&!drawer.hidden)void refreshFusionProfiles();});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensure,{once:true});else ensure();
 })();
 
