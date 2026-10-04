@@ -79,3 +79,13 @@ work, not features supplied by a speaker label or a face-count detector. These
 belong in Section 9's missing-capabilities review; live accuracy and hardware
 certification remain Section 10 acceptance. Section 6 reviews video meeting
 reliability next, after this section is green, merged and packaged.
+
+## Windows approval fixture isolation
+
+The first merged-main Windows run passed the feature/retained tests through Agent
+read/failure auditing but failed deleting the action-approval fixture's temporary
+SQLite database after assertions. That fixture now suppresses unrelated passive
+background runtime starts while retaining every approval/denial/security/privacy
+assertion and the real API/database paths. Full lifecycle and packaged shutdown
+remain in release acceptance and installed-launch tests. No production approval or
+worker shutdown behavior is changed by this test-only follow-up.
