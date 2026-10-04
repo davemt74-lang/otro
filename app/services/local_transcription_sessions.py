@@ -163,8 +163,12 @@ def append(session_id:str,text:str,client_key:str,started_ms:int=0,*,speaker_lab
     if ended_ms is None:ended_ms=started_ms
     if type(ended_ms) is not int or ended_ms<started_ms or ended_ms>24*60*60*1000:
         raise TranscriptError("Invalid transcription segment end timing.")
-    sanitized=_sanitize_attribution(attribution,speaker_label)
-    speaker_label=_clean_label(sanitized["speaker_label"])
+    supplied_label=_clean_label(speaker_label)
+    sanitized=_sanitize_attribution(attribution,supplied_label)
+    canonical_label=_clean_label(sanitized["speaker_label"])
+    if isinstance(attribution,dict) and "speaker_label" in attribution and canonical_label!=supplied_label:
+        raise TranscriptError("Speaker label and attribution disagree.",409)
+    speaker_label=canonical_label
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row=_get(conn,sid)
