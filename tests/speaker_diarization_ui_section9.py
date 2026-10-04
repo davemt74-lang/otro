@@ -38,6 +38,8 @@ assert '"diarize": "true"' in service
 assert '"use_speaker_library"' in service
 assert 'speaker_identity_verified": False' in service
 assert 'authentication_authority": False' in service
+assert 'lastTimeline=segment.started_ms' in workspace, 'overlap start times must not be flattened to the prior turn end'
+assert 'lastTimeline=segment.ended_ms' not in workspace, 'speaker overlap must retain independent end timing'
 assert "provider_speaker_id" in service
 assert "raw_speaker_ids_included" in service
 print("SPEAKER_DIARIZATION_UI_SECTION9B=PASS")
