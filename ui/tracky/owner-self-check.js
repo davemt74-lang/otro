@@ -2,7 +2,7 @@
  * No new participant, no server recognition report, no photo/embedding export.
  * A similarity result is not identity proof or HomeServer certification.
  */
-import {listParticipants} from './src/participant-store.js';
+import {listParticipants,getParticipant} from './src/participant-store.js';
 import {HUMAN_ESM_URL,HUMAN_MODEL_BASE} from './src/model-config.js';
 import {evaluateOwnerSelfCheck,OWNER_SELF_CHECK_DURATION_MS} from './src/owner-self-check-core.js';
 
@@ -55,9 +55,13 @@ async function scan(engine,participant,token,started){
     if(video?.readyState>=2){
       const result=await engine.detect(video);
       if(token!==generation||!stream)return;
+      // Enrollment can be revoked/deleted while inference is in flight.
+      const current=await getParticipant(participant.id);
+      if(token!==generation||!stream)return;
+      if(!await ownerReady(token)){if(token===generation){close();say('Stopped: consent or privacy changed.');}return;}
       const decision=evaluateOwnerSelfCheck({
         consent:el('onboardSelfCheckConsent').checked,
-        active:true,participant,
+        active:true,participant:current,
         faces:Array.isArray(result?.face)?result.face:[],
         width:video.videoWidth||1,height:video.videoHeight||1
       });
@@ -178,3 +182,4 @@ function init(){
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});
 else init();
+

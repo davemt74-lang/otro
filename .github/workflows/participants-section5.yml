@@ -1,0 +1,33 @@
+name: Participant Storage Acceptance
+on:
+  pull_request:
+    paths:
+      - ui/tracky/**
+      - tests/participants_store_section5.mjs
+      - .github/workflows/participants-section5.yml
+  push:
+    branches: [main]
+    paths:
+      - ui/tracky/**
+      - tests/participants_store_section5.mjs
+      - .github/workflows/participants-section5.yml
+permissions:
+  contents: read
+concurrency:
+  group: participant-storage-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  indexeddb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned browser test runtime
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.62.1
+          npx playwright install --with-deps chromium
+      - name: Real local profile transaction acceptance
+        run: node tests/participants_store_section5.mjs

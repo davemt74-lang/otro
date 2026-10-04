@@ -41,6 +41,9 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         "cloud_shared":bool(row["cloud_share"]),"started_at":row["started_at"],
         "ended_at":row["ended_at"],"segment_count":int(row["segment_count"]),
         "source":"homeserver_local_transcription",
+        "speaker_attribution":"unidentified_single_channel",
+        "speaker_identity_verified":False,
+        "diarization_available":False,
         "timeline_ms":int(connection.execute("SELECT COALESCE(MAX(started_ms),0) FROM local_transcription_segments WHERE session_id=?",(row["id"],)).fetchone()[0]),
     }
     if with_segments:
@@ -50,7 +53,8 @@ def _payload(connection,row,with_segments:bool=False)->dict[str,Any]:
         ).fetchall()
         result["segments"]=[
             {"id":s["id"],"client_key":s["client_key"],"text":s["text"],
-             "started_ms":s["started_ms"],"created_at":s["created_at"],"speaker":"Speaker 1","segment_index":index}
+             "started_ms":s["started_ms"],"created_at":s["created_at"],"speaker":"Speaker 1","segment_index":index,
+             "speaker_attribution":"unidentified_single_channel","speaker_identity_verified":False}
             for index,s in enumerate(segments)
         ]
     return result
@@ -177,3 +181,4 @@ def delete(session_id:str)->dict[str,Any]:
         conn.execute("DELETE FROM local_transcription_segments WHERE session_id=?",(sid,))
         conn.execute("DELETE FROM local_transcription_sessions WHERE id=?",(sid,))
     return {"contract":CONTRACT,"deleted":True,"session_id":sid}
+

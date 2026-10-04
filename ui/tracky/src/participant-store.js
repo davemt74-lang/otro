@@ -81,9 +81,15 @@ async function storeAction(storeName, mode, action) {
     const tx = db.transaction(storeName, mode);
     const done = transactionToPromise(tx);
     const store = tx.objectStore(storeName);
-    const result = await action(store);
-    await done;
-    return result;
+    try {
+      const result = await action(store);
+      await done;
+      return result;
+    } catch (error) {
+      try { tx.abort(); } catch (_) {}
+      await done.catch(() => {});
+      throw error;
+    }
   } finally {
     db.close();
   }
@@ -112,10 +118,14 @@ export function saveParticipant(input) {
   });
 }
 
-export async function patchParticipant(id, patch) {
-  const current = await getParticipant(id);
-  if (!current) throw new Error('Participant not found.');
-  return saveParticipant({ ...current, ...patch, id, createdAt: current.createdAt });
+export function patchParticipant(id, patch) {
+  return storeAction(PARTICIPANTS,'readwrite',async store => {
+    const current = await requestToPromise(store.get(id));
+    if (!current) throw new Error('Participant not found.');
+    const record = participantRecord({...current,...patch,id,createdAt:current.createdAt});
+    await requestToPromise(store.put(record));
+    return record;
+  });
 }
 
 export async function deleteParticipant(id) {
@@ -139,15 +149,15 @@ export async function deleteParticipant(id) {
       const nearbyIds = Array.from(row.nearbyParticipantIds || []);
       const nearbyNames = Array.from(row.nearbyParticipantNames || []);
       const hasNearbyReference = nearbyIds.includes(id);
-      const hasNameReference = participant?.name && nearbyNames.includes(participant.name);
+      const hasNameReference = !nearbyIds.length && participant?.name && nearbyNames.includes(participant.name);
 
       if (hasNearbyReference || hasNameReference) {
         dialogue.put({
           ...row,
           nearbyParticipantIds: nearbyIds.filter((participantId) => participantId !== id),
-          nearbyParticipantNames: participant?.name
-            ? nearbyNames.filter((name) => name !== participant.name)
-            : nearbyNames
+          nearbyParticipantNames: nearbyIds.length
+            ? nearbyNames.filter((name,index) => nearbyIds[index] !== id)
+            : nearbyNames.filter(name => name !== participant?.name)
         });
       }
     }
@@ -222,16 +232,34 @@ export async function pruneDialogueTurns(maxRows = MAX_DIALOGUE_TURNS) {
 }
 
 export async function saveDialogueTurn(input) {
-  const record = {
-    ...input,
-    id: input.id || cryptoRandomId(),
-    sessionId: input.sessionId || 'room-session',
-    createdAt: input.createdAt || new Date().toISOString()
-  };
-
-  await storeAction(DIALOGUE, 'readwrite', async (store) => {
-    await requestToPromise(store.put(record));
-  });
+  const db = await openParticipantDb();
+  let record, tx, done;
+  try {
+    // The existence check and turn write share the deletion transaction boundary.
+    tx = db.transaction([PARTICIPANTS,DIALOGUE],'readwrite');
+    done = transactionToPromise(tx);
+    const participants = tx.objectStore(PARTICIPANTS);
+    const dialogue = tx.objectStore(DIALOGUE);
+    if (input.participantId && !await requestToPromise(participants.get(input.participantId))) {
+      await done;
+      return null;
+    }
+    const nearbyParticipantIds = [], nearbyParticipantNames = [];
+    for (const id of Array.from(input.nearbyParticipantIds || [])) {
+      const participant = await requestToPromise(participants.get(id));
+      if (participant && !nearbyParticipantIds.includes(id)) {
+        nearbyParticipantIds.push(id);nearbyParticipantNames.push(participant.name);
+      }
+    }
+    record = {...input,id:input.id || cryptoRandomId(),sessionId:input.sessionId || 'room-session',
+      createdAt:input.createdAt || new Date().toISOString(),nearbyParticipantIds,nearbyParticipantNames};
+    await requestToPromise(dialogue.put(record));
+    await done;
+  } catch (error) {
+    if (tx) {try {tx.abort();} catch (_) {}}
+    if (done) await done.catch(() => {});
+    throw error;
+  } finally { db.close(); }
   await pruneDialogueTurns().catch(() => {});
   return record;
 }
@@ -267,3 +295,4 @@ export function deleteDialogueTurn(id) {
     return true;
   });
 }
+
