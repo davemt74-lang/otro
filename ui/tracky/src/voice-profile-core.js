@@ -88,7 +88,7 @@ export function bestVoiceParticipantMatch(
   if(!validVoiceEmbedding(embedding))return {matched:false,participant:null,similarity:0,secondSimilarity:0,margin:0,ambiguous:false};
   const candidates=[];
   for(const participant of participants||[]){
-    if(participant?.voiceRecognitionEnabled===false||participant?.voiceProfileReady!==true)continue;
+    if(participant?.voiceRecognitionEnabled!==true||participant?.voiceProfileReady!==true)continue;
     const references=(participant.voiceEmbeddings||[]).filter(v=>validVoiceEmbedding(v,embedding.length));
     if(references.length<minSamples)continue;
     candidates.push({participant,similarity:robustVoiceSimilarity(embedding,references)});
