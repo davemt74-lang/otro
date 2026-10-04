@@ -324,10 +324,23 @@
 
   async function postWav(endpoint,wav,controller,fallback) {
     const formData=new FormData();formData.append('file',wav,'dictation.wav');
-    const response=await fetch(endpoint,{method:'POST',body:formData,cache:'no-store',
-      credentials:'same-origin',signal:controller.signal});
-    if(!response.ok)throw await responseError(response,fallback);
-    return await response.json();
+    let onAbort;
+    const aborted=new Promise((_,reject)=>{
+      onAbort=()=>reject(new Error('Local transcription cancelled or timed out.'));
+      if(controller.signal.aborted)onAbort();
+      else controller.signal.addEventListener('abort',onAbort,{once:true});
+    });
+    try{
+      const response=await Promise.race([
+        fetch(endpoint,{method:'POST',body:formData,cache:'no-store',
+          credentials:'same-origin',signal:controller.signal}),
+        aborted,
+      ]);
+      if(!response.ok)throw await responseError(response,fallback);
+      return await response.json();
+    }finally{
+      if(onAbort)controller.signal.removeEventListener('abort',onAbort);
+    }
   }
 
   async function transcribeLocal(blob, runGeneration, capturedAt = performance.now()) {
@@ -355,7 +368,8 @@
             return;
           }
         }catch(error){
-          if(controller.signal.aborted||!active||runGeneration!==generation)return;
+          if(!active||runGeneration!==generation)return;
+          if(controller.signal.aborted)throw error;
           window.dispatchEvent(new CustomEvent('homeserver:transcription-diarization-status',{detail:{
             state:'degraded',message:'Speaker separation unavailable for this chunk. Local Whisper preserved the transcript without speaker identity.'
           }}));
