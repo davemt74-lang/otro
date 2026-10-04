@@ -22,7 +22,8 @@ for marker in [
     "from './src/participant-store.js'","bestVoiceParticipantMatch","bestParticipantMatch",
     "voiceEmbeddingFromPcm","voiceProfileSamples","rawAudioStored:false",
     "if(embedding&&!turn.overlap)","source:'verified_voice'","source:'visual_corroboration'",
-    "VISUAL_MAX_AGE_MS=1600","privacyClear()","pagehide"
+    "VISUAL_MAX_AGE_MS=1600","privacyClear()","faces.length===1","pagehide",
+    "homeserver:speaker-fusion-ready"
 ]:
     assert marker in fusion, marker
 assert "fetch('/api/v1/control/onboarding/visual/status'" in fusion
@@ -38,5 +39,6 @@ assert 'Speaker evidence cannot grant authentication authority.' in api
 assert 'Identity-capable speaker attribution requires canonical evidence fusion.' in api
 assert 'def _paired_attribution' in sessions
 assert '"participant_identity":""' in sessions
+assert 'Raw audio and local Tracky speaker identity stay on HomeServer' in workspace
 assert '"speaker_identity_verified":False' in sessions
 print('SPEAKER_FUSION_UI_SECTION9C=PASS')
