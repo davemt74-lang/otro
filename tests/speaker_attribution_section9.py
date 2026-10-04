@@ -21,6 +21,10 @@ f = attribution.fuse([{"source": "heuristic_acoustic", "speaker_label": "Speaker
 check(f["participant_id"] == 0 and not f["speaker_identity_verified"], "heuristic claimed identity")
 cases += 1
 
+f = attribution.fuse([{"source": "verified_voice", "speaker_label": "Speaker 2", "confidence": .99, "participant_id": "not-an-id"}])
+check(f["participant_id"] == 0 and not f["speaker_identity_verified"], "malformed participant ID did not fail closed")
+cases += 1
+
 f = attribution.fuse([{"source": "provider_diarization", "speaker_label": "Speaker 3", "confidence": .91, "provider_speaker_id": "secret-provider-id"}])
 check(f["diarization_source"] == "provider_diarization" and not f["speaker_identity_verified"], "diarization claimed identity")
 check("secret-provider-id" not in str(f), "provider ID leaked")
