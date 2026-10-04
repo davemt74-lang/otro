@@ -29,6 +29,10 @@ jobs:
           python tests/transcription_processing_section3.py
           node tests/transcription-section4.mjs
           node tests/participants-section5.mjs
+          python tests/transfer_retention_section7.py
+          python tests/knowledge_backup_v032.py
+          python tests/governed_recordings_v502.py
+          python tests/local_transcription_sessions_v503.py
           python tests/meetings_reliability_section6.py
           python tests/meeting_transcription_v1860.py
           python tests/meeting_transcription_control_v1880.py

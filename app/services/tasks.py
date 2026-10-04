@@ -428,10 +428,12 @@ class TaskScheduler:
                     pass
             # The same scheduler enforces recording retention even if nobody
             # opens the Health page; no new thread or unattended capture.
-            if cycle % 240 == 0 and not self._stop.is_set():
+            if cycle % 4 == 0 and not self._stop.is_set():
                 try:
-                    from . import governed_recordings
-                    governed_recordings.list_recordings(limit=1)
+                    from . import governed_recordings, knowledge_backups
+                    governed_recordings.maintain_retention()
+                    if cycle % 240 == 0:
+                        knowledge_backups.maintain_transfer_retention()
                 except Exception:
                     pass
             self._stop.wait(self.interval_seconds)

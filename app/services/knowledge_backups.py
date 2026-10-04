@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import json
+import os
 import re
 import secrets
 import threading
@@ -30,6 +31,8 @@ MAX_ASSET_BYTES = min(250 * 1024 * 1024, settings.max_backup_upload_bytes)
 # 256 KiB JSON-message ceiling for operation metadata.
 MAX_CHUNK_BYTES = 96 * 1024
 UPLOAD_TTL_SECONDS = 24 * 60 * 60
+MAX_PENDING_UPLOADS = 32
+MAX_PENDING_BYTES = 512 * 1024 * 1024
 
 _ALLOWED_MEDIA = {
     "audio/webm": ".webm",
@@ -69,13 +72,17 @@ def _source_path(app_key: str, source_key: str) -> str:
 
 def _incoming_dir() -> Path:
     path = settings.knowledge_files_dir / ".incoming"
-    path.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise KnowledgeBackupError("Private transfer storage is unavailable.", 503)
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
     return path
 
 
 def _asset_dir() -> Path:
     path = settings.knowledge_files_dir / "attachments"
-    path.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise KnowledgeBackupError("Private transfer storage is unavailable.", 503)
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
     return path
 
 
@@ -90,6 +97,8 @@ def _cleanup_stale_uploads() -> None:
     cutoff = time.time() - UPLOAD_TTL_SECONDS
     for sidecar in root.glob("*.json"):
         try:
+            if sidecar.is_symlink():
+                continue
             if sidecar.stat().st_mtime >= cutoff:
                 continue
             part = sidecar.with_suffix(".part")
@@ -131,6 +140,65 @@ def _safe_backup_metadata(value: Any) -> dict[str, Any]:
     if isinstance(tags, list):
         out["tags"] = [str(item)[:100] for item in tags[:32] if str(item).strip()]
     return out
+
+
+def _asset_path(asset: dict[str, Any]) -> Path:
+    name = str(asset.get("stored_name") or "")
+    if not re.fullmatch(r"attachments/[a-f0-9]{32}\.(?:webm|ogg|m4a|mp3|wav)", name):
+        raise KnowledgeBackupError("Recording attachment path is invalid.", 409)
+    return _asset_dir() / name.split("/")[1]
+
+
+def _asset_intact(asset: dict[str, Any]) -> bool:
+    try:
+        path = _asset_path(asset)
+        if path.is_symlink() or not path.is_file() or path.stat().st_size != int(asset.get("size_bytes") or 0):
+            return False
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest() == str(asset.get("sha256") or "")
+    except OSError:
+        return False
+
+
+def maintain_transfer_retention() -> dict[str, Any]:
+    if not _TRANSFER_LOCK.acquire(blocking=False):
+        return {"deferred": True}
+    try:
+        _cleanup_stale_uploads()
+        cutoff = time.time() - UPLOAD_TTL_SECONDS
+        for part in _incoming_dir().glob("*.part"):
+            if part.lstat().st_mtime < cutoff and not part.with_suffix(".json").exists():
+                part.unlink(missing_ok=True)
+        # Power loss between file rename and database commit can leave a managed
+        # attachment orphan. Hold the SQLite writer boundary while checking refs.
+        with db() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            referenced = set()
+            valid = True
+            for row in connection.execute("SELECT metadata_json FROM knowledge_items"):
+                try:
+                    metadata = json.loads(row[0] or '{}')
+                    if not isinstance(metadata, dict):
+                        valid = False
+                        break
+                    assets = metadata.get('assets') or []
+                    if not isinstance(assets, list):
+                        valid = False
+                        break
+                    referenced.update(str(a.get('stored_name') or '') for a in assets if isinstance(a, dict))
+                except (ValueError, TypeError):
+                    valid = False
+                    break
+            if valid:
+                for path in _asset_dir().iterdir():
+                    if re.fullmatch(r'[a-f0-9]{32}\.(?:webm|ogg|m4a|mp3|wav)', path.name) and 'attachments/' + path.name not in referenced and path.lstat().st_mtime < cutoff:
+                        path.unlink(missing_ok=True)
+        return {"deferred": False}
+    finally:
+        _TRANSFER_LOCK.release()
 
 
 def _safe_asset(asset: dict[str, Any]) -> dict[str, Any]:
@@ -196,6 +264,7 @@ def upsert_external_knowledge(
 
     with _TRANSFER_LOCK:
         with db() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             existing = _row_for_source(connection, app_key, source_key)
             old_metadata = _load_metadata(existing) if existing is not None else {}
             assets = old_metadata.get("assets") if isinstance(old_metadata.get("assets"), list) else []
@@ -273,7 +342,6 @@ def begin_asset_upload(
     size_bytes: int,
     sha256: str,
 ) -> dict[str, Any]:
-    _cleanup_stale_uploads()
     app_key = _clean_key(identity.get("app_key"), _APP_KEY, "application key")
     source_key = _clean_key(source_key, _SOURCE_KEY, "source key")
     asset_key = _clean_key(asset_key, _ASSET_KEY, "asset key")
@@ -289,6 +357,7 @@ def begin_asset_upload(
     name = _safe_name(original_name, f"{asset_key}{_ALLOWED_MEDIA[media]}")
 
     with _TRANSFER_LOCK:
+        _cleanup_stale_uploads()
         with db() as connection:
             row = _row_for_source(connection, app_key, source_key)
             _assert_owned_external_item(row, app_key, source_key)
@@ -299,10 +368,37 @@ def begin_asset_upload(
                 if not isinstance(asset, dict) or str(asset.get("asset_key") or "") != asset_key:
                     continue
                 if str(asset.get("sha256") or "") == digest and int(asset.get("size_bytes") or 0) == size:
-                    return {"already_present": True, "item_id": int(row["id"]), "asset": _safe_asset(asset)}
+                    if _asset_intact(asset):
+                        return {"already_present": True, "item_id": int(row["id"]), "asset": _safe_asset(asset)}
+                    break  # Explicit backup can repair a missing/damaged attachment.
                 raise KnowledgeBackupError("An asset with this key already exists with different content.", 409)
             item_id = int(row["id"])
 
+        pending = []
+        for sidecar in _incoming_dir().glob("*.json"):
+            if sidecar.is_symlink():
+                continue
+            try:
+                prior = json.loads(sidecar.read_text(encoding="utf-8"))
+                if not isinstance(prior, dict):
+                    continue
+                pending.append(prior)
+                if all(prior.get(k) == v for k, v in {
+                    "app_key": app_key, "source_key": source_key, "asset_key": asset_key,
+                    "size_bytes": size, "sha256": digest, "item_id": item_id,
+                    "media_type": media,
+                }.items()):
+                    prior_id = str(prior.get("upload_id") or "")
+                    _, part, _ = _load_upload(identity, prior_id)
+                    received = part.stat().st_size
+                    if received > size:
+                        raise KnowledgeBackupError("Upload exceeds its declared size.", 409)
+                    return {"already_present": False, "upload_id": prior_id,
+                            "received_bytes": received, "chunk_bytes": MAX_CHUNK_BYTES}
+            except (OSError, ValueError, KeyError):
+                continue
+        if len(pending) >= MAX_PENDING_UPLOADS or sum(int(p.get("size_bytes") or 0) for p in pending) + size > MAX_PENDING_BYTES:
+            raise KnowledgeBackupError("Pending recording transfer storage limit reached.", 507)
         upload_id = secrets.token_urlsafe(32)
         part_path, sidecar_path = _upload_paths(upload_id)
         state = {
@@ -324,6 +420,8 @@ def begin_asset_upload(
 
 def _load_upload(identity: dict[str, Any], upload_id: str) -> tuple[dict[str, Any], Path, Path]:
     part_path, sidecar_path = _upload_paths(upload_id)
+    if sidecar_path.is_symlink() or part_path.is_symlink():
+        raise KnowledgeBackupError("Private transfer storage is unavailable.", 503)
     if not sidecar_path.is_file() or not part_path.is_file():
         raise KnowledgeBackupError("Asset upload was not found or expired.", 404)
     try:
@@ -336,6 +434,10 @@ def _load_upload(identity: dict[str, Any], upload_id: str) -> tuple[dict[str, An
         part_path.unlink(missing_ok=True)
         sidecar_path.unlink(missing_ok=True)
         raise KnowledgeBackupError("Asset upload expired. Start it again.", 410)
+    with db() as connection:
+        row = _row_for_item(connection, int(state["item_id"]))
+        _assert_owned_external_item(row, str(state["app_key"]), str(state["source_key"]))
+        _assert_kind_scope(identity, str(row["kind"] or ""))
     return state, part_path, sidecar_path
 
 
@@ -357,6 +459,8 @@ def append_asset_chunk(identity: dict[str, Any], *, upload_id: str, offset: int,
             raise KnowledgeBackupError("Asset chunk exceeds the declared recording size.", 409)
         with part_path.open("ab") as handle:
             handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
         return {"upload_id": upload_id, "received_bytes": current + len(raw), "complete": current + len(raw) == expected}
 
 
@@ -383,45 +487,59 @@ def commit_asset_upload(identity: dict[str, Any], *, upload_id: str) -> dict[str
         app_key = str(state["app_key"])
         source_key = str(state["source_key"])
         asset_key = str(state["asset_key"])
-        with db() as connection:
-            row = _row_for_item(connection, int(state["item_id"]))
-            _assert_owned_external_item(row, app_key, source_key)
-            _assert_kind_scope(identity, str(row["kind"] or ""))
-            metadata = _load_metadata(row)
-            assets = metadata.get("assets") if isinstance(metadata.get("assets"), list) else []
-            for existing in assets:
-                if isinstance(existing, dict) and str(existing.get("asset_key") or "") == asset_key:
-                    if str(existing.get("sha256") or "") == actual_hash:
-                        part_path.unlink(missing_ok=True)
-                        sidecar_path.unlink(missing_ok=True)
-                        return {"committed": True, "existing": True, "item_id": int(row["id"]), "asset": _safe_asset(existing)}
-                    raise KnowledgeBackupError("An asset with this key already exists with different content.", 409)
+        target = None
+        old_target = None
+        try:
+            with db() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                row = _row_for_item(connection, int(state["item_id"]))
+                _assert_owned_external_item(row, app_key, source_key)
+                _assert_kind_scope(identity, str(row["kind"] or ""))
+                metadata = _load_metadata(row)
+                assets = metadata.get("assets") if isinstance(metadata.get("assets"), list) else []
+                for existing in assets:
+                    if isinstance(existing, dict) and str(existing.get("asset_key") or "") == asset_key:
+                        if str(existing.get("sha256") or "") == actual_hash and _asset_intact(existing):
+                            part_path.unlink(missing_ok=True)
+                            sidecar_path.unlink(missing_ok=True)
+                            return {"committed": True, "existing": True, "item_id": int(row["id"]), "asset": _safe_asset(existing)}
+                        if str(existing.get("sha256") or "") != actual_hash:
+                            raise KnowledgeBackupError("An asset with this key already exists with different content.", 409)
+                        old_target = _asset_path(existing)
+                        assets = [a for a in assets if a is not existing]
+                        break
 
-            suffix = _ALLOWED_MEDIA[str(state["media_type"])]
-            stored_name = f"{uuid.uuid4().hex}{suffix}"
-            target = _asset_dir() / stored_name
-            part_path.replace(target)
-            asset = {
-                "asset_key": asset_key,
-                "stored_name": f"attachments/{stored_name}",
-                "original_name": str(state["original_name"]),
-                "media_type": str(state["media_type"]),
-                "size_bytes": actual_size,
-                "sha256": actual_hash,
-                "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-            assets.append(asset)
-            metadata["assets"] = assets
-            connection.execute(
-                "UPDATE knowledge_items SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                (json.dumps(metadata, separators=(",", ":"), ensure_ascii=False), int(row["id"])),
-            )
-            connection.execute(
-                """
-                INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json)
-                VALUES ('app',?,'knowledge.asset_backed_up','knowledge',?,?)
-                """,
-                (app_key, str(row["id"]), json.dumps({"asset_key": asset_key, "size_bytes": actual_size, "sha256": actual_hash}, separators=(",", ":"))),
-            )
+                suffix = _ALLOWED_MEDIA[str(state["media_type"])]
+                stored_name = f"{uuid.uuid4().hex}{suffix}"
+                target = _asset_dir() / stored_name
+                part_path.replace(target)
+                asset = {
+                    "asset_key": asset_key,
+                    "stored_name": f"attachments/{stored_name}",
+                    "original_name": str(state["original_name"]),
+                    "media_type": str(state["media_type"]),
+                    "size_bytes": actual_size,
+                    "sha256": actual_hash,
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+                assets.append(asset)
+                metadata["assets"] = assets
+                connection.execute(
+                    "UPDATE knowledge_items SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (json.dumps(metadata, separators=(",", ":"), ensure_ascii=False), int(row["id"])),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json)
+                    VALUES ('app',?,'knowledge.asset_backed_up','knowledge',?,?)
+                    """,
+                    (app_key, str(row["id"]), json.dumps({"asset_key": asset_key, "size_bytes": actual_size, "sha256": actual_hash}, separators=(",", ":"))),
+                )
+        except Exception:
+            if target is not None and target.exists():
+                target.replace(part_path)
+            raise
+        if old_target is not None:
+            old_target.unlink(missing_ok=True)
         sidecar_path.unlink(missing_ok=True)
         return {"committed": True, "existing": False, "item_id": int(state["item_id"]), "asset": _safe_asset(asset)}
