@@ -114,7 +114,7 @@
       return;
     }
     node.innerHTML = sources.slice(0, 12).map(source => {
-      const label = source.kind === 'agent_eyes' ? 'Agent Eyes' : source.kind === 'knowledge' ? 'Knowledge' : source.kind === 'memory' ? 'Memory' : 'Contact';
+      const label = source.kind === 'agent_eyes' ? 'Agent Eyes' : source.kind === 'local_transcription' ? 'Transcript' : source.kind === 'meeting_summary' ? 'Meeting' : source.kind === 'knowledge' ? 'Knowledge' : source.kind === 'memory' ? 'Memory' : 'Contact';
       return `<span class="context-source" title="${esc(source.updated_at || '')}"><b>${esc(label)}</b> ${esc(source.title || '')}</span>`;
     }).join('');
   }
