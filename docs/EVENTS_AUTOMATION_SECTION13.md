@@ -10,7 +10,7 @@ Scope: canonical Cloud event inbox, notification carriers and drawer; HomeServer
 - HomeServer local rule evaluation, trigger advancement, approval creation and execution receipts share a transaction. Failed multi-step routines leave no partial requests or consumed trigger. SQLite timestamp normalization restores rate limiting.
 - Workflow checkpoints and completion honor the current lease. Completion, activity and notification commit together. Owner disable invalidates unfinished claims. Older runs cannot overwrite the latest automation summary.
 - Stopping a busy scheduler retains its worker reference until it actually exits.
-- Federated definitions, trigger decisions, runs, dispatch ledgers, state transitions and applied receipts commit atomically. Identical applied receipts replay without duplicate events; changed terminal receipts and receipts without a matching dispatch attempt are rejected. Cancellation cannot be undone by a late receipt.
+- Federated definitions, trigger decisions, runs, dispatch ledgers, state transitions and applied receipts commit atomically. Identical applied receipts replay without duplicate events; changed terminal receipts and receipts without a matching dispatch attempt are rejected. Cancellation cannot be undone by a late receipt. Execution claims commit before calling an external driver; concurrent or interrupted uncertain dispatches are not automatically repeated. Execution receipts and their audit event commit together. An interrupted physical action requires owner review, because software cannot infer whether an external device acted.
 
 ## Verification
 
