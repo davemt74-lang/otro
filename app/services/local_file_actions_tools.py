@@ -4,7 +4,7 @@ import json
 import time
 from typing import Any, Callable
 
-from . import file_continuity, local_file_actions, tools
+from . import tool_authority, file_continuity, local_file_actions, tools
 
 
 FILE_ACTION_KEYS = {"files.update", "files.delete"}
@@ -151,6 +151,7 @@ def install() -> None:
         granted = set(granted_permissions or set())
         required = [] if owner else sorted({tools.TOOL_EXECUTE_PERMISSION, *tool["required_permissions"]})
         payload = dict(arguments or {})
+        granted, resource_owner = tool_authority.execution_authority(source, tool_key, payload, granted, owner=owner, approval_request_id=approval_request_id)
         try:
             encoded = json.dumps(payload, ensure_ascii=False)
         except (TypeError, ValueError) as exc:

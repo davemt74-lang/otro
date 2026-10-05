@@ -780,6 +780,35 @@ def _extract_run_id(message: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _reserve_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Claim using current authority and expiry under the SQLite write lock."""
+    from . import tool_authority
+    with db() as connection:
+        if not connection.in_transaction:
+            connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute("SELECT * FROM action_requests WHERE id=?", (request["id"],)).fetchone()
+        if row is None or row["status"] != "pending":
+            raise ApprovalError("Action request is no longer pending.", 409)
+        live_request = _decode_row(row, include_arguments=True)
+        try:
+            expiry = datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise ApprovalError("Action request expiry is invalid.", 409) from exc
+        if expiry <= _now():
+            raise ApprovalError("Action request expired.", 409)
+        if not tools._policy_map().get(str(row["action_key"]), True):
+            raise ApprovalError("Tool is disabled by the HomeServer owner.", 403)
+        if row["actor_type"] == "app":
+            try:
+                tool_authority.require_current_app(str(row["source_app_key"]), str(row["action_key"]), live_request["arguments"], approval=True)
+            except tools.ToolError as exc:
+                raise ApprovalError(str(exc), exc.status_code) from exc
+        connection.execute("UPDATE action_requests SET status='executing', decided_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'", (request["id"],))
+    return live_request
+
+
 def approve_request(request_id: str) -> dict[str, Any]:
     request = _request_for_owner(request_id)
     if request["status"] != "pending":
@@ -800,13 +829,7 @@ def approve_request(request_id: str) -> dict[str, Any]:
             return homeserver_app_approvals.approve(request["id"])
         except homeserver_app_approvals.AppApprovalStoreError as exc:
             raise ApprovalError(str(exc),409) from exc
-    with db() as connection:
-        reserved = connection.execute(
-            "UPDATE action_requests SET status='executing', decided_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
-            (request["id"],),
-        )
-        if reserved.rowcount != 1:
-            raise ApprovalError("Action request is no longer pending.", 409)
+    request = _reserve_request(request)
 
     try:
         if request["action_key"] == "devices.command":
@@ -831,6 +854,7 @@ def approve_request(request_id: str) -> dict[str, Any]:
                     request["arguments"],
                     set(),
                     owner=True,
+                    approval_request_id=request["id"],
                 )
     except tools.ToolError as exc:
         execution_run_id = _extract_run_id(str(exc))

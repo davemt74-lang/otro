@@ -19,6 +19,15 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Section 14 current permissions and deferred approval authority
+        run: |
+          python tests/authority_section14.py
+          python tests/authority_secrets_section14.py
+          python tests/approval_federation_v031.py
+          python tests/action_policy_v035.py
+          python tests/app_scopes_v026.py
+          python tests/tools_security.py
+          python tests/governed_file_owner_approval_v039.py
       - name: Section 13 events, notifications and automation
         run: |
           python tests/events_automation_section13.py
