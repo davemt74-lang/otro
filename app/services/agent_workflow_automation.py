@@ -445,6 +445,11 @@ def set_automation_enabled(
                 int(automation_id),
             ),
         )
+        if not enabled:
+            connection.execute(
+                "UPDATE agent_workflow_automation_runs SET status='conflict',error='Automation was disabled by its owner.',updated_at=CURRENT_TIMESTAMP WHERE automation_id=? AND status IN ('claimed','running')",
+                (int(automation_id),),
+            )
         connection.execute(
             """
             INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
@@ -604,10 +609,12 @@ def _claim_activity(automation_id: int, current: datetime, watermark: int) -> di
     return {"run_id": run_id, "automation": dict(updated), "trigger_key": trigger_key, "trigger_value": trigger_value}
 
 
-def _notification(automation: dict[str, Any], status: str, label: str) -> None:
+def _notification(automation: dict[str, Any], status: str, label: str, *, connection=None) -> None:
+    if connection is None:
+        with db() as owned:
+            return _notification(automation, status, label, connection=owned)
     title = "Workflow automation ran" if status in {"completed", "stopped"} else "Workflow automation needs review"
-    with db() as connection:
-        connection.execute(
+    connection.execute(
             """
             INSERT INTO notifications(source, title, body, level)
             VALUES ('workflow-automation', ?, ?, ?)
@@ -627,27 +634,30 @@ def _finish_run(
     result: dict[str, Any] | None = None,
     error: str = "",
     disable: bool = False,
-) -> None:
+) -> bool:
     automation = claim["automation"]
     encoded = _canonical_json(result or {})
     with db() as connection:
         connection.execute("BEGIN IMMEDIATE")
-        connection.execute(
+        changed = connection.execute(
             """
             UPDATE agent_workflow_automation_runs
             SET status=?, result_json=?, error=?, updated_at=CURRENT_TIMESTAMP
-            WHERE id=? AND status IN ('claimed','running')
+            WHERE id=? AND status IN ('claimed','running') AND (? IS NULL OR updated_at=?)
             """,
-            (status, encoded, str(error or "")[:5000], int(claim["run_id"])),
+            (status, encoded, str(error or "")[:5000], int(claim["run_id"]), claim.get("lease_stamp"), claim.get("lease_stamp")),
         )
+        if changed.rowcount != 1:
+            return False
         connection.execute(
             """
             UPDATE agent_workflow_automations
             SET enabled=CASE WHEN ? THEN 0 ELSE enabled END,
                 last_status=?, last_result_json=?, last_error=?, updated_at=CURRENT_TIMESTAMP
-            WHERE id=?
+            WHERE id=? AND last_status<>'disabled'
+              AND ?=(SELECT MAX(id) FROM agent_workflow_automation_runs WHERE automation_id=?)
             """,
-            (1 if disable else 0, status, encoded, str(error or "")[:5000], int(automation["id"])),
+            (1 if disable else 0, status, encoded, str(error or "")[:5000], int(automation["id"]), int(claim["run_id"]), int(automation["id"])),
         )
         connection.execute(
             """
@@ -665,8 +675,9 @@ def _finish_run(
                 }),
             ),
         )
-    label = str((result or {}).get("stop_label") or error or "Scheduled continuation finished.")
-    _notification(automation, status, label)
+        label = str((result or {}).get("stop_label") or error or "Scheduled continuation finished.")
+        _notification(automation, status, label, connection=connection)
+    return True
 
 
 def _execute_claim(claim: dict[str, Any]) -> str:

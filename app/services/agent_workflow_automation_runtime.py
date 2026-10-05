@@ -71,6 +71,7 @@ def _reserve_run(run_id: int, current: datetime, *, allow_stale_running: bool) -
         ).fetchone()
     return {
         "run_id": int(run_id),
+        "lease_stamp": str(refreshed["updated_at"]),
         "automation": dict(automation_row),
         "trigger_key": str(refreshed["trigger_key"]),
         "trigger_value": str(refreshed["trigger_value"] or ""),
@@ -80,23 +81,25 @@ def _reserve_run(run_id: int, current: datetime, *, allow_stale_running: bool) -
     }
 
 
-def _persist_checkpoint(run_id: int, checkpoint: dict[str, Any]) -> bool:
+def _persist_checkpoint(run_id: int, checkpoint: dict[str, Any], lease_stamp: str | None = None) -> bool:
     rehydration_id = int(checkpoint["rehydration_id"])
     fingerprint = str(checkpoint["state_fingerprint"])
     with db() as connection:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
-            "SELECT rehydration_id, state_fingerprint, status FROM agent_workflow_automation_runs WHERE id=? LIMIT 1",
+            "SELECT rehydration_id, state_fingerprint, status, updated_at FROM agent_workflow_automation_runs WHERE id=? LIMIT 1",
             (int(run_id),),
         ).fetchone()
         if row is None or str(row["status"]) != "running":
+            return False
+        if lease_stamp is not None and str(row["updated_at"]) != lease_stamp:
             return False
         if row["rehydration_id"] is not None:
             return int(row["rehydration_id"]) == rehydration_id and str(row["state_fingerprint"] or "") == fingerprint
         changed = connection.execute(
             """
             UPDATE agent_workflow_automation_runs
-            SET rehydration_id=?, state_fingerprint=?, updated_at=CURRENT_TIMESTAMP
+            SET rehydration_id=?, state_fingerprint=?
             WHERE id=? AND status='running' AND rehydration_id IS NULL
             """,
             (rehydration_id, fingerprint, int(run_id)),
@@ -104,17 +107,17 @@ def _persist_checkpoint(run_id: int, checkpoint: dict[str, Any]) -> bool:
         return changed.rowcount == 1
 
 
-def _update_supervision(run_id: int, supervision_id: int | None) -> None:
+def _update_supervision(run_id: int, supervision_id: int | None, lease_stamp: str | None = None) -> None:
     if supervision_id is None:
         return
     with db() as connection:
         connection.execute(
             """
             UPDATE agent_workflow_automation_runs
-            SET supervision_id=?, updated_at=CURRENT_TIMESTAMP
-            WHERE id=? AND status='running'
+            SET supervision_id=?
+            WHERE id=? AND status='running' AND (? IS NULL OR updated_at=?)
             """,
-            (int(supervision_id), int(run_id)),
+            (int(supervision_id), int(run_id), lease_stamp, lease_stamp),
         )
 
 
@@ -151,7 +154,7 @@ def _execute_reserved(claim: dict[str, Any]) -> str:
                     disable=True,
                 )
                 return "conflict"
-            if not _persist_checkpoint(int(claim["run_id"]), checkpoint):
+            if not _persist_checkpoint(int(claim["run_id"]), checkpoint, claim.get("lease_stamp")):
                 automation._finish_run(
                     claim,
                     status="conflict",
@@ -165,6 +168,10 @@ def _execute_reserved(claim: dict[str, Any]) -> str:
             claim["rehydration_id"] = rehydration_id
             claim["state_fingerprint"] = fingerprint
 
+        with db() as connection:
+            live = connection.execute("SELECT status,updated_at FROM agent_workflow_automation_runs WHERE id=?", (int(claim["run_id"]),)).fetchone()
+        if live is None or str(live["status"]) != "running" or str(live["updated_at"]) != claim.get("lease_stamp"):
+            return "conflict"
         try:
             result = agent_workflow_supervision.continue_workflow(
                 source,
@@ -182,6 +189,7 @@ def _execute_reserved(claim: dict[str, Any]) -> str:
         _update_supervision(
             int(claim["run_id"]),
             int(result["supervision_id"]) if result.get("supervision_id") is not None else None,
+            claim.get("lease_stamp"),
         )
         if result.get("in_progress") is True or str(result.get("status") or "") == "running":
             automation._finish_run(
@@ -343,7 +351,8 @@ class WorkflowAutomationRuntimeScheduler:
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=5)
-        self._thread = None
+        if self._thread and not self._thread.is_alive():
+            self._thread = None
 
     def _run(self) -> None:
         while not self._stop.is_set():

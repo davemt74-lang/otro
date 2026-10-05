@@ -19,6 +19,13 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Section 13 events, notifications and automation
+        run: |
+          python tests/events_automation_section13.py
+          python tests/federated_events_section13.py
+          python tests/local_automation_v070.py
+          python tests/agent_workflow_automation_v058.py
+          python tests/agent_workflow_automation_recovery_v058.py
       - name: Contacts tasks and calendar Section 12 integrity
         run: |
           python tests/productivity_section12.py
