@@ -1,0 +1,64 @@
+name: Section 15 Hardware and Device Automation
+
+on:
+  pull_request:
+    paths:
+      - 'app/services/room_device_automation.py'
+      - 'app/services/hardware_adapters.py'
+      - 'app/services/tools.py'
+      - 'app/services/approvals.py'
+      - 'app/room_device_api.py'
+      - 'ui/room-device-automation.js'
+      - 'tests/hardware_automation_section15.py'
+      - '.github/workflows/section15-hardware-automation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/room_device_automation.py'
+      - 'app/services/hardware_adapters.py'
+      - 'app/services/tools.py'
+      - 'app/services/approvals.py'
+      - 'app/room_device_api.py'
+      - 'ui/room-device-automation.js'
+      - 'tests/hardware_automation_section15.py'
+      - '.github/workflows/section15-hardware-automation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: section15-hardware-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  hardware:
+    name: Hardware lifecycle · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: pip install -r requirements.txt
+      - name: Device authority, acknowledgements, atomic suggestions and silent controllers
+        run: python tests/hardware_automation_section15.py
+      - name: Retained device, approval and automation behavior
+        run: |
+          python tests/room_device_automation_v060.py
+          python tests/room_device_automation_ui_contract_v060.py
+          python tests/local_automation_v070.py
+          python tests/tracky_governed_actions_v275.py
+          python tests/authority_section14.py
+      - name: Retained hardware and physical-agent behavior
+        run: |
+          python tests/vp3_os_v020.py
+          python tests/vp3_os_v030.py
+          python tests/vp3_os_hardware_experience_v130.py
+          node --check ui/room-device-automation.js

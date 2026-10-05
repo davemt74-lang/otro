@@ -19,6 +19,7 @@ MAX_LINE_BYTES = 8192
 MAX_EVENTS = 100
 RECONNECT_SECONDS = 2.0
 HANDSHAKE_TIMEOUT_SECONDS = 3.0
+CONTROLLER_SILENCE_SECONDS = 10.0
 
 _CONTROLLER_ID = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
 _LIGHT_MODES = {
@@ -196,7 +197,7 @@ def normalize_controller_message(message: Any) -> dict[str, Any]:
         return {
             "type": "ack",
             "command_id": command_id,
-            "ok": bool(message.get("ok")),
+            "ok": message.get("ok") is True,
             "error": _bounded_text(message.get("error"), 160),
         }
 
@@ -328,6 +329,7 @@ class HardwareAdapterManager:
 
     def _read_loop(self, handle: Any) -> None:
         handshake_started = time.monotonic()
+        last_state = handshake_started
         while not self._stop.is_set():
             line = handle.readline(MAX_LINE_BYTES + 1)
             if not line:
@@ -335,6 +337,8 @@ class HardwareAdapterManager:
                     handshaken = self._controller is not None
                 if not handshaken and (time.monotonic() - handshake_started) >= HANDSHAKE_TIMEOUT_SECONDS:
                     raise HardwareAdapterError("Hardware controller handshake timed out.")
+                if handshaken and (time.monotonic() - last_state) >= CONTROLLER_SILENCE_SECONDS:
+                    raise HardwareAdapterError("Hardware controller stopped reporting state.")
                 continue
             if len(line) > MAX_LINE_BYTES:
                 raise HardwareAdapterError("Hardware controller message exceeded the size limit.")
@@ -342,7 +346,12 @@ class HardwareAdapterManager:
                 message = json.loads(line.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise HardwareAdapterError("Hardware controller sent invalid JSON.") from exc
-            self.handle_message(message)
+            accepted = self.handle_message(message)
+            received = time.monotonic()
+            if accepted["type"] == "hello" or accepted["type"] == "state" and not accepted.get("duplicate"):
+                last_state = received
+            if received - last_state >= CONTROLLER_SILENCE_SECONDS:
+                raise HardwareAdapterError("Hardware controller stopped reporting state.")
 
     def _close_serial(self) -> None:
         handle = None

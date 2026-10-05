@@ -1735,6 +1735,8 @@ def _devices_list(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
                 "room_name": row.get("room_name"),
                 "controllable": bool(row["controllable"]),
                 "currently_executable": bool(row["currently_executable"]),
+                "room_enabled": row["room_enabled"],
+                "execution_blocked_reason": row["execution_blocked_reason"],
                 "capabilities": row["capabilities"],
                 "state": row["state"],
             }
