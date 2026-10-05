@@ -17,6 +17,10 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v241-contacts-") as data_dir
     from app.services import action_policy, approvals, contacts, federated_data, pairing, tools  # noqa: E402
 
     initialize_database()
+    pairing_request = pairing.create_pairing_request(
+        "vp3", "Contacts acceptance", ["tools.execute", "contacts.read", "contacts.write"]
+    )
+    pairing.approve_pairing_request(pairing_request["request_id"])
 
     with db() as connection:
         versions = [
