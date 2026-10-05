@@ -105,6 +105,18 @@ def _expire_request(connection, request) -> bool:
     return True
 
 
+def _invalidate_pending_actions(connection, app_key: str, reason: str) -> None:
+    changed = connection.execute(
+        "UPDATE action_requests SET status='denied', decided_at=CURRENT_TIMESTAMP, error=? WHERE source_app_key=? AND actor_type='app' AND status='pending'",
+        (reason, f"app:{app_key}"),
+    )
+    if changed.rowcount:
+        connection.execute(
+            "INSERT INTO activity_log(actor_type,actor_key,action,resource_type,resource_key,metadata_json) VALUES ('system','pairing','action.authority_invalidated','app',?,?)",
+            (app_key, json.dumps({"cancelled_requests": changed.rowcount}, separators=(",", ":"))),
+        )
+
+
 def _approve_request(connection, request) -> dict | None:
     if _expire_request(connection, request):
         return None
@@ -119,6 +131,7 @@ def _approve_request(connection, request) -> dict | None:
         token_hash = _hash(legacy_token)
         delivery = "legacy_token"
 
+    _invalidate_pending_actions(connection, str(request["app_key"]), "Application pairing changed; create a new approval request.")
     connection.execute(
         """
         INSERT INTO paired_apps(app_key, name, token_hash)
@@ -291,6 +304,7 @@ def revoke_paired_app(app_key: str) -> None:
             "UPDATE app_permissions SET allowed=0, updated_at=CURRENT_TIMESTAMP WHERE paired_app_id=?",
             (row["id"],),
         )
+        _invalidate_pending_actions(connection, key, "Application was disconnected; this approval was cancelled.")
 
 
 def authenticate(raw_token: str) -> dict | None:

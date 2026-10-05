@@ -111,13 +111,7 @@ def install() -> None:
             return original(request_id)
         if request["status"] != "pending":
             raise approvals.ApprovalError(f"Action request is already {request['status']}.", 409)
-        with db() as connection:
-            reserved = connection.execute(
-                "UPDATE action_requests SET status='executing', decided_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
-                (request["id"],),
-            )
-            if reserved.rowcount != 1:
-                raise approvals.ApprovalError("Action request is no longer pending.", 409)
+        request = approvals._reserve_request(request)
         try:
             execution = tools.execute_tool(
                 request["source_app_key"],
@@ -125,6 +119,7 @@ def install() -> None:
                 request["arguments"],
                 set(),
                 owner=True,
+                approval_request_id=request["id"],
             )
         except tools.ToolError as exc:
             run_id = approvals._extract_run_id(str(exc))

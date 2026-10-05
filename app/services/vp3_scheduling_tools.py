@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from . import tools, vp3_scheduling_connector as connector
+from . import tool_authority, tools, vp3_scheduling_connector as connector
 
 SCHEDULING_KEYS = {
     "vp3.schedule.overview",
@@ -299,6 +299,7 @@ def install() -> None:
         granted = set(granted_permissions or set())
         required = [] if owner else sorted({tools.TOOL_EXECUTE_PERMISSION, *tool["required_permissions"]})
         payload = dict(arguments or {})
+        granted, resource_owner = tool_authority.execution_authority(source, tool_key, payload, granted, owner=owner, approval_request_id=approval_request_id)
         missing = tools._missing_permissions(tool, granted, owner)
         if missing:
             raise tools.ToolError(f"Missing tool permissions: {', '.join(missing)}.", 403)

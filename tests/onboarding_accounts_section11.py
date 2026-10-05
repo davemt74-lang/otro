@@ -49,6 +49,8 @@ with tempfile.TemporaryDirectory(prefix='section11-services-') as work:
     database.db=db;sys.modules[database.__name__]=database
     with db() as conn:
         conn.executescript((ROOT/'database/schema.sql').read_text())
+        for migration in ('004_agent_brain.sql','005_tools.sql','006_agent_tools.sql','007_action_approvals.sql'):
+            conn.executescript((ROOT/'database/migrations'/migration).read_text())
         conn.executescript((ROOT/'database/migrations/003_pairing_claim.sql').read_text())
         conn.executescript((ROOT/'database/migrations/064_multi_user.sql').read_text())
         conn.executescript('CREATE TABLE IF NOT EXISTS app_capability_scopes(paired_app_id INTEGER PRIMARY KEY); CREATE TABLE homeserver_apps(app_key TEXT PRIMARY KEY,name TEXT,installed_version TEXT,lifecycle_state TEXT);')

@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 from ..database import db
-from . import app_scopes, backup_protection, backups, storage_maintenance, contacts, health_repair, homeserver_app_agent, homeserver_app_update_center, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, maintenance_conversation, runtime_diagnostics, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
+from . import tool_authority, app_scopes, backup_protection, backups, storage_maintenance, contacts, health_repair, homeserver_app_agent, homeserver_app_update_center, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_security, homeserver_app_sources, homeserver_apps, maintenance_conversation, runtime_diagnostics, knowledge as knowledge_service, knowledge_collection_policy, local_files, memory_continuity, room_device_automation, task_calendar_continuity as continuity
 from .knowledge import list_knowledge
 from .tasks import TaskError, create_task, list_notifications, list_tasks
 
@@ -2183,6 +2183,7 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
     granted = set(granted_permissions or set())
     required = [] if owner else sorted({TOOL_EXECUTE_PERMISSION, *tool["required_permissions"]})
     payload = dict(arguments or {})
+    granted, resource_owner = tool_authority.execution_authority(source, tool_key, payload, granted, owner=owner, approval_request_id=approval_request_id)
     try:
         encoded = json.dumps(payload, ensure_ascii=False)
     except (TypeError, ValueError) as exc:
@@ -2256,11 +2257,11 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
         elif tool["key"] == "contacts.delete":
             result, result_meta = _contacts_delete(payload, source)
         elif tool["key"] == "files.list":
-            result, result_meta = _files_list(payload, source, owner=owner)
+            result, result_meta = _files_list(payload, source, owner=resource_owner)
         elif tool["key"] == "files.read":
-            result, result_meta = _files_read(payload, source, owner=owner)
+            result, result_meta = _files_read(payload, source, owner=resource_owner)
         elif tool["key"] == "knowledge.search":
-            result, result_meta = _knowledge_search(payload, source, owner=owner)
+            result, result_meta = _knowledge_search(payload, source, owner=resource_owner)
         elif tool["key"] == "knowledge.create":
             result, result_meta = _knowledge_create(payload, source)
         elif tool["key"] == "knowledge.update":
@@ -2268,13 +2269,13 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
         elif tool["key"] == "knowledge.delete":
             result, result_meta = _knowledge_delete(payload, source)
         elif tool["key"] == "memory.list":
-            result, result_meta = _memory_list(payload, source, owner=owner)
+            result, result_meta = _memory_list(payload, source, owner=resource_owner)
         elif tool["key"] == "memory.write":
-            result, result_meta = _memory_write(payload, source, owner=owner)
+            result, result_meta = _memory_write(payload, source, owner=resource_owner)
         elif tool["key"] == "memory.update":
-            result, result_meta = _memory_update(payload, source, owner=owner)
+            result, result_meta = _memory_update(payload, source, owner=resource_owner)
         elif tool["key"] == "memory.delete":
-            result, result_meta = _memory_delete(payload, source, owner=owner)
+            result, result_meta = _memory_delete(payload, source, owner=resource_owner)
         elif tool["key"] == "tasks.list":
             result, result_meta = _tasks_list(payload)
         elif tool["key"] == "calendar.list":

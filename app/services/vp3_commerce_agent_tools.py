@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from . import tools, vp3_commerce_agent_connector as connector
+from . import tool_authority, tools, vp3_commerce_agent_connector as connector
 
 KEYS = {
     "vp3.commerce.catalog.search",
@@ -143,7 +143,7 @@ def install() -> None:
     def execute_tool(source_app_key:str,tool_key:str,arguments:dict[str,Any]|None,granted_permissions:set[str]|None=None,*,owner:bool=False,approval_request_id:str|None=None)->dict[str,Any]:
         if tool_key not in DEFINITIONS:return original_execute(source_app_key,tool_key,arguments,granted_permissions,owner=owner,approval_request_id=approval_request_id)
         if not _connector_ready():raise tools.ToolError("VP3 Agent Commerce connector is not configured.",409)
-        tool=tools._tool_definition(tool_key);source=source_app_key.strip() or ("owner" if owner else "app:unknown");actor="owner" if owner else "app";granted=set(granted_permissions or set());required=[] if owner else sorted({tools.TOOL_EXECUTE_PERMISSION,*tool["required_permissions"]});payload=dict(arguments or {});missing=tools._missing_permissions(tool,granted,owner)
+        tool=tools._tool_definition(tool_key);source=source_app_key.strip() or ("owner" if owner else "app:unknown");actor="owner" if owner else "app";granted=set(granted_permissions or set());required=[] if owner else sorted({tools.TOOL_EXECUTE_PERMISSION,*tool["required_permissions"]});payload=dict(arguments or {});granted,resource_owner=tool_authority.execution_authority(source,tool_key,payload,granted,owner=owner,approval_request_id=approval_request_id);missing=tools._missing_permissions(tool,granted,owner)
         if missing:raise tools.ToolError(f"Missing tool permissions: {', '.join(missing)}.",403)
         if not tools._policy_map().get(tool_key,True):raise tools.ToolError("Tool is disabled by the HomeServer owner.",403)
         started=time.perf_counter();meta=tools._safe_argument_metadata(tool_key,payload)

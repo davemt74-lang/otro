@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import threading
 from ctypes import wintypes
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from ..config import settings
 
 CRYPTPROTECT_UI_FORBIDDEN = 0x1
 PROVIDERS = ("anthropic", "openai", "openrouter", "elevenlabs")
+_CREDENTIAL_LOCK = threading.RLock()
 
 
 class ProviderSecretError(RuntimeError):
@@ -142,24 +144,26 @@ def credential_status() -> dict:
 
 
 def save_credentials(updates: dict[str, str | None], clear: list[str] | None = None) -> dict:
-    credentials = load_credentials()
-    for provider in clear or []:
-        if provider not in PROVIDERS:
-            raise ProviderSecretError(f"Unknown provider: {provider}")
-        credentials.pop(provider, None)
-    for provider, raw_value in updates.items():
-        if provider not in PROVIDERS:
-            raise ProviderSecretError(f"Unknown provider: {provider}")
-        if raw_value is None:
-            continue
-        value = str(raw_value).strip()
-        if not value:
-            continue
-        if len(value) > 4000:
-            raise ProviderSecretError(f"{provider} API key is too long.")
-        credentials[provider] = value
-    _atomic_write(_secret_path(), _encode(credentials))
-    return credential_status()
+    # Merge concurrent provider edits before atomically replacing the protected store.
+    with _CREDENTIAL_LOCK:
+        credentials = load_credentials()
+        for provider in clear or []:
+            if provider not in PROVIDERS:
+                raise ProviderSecretError(f"Unknown provider: {provider}")
+            credentials.pop(provider, None)
+        for provider, raw_value in updates.items():
+            if provider not in PROVIDERS:
+                raise ProviderSecretError(f"Unknown provider: {provider}")
+            if raw_value is None:
+                continue
+            value = str(raw_value).strip()
+            if not value:
+                continue
+            if len(value) > 4000:
+                raise ProviderSecretError(f"{provider} API key is too long.")
+            credentials[provider] = value
+        _atomic_write(_secret_path(), _encode(credentials))
+        return credential_status()
 
 
 def get_api_key(provider: str) -> str | None:

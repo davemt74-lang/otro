@@ -72,10 +72,20 @@ def review_request_for_app(app_key: str, request_id: str, decision: str) -> dict
             403,
         )
 
-    if normalized == "approve":
-        approvals.approve_request(request_id)
-    else:
-        approvals.deny_request(request_id)
+    from . import tool_authority
+    with db() as connection:
+        app = connection.execute("SELECT id FROM paired_apps WHERE app_key=? AND status='active'", (app_key,)).fetchone()
+        permitted = app is not None and connection.execute("SELECT 1 FROM app_permissions WHERE paired_app_id=? AND permission='approvals.review' AND allowed=1", (app["id"],)).fetchone()
+    if not permitted:
+        raise approvals.ApprovalError("Federated approval permission is no longer available.", 403)
+    token = tool_authority.federated_reviewer.set(source)
+    try:
+        if normalized == "approve":
+            approvals.approve_request(request_id)
+        else:
+            approvals.deny_request(request_id)
+    finally:
+        tool_authority.federated_reviewer.reset(token)
 
     with db() as connection:
         connection.execute(
