@@ -60,9 +60,11 @@ def _resolved_poll_endpoint(pairing_endpoint: str, poll_url: str) -> str:
     endpoint = _validated_cloud_endpoint(resolved, "HTTPS relay")
     pairing_host = (urlparse(pairing_endpoint).hostname or "").lower()
     poll_host = (urlparse(endpoint).hostname or "").lower()
+    if pairing_host != poll_host:
+        raise CloudPairingError("VP3 Cloud returned a relay endpoint on an unexpected host.")
     pairing = urlparse(pairing_endpoint)
     poll = urlparse(endpoint)
-    if (pairing_host != poll_host or pairing.scheme != poll.scheme
+    if (pairing.scheme != poll.scheme
             or (pairing.port or (443 if pairing.scheme == "https" else 80))
             != (poll.port or (443 if poll.scheme == "https" else 80))):
         raise CloudPairingError("VP3 Cloud returned a relay endpoint on an unexpected host.")
@@ -128,10 +130,17 @@ def _save_pending(state: dict[str, Any]) -> None:
     _atomic_write(_pending_path(), _protect_windows(raw) if os.name == "nt" else raw)
 
 
+def has_pending_pairing() -> bool:
+    # A redacted recovery indicator, never journal contents or credentials.
+    return _pending_path().is_file()
+
+
 def clear_pending_pairing() -> None:
     with _PAIR_LOCK:
         # Reset only unfinished authorization; never revoke a saved connection.
-        if _pending_path().is_file() and not load_https_session():
+        if _pending_path().is_file():
+            if load_https_session():
+                raise CloudPairingError("A Cloud session is already saved. Retry the same pairing or disconnect before resetting.")
             _revoke_local_vp3_pairing()
         _pending_path().unlink(missing_ok=True)
 

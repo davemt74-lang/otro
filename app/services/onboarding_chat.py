@@ -176,7 +176,8 @@ def device_status() -> dict[str, Any]:
                       "paired": paired, "connected": bool(cloud.get("connected"))},
             "pairing": {"state": "paired", "code": None, "expires_at": None} if paired
             else _public_device(_read_device()),
-            "cloud_url": CLOUD_CLAIM_URL}
+            "cloud_url": CLOUD_CLAIM_URL,
+            "pairing_recovery_pending": cloud_pairing.has_pending_pairing()}
 
 
 def summary() -> dict[str, Any]:
@@ -264,7 +265,10 @@ def poll_device_code() -> dict[str, Any]:
 
 def clear_pending_code() -> dict[str, Any]:
     with _POLL_LOCK:
-        cloud_pairing.clear_pending_pairing()
+        try:
+            cloud_pairing.clear_pending_pairing()
+        except cloud_pairing.CloudPairingError as exc:
+            raise OnboardingError(str(exc)) from exc
         _remove_device()
         return device_status()
 

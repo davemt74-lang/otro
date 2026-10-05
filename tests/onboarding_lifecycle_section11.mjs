@@ -42,4 +42,8 @@ assert.equal(el('onboardCodeText').textContent,'FRESH-FRESH-FRESH');
 const voice=el('onboardInstallVoice').listeners.click();
 const count=requests.length;await timers.at(-1)();assert.equal(requests.length,count);
 requests.shift().resolve({});await flush();requests.shift().resolve(state('FRESH-FRESH-FRESH'));await flush();await voice;
+el('chatOnboardingToggle').listeners.click();el('chatOnboardingToggle').listeners.click();
+requests.shift().resolve({...state(null),pairing_recovery_pending:true});await flush();
+assert.equal(el('onboardResetCode').hidden,false,'advanced pairing recovery has an explicit reset action');
+assert.equal(el('onboardStartCloud').hidden,true);
 console.log('ONBOARDING_LIFECYCLE_SECTION11=PASS: current summary/code and owner action supersede stale polling');

@@ -98,6 +98,8 @@ with tempfile.TemporaryDirectory(prefix='section11-services-') as work:
     assert sent[0]['homeserver_token']==sent[1]['homeserver_token']
     assert sent[0]['recovery_session_token']==sent[1]['recovery_session_token']
     assert https.load_https_session() is not None and cloud._load_pending() is not None
+    reject(cloud.clear_pending_pairing)
+    assert cloud.has_pending_pairing()
     requests=len(sent)
     assert cloud.redeem_vp3_pairing_token(token)['accepted']
     assert len(sent)==requests and cloud._load_pending() is None
