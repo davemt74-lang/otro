@@ -92,7 +92,14 @@ permission("memory.write",True)
 action_policy.set_policy(app_id,"memory.write",action_policy.APPROVAL_REQUIRED)
 rejected(lambda:tools.execute_tool(source,"memory.write",{"content":"PRIVATE_AUTHORITY_CONTENT_14"},grants))
 missing=proposal();pairing.revoke_paired_app("authority")
-rejected(lambda:approvals.approve_request(missing));assert count()==before+1
+rejected(lambda:approvals.approve_request(missing),409);assert count()==before+1
+assert approvals._request_for_owner(missing)["status"]=="denied"
+paired=pairing.create_pairing_request("authority","Authority",sorted(grants));pairing.approve_pairing(paired["code"])
+rejected(lambda:approvals.approve_request(missing),409)
+old=proposal();claimed=approvals._reserve_request(approvals._request_for_owner(old))
+paired=pairing.create_pairing_request("authority","Authority",sorted(grants));pairing.approve_pairing(paired["code"])
+rejected(lambda:tools.execute_tool(source,"memory.write",claimed["arguments"],set(),owner=True,approval_request_id=old))
+assert count()==before+1,'Re-pairing revived an earlier executing proposal'
 # Owner proposals remain valid, but expiry is checked again during claim.
 owner=approvals.create_memory_write_request("owner",{"content":"Owner"},owner=True)["result"]["request_id"]
 loaded=approvals._request_for_owner(owner)

@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .main import require
-from .services import approvals, task_calendar_continuity as continuity
+from .services import approvals, tool_authority, task_calendar_continuity as continuity
 from .services.tasks import (
     TaskError,
     create_task,
@@ -35,6 +35,16 @@ async def task_lifespan(_):
 
 
 router = APIRouter(lifespan=task_lifespan)
+
+
+def _direct_task_request(call, *args, **kwargs):
+    # The resource API has tasks.write authority; tools.execute belongs to the
+    # separate tool API. Preserve that distinction in the deferred request.
+    token = tool_authority.proposal_requires_tool.set(False)
+    try:
+        return call(*args, **kwargs)
+    finally:
+        tool_authority.proposal_requires_tool.reset(token)
 
 
 class TaskCreate(BaseModel):
@@ -101,7 +111,7 @@ def client_tasks(
 @router.post("/api/v1/tasks")
 def client_task_create(payload: TaskCreate, identity: dict = Depends(require("tasks.write"))) -> dict:
     try:
-        request = approvals.create_task_create_request(f"app:{identity['app_key']}", _task_payload(payload), owner=False)
+        request = _direct_task_request(approvals.create_task_create_request, f"app:{identity['app_key']}", _task_payload(payload), owner=False)
         return {**request, "approval_required": True}
     except approvals.ApprovalError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -117,7 +127,7 @@ def client_task_update(task_id: int, payload: TaskUpdate, identity: dict = Depen
             match = next((row for row in rows if int(row.get("id") or 0) == int(task_id)), None)
             canonical = None if match is None else match.get("canonical_id")
         arguments["canonical_id"] = canonical
-        request = approvals.create_task_update_request(f"app:{identity['app_key']}", arguments, owner=False)
+        request = _direct_task_request(approvals.create_task_update_request, f"app:{identity['app_key']}", arguments, owner=False)
         return {**request, "approval_required": True}
     except approvals.ApprovalError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
@@ -130,7 +140,7 @@ def client_task_delete(task_id: int, mutation_id: str, expected_revision: str, i
     if match is None:
         raise HTTPException(status_code=404, detail="Task not found")
     try:
-        request = approvals.create_task_delete_request(
+        request = _direct_task_request(approvals.create_task_delete_request, 
             f"app:{identity['app_key']}",
             {"canonical_id": match["canonical_id"], "mutation_id": mutation_id, "expected_revision": expected_revision},
             owner=False,

@@ -159,6 +159,16 @@ def _record_failed_proposal(source: str, actor_type: str, tool_key: str, require
 
 
 def _create_action_request(source: str, actor_type: str, action_key: str, normalized: dict[str, Any], arguments_meta: dict[str, Any], required: list[str]) -> dict[str, Any]:
+    from . import tool_authority
+    arguments_meta = dict(arguments_meta)
+    if actor_type == "app":
+        generation = tool_authority.app_generation(source)
+        if generation is None:
+            raise ApprovalError("Connected application is unavailable.", 403)
+        arguments_meta["source_pairing_generation"] = generation
+        if not tool_authority.proposal_requires_tool.get():
+            arguments_meta["requires_tool_permission"] = False
+            required = [permission for permission in required if permission != "tools.execute"]
     request_id = uuid.uuid4().hex
     expires_at = (_now() + timedelta(hours=24)).isoformat()
     request_tool_key = f"{action_key}.request"
@@ -802,7 +812,10 @@ def _reserve_request(request: dict[str, Any]) -> dict[str, Any]:
             raise ApprovalError("Tool is disabled by the HomeServer owner.", 403)
         if row["actor_type"] == "app":
             try:
-                tool_authority.require_current_app(str(row["source_app_key"]), str(row["action_key"]), live_request["arguments"], approval=True)
+                meta = live_request.get("arguments_meta") or {}
+                tool_authority.require_current_app(str(row["source_app_key"]), str(row["action_key"]), live_request["arguments"], approval=True,
+                    requires_tool=meta.get("requires_tool_permission", True) is not False,
+                    expected_generation=meta.get("source_pairing_generation"))
             except tools.ToolError as exc:
                 raise ApprovalError(str(exc), exc.status_code) from exc
         connection.execute("UPDATE action_requests SET status='executing', decided_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'", (request["id"],))
