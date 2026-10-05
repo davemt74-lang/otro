@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from ..database import db
+from ..database import atomic_write, db
 from . import federated_data, local_automation, room_device_automation, tracky_federation_sync, tracky_site_topology
 
 VERSION="2.81"
@@ -126,6 +126,7 @@ def _normalize_steps(raw:Any,origin:str)->list[dict[str,Any]]:
 def _definition_row(row:Any)->dict[str,Any]:
     return _decode(row["definition_json"],{}) if row else {}
 
+@atomic_write
 def create_definition(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,Any]:
     actor_n=_actor(actor or payload.get("actor"));_validate_actor(actor_n)
     origin=_site(payload.get("origin_site_id")); local=_local_site()
@@ -221,6 +222,7 @@ def _write_run(run:dict[str,Any])->None:
         c.execute("UPDATE tracky_federated_automation_runs SET state=?,run_json=?,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE run_id=?",
           (run["state"],_json(run),_text(run.get("last_error"),500),run["run_id"]))
 
+@atomic_write
 def create_run(payload:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,Any]:
     actor_n=_actor(actor or payload.get("actor"));_validate_actor(actor_n)
     automation_id=_id(payload.get("automation_id"),"automation_id",128);definition=get_definition(automation_id)
@@ -278,6 +280,7 @@ def _event(automation_id:str,run_id:str|None,event_kind:str,state:str|None,actor
     with db() as c:c.execute("INSERT INTO tracky_federated_automation_events(automation_id,run_id,event_kind,state,actor_json,detail_json) VALUES (?,?,?,?,?,?)",
       (automation_id,run_id,event_kind,state,_json(actor),_json(detail)))
 
+@atomic_write
 def transition_run(run_id:str,state:str,*,reason:str="",actor:dict[str,Any]|None=None)->dict[str,Any]:
     run=get_run(run_id);next_state=_text(state,30).lower()
     if next_state not in RUN_STATES: raise FederatedAutomationError("Federated automation run state is invalid.")
@@ -289,6 +292,7 @@ def transition_run(run_id:str,state:str,*,reason:str="",actor:dict[str,Any]|None
     run["recovery"]["resume_required"]=next_state=="recovering";run["recovery"]["last_checkpoint_ms"]=now
     _write_run(run);_event(run["automation_id"],run["run_id"],"run.state",next_state,actor_n,run["last_event"]);return get_run(run_id)
 
+@atomic_write
 def cancel_run(run_id:str,*,reason:str="",actor:dict[str,Any]|None=None)->dict[str,Any]:
     run=get_run(run_id)
     if run["state"] in TERMINAL_RUN:return run
@@ -302,6 +306,7 @@ def cancel_run(run_id:str,*,reason:str="",actor:dict[str,Any]|None=None)->dict[s
     _event(run["automation_id"],run_id,"run.cancelled","cancelled",actor_n,{"reason":_text(reason,240)})
     return get_run(run_id)
 
+@atomic_write
 def recover_incomplete_runs()->dict[str,Any]:
     recovered=[]
     with db() as c:
@@ -345,6 +350,7 @@ def _event_occurred_ms(event:dict[str,Any])->int:
     try:return int(datetime.fromisoformat(raw.replace("Z","+00:00")).timestamp()*1000)
     except ValueError:return 0
 
+@atomic_write
 def process_physical_trigger_events(event_ids:list[str],*,now_ms:int|None=None)->list[dict[str,Any]]:
     now=int(now_ms or _now_ms());local=_local_site()
     reconciliation=federated_data.reconciliation_state("vp3_cloud")
@@ -439,12 +445,22 @@ def _run_step(run:dict[str,Any],step_id:str)->dict[str,Any]:
     if step is None: raise FederatedAutomationError("Federated automation run step was not found.",404)
     return step
 
+@atomic_write
 def create_step_dispatch(run_id:str,step_id:str,*,approval_id:str="",actor:dict[str,Any]|None=None)->dict[str,Any]:
     run=get_run(run_id); definition=get_definition(run["automation_id"]); step_id=_id(step_id,"step_id",80)
     spec=_definition_step(definition,step_id); state=_run_step(run,step_id)
     if run["state"] in TERMINAL_RUN: raise FederatedAutomationError("Terminal federated automation run cannot dispatch.",409)
     if state["state"]!="ready": raise FederatedAutomationError("Federated automation step is not ready.",409)
     authority=_authority_for_site(spec["authority_site_id"])
+    if state.get("dispatch_id"):
+        with db() as c:
+            prior=c.execute("SELECT dispatch_json FROM tracky_federated_automation_dispatches WHERE dispatch_id=?",(state["dispatch_id"],)).fetchone()
+        if prior is not None:
+            dispatch=_decode(prior["dispatch_json"],{})
+            if int(dispatch.get("authority_epoch") or 0)!=authority["authority_epoch"]:
+                raise FederatedAutomationError("Existing dispatch authority changed; a new attempt requires owner review.",409)
+            actor_n=_actor(actor);_validate_actor(actor_n)
+            return dispatch
     attempt=int(state.get("attempt") or 0)+1
     dispatch_id="fad-"+hashlib.sha256(f'{run_id}|{step_id}|{attempt}|{authority["site_id"]}|{authority["authority_epoch"]}'.encode("utf-8")).hexdigest()[:40]
     idem="exec:"+hashlib.sha256(f'{run_id}|{step_id}|{attempt}'.encode("utf-8")).hexdigest()[:48]
@@ -468,6 +484,34 @@ def create_step_dispatch(run_id:str,step_id:str,*,approval_id:str="",actor:dict[
     _event(run["automation_id"],run_id,"step.dispatched","ready",actor_n,{"step_id":step_id,"dispatch_id":dispatch_id,"authority_site_id":spec["authority_site_id"],"authority_epoch":authority["authority_epoch"]})
     return dispatch
 
+@atomic_write
+def _claim_execution_dispatch(dispatch:dict[str,Any])->dict[str,Any]|None:
+    dispatch_id=str(dispatch["dispatch_id"])
+    if dispatch.get("origin_site_id")==_local_site() and get_run(str(dispatch["run_id"]))["state"] in TERMINAL_RUN:
+        raise FederatedAutomationError("Terminal federated automation cannot execute.",409)
+    with db() as c:
+        stored=c.execute("SELECT state,dispatch_json FROM tracky_federated_automation_dispatches WHERE dispatch_id=?",(dispatch_id,)).fetchone()
+        if stored is not None and _hash(_decode(stored["dispatch_json"],{}))!=_hash(dispatch):
+            raise FederatedAutomationError("Execution dispatch identity conflicts with its durable ledger.",409)
+        prior=c.execute("SELECT receipt_json FROM tracky_federated_automation_execution_receipts WHERE dispatch_id=?",(dispatch_id,)).fetchone()
+        if prior is not None:return _decode(prior["receipt_json"],{})
+        if stored is None:
+            c.execute("""INSERT INTO tracky_federated_automation_dispatches(dispatch_id,idempotency_key,run_id,step_id,authority_site_id,authority_epoch,state,dispatch_json)
+              VALUES (?,?,?,?,?,?,'created',?)""",(dispatch_id,str(dispatch.get("idempotency_key") or ""),dispatch["run_id"],dispatch["step_id"],dispatch["authority_site_id"],int(dispatch["authority_epoch"]),_json(dispatch)))
+        changed=c.execute("UPDATE tracky_federated_automation_dispatches SET state='running',updated_at=CURRENT_TIMESTAMP WHERE dispatch_id=? AND state='created'",(dispatch_id,))
+        if changed.rowcount!=1:
+            raise FederatedAutomationError("Execution is already claimed; an uncertain interrupted action requires owner review before a new attempt.",409)
+    return None
+
+@atomic_write
+def _record_execution_receipt(dispatch:dict[str,Any],receipt:dict[str,Any],actor:dict[str,Any])->None:
+    with db() as c:
+        c.execute("""INSERT INTO tracky_federated_automation_execution_receipts(
+          receipt_id,dispatch_id,idempotency_key,run_id,step_id,authority_site_id,authority_epoch,status,receipt_json
+        ) VALUES (?,?,?,?,?,?,?,?,?)""",(receipt["receipt_id"],receipt["dispatch_id"],str(receipt["idempotency_key"] or ""),receipt["run_id"],receipt["step_id"],receipt["authority_site_id"],receipt["authority_epoch"],receipt["status"],_json(receipt)))
+        c.execute("UPDATE tracky_federated_automation_dispatches SET state=?,updated_at=CURRENT_TIMESTAMP WHERE dispatch_id=? AND state='running'",(receipt["status"],receipt["dispatch_id"]))
+    _event(str(dispatch["automation_id"]),str(dispatch["run_id"]),"step.executed",receipt["status"],actor,{"step_id":dispatch["step_id"],"dispatch_id":receipt["dispatch_id"],"authority_site_id":receipt["authority_site_id"]})
+
 def execute_step_dispatch(dispatch:dict[str,Any],*,executor_device_id:str,permission_grants:list[str],actor:dict[str,Any]|None=None)->dict[str,Any]:
     if not isinstance(dispatch,dict) or dispatch.get("protocol")!=EXECUTION_PROTOCOL: raise FederatedAutomationError("Federated execution protocol is invalid.")
     dispatch_id=_id(dispatch.get("dispatch_id"),"dispatch_id",160);local=_local_site();authority_site=_site(dispatch.get("authority_site_id"))
@@ -483,10 +527,9 @@ def execute_step_dispatch(dispatch:dict[str,Any],*,executor_device_id:str,permis
     if missing: raise FederatedAutomationError("Federated execution permission denied.",403)
     if dispatch.get("action_type")=="physical_action" and dispatch.get("approval_mode")!="inherit" and not dispatch.get("approval_id"):
         raise FederatedAutomationError("Physical federated action requires approved execution evidence.",403)
-    with db() as c:
-        prior=c.execute("SELECT receipt_json FROM tracky_federated_automation_execution_receipts WHERE dispatch_id=?",(dispatch_id,)).fetchone()
-        if prior is not None:return _decode(prior["receipt_json"],{})
     actor_n=_actor(actor);_validate_actor(actor_n)
+    prior=_claim_execution_dispatch(dispatch)
+    if prior is not None:return prior
     status="completed";result:dict[str,Any]={};error=""
     try:
         action_type=str(dispatch.get("action_type") or "")
@@ -508,14 +551,10 @@ def execute_step_dispatch(dispatch:dict[str,Any],*,executor_device_id:str,permis
       "dispatch_id":dispatch_id,"idempotency_key":dispatch.get("idempotency_key"),"run_id":dispatch["run_id"],"step_id":dispatch["step_id"],
       "attempt":int(dispatch.get("attempt") or 1),"authority_site_id":authority_site,"authority_epoch":authority["authority_epoch"],
       "executor_device_id":authority["device_id"],"status":status,"result":result,"error":error or None,"completed_at_ms":_now_ms()}
-    with db() as c:
-        c.execute("""INSERT INTO tracky_federated_automation_execution_receipts(
-          receipt_id,dispatch_id,idempotency_key,run_id,step_id,authority_site_id,authority_epoch,status,receipt_json
-        ) VALUES (?,?,?,?,?,?,?,?,?)""",(receipt["receipt_id"],dispatch_id,str(receipt["idempotency_key"] or ""),receipt["run_id"],receipt["step_id"],authority_site,authority["authority_epoch"],status,_json(receipt)))
-        c.execute("UPDATE tracky_federated_automation_dispatches SET state=?,updated_at=CURRENT_TIMESTAMP WHERE dispatch_id=?",(status,dispatch_id))
-    _event(str(dispatch["automation_id"]),str(dispatch["run_id"]),"step.executed",status,actor_n,{"step_id":dispatch["step_id"],"dispatch_id":dispatch_id,"authority_site_id":authority_site})
+    _record_execution_receipt(dispatch,receipt,actor_n)
     return receipt
 
+@atomic_write
 def apply_execution_receipt(receipt:dict[str,Any],*,actor:dict[str,Any]|None=None)->dict[str,Any]:
     if not isinstance(receipt,dict) or receipt.get("protocol")!=EXECUTION_PROTOCOL: raise FederatedAutomationError("Federated execution receipt protocol is invalid.")
     run=get_run(str(receipt.get("run_id") or ""));definition=get_definition(run["automation_id"]);step_id=_id(receipt.get("step_id"),"step_id",80)
@@ -526,6 +565,15 @@ def apply_execution_receipt(receipt:dict[str,Any],*,actor:dict[str,Any]|None=Non
     if state.get("dispatch_id") and state["dispatch_id"]!=receipt.get("dispatch_id"): raise FederatedAutomationError("Execution receipt dispatch mismatch.",409)
     status=_text(receipt.get("status"),30).lower()
     if status not in {"completed","failed"}: raise FederatedAutomationError("Execution receipt state is invalid.")
+    actor_n=_actor(actor);_validate_actor(actor_n)
+    fingerprint=_hash(receipt)
+    if state.get("execution_receipt_fingerprint")==fingerprint:
+        return run
+    if run["state"] in TERMINAL_RUN or state["state"] in TERMINAL_STEP:
+        raise FederatedAutomationError("Terminal federated automation cannot accept a changed receipt.",409)
+    if not state.get("dispatch_id") or state["dispatch_id"]!=receipt.get("dispatch_id") or int(receipt.get("attempt") or 0)!=int(state.get("attempt") or 0):
+        raise FederatedAutomationError("Execution receipt has no matching dispatch attempt.",409)
+    state["execution_receipt_fingerprint"]=fingerprint
     now=int(receipt.get("completed_at_ms") or _now_ms());state["state"]=status;state["last_error"]=_text(receipt.get("error"),500) if status=="failed" else None;state["updated_at_ms"]=now
     for candidate in run["steps"]:
         if candidate["state"]=="blocked" and all(next((x for x in run["steps"] if x["step_id"]==dep),{}).get("state")=="completed" for dep in candidate["depends_on"]):
@@ -559,6 +607,7 @@ def cloud_projection()->dict[str,Any]:
                "state":x["state"],"deadline_at_ms":x["deadline_at_ms"],"step_states":{s["step_id"]:s["state"] for s in x["steps"]}} for x in runs],
       "trigger_receipts":trigger_receipts(100),"execution_receipts":[{"receipt_id":x.get("receipt_id"),"dispatch_id":x.get("dispatch_id"),"run_id":x.get("run_id"),"step_id":x.get("step_id"),"authority_site_id":x.get("authority_site_id"),"authority_epoch":x.get("authority_epoch"),"status":x.get("status"),"completed_at_ms":x.get("completed_at_ms")} for x in execution_receipts(100)],"agent_context":agent_context(),"summary_only":True,"cloud_read_only":True,"remote_action_execution":False,"authority_mutation":False}
 
+@atomic_write
 def expire_due_runs(now_ms:int|None=None)->dict[str,Any]:
     cutoff=int(now_ms or _now_ms());expired=[]
     with db() as c:

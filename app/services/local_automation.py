@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ..database import db
+from ..database import atomic_write, db
 from . import approvals, homeserver_app_control, homeserver_apps, room_device_automation
 
 AUTOMATION_RULES_VERSION = "v0.80"
@@ -84,6 +84,7 @@ def get_settings() -> dict[str, Any]:
     return item
 
 
+@atomic_write
 def update_settings(
     *,
     enabled: bool,
@@ -190,6 +191,7 @@ def _assert_routine_not_bound_to_room_mode(routine_key: str) -> None:
         )
 
 
+@atomic_write
 def upsert_routine(
     routine_key: str,
     name: str,
@@ -306,6 +308,7 @@ def list_routines() -> list[dict[str, Any]]:
     return [get_routine(str(row["routine_key"])) for row in rows]
 
 
+@atomic_write
 def set_routine_enabled(routine_key: str, enabled: bool) -> dict[str, Any]:
     routine = get_routine(routine_key)
     with db() as connection:
@@ -431,6 +434,7 @@ def _validate_conditions(conditions: list[dict[str, Any]]) -> list[dict[str, Any
     return output
 
 
+@atomic_write
 def upsert_rule(
     rule_key: str,
     name: str,
@@ -546,6 +550,7 @@ def list_rules() -> list[dict[str, Any]]:
     return [get_rule(str(row["rule_key"])) for row in rows]
 
 
+@atomic_write
 def set_rule_enabled(rule_key: str, enabled: bool) -> dict[str, Any]:
     rule = get_rule(rule_key)
     next_run = rule.get("next_run_at")
@@ -574,6 +579,7 @@ def set_rule_enabled(rule_key: str, enabled: bool) -> dict[str, Any]:
     return get_rule(rule["rule_key"])
 
 
+@atomic_write
 def create_disabled_draft_pair(
     *,
     routine_key: str,
@@ -782,7 +788,7 @@ def _rate_limited(settings: dict[str, Any], now: datetime) -> bool:
     cutoff = (now - timedelta(minutes=1)).isoformat()
     with db() as connection:
         count = int(connection.execute(
-            "SELECT COUNT(*) FROM automation_rule_executions WHERE created_at>=? AND status IN ('suggested','requested')",
+            "SELECT COUNT(*) FROM automation_rule_executions WHERE datetime(created_at)>=datetime(?) AND status IN ('suggested','requested')",
             (cutoff,),
         ).fetchone()[0])
     return count >= int(settings["max_rule_fires_per_minute"])
@@ -823,6 +829,7 @@ def _record_execution(
         return int(cursor.lastrowid)
 
 
+@atomic_write
 def run_routine(
     routine_key: str,
     *,
@@ -962,8 +969,11 @@ def _fire_rule(rule: dict[str, Any], snapshot: dict[str, Any], now: datetime) ->
     return {"fired": True, **result}
 
 
+@atomic_write
 def evaluate_rule(rule_key: str, *, force_manual: bool = False) -> dict[str, Any]:
     rule = get_rule(rule_key)
+    if not get_settings()["enabled"] and not force_manual:
+        return {"fired": False, "reason": "disabled", "rule_key": rule["rule_key"]}
     if not rule["enabled"] or not rule["routine_enabled"]:
         return {"fired": False, "reason": "disabled", "rule_key": rule["rule_key"]}
     now = _now()
@@ -1122,6 +1132,7 @@ def list_app_suggestions(status: str = "suggested", limit: int = 100) -> list[di
     } for row in rows]
 
 
+@atomic_write
 def decide_app_suggestion(suggestion_id: int, decision: str) -> dict[str, Any]:
     choice = str(decision or "").strip().lower()
     if choice not in {"accept","dismiss"}:
@@ -1270,9 +1281,11 @@ def stop() -> None:
     _STOP.set()
     with _LOCK:
         thread = _THREAD
-        _THREAD = None
     if thread and thread.is_alive():
         thread.join(timeout=2.0)
+    with _LOCK:
+        if _THREAD is thread and (thread is None or not thread.is_alive()):
+            _THREAD = None
 
 
 def public_capability() -> dict[str, Any]:
