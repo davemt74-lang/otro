@@ -5,7 +5,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ..database import db
+from ..database import db, atomic_write
 
 
 class TaskError(RuntimeError):
@@ -144,6 +144,7 @@ def get_task(task_id: int) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+@atomic_write
 def create_task(payload: dict[str, Any], *, source_app_key: str | None = None, created_by_type: str = "owner") -> dict[str, Any]:
     normalized = _normalize_task_input(payload)
     source = str(source_app_key or "").strip() or None
@@ -180,7 +181,8 @@ def create_task(payload: dict[str, Any], *, source_app_key: str | None = None, c
     return dict(row)
 
 
-def update_task(task_id: int, payload: dict[str, Any], *, source_app_key: str | None = None, actor_type: str = "owner") -> dict[str, Any]:
+@atomic_write
+def update_task(task_id: int, payload: dict[str, Any], *, expected_revision: str | None = None, source_app_key: str | None = None, actor_type: str = "owner") -> dict[str, Any]:
     if not payload:
         raise TaskError("No task fields were supplied.")
     normalized = _normalize_task_input(payload, partial=True)
@@ -188,6 +190,10 @@ def update_task(task_id: int, payload: dict[str, Any], *, source_app_key: str | 
         current = _task_row(connection, int(task_id))
         if current is None:
             raise TaskError("Task not found.", 404)
+        if expected_revision is not None:
+            from .task_calendar_continuity import _task_revision, _expected_revision
+            if _task_revision(dict(current)) != _expected_revision(expected_revision):
+                raise TaskError("Task changed. Reload before saving.", 409)
         if "contact_id" in normalized and not _contact_exists(connection, normalized["contact_id"]):
             raise TaskError("Linked contact was not found.", 404)
 
@@ -222,9 +228,17 @@ def update_task(task_id: int, payload: dict[str, Any], *, source_app_key: str | 
     return dict(row)
 
 
-def delete_task(task_id: int) -> bool:
+@atomic_write
+def delete_task(task_id: int, *, expected_revision: str | None = None) -> bool:
     deleted = False
     with db() as connection:
+        current = _task_row(connection, int(task_id))
+        if current is None:
+            return False
+        if expected_revision is not None:
+            from .task_calendar_continuity import _task_revision, _expected_revision
+            if _task_revision(dict(current)) != _expected_revision(expected_revision):
+                raise TaskError("Task changed. Reload before removing it.", 409)
         cursor = connection.execute("DELETE FROM tasks WHERE id=?", (int(task_id),))
         deleted = bool(cursor.rowcount)
         if deleted:
@@ -269,7 +283,8 @@ def list_tasks(*, status: str | None = None, q: str = "", limit: int = 250) -> l
             """,
             params,
         ).fetchall()
-    return [dict(row) for row in rows]
+    from .task_calendar_continuity import _task_revision
+    return [{**dict(row), "record_revision": _task_revision(dict(row))} for row in rows]
 
 
 def list_notifications(*, unread_only: bool = False, include_dismissed: bool = False, limit: int = 200) -> list[dict[str, Any]]:
@@ -341,6 +356,7 @@ def _next_reminder(current: datetime, recurrence: str, interval: int, now: datet
     raise TaskError("Could not advance recurring reminder safely.", 500)
 
 
+@atomic_write
 def run_due_reminders(*, now: datetime | None = None, limit: int = 100) -> dict[str, int]:
     current = (now or _now()).astimezone(timezone.utc)
     current_iso = _iso(current)

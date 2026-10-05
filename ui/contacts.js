@@ -4,6 +4,10 @@
   const byId = id => document.getElementById(id);
   const esc = (value = '') => String(value).replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
   let editingId = null;
+  let editingRevision = null;
+  let requestGeneration = 0;
+  let formGeneration = 0;
+  let pendingCreate = null;
   let searchTimer = null;
 
   async function api(path, options = {}) {
@@ -26,7 +30,7 @@
   }
 
   function clearForm() {
-    editingId = null;
+    editingId = null; editingRevision = null; pendingCreate = null; formGeneration++;
     const form = byId('contactForm');
     form?.reset();
     byId('contactFormTitle').textContent = 'Add contact';
@@ -35,7 +39,7 @@
   }
 
   function fillForm(contact) {
-    editingId = Number(contact.id);
+    editingId = Number(contact.id); editingRevision = contact.record_revision; formGeneration++;
     byId('contactDisplayName').value = contact.display_name || '';
     byId('contactFirstName').value = contact.first_name || '';
     byId('contactLastName').value = contact.last_name || '';
@@ -51,8 +55,10 @@
   }
 
   async function loadContacts() {
+    const generation = ++requestGeneration;
     const query = encodeURIComponent(byId('contactsSearch')?.value || '');
     const data = await api(`/api/v1/control/contacts?q=${query}&limit=500`);
+    if (generation !== requestGeneration) return;
     const list = byId('contactsList');
     const count = byId('contactsCount');
     if (count) count.textContent = `${data.items.length} contact${data.items.length === 1 ? '' : 's'}`;
@@ -77,7 +83,7 @@
     const list = byId('contactsList');
     try {
       const items = JSON.parse(list?.dataset.contacts || '[]');
-      return items.find(item => Number(item.id) === Number(id)) || null;
+      return items.find(item => !item.read_only && item.authority_source === 'homeserver' && Number(item.id) === Number(id)) || null;
     } catch (_) { return null; }
   }
 
@@ -101,7 +107,7 @@
       if (contact?.read_only) { flash('Cloud contacts are read-only on HomeServer. Edit them in VP3 Cloud.', true); return; }
       if (!confirm(`Delete ${contact?.display_name || 'this contact'}?`)) return;
       try {
-        await api(`/api/v1/control/contacts/${encodeURIComponent(remove.dataset.deleteContact)}`, {method:'DELETE'});
+        await api(`/api/v1/control/contacts/${encodeURIComponent(remove.dataset.deleteContact)}?expected_revision=${encodeURIComponent(contact.record_revision)}`, {method:'DELETE'});
         if (editingId === Number(remove.dataset.deleteContact)) clearForm();
         await loadContacts();
         flash('Contact deleted.');
@@ -113,7 +119,9 @@
     event.preventDefault();
     const wasEditing = Boolean(editingId);
     const targetId = editingId;
+    const generation = formGeneration;
     const payload = {
+      expected_revision: wasEditing ? editingRevision : null,
       display_name: byId('contactDisplayName').value || null,
       first_name: byId('contactFirstName').value || null,
       last_name: byId('contactLastName').value || null,
@@ -123,11 +131,12 @@
       relationship: byId('contactRelationship').value || null,
       notes: byId('contactNotes').value || '',
     };
+    if(!wasEditing){const fingerprint=JSON.stringify(payload);if(!pendingCreate||pendingCreate.fingerprint!==fingerprint)pendingCreate={fingerprint,id:crypto.randomUUID()};payload.mutation_id=pendingCreate.id;}
     try {
       const path = wasEditing ? `/api/v1/control/contacts/${targetId}` : '/api/v1/control/contacts';
       const method = wasEditing ? 'PUT' : 'POST';
       await api(path, {method, body: JSON.stringify(payload)});
-      clearForm();
+      if (generation === formGeneration) clearForm();
       await loadContacts();
       flash(wasEditing ? 'Contact updated.' : 'Contact saved.');
     } catch (err) { flash(err.message, true); }

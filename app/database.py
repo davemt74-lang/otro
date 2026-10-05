@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
+from functools import wraps
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -44,8 +46,49 @@ def connect() -> sqlite3.Connection:
     return connection
 
 
+_atomic_state = threading.local()
+
+
+def atomic_write(function):
+    """Keep nested service writes, revisions and retry receipts in one SQLite commit."""
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        if getattr(_atomic_state, "connection", None) is not None:
+            return function(*args, **kwargs)
+        connection = connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            _atomic_state.connection = connection
+            result = function(*args, **kwargs)
+            connection.commit()
+            return result
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            _atomic_state.connection = None
+            connection.close()
+    return wrapped
+
+
 @contextmanager
 def db() -> Iterator[sqlite3.Connection]:
+    active = getattr(_atomic_state, "connection", None)
+    if active is not None:
+        # A service may handle an inner failure; its partial changes must not leak.
+        name = "nested_" + str(getattr(_atomic_state, "depth", 0))
+        _atomic_state.depth = getattr(_atomic_state, "depth", 0) + 1
+        active.execute("SAVEPOINT " + name)
+        try:
+            yield active
+            active.execute("RELEASE SAVEPOINT " + name)
+        except BaseException:
+            active.execute("ROLLBACK TO SAVEPOINT " + name)
+            active.execute("RELEASE SAVEPOINT " + name)
+            raise
+        finally:
+            _atomic_state.depth -= 1
+        return
     connection = connect()
     try:
         yield connection

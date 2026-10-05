@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const state = {tasks: [], notifications: [], filter: 'open'};
+  const state = {tasks: [], notifications: [], filter: 'open', revision:null, generation:0, loadGeneration:0, createRequest:null};
   const flash = (message, type='success') => { $('flash').textContent = message || ''; $('flash').className = `flash ${message ? type : ''}`; };
   const api = async (url, options={}) => {
     const response = await fetch(url, {cache:'no-store', credentials:'same-origin', ...options, headers:{'Content-Type':'application/json', ...(options.headers||{})}});
@@ -48,31 +48,32 @@
     $('notificationsList').innerHTML = visible.length ? visible.map(n => `
       <div class="notification ${n.read_at?'':'unread'}" data-notification-id="${n.id}"><strong>${esc(n.title)}</strong><p>${esc(n.body || '')}</p><div class="meta"><span class="chip">${esc(n.level)}</span>${n.task_id ? `<span class="chip">Task #${n.task_id}</span>`:''}<span class="chip">${esc(fmt(n.created_at))}</span></div><div class="task-actions">${n.read_at?'':`<button class="button" data-read="${n.id}">Mark read</button>`}<button class="button" data-dismiss="${n.id}">Dismiss</button></div></div>`).join('') : '<div class="empty">No notifications yet.</div>';
   };
-  const loadTasks = async () => { const q = $('search').value.trim(); const data = await api(`/api/v1/control/tasks?q=${encodeURIComponent(q)}`); state.tasks = data.items || []; renderTasks(); };
+  const loadTasks = async () => { const generation=++state.loadGeneration; const q = $('search').value.trim(); const data = await api(`/api/v1/control/tasks?q=${encodeURIComponent(q)}`); if(generation!==state.loadGeneration)return; state.tasks = data.items || []; renderTasks(); };
   const loadNotifications = async () => { const data = await api('/api/v1/control/task-notifications'); state.notifications = data.items || []; renderNotifications(); };
   const loadAll = async () => { try { await Promise.all([loadTasks(), loadNotifications()]); flash(''); } catch (e) { flash(e.message,'error'); } };
   const resetForm = () => {
-    $('taskId').value=''; $('taskFormTitle').textContent='Create task or reminder'; $('title').value=''; $('description').value=''; $('priority').value='normal'; $('status').value='pending'; $('dueAt').value=''; $('remindAt').value=''; $('recurrence').value='none'; $('recurrenceInterval').value='1'; $('contactId').value=''; $('cancelEdit').classList.add('hidden');
+    state.revision=null; state.createRequest=null; state.generation++; $('taskId').value=''; $('taskFormTitle').textContent='Create task or reminder'; $('title').value=''; $('description').value=''; $('priority').value='normal'; $('status').value='pending'; $('dueAt').value=''; $('remindAt').value=''; $('recurrence').value='none'; $('recurrenceInterval').value='1'; $('contactId').value=''; $('cancelEdit').classList.add('hidden');
   };
   const editTask = task => {
-    $('taskId').value=task.id; $('taskFormTitle').textContent=`Edit task #${task.id}`; $('title').value=task.title||''; $('description').value=task.description||''; $('priority').value=task.priority; $('status').value=task.status; $('dueAt').value=localValue(task.due_at); $('remindAt').value=localValue(task.remind_at); $('recurrence').value=task.recurrence; $('recurrenceInterval').value=task.recurrence_interval||1; $('contactId').value=task.contact_id||''; $('cancelEdit').classList.remove('hidden'); window.scrollTo({top:0,behavior:'smooth'});
+    state.revision=task.record_revision; state.generation++; $('taskId').value=task.id; $('taskFormTitle').textContent=`Edit task #${task.id}`; $('title').value=task.title||''; $('description').value=task.description||''; $('priority').value=task.priority; $('status').value=task.status; $('dueAt').value=localValue(task.due_at); $('remindAt').value=localValue(task.remind_at); $('recurrence').value=task.recurrence; $('recurrenceInterval').value=task.recurrence_interval||1; $('contactId').value=task.contact_id||''; $('cancelEdit').classList.remove('hidden'); window.scrollTo({top:0,behavior:'smooth'});
   };
   $('taskForm').addEventListener('submit', async event => {
     event.preventDefault();
-    const id = $('taskId').value;
-    const payload = {title:$('title').value.trim(), description:$('description').value.trim(), priority:$('priority').value, status:$('status').value, due_at:isoValue($('dueAt').value), remind_at:isoValue($('remindAt').value), recurrence:$('recurrence').value, recurrence_interval:Number($('recurrenceInterval').value||1), contact_id:$('contactId').value?Number($('contactId').value):null};
-    try { await api(id ? `/api/v1/control/tasks/${id}` : '/api/v1/control/tasks', {method:id?'PATCH':'POST', body:JSON.stringify(payload)}); flash(id?'Task updated.':'Task created.'); resetForm(); await loadAll(); } catch(e){ flash(e.message,'error'); }
+    const id = $('taskId').value, generation=state.generation;
+    const payload = {expected_revision:id?state.revision:undefined, title:$('title').value.trim(), description:$('description').value.trim(), priority:$('priority').value, status:$('status').value, due_at:isoValue($('dueAt').value), remind_at:isoValue($('remindAt').value), recurrence:$('recurrence').value, recurrence_interval:Number($('recurrenceInterval').value||1), contact_id:$('contactId').value?Number($('contactId').value):null};
+    if(!id){const fingerprint=JSON.stringify(payload);if(!state.createRequest||state.createRequest.fingerprint!==fingerprint)state.createRequest={fingerprint,id:crypto.randomUUID()};payload.mutation_id=state.createRequest.id;}
+    try { await api(id ? `/api/v1/control/tasks/${id}` : '/api/v1/control/tasks', {method:id?'PATCH':'POST', body:JSON.stringify(payload)}); flash(id?'Task updated.':'Task created.'); if(generation===state.generation)resetForm(); await loadAll(); } catch(e){ flash(e.message,'error'); }
   });
   $('cancelEdit').addEventListener('click', resetForm);
   $('refreshTasks').addEventListener('click', loadTasks);
   $('refreshNotifications').addEventListener('click', loadNotifications);
-  $('search').addEventListener('input', () => { clearTimeout(window.__taskSearch); window.__taskSearch=setTimeout(loadTasks,250); });
+  $('search').addEventListener('input', () => { clearTimeout(window.__taskSearch); window.__taskSearch=setTimeout(()=>loadTasks().catch(e=>flash(e.message,'error')),250); });
   document.querySelector('.tabs').addEventListener('click', event => { const button=event.target.closest('[data-filter]'); if(!button)return; state.filter=button.dataset.filter; document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===button)); renderTasks(); });
   $('tasksList').addEventListener('click', async event => {
     const edit=event.target.closest('[data-edit]'), complete=event.target.closest('[data-complete]'), del=event.target.closest('[data-delete]');
     if(edit){ const task=state.tasks.find(x=>x.id===Number(edit.dataset.edit)); if(task) editTask(task); return; }
-    if(complete){ try{ await api(`/api/v1/control/tasks/${complete.dataset.complete}`,{method:'PATCH',body:JSON.stringify({status:'completed'})}); flash('Task completed.'); await loadAll(); }catch(e){flash(e.message,'error');} return; }
-    if(del){ if(!confirm('Delete this task?')) return; try{ await api(`/api/v1/control/tasks/${del.dataset.delete}`,{method:'DELETE'}); flash('Task deleted.'); await loadAll(); }catch(e){flash(e.message,'error');} }
+    if(complete){ try{ await api(`/api/v1/control/tasks/${complete.dataset.complete}`,{method:'PATCH',body:JSON.stringify({status:'completed',expected_revision:state.tasks.find(x=>x.id===Number(complete.dataset.complete))?.record_revision})}); flash('Task completed.'); await loadAll(); }catch(e){flash(e.message,'error');} return; }
+    if(del){ if(!confirm('Delete this task?')) return; try{ await api(`/api/v1/control/tasks/${del.dataset.delete}?expected_revision=${encodeURIComponent(state.tasks.find(x=>x.id===Number(del.dataset.delete))?.record_revision||'')}`,{method:'DELETE'}); flash('Task deleted.'); await loadAll(); }catch(e){flash(e.message,'error');} }
   });
   $('notificationsList').addEventListener('click', async event => {
     const read=event.target.closest('[data-read]'), dismiss=event.target.closest('[data-dismiss]');
