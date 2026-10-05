@@ -66,7 +66,7 @@ def _json_object(value: Any, maximum_bytes: int, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RoomDeviceError(f"{label} must be an object.")
     try:
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise RoomDeviceError(f"{label} must be JSON serializable.") from exc
     if len(encoded) > maximum_bytes:
@@ -464,7 +464,7 @@ def normalize_command(device: dict[str, Any], command: str, arguments: Any) -> t
                 raise RoomDeviceError("brightness must be an integer.")
             try:
                 brightness = int(value)
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, OverflowError) as exc:
                 raise RoomDeviceError("brightness must be an integer.") from exc
             if brightness < 0 or brightness > 100:
                 raise RoomDeviceError("brightness must be between 0 and 100.")
@@ -482,7 +482,7 @@ def normalize_command(device: dict[str, Any], command: str, arguments: Any) -> t
                 temp = float(raw)
             except (TypeError, ValueError) as exc:
                 raise RoomDeviceError("temperature_f must be numeric.") from exc
-            if temp < 50 or temp > 90:
+            if not 50 <= temp <= 90:
                 raise RoomDeviceError("temperature_f must be between 50 and 90.")
             return cmd, {"temperature_f": round(temp, 1)}
         if cmd == "set_mode":
@@ -661,6 +661,8 @@ def execute_command(
         result = driver(device, validated["command"], dict(validated["arguments"]))
         if not isinstance(result, dict):
             raise RoomDeviceError("Provider driver returned an invalid result.", 502)
+        if "state" in result and not isinstance(result["state"], dict):
+            raise RoomDeviceError("Provider driver returned an invalid state.", 502)
         if any(key in result and result[key] is not True for key in ("ok", "executed", "success", "accepted")):
             raise RoomDeviceError("Provider did not confirm the device command.", 502)
         if "state" not in result and result.get("ok") is not True and result.get("executed") is not True:

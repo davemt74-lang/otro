@@ -94,10 +94,24 @@ devices.upsert_provider("local", "Local", "test", executable=True, status="disco
 reject(lambda: approvals.approve_request(pending), 503)
 assert not calls
 
+# Invalid numeric commands cannot create approvals or dispatch hardware.
+reset()
+thermostat = devices.upsert_device("thermostat", "local", "physical-thermostat", "Thermostat", "thermostat",
+    room_key="living", controllable=True)
+before = count_requests()
+for value in ("nan", "Infinity", "-Infinity", float("nan"), float("inf"), 49, 91):
+    reject(lambda: approvals.create_device_command_request("owner", {
+        "device_key": "thermostat", "command": "set_temperature", "arguments": {"temperature_f": value}
+    }, owner=True), 422)
+for value in (float("inf"), float("nan")):
+    reject(lambda: devices.normalize_command(devices.get_device("lamp"), "set_brightness", {"brightness": value}), 422)
+assert devices.normalize_command(thermostat, "set_temperature", {"temperature_f": "72.5"}) == ("set_temperature", {"temperature_f": 72.5})
+assert count_requests() == before and not calls
+
 # A negative, queued-only, malformed or unsafe driver acknowledgement never
 # becomes a successful action and never publishes provider exception content.
 for result in ({"ok": False, "state": {"power": "on"}}, {"ok": "false"},
-               {"accepted": True}, {}, {"state": []}):
+               {"accepted": True}, {}, {"state": []}, {"state": None}, {"state": {"value": float("nan")}}):
     reset(); pending = propose()
     devices.register_driver("local", lambda *_: result)
     reject(lambda: approvals.approve_request(pending), 502)
@@ -156,8 +170,10 @@ state = {"type": "state", "seq": 1, "components": {
     "microphone": {"present": True, "ready": True},
     "privacy_switch": {"present": True, "ready": True, "engaged": False}}}
 class SilentSerial:
-    def __init__(self):
+    def __init__(self, extra=None):
         self.frames = [json.dumps(hello).encode(), json.dumps(state).encode()]
+        if extra is not None:
+            self.frames.append(json.dumps(extra).encode())
         self.closed = False
     def readline(self, *_): return self.frames.pop(0) if self.frames else b""
     def write(self, data): return len(data)
@@ -167,14 +183,15 @@ class OneAttempt(hardware_adapters.HardwareAdapterManager):
     def _mark_disconnected(self, error):
         super()._mark_disconnected(error)
         self._stop.set()
-serial = SilentSerial(); manager = OneAttempt()
-with patch.object(manager, "_serial_module", return_value=(SimpleNamespace(Serial=lambda **_: serial), None)), \
-     patch.object(manager, "_select_port", return_value="test"), \
-     patch.object(hardware_adapters.time, "monotonic", side_effect=[0.0, 0.0, 0.0, 11.0]):
-    manager._run_serial()
-assert serial.closed and manager.status()["connected"] is False
-assert "stopped reporting" in manager.status()["last_error"]
-assert vp3_os.hardware_inventory()["microphone"]["ready"] is False
+for extra in (None, {"type": "ack", "ok": True}, state):
+    serial = SilentSerial(extra); manager = OneAttempt()
+    with patch.object(manager, "_serial_module", return_value=(SimpleNamespace(Serial=lambda **_: serial), None)), \
+         patch.object(manager, "_select_port", return_value="test"), \
+         patch.object(hardware_adapters.time, "monotonic", side_effect=[0.0, 0.0, 0.0, 11.0]):
+        manager._run_serial()
+    assert serial.closed and manager.status()["connected"] is False
+    assert "stopped reporting" in manager.status()["last_error"]
+    assert vp3_os.hardware_inventory()["microphone"]["ready"] is False
 assert hardware_adapters.normalize_controller_message({"type": "ack", "ok": "false"})["ok"] is False
 assert hardware_adapters.normalize_controller_message({"type": "ack", "ok": True})["ok"] is True
 print("SECTION15_DEVICE_AUTHORITY_RECEIPTS_SUGGESTIONS_AND_SILENT_CONTROLLER=PASS")

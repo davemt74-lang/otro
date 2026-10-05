@@ -7,7 +7,7 @@ Standalone Tracky2 is separate. This audit extends the existing native services.
 ## Confirmed repairs
 
 - Devices in disabled rooms report the blocking reason and reject proposals and dispatch.
-- Device approvals retain a hash of the provider, physical target, category and room.
+- Device approvals retain a hash of the provider, physical target, configuration, category and room.
   Remapping a device key, changing its provider type, or moving it to another room
   requires a new approval. Old pending device requests without a binding also require
   replacement. Normal sensor/state updates do not invalidate an approval.
@@ -15,10 +15,12 @@ Standalone Tracky2 is separate. This audit extends the existing native services.
   current application grants, restricted categories and unique action receipts remain.
 - Negative or queued-only driver replies cannot produce completed physical actions.
   Provider errors do not expose arbitrary exception content in receipts or audit logs.
+- Device commands and provider state reject non-finite numbers. Thermostat commands
+  remain within the existing 50–90°F limits, including numeric strings.
 - Suggestion conversion creates the approval and links its suggestion in one transaction.
   Concurrent retries return the same request and its current state; dismissal cannot
   overwrite a converted suggestion. Link failures roll back the request and audit.
-- Serial controllers emitting no messages for ten seconds disconnect, clear reported
+- Serial controllers emitting no fresh state for ten seconds disconnect, clear reported
   readiness and return through the existing reconnect/handshake loop. The bundled
   controller emits state every second. String acknowledgements cannot become true.
 - Cloud requires a durable, pending, matching local-owner device approval receipt.

@@ -529,7 +529,9 @@
   async function suggestionAction(id, action) {
     try {
       const result = await request(`/api/v1/control/vp3-os/automation/suggestions/${id}/${action}`, {method:'POST',body:'{}'});
-      $('automationFeedback').textContent = action === 'request' ? `Approval request created: ${result.result?.request_id || 'pending'}` : 'Suggestion dismissed.';
+      $('automationFeedback').textContent = action === 'request'
+        ? (result.replayed ? `Existing device request: ${result.result?.status || 'unknown'} · ${result.result?.request_id || ''}` : `Approval request created: ${result.result?.request_id || 'pending'}`)
+        : 'Suggestion dismissed.';
       await load();
     } catch (error) { $('automationFeedback').textContent = error.message; }
   }

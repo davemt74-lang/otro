@@ -329,7 +329,7 @@ class HardwareAdapterManager:
 
     def _read_loop(self, handle: Any) -> None:
         handshake_started = time.monotonic()
-        last_received = handshake_started
+        last_state = handshake_started
         while not self._stop.is_set():
             line = handle.readline(MAX_LINE_BYTES + 1)
             if not line:
@@ -337,7 +337,7 @@ class HardwareAdapterManager:
                     handshaken = self._controller is not None
                 if not handshaken and (time.monotonic() - handshake_started) >= HANDSHAKE_TIMEOUT_SECONDS:
                     raise HardwareAdapterError("Hardware controller handshake timed out.")
-                if handshaken and (time.monotonic() - last_received) >= CONTROLLER_SILENCE_SECONDS:
+                if handshaken and (time.monotonic() - last_state) >= CONTROLLER_SILENCE_SECONDS:
                     raise HardwareAdapterError("Hardware controller stopped reporting state.")
                 continue
             if len(line) > MAX_LINE_BYTES:
@@ -346,8 +346,12 @@ class HardwareAdapterManager:
                 message = json.loads(line.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise HardwareAdapterError("Hardware controller sent invalid JSON.") from exc
-            self.handle_message(message)
-            last_received = time.monotonic()
+            accepted = self.handle_message(message)
+            received = time.monotonic()
+            if accepted["type"] == "hello" or accepted["type"] == "state" and not accepted.get("duplicate"):
+                last_state = received
+            if received - last_state >= CONTROLLER_SILENCE_SECONDS:
+                raise HardwareAdapterError("Hardware controller stopped reporting state.")
 
     def _close_serial(self) -> None:
         handle = None
