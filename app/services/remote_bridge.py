@@ -622,12 +622,12 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             key=str(body.get("app_key") or "").strip().lower()
             action=str(body.get("action") or "").strip()
             arguments=body.get("arguments") if isinstance(body.get("arguments"),dict) else {}
-            confirmed=bool(body.get("confirmed"))
+            confirmed=body.get("confirmed") is True
             try:
                 spec=homeserver_app_control.action_spec(key,action)
                 if (str(spec.get("risk") or "")!="read" or bool(spec.get("requires_confirmation"))) and not confirmed:
                     return {"status":409,"ok":False,"payload":{"detail":"Cloud-orchestrated app writes require owner confirmation.","confirmation_required":True}}
-                result=homeserver_app_control.invoke(key,action,arguments)
+                result=homeserver_app_control.invoke(key,action,arguments,confirmed=confirmed,read_only=not confirmed)
             except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
                 return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":result}
@@ -635,7 +635,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             _vp3_system_apps_identity(token)
             key=str(body.get("app_key") or "").strip().lower()
             values=body.get("values") if isinstance(body.get("values"),dict) else None
-            if not bool(body.get("confirmed")):
+            if body.get("confirmed") is not True:
                 return {"status":409,"ok":False,"payload":{"detail":"App settings changes require owner confirmation.","confirmation_required":True}}
             try:
                 result=homeserver_app_control.update_settings(key,values or {})
@@ -670,7 +670,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             _vp3_system_apps_identity(token)
             action=str(body.get("action") or "")
             arguments=body.get("arguments") if isinstance(body.get("arguments"),dict) else {}
-            confirmed=bool(body.get("confirmed"))
+            confirmed=body.get("confirmed") is True
             spec={row["key"]:row for row in homeserver_video_editor.agent_actions()["actions"]}.get(action)
             if spec is None:
                 return {"status":404,"ok":False,"payload":{"detail":"Video Editor action not found."}}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import json
 import mimetypes
 import os
@@ -208,6 +210,7 @@ def validate_release_contracts(app_key:str,content_root:Path)->dict[str,Any]:
     return {"jobs":jobs,"subscriptions":subscriptions}
 
 
+@serialized
 def sync_release(app_key:str,content_root:Path|None=None)->dict[str,Any]:
     root=(content_root or _app_runtime_root(app_key)).resolve()
     manifest_path=root/"vp3-app.json"
@@ -396,6 +399,7 @@ def _run_action(app_key:str,action:dict[str,Any])->dict[str,Any]:
     raise AppRuntimeError("App job action type is unsupported.")
 
 
+@serialized
 def run_job(app_key:str,job_id:str)->dict[str,Any]:
     if not _JOB_ID.fullmatch(str(job_id or "")):
         raise AppRuntimeError("App job identifier is invalid.")

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -25,7 +28,7 @@ def _root(app_key:str)->Path:
 
 def _release(app_key:str,release_id:str)->dict[str,Any]:
     rid=str(release_id or "").strip()
-    if not rid.startswith("apprel_") or len(rid)>80:
+    if re.fullmatch(r"apprel_[A-Za-z0-9_-]{1,73}",rid) is None:
         raise AppReleaseError("App release id is invalid.")
     path=_root(app_key)/rid/"release.json"
     if not path.is_file() or path.is_symlink():
@@ -73,6 +76,7 @@ def list_releases(app_key:str)->dict[str,Any]:
     }
 
 
+@serialized
 def promote(app_key:str,release_id:str,*,reason:str="owner_promotion",system_managed:bool=False)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]=="system" and not system_managed:
@@ -82,10 +86,19 @@ def promote(app_key:str,release_id:str,*,reason:str="owner_promotion",system_man
     base=_root(app_key).resolve()
     if base not in content.parents or not content.is_dir():
         raise AppReleaseError("App release content is unavailable.",500)
+    from . import homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_security
     try:
+        manifest=json.loads((content/"vp3-app.json").read_text(encoding="utf-8"))
+        if manifest.get("app_key")!=app_key:
+            raise AppReleaseError("App release manifest identity mismatch.",409)
         homeserver_app_runtime.validate_release_contracts(app_key,content)
-    except homeserver_app_runtime.AppRuntimeError as exc:
-        raise AppReleaseError(str(exc),exc.status_code) from exc
+        homeserver_app_agent_runtime.validate_release_contract(app_key,content)
+        if manifest.get("agent_actions"):
+            homeserver_app_control.validate_action_manifest(content,app_key,manifest["agent_actions"])
+        if manifest.get("settings_schema"):
+            homeserver_app_control.validate_settings_schema(content,app_key,manifest["settings_schema"])
+    except (OSError,ValueError,homeserver_app_runtime.AppRuntimeError,homeserver_app_control.AppControlError,homeserver_app_agent_runtime.AppAgentRuntimeError) as exc:
+        raise AppReleaseError(str(exc),getattr(exc,"status_code",400)) from exc
     state=homeserver_app_packages._read_state(app_key)
     active=state.get("active_release_id")
     if active==release["release_id"] and app["lifecycle_state"]=="running":
@@ -110,9 +123,12 @@ def promote(app_key:str,release_id:str,*,reason:str="owner_promotion",system_man
         "runtime":release.get("runtime",""),
         "entrypoint":release.get("entrypoint",""),
         "sdk_version":release.get("sdk_version",""),
+        "agent_actions":str(manifest.get("agent_actions") or ""),
+        "settings_schema":str(manifest.get("settings_schema") or ""),
+        "permissions":list(manifest.get("permissions") or []),
+        "routes":dict(manifest.get("routes") or {}),
     })
     try:
-        homeserver_app_runtime.sync_release(app_key,content)
         with db() as connection:
             connection.execute(
                 """UPDATE homeserver_apps SET installed_version=?,desired_version=?,lifecycle_state='running',
@@ -132,19 +148,28 @@ def promote(app_key:str,release_id:str,*,reason:str="owner_promotion",system_man
                     json.dumps({"release_id":release["release_id"],"previous_release_id":active,"reason":reason},separators=(",",":"),sort_keys=True),
                 ),
             )
+        homeserver_app_security.sync_declared_permissions(app_key,list(manifest.get("permissions") or []))
+        homeserver_app_runtime.sync_release(app_key,content)
     except Exception:
         homeserver_app_packages._write_state(app_key,state)
+        with db() as connection:
+            connection.execute(
+                "UPDATE homeserver_apps SET installed_version=?,desired_version=?,lifecycle_state=?,metadata_json=? WHERE app_key=?",
+                (app["installed_version"],app["desired_version"],app["lifecycle_state"],json.dumps(app.get("metadata") or {},separators=(",",":"),sort_keys=True),app_key),
+            )
         if active:
             previous_content=(_root(app_key)/str(active)/"content").resolve()
             if previous_content.is_dir():
                 try:
                     homeserver_app_runtime.sync_release(app_key,previous_content)
-                except Exception:
-                    pass
+                except Exception as recovery_exc:
+                    homeserver_apps.transition(app_key,"failed",metadata={"reason":"Release promotion recovery failed."})
+                    raise AppReleaseError("Release promotion failed and recovery could not complete; app marked failed.",500) from recovery_exc
         raise
     return {"changed":True,"release":release,"status":list_releases(app_key)}
 
 
+@serialized
 def rollback(app_key:str)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]=="system":
@@ -187,6 +212,7 @@ def rollback(app_key:str)->dict[str,Any]:
     return result
 
 
+@serialized
 def recover(app_key:str)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]=="system":
@@ -207,6 +233,7 @@ def recover(app_key:str)->dict[str,Any]:
     return result
 
 
+@serialized
 def prune(app_key:str,keep:int=MAX_RELEASES)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]=="system":

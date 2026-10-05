@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import hashlib
 import io
 import json
@@ -287,6 +289,7 @@ def build_project_package(app_key:str)->dict[str,Any]:
     return {"package":package,"validation":validation}
 
 
+@serialized
 def install_project(app_key:str)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     built=build_project_package(app_key)
@@ -314,10 +317,13 @@ def _read_state(app_key:str)->dict[str,Any]:
     return value
 
 
+@serialized
 def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source_provenance:dict[str,Any]|None=None,_system_managed:bool=False)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]!="user" and not (_system_managed and app["app_class"]=="system" and app["protected_system_app"]):
         raise AppPackageError("System apps are managed by the VP3 system app installer.",409)
+    original_app=dict(app)
+    original_state=_read_state(app_key)
     validation=validate_package(package,expected_app_key=app_key)
     manifest=validation["manifest"]
     current_state=str(app["lifecycle_state"])
@@ -400,7 +406,7 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         release["data_migration"]=data_migration_result
         (staging/"release.json").write_text(json.dumps(release,indent=2,sort_keys=True)+"\n",encoding="utf-8")
         os.replace(staging,final)
-        previous=_read_state(app_key)
+        previous=original_state
         state={
             "contract":RUNTIME_CONTRACT,
             "app_key":app_key,
@@ -451,18 +457,37 @@ def install_package(app_key:str,package:bytes,*,source_type:str|None=None,source
         return result
     except Exception as exc:
         shutil.rmtree(staging,ignore_errors=True)
+        recovery_errors=[]
         if isinstance(data_migration_result,dict) and data_migration_result.get("migration_required") and data_migration_result.get("snapshot_id"):
             try:
                 homeserver_app_data_lifecycle.restore_snapshot(
                     app_key,str(data_migration_result["snapshot_id"]),reason="release_activation_failed"
                 )
-            except Exception:
-                pass
+            except Exception as recovery_exc:
+                recovery_errors.append(str(recovery_exc))
         if transitioned:
             try:
-                homeserver_apps.transition(app_key,"failed",metadata={"reason":str(exc)[:500]})
-            except Exception:
-                pass
+                _write_state(app_key,original_state)
+                restored_state=original_app["lifecycle_state"] if original_state.get("active_release_id") else "failed"
+                with db() as connection:
+                    connection.execute(
+                        """UPDATE homeserver_apps SET installed_version=?,desired_version=?,source_type=?,
+                           lifecycle_state=?,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE app_key=?""",
+                        (original_app["installed_version"],original_app["desired_version"],original_app["source_type"],
+                         restored_state,json.dumps(original_app.get("metadata") or {},separators=(",",":"),sort_keys=True),app_key),
+                    )
+                    connection.execute(
+                        """INSERT INTO homeserver_app_events(app_id,event_type,actor_type,actor_key,metadata_json)
+                           VALUES (?, 'app.package.activation_failed','system','installer',?)""",
+                        (original_app["app_id"],json.dumps({"failed_release_id":release_id,"restored_release_id":original_state.get("active_release_id")},separators=(",",":"))),
+                    )
+                if original_state.get("active_release_id"):
+                    homeserver_app_runtime.sync_release(app_key,root/str(original_state["active_release_id"])/"content")
+            except Exception as recovery_exc:
+                recovery_errors.append(str(recovery_exc))
+            if recovery_errors:
+                homeserver_apps.transition(app_key,"failed",metadata={"reason":"Release activation recovery failed."})
+                raise AppPackageError("Release activation failed and recovery could not complete; app marked failed.",500) from exc
         raise
     finally:
         archive.close()
@@ -514,6 +539,7 @@ def verify_active_release(
     }
 
 
+@serialized
 def install_system_package(app_key:str,package:bytes)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app["app_class"]!="system" or not app["protected_system_app"]:

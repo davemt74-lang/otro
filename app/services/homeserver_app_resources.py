@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import json
 import os
 import re
@@ -95,6 +97,7 @@ def limits(app_key:str)->dict[str,Any]:
     return {"contract":CONTRACT,"app_key":app["app_key"],**values}
 
 
+@serialized
 def update_limits(app_key:str,*,storage_limit_bytes:int|None=None,sqlite_limit_bytes:int|None=None)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     current=_limits_from_app(app)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import ctypes
 import json
 import os
@@ -231,6 +233,7 @@ def normalize_declared_permissions(values:list[str]|None)->list[str]:
     return sorted(output)
 
 
+@serialized
 def sync_declared_permissions(app_key:str,permissions:list[str])->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     declared=normalize_declared_permissions(permissions)
@@ -280,6 +283,7 @@ def permission_status(app_key:str)->dict[str,Any]:
     }
 
 
+@serialized
 def set_permission(app_key:str,permission:str,allowed:bool,*,actor_type:str="owner",actor_key:str="local_owner",reason:str="owner_decision")->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     name=str(permission or "").strip()
@@ -314,6 +318,7 @@ def require_permission(app_key:str,permission:str)->dict[str,Any]:
     return {"contract":"vp3.app.capability-grant.v1","app_key":app_key,**definition,"allowed":True}
 
 
+@serialized
 def set_secret(app_key:str,key:str,value:str)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     name=str(key or "").strip().upper()
@@ -334,6 +339,7 @@ def set_secret(app_key:str,key:str,value:str)->dict[str,Any]:
     return secret_status(app_key)
 
 
+@serialized
 def remove_secret(app_key:str,key:str)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     name=str(key or "").strip().upper()

@@ -157,7 +157,6 @@ def register_plugin(raw_manifest: dict[str, Any], *, trusted: bool = False) -> d
                 description=excluded.description,
                 trusted=excluded.trusted,
                 manifest_json=excluded.manifest_json,
-                status='active',
                 updated_at=CURRENT_TIMESTAMP
             """,
             (
@@ -330,7 +329,12 @@ def execute_model_tool(
     if handler is None:
         raise PluginError("Plugin tool handler is not loaded.", 503)
     context = {"source_app_key": source_app_key, "plugin_key": tool["plugin_key"], "tool_key": tool["key"], "owner": owner}
-    result = handler(dict(arguments or {}), context)
+    from .homeserver_app_control import AppControlError, _validate_arguments
+    try:
+        validated = _validate_arguments({"input_schema": tool["input_schema"]}, dict(arguments or {}))
+    except AppControlError as exc:
+        raise PluginError(str(exc), 422) from exc
+    result = handler(validated, context)
     if not isinstance(result, dict):
         raise PluginError("Plugin tool handler returned an invalid result.", 500)
     return {"plugin_key": tool["plugin_key"], "tool_key": tool["key"], "result": result}
