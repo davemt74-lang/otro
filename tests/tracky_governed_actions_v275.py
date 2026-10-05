@@ -17,12 +17,17 @@ with tempfile.TemporaryDirectory(prefix="tracky-v275-") as data_dir:
     from app.services import (  # noqa: E402
         federated_data,
         local_automation,
+        pairing,
         room_device_automation,
         tracky_governed_actions,
         tracky_physical_context,
     )
 
     initialize_database()
+    paired = pairing.create_pairing_request(
+        "vp3", "Tracky governed action acceptance", ["awareness.read", "tools.execute", "devices.control"]
+    )
+    pairing.approve_pairing_request(paired["request_id"])
 
     with db() as connection:
         versions = [
