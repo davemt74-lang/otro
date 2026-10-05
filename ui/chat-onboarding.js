@@ -10,6 +10,8 @@
   let visible = false;
   let polling = false;
   let lastError = '';
+  let operation = 0;
+  let refreshRequest = 0;
 
   async function api(path,method='GET',body=null) {
     const response = await fetch(path,{
@@ -37,6 +39,7 @@
     const cloud=snapshot.cloud||{}, code=snapshot.pairing||{}, voice=snapshot.provision||{};
     window.HomeServerVisualEnrollment?.render(snapshot.visual||{});
     const paired=Boolean(cloud.paired), online=Boolean(cloud.connected);
+    const recoveryPending=Boolean(snapshot.pairing_recovery_pending)&&!paired;
     el('onboardCloudState').textContent=online?'Connected ✓':paired?'Paired · establishing connection':code.state==='pending'?'Waiting for Cloud':'Not connected';
     el('onboardCloud').dataset.complete=paired?'true':'false';
     const hasCode=code.state==='pending'&&Boolean(code.code)&&!paired;
@@ -47,8 +50,8 @@
       el('onboardCodeExpiry').textContent=Number.isNaN(expiry)?'Valid for 15 minutes':('Expires '+new Date(expiry).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}));
       if(snapshot.cloud_url==='https://vp3.me/settings-homeserver.php')el('onboardCloudLink').href=snapshot.cloud_url+'#hs_code='+encodeURIComponent(code.code);
     }
-    el('onboardStartCloud').hidden=hasCode||paired;
-    el('onboardResetCode').hidden=!hasCode;
+    el('onboardStartCloud').hidden=hasCode||paired||recoveryPending;
+    el('onboardResetCode').hidden=!(hasCode||recoveryPending);
     el('onboardStartCloud').disabled=busy;el('onboardResetCode').disabled=busy;
     el('onboardLegacyPairForm').hidden=paired;
     const packages=Array.isArray(voice.packages)?voice.packages:[];
@@ -67,12 +70,14 @@
   }
 
   async function refresh(){
-    snapshot=await api('/api/v1/control/onboarding/summary');
-    render();
+    const request=++refreshRequest;
+    const next=await api('/api/v1/control/onboarding/summary');
+    if(request!==refreshRequest)return;
+    snapshot=next;render();
   }
   async function act(task,message){
     if(busy)return;
-    busy=true;render();
+    ++operation;busy=true;render();
     try{
       await task();
       lastError='';
@@ -98,7 +103,7 @@
     if(busy)return;
     const tab=window.open('about:blank','_blank');
     if(tab)try{tab.opener=null;}catch(_){}
-    busy=true;render();
+    ++operation;busy=true;render();
     try{
       await api('/api/v1/control/onboarding/device/start','POST');
       await refresh();
@@ -137,12 +142,14 @@
   },'First-run preferences saved. Your normal Agent Chat remains available.'));
 
   async function poll(){
-    if(!visible||polling||document.visibilityState!=='visible')return;
+    if(!visible||busy||polling||document.visibilityState!=='visible')return;
     polling=true;
+    const generation=operation;
     try{
       const code=snapshot?.pairing||{},cloud=snapshot?.cloud||{};
       if(code.state==='pending'&&!cloud.paired){
         const next=await api('/api/v1/control/onboarding/device/poll','POST');
+        if(generation!==operation)return;
         if(next.cloud?.paired){
           feedback('Cloud pairing is saved. The secure connection is starting.');
           await refresh();
@@ -151,7 +158,7 @@
         }
       }
       if(snapshot?.provision?.phase==='running'||snapshot?.cloud?.paired)await refresh();
-    }catch(e){feedback(e.message,true);}
+    }catch(e){if(generation===operation)feedback(e.message,true);}
     finally{polling=false;}
   }
 
