@@ -94,7 +94,7 @@ def client_tasks(
 ) -> dict:
     try:
         return {"items": continuity.list_federated_tasks(status=status, q=q, limit=250), "app": identity["app_key"]}
-    except TaskError as exc:
+    except (TaskError, continuity.TaskCalendarContinuityError) as exc:
         _raise(exc)
 
 
@@ -152,7 +152,7 @@ def client_notifications(
 def control_tasks(status: str | None = Query(default=None, max_length=40), q: str = Query(default="", max_length=240)) -> dict:
     try:
         return {"items": list_tasks(status=status, q=q, limit=500)}
-    except TaskError as exc:
+    except (TaskError, continuity.TaskCalendarContinuityError) as exc:
         _raise(exc)
 
 
@@ -160,9 +160,10 @@ def control_tasks(status: str | None = Query(default=None, max_length=40), q: st
 def control_task_create(payload: TaskCreate) -> dict:
     try:
         arguments = _task_payload(payload)
-        arguments.pop("mutation_id", None)
-        return {"task": create_task(arguments, created_by_type="owner")}
-    except TaskError as exc:
+        mutation = arguments.pop("mutation_id", None)
+        item = continuity.create_federated_task({**arguments, "mutation_id": mutation}, source_app_key="owner", created_by_type="owner") if mutation else create_task(arguments, created_by_type="owner")
+        return {"task": item}
+    except (TaskError, continuity.TaskCalendarContinuityError) as exc:
         _raise(exc)
 
 
@@ -172,17 +173,20 @@ def control_task_update(task_id: int, payload: TaskUpdate) -> dict:
         arguments = _task_payload(payload, exclude_unset=True)
         arguments.pop("canonical_id", None)
         arguments.pop("mutation_id", None)
-        arguments.pop("expected_revision", None)
-        return {"task": update_task(task_id, arguments, actor_type="owner")}
-    except TaskError as exc:
+        expected = arguments.pop("expected_revision", None)
+        return {"task": update_task(task_id, arguments, actor_type="owner", expected_revision=expected)}
+    except (TaskError, continuity.TaskCalendarContinuityError) as exc:
         _raise(exc)
 
 
 @router.delete("/api/v1/control/tasks/{task_id}")
-def control_task_delete(task_id: int) -> dict:
-    if not delete_task(task_id):
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {"deleted": True}
+def control_task_delete(task_id: int, expected_revision: str | None = Query(default=None, min_length=64, max_length=64)) -> dict:
+    try:
+        if not delete_task(task_id, expected_revision=expected_revision):
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {"deleted": True}
+    except (TaskError, continuity.TaskCalendarContinuityError) as exc:
+        _raise(exc)
 
 
 @router.get("/api/v1/control/task-notifications")
@@ -194,5 +198,5 @@ def control_task_notifications(unread_only: bool = False, include_dismissed: boo
 def control_notification_update(notification_id: int, payload: NotificationUpdate) -> dict:
     try:
         return {"notification": mark_notification(notification_id, read=payload.read, dismissed=payload.dismissed)}
-    except TaskError as exc:
+    except (TaskError, continuity.TaskCalendarContinuityError) as exc:
         _raise(exc)

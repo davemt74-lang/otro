@@ -22,6 +22,14 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Contacts tasks and calendar Section 12 integrity
+        run: |
+          python tests/productivity_section12.py
+          node tests/productivity_ui_section12.mjs
+          python tests/tasks_notifications.py
+          python tests/task_calendar_continuity_v243.py
+          node --check ui/contacts.js
+          node --check ui/tasks.js
       - name: Compile core Python
         run: python -m compileall app tests
       - name: Interactive capture ownership and Stop acceptance
@@ -156,4 +164,3 @@ jobs:
         run: python tests/agent_tools.py
       - name: Verify action approval contract
         run: python tests/action_approvals.py
-

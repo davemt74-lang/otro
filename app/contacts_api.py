@@ -10,6 +10,8 @@ router = APIRouter()
 
 
 class ContactPayload(BaseModel):
+    mutation_id: str | None = Field(default=None, min_length=8, max_length=128)
+    expected_revision: str | None = Field(default=None, min_length=64, max_length=64)
     display_name: str | None = Field(default=None, max_length=240)
     first_name: str | None = Field(default=None, max_length=120)
     last_name: str | None = Field(default=None, max_length=120)
@@ -21,7 +23,7 @@ class ContactPayload(BaseModel):
 
 
 def _payload_dict(payload: ContactPayload) -> dict:
-    return payload.model_dump()
+    return payload.model_dump(exclude={"mutation_id", "expected_revision"})
 
 
 @router.get("/api/v1/contacts")
@@ -82,7 +84,8 @@ def control_contacts(
 @router.post("/api/v1/control/contacts")
 def control_contact_create(payload: ContactPayload) -> dict:
     try:
-        return {"contact": contacts.create_contact(_payload_dict(payload)), "created": True}
+        item = contacts.create_federated_contact({**_payload_dict(payload), "mutation_id": payload.mutation_id}, source_app_key="owner") if payload.mutation_id else contacts.create_contact(_payload_dict(payload))
+        return {"contact": item, "created": True}
     except contacts.ContactError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
@@ -90,13 +93,16 @@ def control_contact_create(payload: ContactPayload) -> dict:
 @router.put("/api/v1/control/contacts/{contact_id}")
 def control_contact_update(contact_id: int, payload: ContactPayload) -> dict:
     try:
-        return {"contact": contacts.update_contact(contact_id, _payload_dict(payload)), "updated": True}
+        return {"contact": contacts.update_contact(contact_id, _payload_dict(payload), expected_revision=payload.expected_revision), "updated": True}
     except contacts.ContactError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.delete("/api/v1/control/contacts/{contact_id}")
-def control_contact_delete(contact_id: int) -> dict:
-    if not contacts.delete_contact(contact_id):
-        raise HTTPException(status_code=404, detail="Contact not found")
-    return {"deleted": True}
+def control_contact_delete(contact_id: int, expected_revision: str | None = Query(default=None, min_length=64, max_length=64)) -> dict:
+    try:
+        if not contacts.delete_contact(contact_id, expected_revision=expected_revision):
+            raise HTTPException(status_code=404, detail="Contact not found")
+        return {"deleted": True}
+    except contacts.ContactError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

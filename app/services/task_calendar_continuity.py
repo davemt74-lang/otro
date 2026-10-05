@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-from ..database import db
+from ..database import db, atomic_write
 from . import federated_data
 from . import tasks as task_service
 
@@ -55,9 +55,15 @@ def current_task_creator_provenance(fallback: str = "app") -> str:
 def _text(value: Any, limit: int) -> str:
     return str(value or "").strip()[:limit]
 
+def _argument_text(value: Any, limit: int) -> str:
+    text = str(value or "").strip()
+    if len(text) > limit:
+        raise TaskCalendarContinuityError(f"Argument exceeds {limit} characters.")
+    return text
+
 
 def _iso_datetime(value: Any, label: str, *, required: bool = False) -> str | None:
-    raw = _text(value, 80)
+    raw = _argument_text(value, 80)
     if not raw:
         if required:
             raise TaskCalendarContinuityError(f"{label} is required.")
@@ -72,14 +78,14 @@ def _iso_datetime(value: Any, label: str, *, required: bool = False) -> str | No
 
 
 def _mutation_id(value: Any) -> str:
-    mutation = _text(value, 128)
+    mutation = _argument_text(value, 128)
     if not _MUTATION_ID.fullmatch(mutation):
         raise TaskCalendarContinuityError("mutation_id must be 8 to 128 safe characters.")
     return mutation
 
 
 def _expected_revision(value: Any) -> str:
-    revision = _text(value, 64).lower()
+    revision = _argument_text(value, 64).lower()
     if not _REVISION.fullmatch(revision):
         raise TaskCalendarContinuityError("expected_revision must be a SHA-256 value.")
     return revision
@@ -186,15 +192,15 @@ def normalize_task_create_arguments(payload: dict[str, Any] | None, *, require_m
     unknown = set(raw) - allowed
     if unknown:
         raise TaskCalendarContinuityError(f"Unsupported tasks.create argument: {sorted(unknown)[0]}")
-    title = _text(raw.get("title"), 240)
+    title = _argument_text(raw.get("title"), 240)
     if not title:
         raise TaskCalendarContinuityError("tasks.create requires title.")
     description = str(raw.get("description") or "").strip()
     if len(description) > 20000:
         raise TaskCalendarContinuityError("Task description exceeds 20,000 characters.")
-    status = _text(raw.get("status") or "pending", 40).lower()
-    priority = _text(raw.get("priority") or "normal", 40).lower()
-    recurrence = _text(raw.get("recurrence") or "none", 40).lower()
+    status = _argument_text(raw.get("status") or "pending", 40).lower()
+    priority = _argument_text(raw.get("priority") or "normal", 40).lower()
+    recurrence = _argument_text(raw.get("recurrence") or "none", 40).lower()
     if status not in _TASK_STATUSES:
         raise TaskCalendarContinuityError("Task status is invalid.")
     if priority not in _TASK_PRIORITIES:
@@ -236,12 +242,12 @@ def normalize_task_update_arguments(payload: dict[str, Any] | None) -> dict[str,
     unknown = set(raw) - allowed
     if unknown:
         raise TaskCalendarContinuityError(f"Unsupported tasks.update argument: {sorted(unknown)[0]}")
-    canonical = _text(raw.get("canonical_id"), 45)
+    canonical = _argument_text(raw.get("canonical_id"), 45)
     if not _CANONICAL_ID.fullmatch(canonical):
         raise TaskCalendarContinuityError("tasks.update requires a valid canonical_id.")
     fields: dict[str, Any] = {}
     if "title" in raw:
-        title = _text(raw.get("title"), 240)
+        title = _argument_text(raw.get("title"), 240)
         if not title:
             raise TaskCalendarContinuityError("Task title cannot be empty.")
         fields["title"] = title
@@ -251,12 +257,12 @@ def normalize_task_update_arguments(payload: dict[str, Any] | None) -> dict[str,
             raise TaskCalendarContinuityError("Task description exceeds 20,000 characters.")
         fields["description"] = description
     if "status" in raw:
-        status = _text(raw.get("status"), 40).lower()
+        status = _argument_text(raw.get("status"), 40).lower()
         if status not in _TASK_STATUSES:
             raise TaskCalendarContinuityError("Task status is invalid.")
         fields["status"] = status
     if "priority" in raw:
-        priority = _text(raw.get("priority"), 40).lower()
+        priority = _argument_text(raw.get("priority"), 40).lower()
         if priority not in _TASK_PRIORITIES:
             raise TaskCalendarContinuityError("Task priority is invalid.")
         fields["priority"] = priority
@@ -265,7 +271,7 @@ def normalize_task_update_arguments(payload: dict[str, Any] | None) -> dict[str,
     if "remind_at" in raw:
         fields["remind_at"] = _iso_datetime(raw.get("remind_at"), "remind_at")
     if "recurrence" in raw:
-        recurrence = _text(raw.get("recurrence"), 40).lower()
+        recurrence = _argument_text(raw.get("recurrence"), 40).lower()
         if recurrence not in _TASK_RECURRENCES:
             raise TaskCalendarContinuityError("Task recurrence is invalid.")
         fields["recurrence"] = recurrence
@@ -293,7 +299,7 @@ def normalize_task_delete_arguments(payload: dict[str, Any] | None) -> dict[str,
     raw = dict(payload or {})
     if set(raw) - {"canonical_id", "mutation_id", "expected_revision"}:
         raise TaskCalendarContinuityError("Unsupported tasks.delete argument.")
-    canonical = _text(raw.get("canonical_id"), 45)
+    canonical = _argument_text(raw.get("canonical_id"), 45)
     if not _CANONICAL_ID.fullmatch(canonical):
         raise TaskCalendarContinuityError("tasks.delete requires a valid canonical_id.")
     return {
@@ -354,6 +360,7 @@ def _record_mutation(table: str, source_app_key: str, mutation_id: str, action_k
         )
 
 
+@atomic_write
 def create_federated_task(
     payload: dict[str, Any],
     *,
@@ -385,6 +392,7 @@ def create_federated_task(
     return item
 
 
+@atomic_write
 def update_federated_task(payload: dict[str, Any], *, source_app_key: str) -> dict[str, Any]:
     normalized = normalize_task_update_arguments(payload)
     canonical = str(normalized.pop("canonical_id"))
@@ -412,6 +420,7 @@ def update_federated_task(payload: dict[str, Any], *, source_app_key: str) -> di
     return item
 
 
+@atomic_write
 def delete_federated_task(payload: dict[str, Any], *, source_app_key: str) -> bool:
     normalized = normalize_task_delete_arguments(payload)
     canonical = str(normalized["canonical_id"])
@@ -519,18 +528,18 @@ def normalize_calendar_create_arguments(payload: dict[str, Any] | None) -> dict[
     unknown = set(raw) - allowed
     if unknown:
         raise TaskCalendarContinuityError(f"Unsupported calendar.create argument: {sorted(unknown)[0]}")
-    title = _text(raw.get("title"), 240)
+    title = _argument_text(raw.get("title"), 240)
     if not title:
         raise TaskCalendarContinuityError("calendar.create requires title.")
     description = str(raw.get("description") or "").strip()
-    location = _text(raw.get("location"), 500)
+    location = _argument_text(raw.get("location"), 500)
     if len(description) > 20000:
         raise TaskCalendarContinuityError("Calendar description exceeds 20,000 characters.")
     start_at = _iso_datetime(raw.get("start_at"), "start_at", required=True)
     end_at = _iso_datetime(raw.get("end_at"), "end_at", required=True)
     if datetime.fromisoformat(str(end_at)) <= datetime.fromisoformat(str(start_at)):
         raise TaskCalendarContinuityError("Calendar end must be after start.")
-    timezone_name = _text(raw.get("timezone") or "UTC", 80)
+    timezone_name = _argument_text(raw.get("timezone") or "UTC", 80)
     return {
         "mutation_id": _mutation_id(raw.get("mutation_id")),
         "title": title, "description": description, "location": location,
@@ -545,12 +554,12 @@ def normalize_calendar_update_arguments(payload: dict[str, Any] | None) -> dict[
     unknown = set(raw) - allowed
     if unknown:
         raise TaskCalendarContinuityError(f"Unsupported calendar.update argument: {sorted(unknown)[0]}")
-    canonical = _text(raw.get("canonical_id"), 45)
+    canonical = _argument_text(raw.get("canonical_id"), 45)
     if not _CANONICAL_ID.fullmatch(canonical):
         raise TaskCalendarContinuityError("calendar.update requires a valid canonical_id.")
     fields: dict[str, Any] = {}
     if "title" in raw:
-        title = _text(raw.get("title"), 240)
+        title = _argument_text(raw.get("title"), 240)
         if not title:
             raise TaskCalendarContinuityError("Calendar title cannot be empty.")
         fields["title"] = title
@@ -560,13 +569,13 @@ def normalize_calendar_update_arguments(payload: dict[str, Any] | None) -> dict[
             raise TaskCalendarContinuityError("Calendar description exceeds 20,000 characters.")
         fields["description"] = description
     if "location" in raw:
-        fields["location"] = _text(raw.get("location"), 500)
+        fields["location"] = _argument_text(raw.get("location"), 500)
     if "start_at" in raw:
         fields["start_at"] = _iso_datetime(raw.get("start_at"), "start_at", required=True)
     if "end_at" in raw:
         fields["end_at"] = _iso_datetime(raw.get("end_at"), "end_at", required=True)
     if "timezone" in raw:
-        fields["timezone"] = _text(raw.get("timezone") or "UTC", 80)
+        fields["timezone"] = _argument_text(raw.get("timezone") or "UTC", 80)
     if "all_day" in raw:
         fields["all_day"] = 1 if bool(raw.get("all_day")) else 0
     if not fields:
@@ -583,7 +592,7 @@ def normalize_calendar_delete_arguments(payload: dict[str, Any] | None) -> dict[
     raw = dict(payload or {})
     if set(raw) - {"canonical_id", "mutation_id", "expected_revision"}:
         raise TaskCalendarContinuityError("Unsupported calendar.delete argument.")
-    canonical = _text(raw.get("canonical_id"), 45)
+    canonical = _argument_text(raw.get("canonical_id"), 45)
     if not _CANONICAL_ID.fullmatch(canonical):
         raise TaskCalendarContinuityError("calendar.delete requires a valid canonical_id.")
     return {
@@ -610,6 +619,7 @@ def safe_calendar_mutation_meta(action: str, payload: dict[str, Any] | None) -> 
     }
 
 
+@atomic_write
 def create_federated_calendar(payload: dict[str, Any], *, source_app_key: str) -> dict[str, Any]:
     normalized = normalize_calendar_create_arguments(payload)
     mutation = str(normalized.pop("mutation_id"))
@@ -637,6 +647,7 @@ def create_federated_calendar(payload: dict[str, Any], *, source_app_key: str) -
     return item
 
 
+@atomic_write
 def update_federated_calendar(payload: dict[str, Any], *, source_app_key: str) -> dict[str, Any]:
     normalized = normalize_calendar_update_arguments(payload)
     canonical = str(normalized.pop("canonical_id"))
@@ -678,6 +689,7 @@ def update_federated_calendar(payload: dict[str, Any], *, source_app_key: str) -
     return item
 
 
+@atomic_write
 def delete_federated_calendar(payload: dict[str, Any], *, source_app_key: str) -> bool:
     normalized = normalize_calendar_delete_arguments(payload)
     canonical = str(normalized["canonical_id"])

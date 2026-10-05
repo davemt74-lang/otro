@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..database import db
+from ..database import db, atomic_write
 from . import federated_data
 
 
@@ -232,6 +232,7 @@ def get_contact(contact_id: int) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+@atomic_write
 def create_contact(payload: dict[str, Any]) -> dict[str, Any]:
     item = normalize_contact(payload)
     with db() as connection:
@@ -256,9 +257,15 @@ def create_contact(payload: dict[str, Any]) -> dict[str, Any]:
     return get_contact(contact_id) or {"id": contact_id, **item}
 
 
-def update_contact(contact_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+@atomic_write
+def update_contact(contact_id: int, payload: dict[str, Any], *, expected_revision: str | None = None) -> dict[str, Any]:
     item = normalize_contact(payload)
     with db() as connection:
+        current = connection.execute("SELECT * FROM contacts WHERE id=?", (int(contact_id),)).fetchone()
+        if current is None:
+            raise ContactError("Contact not found.", 404)
+        if expected_revision is not None and contact_revision(dict(current)) != _expected_revision(expected_revision):
+            raise ContactError("Contact changed. Reload before saving.", 409)
         cursor = connection.execute(
             """
             UPDATE contacts
@@ -283,8 +290,14 @@ def update_contact(contact_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     return get_contact(contact_id) or {"id": contact_id, **item}
 
 
-def delete_contact(contact_id: int) -> bool:
+@atomic_write
+def delete_contact(contact_id: int, *, expected_revision: str | None = None) -> bool:
     with db() as connection:
+        current = connection.execute("SELECT * FROM contacts WHERE id=?", (int(contact_id),)).fetchone()
+        if current is None:
+            return False
+        if expected_revision is not None and contact_revision(dict(current)) != _expected_revision(expected_revision):
+            raise ContactError("Contact changed. Reload before removing it.", 409)
         cursor = connection.execute("DELETE FROM contacts WHERE id=?", (int(contact_id),))
         if cursor.rowcount != 1:
             return False
@@ -327,6 +340,13 @@ def _contact_id_from_canonical(canonical_id_value: str) -> int:
     return contact_id
 
 
+def contact_revision(record: dict[str, Any]) -> str:
+    import hashlib
+    import json
+    body = {key: record.get(key) for key in (*CONTACT_FIELDS, "updated_at")}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
 def federated_contact(record: dict[str, Any]) -> dict[str, Any]:
     contact_id = int(record.get("id") or 0)
     key = _authority_key(contact_id)
@@ -347,6 +367,7 @@ def federated_contact(record: dict[str, Any]) -> dict[str, Any]:
         content=content,
         updated_at=str(record.get("updated_at") or record.get("created_at") or ""),
     )
+    envelope["record_revision"] = contact_revision(record)
     federated_data.observe(envelope, observed_source="homeserver")
     out = dict(record)
     out.update({
@@ -459,6 +480,7 @@ def _assert_expected_revision(item: dict[str, Any], expected_revision: str) -> N
         raise ContactError("HomeServer contact changed after this edit was prepared. Refresh and try again.", 409)
 
 
+@atomic_write
 def create_federated_contact(
     payload: dict[str, Any],
     *,
@@ -481,6 +503,7 @@ def create_federated_contact(
     return item
 
 
+@atomic_write
 def update_federated_contact(
     canonical_id_value: str,
     payload: dict[str, Any],
@@ -518,6 +541,7 @@ def update_federated_contact(
     return item
 
 
+@atomic_write
 def delete_federated_contact(
     canonical_id_value: str,
     *,
