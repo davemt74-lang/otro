@@ -22,6 +22,8 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Section 15 device command and hardware lifecycle
+        run: python tests/hardware_automation_section15.py
       - name: Section 14 current permissions and deferred approval authority
         run: |
           python tests/authority_section14.py

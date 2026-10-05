@@ -35,7 +35,7 @@
 
   function commandControls(device) {
     if (!device.controllable || !device.currently_executable) {
-      const why = !device.controllable ? 'Discovery only' : 'Provider driver not ready';
+      const why = device.execution_blocked_reason || (!device.controllable ? 'Discovery only' : 'Provider driver not ready');
       return `<div class="automation-locked">${esc(why)} · no physical command can execute.</div>`;
     }
     const key = esc(device.device_key);
@@ -75,7 +75,7 @@
     $('automationDevices').innerHTML = devices.length ? devices.map(device => {
       const state = Object.entries(device.state || {}).slice(0,8).map(([k,v]) => `<span class="automation-state-chip">${esc(k)}: ${esc(typeof v === 'object' ? JSON.stringify(v) : v)}</span>`).join('');
       return `<article class="automation-device">
-        <div class="automation-device-head"><div><h4>${esc(device.name)}</h4><div class="automation-device-meta">${esc(device.category)} · ${esc(device.room_name || 'Unassigned')} · ${esc(device.provider?.name || device.provider_key)}</div></div><span class="automation-ready ${device.currently_executable ? '' : 'no'}">${device.currently_executable ? 'Executable after approval' : (device.controllable ? 'Driver unavailable' : 'Discovery only')}</span></div>
+        <div class="automation-device-head"><div><h4>${esc(device.name)}</h4><div class="automation-device-meta">${esc(device.category)} · ${esc(device.room_name || 'Unassigned')} · ${esc(device.provider?.name || device.provider_key)}</div></div><span class="automation-ready ${device.currently_executable ? '' : 'no'}">${device.currently_executable ? 'Executable after approval' : esc(device.execution_blocked_reason || (device.controllable ? 'Driver unavailable' : 'Discovery only'))}</span></div>
         <div class="automation-device-state">${state || '<span class="automation-state-chip">No state reported</span>'}</div>
         ${commandControls(device)}
       </article>`;

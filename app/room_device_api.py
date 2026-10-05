@@ -174,22 +174,7 @@ def owner_automation_suggestions(
 
 @router.post("/api/v1/control/vp3-os/automation/suggestions/{suggestion_id}/request")
 def owner_automation_suggestion_request(suggestion_id: int) -> dict:
-    suggestion = _call(room_device_automation.get_suggestion, suggestion_id)
-    if not suggestion.get("device_key") or not suggestion.get("command"):
-        raise HTTPException(status_code=409, detail="Suggestion does not contain a device command")
-    request = _call(
-        approvals.create_device_command_request,
-        "owner",
-        {
-            "device_key": suggestion["device_key"],
-            "command": suggestion["command"],
-            "arguments": suggestion.get("arguments") or {},
-        },
-        owner=True,
-    )
-    request_id = str(((request.get("result") or {}).get("request_id") or ""))
-    _call(room_device_automation.mark_suggestion_requested, suggestion_id, request_id)
-    return {**request, "suggestion_id": suggestion_id, "approval_required": True}
+    return _call(room_device_automation.request_suggestion, suggestion_id)
 
 
 @router.post("/api/v1/control/vp3-os/automation/suggestions/{suggestion_id}/dismiss")
@@ -227,4 +212,3 @@ def owner_tracky_event_rule_upsert(rule_key: str, payload: TrackyEventRuleUpsert
 @router.delete("/api/v1/control/vp3-os/automation/tracky-rules/{rule_key}")
 def owner_tracky_event_rule_delete(rule_key: str) -> dict:
     return _call(tracky_governed_actions.delete_event_rule, rule_key)
-

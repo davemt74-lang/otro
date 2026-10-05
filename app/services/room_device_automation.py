@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -7,7 +8,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
-from ..database import db
+from ..database import atomic_write, db
 
 AUTOMATION_VERSION = "v0.60"
 
@@ -350,6 +351,7 @@ def _decode_device(row) -> dict[str, Any]:
     item = dict(row)
     item["enabled"] = bool(item["enabled"])
     item["controllable"] = bool(item["controllable"])
+    item["room_enabled"] = item.get("room_id") is None or bool(item.get("room_enabled"))
     item["capabilities"] = _decode_json(item.pop("capabilities_json", "{}"))
     item["state"] = _decode_json(item.pop("state_json", "{}"))
     item["metadata"] = _decode_json(item.pop("metadata_json", "{}"))
@@ -358,14 +360,22 @@ def _decode_device(row) -> dict[str, Any]:
         "provider_key": provider["provider_key"],
         "name": provider["name"],
         "provider_type": provider["provider_type"],
+        "configuration_hash": hashlib.sha256(json.dumps(provider["metadata"], sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
         "status": provider["status"],
         "currently_executable": provider["currently_executable"],
     }
     item["currently_executable"] = bool(
         item["enabled"]
+        and item["room_enabled"]
         and item["controllable"]
         and item["category"] in SAFE_CONTROL_CATEGORIES
         and provider["currently_executable"]
+    )
+    item["execution_blocked_reason"] = (
+        "Device disabled" if not item["enabled"] else
+        "Room disabled" if not item["room_enabled"] else
+        "Discovery only" if not item["controllable"] else
+        "Provider driver not ready" if not item["currently_executable"] else None
     )
     return item
 
@@ -375,7 +385,7 @@ def get_device(device_key: str) -> dict[str, Any]:
     with db() as connection:
         row = connection.execute(
             """
-            SELECT d.*,r.room_key,r.name AS room_name
+            SELECT d.*,r.room_key,r.name AS room_name,r.enabled AS room_enabled
             FROM automation_devices d
             LEFT JOIN automation_rooms r ON r.id=d.room_id
             WHERE d.device_key=? LIMIT 1
@@ -413,7 +423,7 @@ def list_devices(
     with db() as connection:
         rows = connection.execute(
             f"""
-            SELECT d.*,r.room_key,r.name AS room_name
+            SELECT d.*,r.room_key,r.name AS room_name,r.enabled AS room_enabled
             FROM automation_devices d
             LEFT JOIN automation_rooms r ON r.id=d.room_id
             {where}
@@ -487,6 +497,17 @@ def normalize_command(device: dict[str, Any], command: str, arguments: Any) -> t
     raise RoomDeviceError("Command is not supported for this device.", 422)
 
 
+def target_binding(device: dict[str, Any]) -> str:
+    """Bind approval to the physical target without publishing provider identifiers."""
+    identity = {key: device.get(key) for key in (
+        "id", "provider_key", "provider_device_id", "category", "room_id", "metadata"
+    )}
+    identity["provider_type"] = (device.get("provider") or {}).get("provider_type")
+    identity["provider_configuration"] = (device.get("provider") or {}).get("configuration_hash")
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
 def command_metadata(device: dict[str, Any], command: str, arguments: dict[str, Any]) -> dict[str, Any]:
     safe = {
         "device_key": str(device["device_key"])[:80],
@@ -494,6 +515,7 @@ def command_metadata(device: dict[str, Any], command: str, arguments: dict[str, 
         "room_key": str(device.get("room_key") or "")[:80] or None,
         "command": str(command)[:40],
         "argument_count": len(arguments),
+        "target_binding": target_binding(device),
     }
     if command == "set_brightness":
         safe["brightness"] = int(arguments["brightness"])
@@ -512,6 +534,8 @@ def validate_command_request(
     device = get_device(device_key)
     if not device["enabled"]:
         raise RoomDeviceError("Device is disabled.", 409)
+    if not device["room_enabled"]:
+        raise RoomDeviceError("Room is disabled.", 409)
     if not device["controllable"]:
         raise RoomDeviceError("Device is not marked controllable.", 403)
     normalized_command, normalized_arguments = normalize_command(device, command, arguments or {})
@@ -530,6 +554,8 @@ def _assert_approved_execution_context(
     device_key: str,
     command: str,
     arguments: dict[str, Any],
+    device: dict[str, Any],
+    source_app_key: str,
 ) -> None:
     request_id = str(action_request_id or "").strip()
     if not request_id:
@@ -540,7 +566,8 @@ def _assert_approved_execution_context(
     with db() as connection:
         row = connection.execute(
             """
-            SELECT id, action_key, status, arguments_json
+            SELECT id, action_key, status, arguments_json, arguments_meta_json,
+                   source_app_key, expires_at
             FROM action_requests
             WHERE id=? LIMIT 1
             """,
@@ -553,6 +580,19 @@ def _assert_approved_execution_context(
             "Device action request is not reserved for execution.",
             409,
         )
+    if row["source_app_key"] != source_app_key:
+        raise RoomDeviceError("Approved device action source does not match.", 403)
+    try:
+        expiry = datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry <= datetime.now(timezone.utc):
+            raise ValueError("expired")
+    except (TypeError, ValueError) as exc:
+        raise RoomDeviceError("Device action request has expired or has invalid expiry.", 409) from exc
+    meta = _decode_json(row["arguments_meta_json"])
+    if meta.get("target_binding") != target_binding(device):
+        raise RoomDeviceError("Device target changed; create a new approval request.", 409)
     try:
         request_arguments = json.loads(str(row["arguments_json"] or "{}"))
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -583,6 +623,8 @@ def execute_command(
         device_key=validated["device_key"],
         command=validated["command"],
         arguments=validated["arguments"],
+        device=validated["device"],
+        source_app_key=source_app_key,
     )
     device = validated["device"]
     provider = get_provider(str(device["provider_key"]))
@@ -619,6 +661,10 @@ def execute_command(
         result = driver(device, validated["command"], dict(validated["arguments"]))
         if not isinstance(result, dict):
             raise RoomDeviceError("Provider driver returned an invalid result.", 502)
+        if any(key in result and result[key] is not True for key in ("ok", "executed", "success", "accepted")):
+            raise RoomDeviceError("Provider did not confirm the device command.", 502)
+        if "state" not in result and result.get("ok") is not True and result.get("executed") is not True:
+            raise RoomDeviceError("Provider did not confirm the device command.", 502)
         new_state = _json_object(result.get("state", before_state), _MAX_STATE_BYTES, "provider state")
         with db() as connection:
             connection.execute(
@@ -663,9 +709,9 @@ def execute_command(
                 SET status='failed',error=?,completed_at=CURRENT_TIMESTAMP
                 WHERE id=?
                 """,
-                (str(exc)[:1000], action_id),
+                ("Provider did not confirm the device command.", action_id),
             )
-        raise
+        raise RoomDeviceError("Provider did not confirm the device command.", 502) from exc
     except Exception as exc:
         with db() as connection:
             connection.execute(
@@ -790,18 +836,20 @@ def list_suggestions(status: str | None = None, limit: int = 100) -> list[dict[s
     return [get_suggestion(int(row["id"])) for row in rows]
 
 
+@atomic_write
 def dismiss_suggestion(suggestion_id: int) -> dict[str, Any]:
     item = get_suggestion(suggestion_id)
     if item["status"] != "suggested":
         raise RoomDeviceError("Suggestion is no longer pending.", 409)
     with db() as connection:
         connection.execute(
-            "UPDATE automation_suggestions SET status='dismissed',updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            "UPDATE automation_suggestions SET status='dismissed',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='suggested'",
             (int(suggestion_id),),
         )
     return get_suggestion(suggestion_id)
 
 
+@atomic_write
 def mark_suggestion_requested(suggestion_id: int, action_request_id: str) -> dict[str, Any]:
     item = get_suggestion(suggestion_id)
     if item["status"] != "suggested":
@@ -811,11 +859,37 @@ def mark_suggestion_requested(suggestion_id: int, action_request_id: str) -> dic
             """
             UPDATE automation_suggestions
             SET status='requested',action_request_id=?,updated_at=CURRENT_TIMESTAMP
-            WHERE id=?
+            WHERE id=? AND status='suggested'
             """,
             (str(action_request_id)[:64], int(suggestion_id)),
         )
     return get_suggestion(suggestion_id)
+
+
+@atomic_write
+def request_suggestion(suggestion_id: int) -> dict[str, Any]:
+    """Atomically create one local-owner request and retain its receipt on retry."""
+    from . import approvals
+    item = get_suggestion(suggestion_id)
+    if item["status"] == "requested":
+        request = approvals._request_for_owner(str(item.get("action_request_id") or ""))
+        return {
+            "result": {"request_id": request["id"], "status": request["status"],
+                       "action": "devices.command", "expires_at": request["expires_at"],
+                       "owner_approval_required": request["status"] == "pending"},
+            "suggestion_id": suggestion_id, "approval_required": request["status"] == "pending",
+            "replayed": True,
+        }
+    if item["status"] != "suggested":
+        raise RoomDeviceError("Suggestion is no longer pending.", 409)
+    if not item.get("device_key") or not item.get("command"):
+        raise RoomDeviceError("Suggestion does not contain a device command.", 409)
+    request = approvals.create_device_command_request("owner", {
+        "device_key": item["device_key"], "command": item["command"],
+        "arguments": item.get("arguments") or {},
+    }, owner=True)
+    mark_suggestion_requested(suggestion_id, request["result"]["request_id"])
+    return {**request, "suggestion_id": suggestion_id, "approval_required": True}
 
 
 def public_capability() -> dict[str, Any]:
