@@ -10,6 +10,8 @@
   let visible = false;
   let polling = false;
   let lastError = '';
+  let operation = 0;
+  let refreshRequest = 0;
 
   async function api(path,method='GET',body=null) {
     const response = await fetch(path,{
@@ -67,12 +69,14 @@
   }
 
   async function refresh(){
-    snapshot=await api('/api/v1/control/onboarding/summary');
-    render();
+    const request=++refreshRequest;
+    const next=await api('/api/v1/control/onboarding/summary');
+    if(request!==refreshRequest)return;
+    snapshot=next;render();
   }
   async function act(task,message){
     if(busy)return;
-    busy=true;render();
+    ++operation;busy=true;render();
     try{
       await task();
       lastError='';
@@ -98,7 +102,7 @@
     if(busy)return;
     const tab=window.open('about:blank','_blank');
     if(tab)try{tab.opener=null;}catch(_){}
-    busy=true;render();
+    ++operation;busy=true;render();
     try{
       await api('/api/v1/control/onboarding/device/start','POST');
       await refresh();
@@ -137,12 +141,14 @@
   },'First-run preferences saved. Your normal Agent Chat remains available.'));
 
   async function poll(){
-    if(!visible||polling||document.visibilityState!=='visible')return;
+    if(!visible||busy||polling||document.visibilityState!=='visible')return;
     polling=true;
+    const generation=operation;
     try{
       const code=snapshot?.pairing||{},cloud=snapshot?.cloud||{};
       if(code.state==='pending'&&!cloud.paired){
         const next=await api('/api/v1/control/onboarding/device/poll','POST');
+        if(generation!==operation)return;
         if(next.cloud?.paired){
           feedback('Cloud pairing is saved. The secure connection is starting.');
           await refresh();
@@ -151,7 +157,7 @@
         }
       }
       if(snapshot?.provision?.phase==='running'||snapshot?.cloud?.paired)await refresh();
-    }catch(e){feedback(e.message,true);}
+    }catch(e){if(generation===operation)feedback(e.message,true);}
     finally{polling=false;}
   }
 

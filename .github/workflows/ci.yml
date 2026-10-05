@@ -121,7 +121,10 @@ jobs:
       - name: Outbound WebSocket bridge protocol regression
         run: python tests/remote_bridge_socket.py
       - name: VP3 account-token pairing regression
-        run: python tests/vp3_account_pairing_v062.py
+        run: |
+          python tests/vp3_account_pairing_v062.py
+          python tests/onboarding_accounts_section11.py
+          node tests/onboarding_lifecycle_section11.mjs
       - name: VP3 HTTPS session replacement race regression
         run: python tests/vp3_https_session_race.py
       - name: VP3 HTTPS bidirectional relay regression

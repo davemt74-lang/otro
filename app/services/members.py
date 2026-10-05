@@ -176,19 +176,20 @@ def update_member(member_id:str,values:dict[str,Any])->dict[str,Any]:
     unknown=set(values)-{"display_name","role","status"}
     if unknown:
         raise MemberError(f"Unsupported member field: {sorted(unknown)[0]}")
-    current=get_member(member_id)
-    name=_display_name(values.get("display_name",current["display_name"]))
-    role=str(values.get("role",current["role"])).lower()
-    status=str(values.get("status",current["status"])).lower()
-    if role not in _ROLES:
-        raise MemberError("Unsupported member role.")
-    if status not in _STATUSES:
-        raise MemberError("Unsupported member status.")
     with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        current=connection.execute("SELECT display_name,role,status FROM homeserver_members WHERE member_id=?",(member_id,)).fetchone()
+        if current is None:
+            raise MemberError("Member not found.",404)
+        name=_display_name(values.get("display_name",current["display_name"]))
+        role=str(values.get("role",current["role"])).lower()
+        status=str(values.get("status",current["status"])).lower()
+        if role not in _ROLES:
+            raise MemberError("Unsupported member role.")
+        if status not in _STATUSES:
+            raise MemberError("Unsupported member status.")
         connection.execute(
-            """UPDATE homeserver_members
-               SET display_name=?,role=?,status=?,updated_at=CURRENT_TIMESTAMP
-               WHERE member_id=?""",
+            "UPDATE homeserver_members SET display_name=?,role=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE member_id=?",
             (name,role,status,member_id),
         )
         if status!="active":
@@ -214,25 +215,11 @@ def set_password(member_id:str,password:str)->dict[str,Any]:
     return {"member_id":member_id,"sessions_revoked":True}
 
 
-def _failed_login(row)->None:
-    attempts=int(row["failed_attempts"] or 0)+1
-    locked_until=None
-    if attempts>=_LOCK_THRESHOLD:
-        locked_until=_iso(_now()+timedelta(minutes=_LOCK_MINUTES))
-        attempts=0
-    with db() as connection:
-        connection.execute(
-            "UPDATE homeserver_members SET failed_attempts=?,locked_until=?,updated_at=CURRENT_TIMESTAMP WHERE member_id=?",
-            (attempts,locked_until,row["member_id"]),
-        )
-
-
 def authenticate(username:str,password:str)->dict[str,Any]:
     key=str(username or "").strip().lower()
     if not _USERNAME.fullmatch(key):
         raise MemberError("Invalid member credentials.",401)
     with db() as connection:
-        connection.execute("DELETE FROM homeserver_member_sessions WHERE expires_at<=?",(_iso(_now()),))
         row=connection.execute("SELECT * FROM homeserver_members WHERE username=?",(key,)).fetchone()
     if row is None or str(row["status"])!="active":
         raise MemberError("Invalid member credentials.",401)
@@ -243,36 +230,52 @@ def authenticate(username:str,password:str)->dict[str,Any]:
         salt=bytes.fromhex(str(row["password_salt"]))
     except ValueError as exc:
         raise MemberError("Member credential record is invalid.",500) from exc
+    # Expensive hashing stays outside the write lock. Re-read authority before
+    # issuing a session so reset/disable cannot be undone by an in-flight login.
     candidate=_password_hash(str(password or ""),salt)
-    if not hmac.compare_digest(candidate,str(row["password_hash"])):
-        _failed_login(row)
-        raise MemberError("Invalid member credentials.",401)
     token=secrets.token_urlsafe(48)
     expires=_now()+timedelta(hours=_SESSION_HOURS)
+    failure=None
     with db() as connection:
-        connection.execute(
-            "UPDATE homeserver_members SET failed_attempts=0,locked_until=NULL,updated_at=CURRENT_TIMESTAMP WHERE member_id=?",
-            (row["member_id"],),
-        )
-        connection.execute(
-            """INSERT INTO homeserver_member_sessions(session_hash,member_id,expires_at)
-               VALUES (?,?,?)""",
-            (_session_hash(token),row["member_id"],_iso(expires)),
-        )
-        stale=connection.execute(
-            """SELECT session_hash FROM homeserver_member_sessions
-               WHERE member_id=? ORDER BY created_at DESC LIMIT -1 OFFSET 10""",
-            (row["member_id"],),
-        ).fetchall()
-        for item in stale:
-            connection.execute("DELETE FROM homeserver_member_sessions WHERE session_hash=?",(item["session_hash"],))
+        connection.execute("BEGIN IMMEDIATE")
+        connection.execute("DELETE FROM homeserver_member_sessions WHERE expires_at<=?",(_iso(_now()),))
+        current=connection.execute("SELECT * FROM homeserver_members WHERE member_id=?",(row["member_id"],)).fetchone()
+        if (current is None or str(current["status"])!="active"
+                or current["password_salt"]!=row["password_salt"] or current["password_hash"]!=row["password_hash"]):
+            failure=MemberError("Invalid member credentials.",401)
+        elif (locked:=_parse(current["locked_until"])) and locked>_now():
+            failure=MemberError("Member account is temporarily locked.",429)
+        elif not hmac.compare_digest(candidate,str(current["password_hash"])):
+            attempts=int(current["failed_attempts"] or 0)+1
+            locked_until=None
+            if attempts>=_LOCK_THRESHOLD:
+                locked_until=_iso(_now()+timedelta(minutes=_LOCK_MINUTES));attempts=0
+            connection.execute(
+                "UPDATE homeserver_members SET failed_attempts=?,locked_until=?,updated_at=CURRENT_TIMESTAMP WHERE member_id=?",
+                (attempts,locked_until,row["member_id"]),
+            )
+            failure=MemberError("Invalid member credentials.",401)
+        else:
+            connection.execute(
+                "UPDATE homeserver_members SET failed_attempts=0,locked_until=NULL,updated_at=CURRENT_TIMESTAMP WHERE member_id=?",
+                (row["member_id"],),
+            )
+            connection.execute(
+                "INSERT INTO homeserver_member_sessions(session_hash,member_id,expires_at) VALUES (?,?,?)",
+                (_session_hash(token),row["member_id"],_iso(expires)),
+            )
+            stale=connection.execute(
+                "SELECT session_hash FROM homeserver_member_sessions WHERE member_id=? ORDER BY created_at DESC,rowid DESC LIMIT -1 OFFSET 10",
+                (row["member_id"],),
+            ).fetchall()
+            for item in stale:
+                connection.execute("DELETE FROM homeserver_member_sessions WHERE session_hash=?",(item["session_hash"],))
+    # Failed-attempt accounting must commit before returning the rejection.
+    if failure is not None:
+        raise failure
     _activity(str(row["member_id"]),"member.session.created","session","local")
-    return {
-        "contract":CONTRACT,
-        "session_token":token,
-        "expires_at":_iso(expires),
-        "member":get_member(str(row["member_id"])),
-    }
+    return {"contract":CONTRACT,"session_token":token,"expires_at":_iso(expires),
+            "member":get_member(str(row["member_id"]))}
 
 
 def session_identity(token:str|None)->dict[str,Any]:
@@ -397,6 +400,10 @@ def set_context(member_id:str,context_key:str,value:Any)->dict[str,Any]:
     if len(encoded.encode("utf-8"))>_MAX_CONTEXT_BYTES:
         raise MemberError("Member context value exceeds 16 KB.",413)
     with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        authority=connection.execute("SELECT role,status FROM homeserver_members WHERE member_id=?",(member_id,)).fetchone()
+        if authority is None or authority["status"]!="active" or authority["role"]=="guest":
+            raise MemberError("Member cannot persist Agent context.",403)
         exists=connection.execute(
             "SELECT 1 FROM homeserver_member_context WHERE member_id=? AND context_key=?",
             (member_id,key),
@@ -424,6 +431,10 @@ def delete_context(member_id:str,context_key:str)->bool:
         raise MemberError("Guest accounts cannot modify Agent context.",403)
     key=str(context_key or "").strip().lower()
     with db() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        authority=connection.execute("SELECT role,status FROM homeserver_members WHERE member_id=?",(member_id,)).fetchone()
+        if authority is None or authority["status"]!="active" or authority["role"]=="guest":
+            raise MemberError("Member cannot modify Agent context.",403)
         cursor=connection.execute(
             "DELETE FROM homeserver_member_context WHERE member_id=? AND context_key=?",
             (member_id,key),

@@ -60,6 +60,10 @@ jobs:
           node --check ui/welcome.js
       - name: Agent-first cloud onboarding contract
         run: |
+          python tests/onboarding_accounts_section11.py
+          node tests/onboarding_lifecycle_section11.mjs
+          python tests/vp3_account_pairing_v062.py
+          python tests/homeserver_members_v400.py
           python tests/chat_onboarding_v2.py
           node --check ui/chat-onboarding.js
           node --check ui/welcome.js

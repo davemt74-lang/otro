@@ -263,5 +263,16 @@ def poll_device_code() -> dict[str, Any]:
 
 
 def clear_pending_code() -> dict[str, Any]:
-    _remove_device()
-    return device_status()
+    with _POLL_LOCK:
+        cloud_pairing.clear_pending_pairing()
+        _remove_device()
+        return device_status()
+
+
+
+def disconnect_cloud() -> None:
+    # Use the same lock as background polls: a response already in flight must
+    # finish before disconnect, and later polls no longer have a device proof.
+    with _POLL_LOCK:
+        cloud_pairing.disconnect_vp3_pairing()
+        _remove_device()
