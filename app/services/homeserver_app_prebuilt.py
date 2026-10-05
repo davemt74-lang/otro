@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import hashlib
 import io
 import json
@@ -682,6 +684,7 @@ def catalog() -> dict[str, Any]:
     }
 
 
+@serialized
 def install(
     catalog_key: str,
     *,
@@ -826,6 +829,7 @@ def release_status(catalog_key: str) -> dict[str, Any]:
     }
 
 
+@serialized
 def rollback(catalog_key: str, *, expected_active_release_id: str | None = None, reason: str = "owner_requested") -> dict[str, Any]:
     key = str(catalog_key or "").strip().lower()
     if key not in CATALOG:

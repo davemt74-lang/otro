@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import hashlib
 import json
 import os
@@ -117,6 +119,7 @@ def _snapshot(app_key: str, snapshot_id: str) -> tuple[Path, dict[str, Any]]:
     return root, meta
 
 
+@serialized
 def restore_snapshot(app_key: str, snapshot_id: str, *, reason: str = "release_rollback") -> dict[str, Any]:
     app = homeserver_apps.get(app_key)
     root, meta = _snapshot(app_key, snapshot_id)
@@ -207,6 +210,7 @@ def _run_system_sql_migrations(app_key: str, content_root: Path, relative_dir: s
     return executed
 
 
+@serialized
 def prepare_and_apply_migration(
     app_key: str,
     manifest: dict[str, Any],
@@ -273,6 +277,7 @@ def prepare_and_apply_migration(
     return result
 
 
+@serialized
 def rollback_data_for_active_release(app_key: str, active_release: dict[str, Any]) -> dict[str, Any]:
     migration = dict(active_release.get("data_migration") or {})
     if not migration.get("migration_required"):

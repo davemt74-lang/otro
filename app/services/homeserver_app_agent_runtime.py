@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import json
 import re
 import threading
@@ -65,6 +67,7 @@ def policy(app_key:str)->dict[str,Any]:
     }
 
 
+@serialized
 def update_policy(app_key:str,values:dict[str,Any])->dict[str,Any]:
     app,current=_policy_row(app_key)
     unknown=set(values)-{"enabled","cloud_allowed","max_daily_requests","max_prompt_chars","max_context_chars"}
@@ -222,7 +225,7 @@ def collect_context(app_key:str,keys:list[str]|None=None)->dict[str,Any]:
     for key in selected[:16]:
         spec=providers_by_key[key]
         try:
-            invoked=homeserver_app_control.invoke(app_key,spec["action"],{})
+            invoked=homeserver_app_control.invoke(app_key,spec["action"],{},read_only=True)
         except homeserver_app_control.AppControlError as exc:
             raise AppAgentRuntimeError(str(exc),exc.status_code) from exc
         safe=_redact(invoked.get("result"))

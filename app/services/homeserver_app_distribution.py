@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import hashlib
 import hmac
 import io
@@ -268,6 +270,7 @@ def preview_bundle(bundle:bytes,*,expected_package_sha256:str="")->dict[str,Any]
     }
 
 
+@serialized
 def _record_installed_provenance(app_key:str,descriptor:dict[str,Any],share_public_id:str="")->None:
     app=homeserver_apps.get(app_key)
     meta=dict(app.get("metadata") or {})

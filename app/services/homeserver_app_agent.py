@@ -336,7 +336,7 @@ def invoke_read(arguments:dict[str,Any]|None=None)->dict[str,Any]:
         spec=homeserver_app_control.action_spec(key,action)
         if str(spec.get("risk") or "")!="read" or bool(spec.get("requires_confirmation")):
             raise AppAgentError("Use the governed Apps action path for non-read actions.",409)
-        return homeserver_app_control.invoke(key,action,payload)
+        return homeserver_app_control.invoke(key,action,payload,read_only=True)
     except homeserver_app_control.AppControlError as exc:
         raise AppAgentError(str(exc),exc.status_code) from exc
 
@@ -371,10 +371,12 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
             raise AppAgentError("apps.permission.set requires app_key and permission.")
         homeserver_apps.get(key)
         homeserver_app_security.permission_definition(permission)
-        return {"app_key":key,"permission":permission,"allowed":bool(args.get("allowed"))}
+        if not isinstance(args.get("allowed"),bool):
+            raise AppAgentError("apps.permission.set allowed must be a boolean.")
+        return {"app_key":key,"permission":permission,"allowed":args["allowed"]}
 
     if action=="apps.invoke":
-        unknown=set(args)-{"app_key","action","arguments"}
+        unknown=set(args)-{"app_key","action","arguments","action_binding"}
         if unknown:
             raise AppAgentError(f"Unsupported {action} argument: {sorted(unknown)[0]}")
         key=str(args.get("app_key") or "").strip().lower()
@@ -384,13 +386,14 @@ def normalize_action(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
             spec=homeserver_app_control.action_spec(key,app_action)
         except homeserver_app_control.AppControlError as exc:
             raise AppAgentError(str(exc),exc.status_code) from exc
-        # Policy metadata is evaluated before proposal/execution and must not be
-        # persisted inside executable arguments. This keeps approved replay
-        # idempotent through the same canonical validator.
+        binding=homeserver_app_control.action_binding(key,spec)
+        if "action_binding" in args and args["action_binding"]!=binding:
+            raise AppAgentError("App action changed since approval was requested; request a new approval.",409)
         return {
             "app_key":key,
             "action":app_action,
             "arguments":payload,
+            "action_binding":binding,
         }
 
     if action=="apps.git.inspect":
@@ -489,6 +492,8 @@ def safe_action_meta(action_key:str,arguments:dict[str,Any]|None)->dict[str,Any]
 
 
 def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
+    if action_key=="apps.invoke" and not arguments.get("action_binding"):
+        raise AppAgentError("App action approval has no release binding; request a new approval.",409)
     args=normalize_action(action_key,arguments)
     try:
         if action_key=="apps.git.inspect":
@@ -505,7 +510,7 @@ def execute_action(action_key:str,arguments:dict[str,Any])->dict[str,Any]:
                 actor_type="agent",actor_key="homeserver-agent",reason="confirmed_agent_action",
             )}
         if action_key=="apps.invoke":
-            return homeserver_app_control.invoke(args["app_key"],args["action"],args["arguments"])
+            return homeserver_app_control.invoke(args["app_key"],args["action"],args["arguments"],confirmed=True,expected_binding=args["action_binding"])
         key=args["app_key"]
         if action_key=="apps.prebuilt.install":
             return homeserver_app_prebuilt.install(

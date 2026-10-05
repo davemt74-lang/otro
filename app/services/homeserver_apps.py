@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import json
 import re
 import uuid
@@ -104,6 +106,7 @@ def sync_legacy_local_apps() -> int:
 
 
 
+@serialized
 def ensure_system_app(
     app_key:str,
     name:str,
@@ -148,6 +151,7 @@ def ensure_system_app(
     return get(key)
 
 
+@serialized
 def register_user_app(
     app_key: str,
     name: str,
@@ -186,6 +190,7 @@ def register_user_app(
 
 
 
+@serialized
 def create_user_app(app_key: str, name: str, *, runtime: str="static", source_type: str="user_created", metadata: dict[str,Any]|None=None, permissions:list[str]|None=None) -> dict[str,Any]:
     source=str(source_type or "user_created").strip()
     if source not in {"user_created","agent_builder"}:
@@ -229,6 +234,7 @@ def list_apps() -> dict[str, Any]:
     }
 
 
+@serialized
 def transition(app_key: str, target_state: str, *, actor_type: str="owner", actor_key: str="local_owner", metadata: dict[str,Any]|None=None) -> dict[str,Any]:
     target=str(target_state or "").strip()
     if target not in LIFECYCLE_STATES:
@@ -257,6 +263,7 @@ def transition(app_key: str, target_state: str, *, actor_type: str="owner", acto
     return get(str(app_key))
 
 
+@serialized
 def archive_user_app(app_key:str)->dict[str,Any]:
     app=get(app_key)
     if app["app_class"]!="user" or app["protected_system_app"]:
@@ -276,6 +283,7 @@ def archive_user_app(app_key:str)->dict[str,Any]:
     raise HomeServerAppError("App could not be archived from its current state.",409)
 
 
+@serialized
 def resume_user_app(app_key:str)->dict[str,Any]:
     app=get(app_key)
     if app["app_class"]!="user":

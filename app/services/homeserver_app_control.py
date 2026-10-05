@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from .homeserver_app_locks import serialized
+
 import json
+import hashlib
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -191,6 +195,8 @@ def _validate_arguments(spec:dict[str,Any],arguments:dict[str,Any])->dict[str,An
                         raise AppControlError(f"App action argument {name} does not match its pattern.")
                 except re.error as exc:
                     raise AppControlError(f"App action argument {name} has an invalid schema pattern.") from exc
+        if isinstance(value,float) and not math.isfinite(value):
+            raise AppControlError(f"App action argument {name} must be finite.")
         if isinstance(value,(int,float)) and not isinstance(value,bool):
             if "minimum" in definition and value<float(definition["minimum"]):
                 raise AppControlError(f"App action argument {name} is below its minimum.")
@@ -262,11 +268,24 @@ def _builtin(app_key:str,provider:str,action_key:str,arguments:dict[str,Any])->A
     raise AppControlError("Builtin app action provider is unavailable.",501)
 
 
-def invoke(app_key:str,action_key:str,arguments:dict[str,Any]|None=None)->dict[str,Any]:
+def action_binding(app_key:str,spec:dict[str,Any])->str:
+    state=homeserver_app_packages._read_state(app_key)
+    encoded=json.dumps({"release_id":state.get("active_release_id"),"action":spec},sort_keys=True,separators=(",",":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+@serialized
+def invoke(app_key:str,action_key:str,arguments:dict[str,Any]|None=None,*,confirmed:bool=False,read_only:bool=False,expected_binding:str|None=None)->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     if app.get("lifecycle_state")!="running":
         raise AppControlError("App must be running before invoking an app action.",409)
     spec=action_spec(app_key,action_key)
+    if read_only and (spec["risk"]!="read" or spec["requires_confirmation"]):
+        raise AppControlError("Use the governed Apps action path for non-read actions.",409)
+    if spec["requires_confirmation"] and confirmed is not True:
+        raise AppControlError("This app action requires owner confirmation.",409)
+    if expected_binding is not None and expected_binding!=action_binding(app_key,spec):
+        raise AppControlError("App action changed since approval was requested; request a new approval.",409)
     executor=spec.get("executor")
     if not isinstance(executor,dict):
         raise AppControlError("App action has no executable handler.",409)
@@ -337,6 +356,7 @@ def validate_settings_schema(content_root:Path,app_key:str,schema_path:str)->dic
         raise AppControlError("App settings fields are invalid.")
     normalized=[]
     seen=set()
+    secret_names=set()
     for row in fields:
         if not isinstance(row,dict):
             raise AppControlError("App setting definition must be an object.")
@@ -362,10 +382,15 @@ def validate_settings_schema(content_root:Path,app_key:str,schema_path:str)->dic
             "minimum":row.get("minimum"),
             "maximum":row.get("maximum"),
         }
-        if normalized_field["secret"] and normalized_field["default"] not in {None,""}:
+        if normalized_field["secret"] and normalized_field["default"] is not None and normalized_field["default"]!="":
             raise AppControlError(f"Secret setting {key} may not declare a package default.")
         if not normalized_field["secret"] and normalized_field["default"] is not None:
             _coerce_setting(normalized_field,normalized_field["default"])
+        if normalized_field["secret"]:
+            name=key.upper().replace(".","_").replace("-","_")
+            if not homeserver_app_security._SECRET_KEY.fullmatch(name) or name in secret_names:
+                raise AppControlError(f"Secret setting {key} has an invalid or duplicated vault key.")
+            secret_names.add(name)
         normalized.append(normalized_field)
     return {"contract":"vp3.app.settings-schema.v1","app_key":app_key,"fields":normalized}
 
@@ -430,6 +455,8 @@ def _coerce_setting(field:dict[str,Any],value:Any)->Any:
         if isinstance(value,bool) or not isinstance(value,(int,float)):
             raise AppControlError(f"Setting {field['key']} must be numeric.")
         parsed=float(value)
+        if not math.isfinite(parsed):
+            raise AppControlError(f"Setting {field['key']} must be finite.")
     enum=field.get("enum")
     if enum is not None and parsed not in enum:
         raise AppControlError(f"Setting {field['key']} is not an allowed value.")
@@ -443,6 +470,7 @@ def _coerce_setting(field:dict[str,Any],value:Any)->Any:
     return parsed
 
 
+@serialized
 def update_settings(app_key:str,values:dict[str,Any])->dict[str,Any]:
     app=homeserver_apps.get(app_key)
     schema=_settings_schema(app_key)
@@ -450,36 +478,64 @@ def update_settings(app_key:str,values:dict[str,Any])->dict[str,Any]:
     unknown=set(values)-set(fields)
     if unknown:
         raise AppControlError(f"Unknown app setting: {sorted(unknown)[0]}")
-    metadata=dict(app.get("metadata") or {})
-    stored=dict(metadata.get("control_settings") or {})
-    changed=[]
-    for key,value in values.items():
-        field=fields[key]
-        parsed=_coerce_setting(field,value)
-        if field["secret"]:
-            secret_key=key.upper().replace(".","_").replace("-","_")
-            if parsed is None or parsed=="":
-                homeserver_app_security.remove_secret(app_key,secret_key)
-            else:
-                homeserver_app_security.set_secret(app_key,secret_key,str(parsed))
-            changed.append({"key":key,"secret":True})
-            continue
-        if parsed is None:
-            stored.pop(key,None)
+    # Validate the entire request before changing any persisted value.
+    parsed={key:_coerce_setting(fields[key],value) for key,value in values.items()}
+    secret_changes={}
+    for key,value in parsed.items():
+        if fields[key]["secret"]:
+            name=key.upper().replace(".","_").replace("-","_")
+            if not homeserver_app_security._SECRET_KEY.fullmatch(name):
+                raise AppControlError(f"Setting {key} has an invalid secret key.")
+            secret_changes[name]=None if value is None or value=="" else str(value)
+    vault_path=homeserver_app_security._vault_path(app["app_id"])
+    original=vault_path.read_bytes() if vault_path.is_file() else None
+    vault=homeserver_app_security._load_vault(app["app_id"]) if secret_changes else {}
+    for name,value in secret_changes.items():
+        if value is None:
+            vault.pop(name,None)
         else:
-            stored[key]=parsed
-        changed.append({"key":key,"secret":False})
-    metadata["control_settings"]=stored
-    with db() as connection:
-        connection.execute(
-            "UPDATE homeserver_apps SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE app_key=?",
-            (json.dumps(metadata,separators=(",",":"),sort_keys=True),app_key),
-        )
-        connection.execute(
-            """INSERT INTO homeserver_app_events(app_id,event_type,actor_type,actor_key,metadata_json)
-               VALUES (?, 'app.settings.updated','agent','homeserver-agent',?)""",
-            (app["app_id"],json.dumps({"changed":changed},separators=(",",":"),sort_keys=True)),
-        )
+            vault[name]=value
+    encoded=homeserver_app_security._encode(vault,app["app_id"]) if secret_changes and vault else None
+    vault_changed=False
+    try:
+        with db() as connection:
+            if connection.in_transaction:
+                raise AppControlError("App settings require an independent persistence transaction.",409)
+            connection.execute("BEGIN IMMEDIATE")
+            row=connection.execute("SELECT metadata_json FROM homeserver_apps WHERE app_key=?",(app_key,)).fetchone()
+            metadata=json.loads(row["metadata_json"] or "{}")
+            stored=dict(metadata.get("control_settings") or {})
+            changed=[]
+            for key,value in parsed.items():
+                if not fields[key]["secret"]:
+                    if value is None:
+                        stored.pop(key,None)
+                    else:
+                        stored[key]=value
+                changed.append({"key":key,"secret":fields[key]["secret"]})
+            metadata["control_settings"]=stored
+            connection.execute(
+                "UPDATE homeserver_apps SET metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE app_key=?",
+                (json.dumps(metadata,separators=(",",":"),sort_keys=True),app_key),
+            )
+            connection.execute(
+                """INSERT INTO homeserver_app_events(app_id,event_type,actor_type,actor_key,metadata_json)
+                   VALUES (?, 'app.settings.updated','agent','homeserver-agent',?)""",
+                (app["app_id"],json.dumps({"changed":changed},separators=(",",":"),sort_keys=True)),
+            )
+            if secret_changes:
+                vault_changed=True
+                if encoded is None:
+                    vault_path.unlink(missing_ok=True)
+                else:
+                    homeserver_app_security._atomic_write(vault_path,encoded)
+    except Exception:
+        if vault_changed:
+            if original is None:
+                vault_path.unlink(missing_ok=True)
+            else:
+                homeserver_app_security._atomic_write(vault_path,original)
+        raise
     return settings(app_key)
 
 

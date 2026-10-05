@@ -1356,7 +1356,7 @@ def app_control_invoke(app_key:str,payload:AppControlInvokeRequest)->dict:
     spec=_call(homeserver_app_control.action_spec,app_key,payload.action)
     if bool(spec.get("requires_confirmation")) and not payload.confirmed:
         raise HTTPException(status_code=409,detail="This app action requires owner confirmation.")
-    return _call(homeserver_app_control.invoke,app_key,payload.action,payload.arguments)
+    return _call(homeserver_app_control.invoke,app_key,payload.action,payload.arguments,confirmed=payload.confirmed)
 
 
 @router.get("/{app_key}/settings")
