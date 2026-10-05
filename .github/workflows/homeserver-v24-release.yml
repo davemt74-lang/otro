@@ -1,6 +1,12 @@
 name: HomeServer v2.4 Release Acceptance
 
 on:
+  pull_request:
+    paths:
+      - 'app/services/**'
+      - 'app/tasks_api.py'
+      - 'tests/**'
+      - '.github/workflows/**'
   push:
     branches:
       - main
