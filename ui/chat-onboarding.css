@@ -33,3 +33,10 @@
 #onboardEyesConsent{accent-color:#386590}
 
 .onboard-native-select{display:flex;align-items:center;gap:12px;margin:12px 0;color:#405777;font-size:12px}.onboard-native-select select{min-width:155px;padding:8px;border:1px solid #b8cbe2;border-radius:8px;background:#fff;color:#19344e}
+
+/* Consent checkboxes must not inherit the full width of text inputs. */
+.onboard-visual-consent input[type="checkbox"]{width:16px;height:16px;padding:0;margin:2px 0 0;flex:0 0 16px}
+.onboard-visual-consent span{min-width:0;overflow-wrap:anywhere}
+.chat-onboarding .onboard-step{min-width:0;overflow-wrap:anywhere}
+.chat-onboarding .onboard-native-select{flex-wrap:wrap}
+.chat-onboarding .onboard-native-select select{min-width:0;max-width:100%}
