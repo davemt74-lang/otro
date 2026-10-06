@@ -125,7 +125,7 @@ assert "minimum_schema_version = 38" in workflow
 assert "HomeServerSetup.exe" in workflow
 assert "SHA256SUMS.txt" in workflow
 assert "RELEASE.json" in workflow
-assert "Verify packaged v2.1 to v2.4 upgrade takeover" in workflow
+assert "Verify packaged same-version older-build takeover" in workflow
 assert "Verify packaged VP3 HTTPS session survives process restart" in workflow
 assert "Verify silent installer upgrade preserves private data" in workflow
 
