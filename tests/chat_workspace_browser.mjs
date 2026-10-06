@@ -321,7 +321,10 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     } else await route.fulfill({json:{enabled:true,paired:true,last_success_at:'2026-10-06T19:49:00Z',last_error:''}});
   });
   await page.locator('.primary-sidebar-nav [data-view="cloud-data"]').click();
-  await page.waitForFunction(() => document.querySelectorAll('.workspace-sync-record').length === 50);
+  await page.waitForFunction(() => document.querySelectorAll('.workspace-sync-record').length === 50).catch(async error => {
+    const state=await page.evaluate(()=>({active:document.querySelector('#view-cloud-data').className,hidden:document.hidden,options:document.querySelector('#workspaceSyncDataset').options.length,status:document.querySelector('#workspaceSyncStatus').textContent}));
+    throw new Error(error.message+'\nCloud data state: '+JSON.stringify(state)+'\nBrowser errors: '+JSON.stringify(errors)+'\nRequests: '+syncRequests);
+  });
   assert.equal(await page.locator('#workspaceSyncDataset option').count(),16);
   await page.locator('#workspaceSyncNext').click();
   await page.waitForFunction(() => document.querySelector('#workspaceSyncPage').textContent === '51–100 of 500');

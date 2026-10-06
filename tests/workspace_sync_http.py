@@ -47,7 +47,8 @@ with tempfile.TemporaryDirectory(prefix='workspace-http-') as directory:
             assert hashlib.sha256(path.read_bytes()).hexdigest()==file['sha256']
             with sqlite3.connect(directory+'/cloud.sqlite') as cloud:
                 body=cloud.execute("SELECT body_json FROM homeserver_workspace_snapshots_v1 WHERE user_id=1 AND source='homeserver' AND dataset='knowledge'").fetchone()[0]
-                assert 'Local 完整 💡 '*20000 in json.loads(body)['records'][0]['data']['content']
+                document=next(row for row in json.loads(body)['records'] if row['table']=='knowledge_items' and row['data'].get('title')=='Home document')
+                assert document['data']['content']=='Local 完整 💡 '*20000
                 transcript=cloud.execute("SELECT body_json FROM homeserver_workspace_snapshots_v1 WHERE user_id=1 AND source='homeserver' AND dataset='transcriptions'").fetchone()[0]
                 assert 'Automatically synchronized transcript' in transcript
                 assert cloud.execute("SELECT count(*) FROM homeserver_workspace_snapshots_v1 WHERE user_id=2").fetchone()[0]==0
