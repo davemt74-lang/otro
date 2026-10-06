@@ -79,6 +79,10 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     child.once('exit', code => {clearTimeout(timer); reject(new Error(`HomeServer exited ${code}: ${stderr}`));});
   });
   const context = await browser.newContext({viewport: {width: 1440, height: 900}});
+  if (process.env.AGENT_VOICE_PROFILE_SOURCE) {
+    const source = await fs.readFile(process.env.AGENT_VOICE_PROFILE_SOURCE, 'utf8');
+    await context.route('**/assets/agent-voice-profile.js*', route => route.fulfill({contentType: 'text/javascript', body: source}));
+  }
   for (let attempt = 0; ; attempt++) {
     try { if ((await context.request.get(base + '/api/v1/health')).ok()) break; } catch (_) {}
     if (attempt >= 100) throw new Error('HomeServer did not listen: ' + stderr);
@@ -148,10 +152,42 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(savedVoice.preferences.speaking_rate, 1.15);
   await page.locator('#chatOptionsButton').click();
   await page.locator('#chatOptionsTabVoice').click();
+  let releaseProfile, profileRequested = false;
+  const profileGate = new Promise(resolve => {releaseProfile = resolve;});
+  await page.route('**/api/v1/control/voice/agents/1/profile', async route => {
+    if (route.request().method() !== 'GET') {await route.continue(); return;}
+    const response = await route.fetch();
+    profileRequested = true;
+    await profileGate;
+    await route.fulfill({response});
+  });
+  await page.evaluate(() => {window.pendingProfileRefresh = window.HomeServerAgentVoiceProfile.load(true);});
+  for (let i = 0; !profileRequested; i++) {if (i > 100) throw Error('Profile refresh was not requested'); await delay(50);}
   await page.locator('#agentVoiceRateEnabled').check();
   await page.locator('#agentVoiceRate').fill('1.2');
+  releaseProfile();
+  await page.evaluate(() => window.pendingProfileRefresh);
+  assert.equal(await page.locator('#agentVoiceRateEnabled').isChecked(), true, 'Late refresh preserves the draft');
+  assert.equal(await page.locator('#agentVoiceRate').inputValue(), '1.2', 'Late refresh preserves edited speed');
+  await page.unroute('**/api/v1/control/voice/agents/1/profile');
+  let releaseStaleProfile, staleProfileRequested = false;
+  const staleProfileGate = new Promise(resolve => {releaseStaleProfile = resolve;});
+  await page.route('**/api/v1/control/voice/agents/1/profile', async route => {
+    if (route.request().method() !== 'GET') {await route.continue(); return;}
+    const response = await route.fetch();
+    staleProfileRequested = true;
+    await staleProfileGate;
+    await route.fulfill({response});
+  });
+  await page.evaluate(() => {window.staleProfileRefresh = window.HomeServerAgentVoiceProfile.load(true);});
+  for (let i = 0; !staleProfileRequested; i++) {if (i > 100) throw Error('Stale profile refresh was not requested'); await delay(50);}
   await page.locator('#agentVoiceProfileForm [type="submit"]').click();
   await page.waitForFunction(() => document.querySelector('#agentVoiceSaved')?.textContent.includes('Saved locally'));
+  releaseStaleProfile();
+  await page.evaluate(() => window.staleProfileRefresh);
+  assert.equal(await page.locator('#agentVoiceRateEnabled').isChecked(), true, 'Late pre-save GET cannot reset the acknowledged profile');
+  assert.equal(await page.locator('#agentVoiceRate').inputValue(), '1.2');
+  await page.unroute('**/api/v1/control/voice/agents/1/profile');
   await page.locator('#chatOptionsClose').click();
   const profile = await (await context.request.get(base + '/api/v1/control/voice/agents/1/profile')).json();
   assert.equal(profile.overrides.speaking_rate, 1.2);

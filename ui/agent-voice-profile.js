@@ -9,7 +9,7 @@
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[char]));
 
-  const state = {agentId: null, profile: null, catalog: null, loading: null};
+  const state = {agentId: null, profile: null, catalog: null, loading: null, loadRevision: 0, editRevision: 0, dirty: false};
 
   async function requestJson(path, options = {}) {
     const response = await fetch(path, {
@@ -113,7 +113,7 @@
   }
 
   function render() {
-    if (!state.profile || !state.catalog || !ensurePanel()) return;
+    if (state.dirty || !state.profile || !state.catalog || !ensurePanel()) return;
     const profile = state.profile;
     const overrides = profile.overrides || {};
     const effective = profile.effective || {};
@@ -176,6 +176,7 @@
 
   async function load(force = false) {
     if (state.loading && !force) return state.loading;
+    const revision = ++state.loadRevision;
     state.loading = (async () => {
       ensureStyles();
       ensurePanel();
@@ -185,28 +186,37 @@
       ]);
       const agent = agentPayload.agent;
       if (!agent?.id) throw new Error('Primary Agent is not configured.');
-      state.agentId = Number(agent.id);
+      const agentId = Number(agent.id);
+      const profile = await requestJson(`/api/v1/control/voice/agents/${agentId}/profile`);
+      if (revision !== state.loadRevision) return state.profile;
+      state.agentId = agentId;
       state.catalog = catalog;
-      state.profile = await requestJson(`/api/v1/control/voice/agents/${state.agentId}/profile`);
+      state.profile = profile;
       render();
       return state.profile;
-    })().finally(() => { state.loading = null; });
+    })().finally(() => { if (revision === state.loadRevision) state.loading = null; });
     return state.loading;
   }
 
   async function save(event) {
     event.preventDefault();
     if (!state.agentId) await load(true);
+    const submitted = readForm();
+    const editRevision = state.editRevision;
+    // A GET started before this save cannot overwrite its acknowledged state.
+    ++state.loadRevision;
+    state.loading = null;
     const button = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
     if (button) button.disabled = true;
     try {
       state.profile = await requestJson(`/api/v1/control/voice/agents/${state.agentId}/profile`, {
         method: 'PUT',
-        body: JSON.stringify(readForm()),
+        body: JSON.stringify(submitted),
       });
       state.catalog = await requestJson(CATALOG_ENDPOINT);
+      state.dirty = state.editRevision !== editRevision;
       render();
-      if (byId('agentVoiceSaved')) byId('agentVoiceSaved').textContent = 'Saved locally.';
+      if (byId('agentVoiceSaved')) byId('agentVoiceSaved').textContent = state.dirty ? 'Saved locally. New edits are not saved yet.' : 'Saved locally.';
       window.dispatchEvent(new CustomEvent('homeserver:agent-voice-profile-changed', {detail: state.profile}));
       flash('Agent Voice Profile saved.');
     } catch (error) {
@@ -265,9 +275,13 @@
   function bindPanel(form) {
     form.addEventListener('submit', save);
     form.addEventListener('input', event => {
+      state.dirty = true;
+      state.editRevision++;
       if (['agentVoiceRateEnabled', 'agentVoiceSilenceEnabled', 'agentVoiceRate', 'agentVoiceSilence'].includes(event.target.id)) updateRangeState();
     });
     form.addEventListener('change', event => {
+      state.dirty = true;
+      state.editRevision++;
       if (event.target.id === 'agentVoiceChoice') {
         const selected = state.catalog?.voices?.find(item => item.key === event.target.value);
         if (byId('agentVoiceChoiceHelp')) {
