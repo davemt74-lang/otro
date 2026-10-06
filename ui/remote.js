@@ -70,7 +70,9 @@ function render(status) {
 
   const message = byId('connectionMessage');
   if (cloud.connected) {
-    message.textContent = 'Pairing is saved and the secure VP3 HTTPS connection is active.';
+    message.textContent = cloud.feature_sync_error
+      ? `Pairing is saved and the secure VP3 HTTPS connection is active. Feature synchronization needs attention: ${cloud.feature_sync_error}`
+      : 'Pairing is saved and the secure VP3 HTTPS connection is active.';
   } else if (paired) {
     message.textContent = cloud.last_error
       ? `Pairing is saved. HomeServer is retrying automatically: ${cloud.last_error}`

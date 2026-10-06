@@ -96,6 +96,7 @@ jobs:
           node tests/onboarding_lifecycle_section11.mjs
           python tests/vp3_account_pairing_v062.py
           python tests/remote_bridge_sqlite_recovery.py
+          python tests/remote_bridge_feature_isolation.py
           python tests/homeserver_members_v400.py
           python tests/chat_onboarding_v2.py
           node --check ui/chat-onboarding.js
