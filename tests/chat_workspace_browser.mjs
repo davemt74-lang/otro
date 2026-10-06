@@ -18,6 +18,44 @@ const base = `http://127.0.0.1:${port}`;
 let browser, child;
 let stderr = '';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function assertCanvasLayout(page, regionId) {
+  const layout = await page.evaluate(id => {
+    const region = document.getElementById(id);
+    const bounds = region.getBoundingClientRect();
+    const composer = document.getElementById('chatForm').getBoundingClientRect();
+    const panel = document.querySelector('#view-chat .chat-panel').getBoundingClientRect();
+    return {regionBottom: bounds.bottom, composerTop: composer.top, composerBottom: composer.bottom,
+      composerLeft: composer.left, composerRight: composer.right, panelLeft: panel.left, panelRight: panel.right,
+      viewportHeight: innerHeight, viewportWidth: innerWidth, pageWidth: document.documentElement.scrollWidth,
+      regionWidth: region.clientWidth, regionScrollWidth: region.scrollWidth};
+  }, regionId);
+  assert.ok(layout.regionBottom <= layout.composerTop + 1, `Content scrolls above the composer: ${JSON.stringify(layout)}`);
+  assert.ok(layout.composerBottom <= layout.viewportHeight && layout.composerLeft >= layout.panelLeft - 1 && layout.composerRight <= layout.panelRight + 1,
+    `Composer stays fully inside the canvas: ${JSON.stringify(layout)}`);
+  assert.ok(Math.abs((layout.composerLeft + layout.composerRight) - (layout.panelLeft + layout.panelRight)) <= 2,
+    `Composer stays centered without legacy floating offsets: ${JSON.stringify(layout)}`);
+  assert.ok(layout.pageWidth <= layout.viewportWidth + 1 && layout.regionScrollWidth <= layout.regionWidth + 1,
+    `Canvas has no horizontal overflow: ${JSON.stringify(layout)}`);
+}
+
+async function assertOnboardingLayout(page) {
+  await assertCanvasLayout(page, 'chatOnboardingCanvas');
+  const consents = page.locator('#chatOnboardingCanvas .onboard-visual-consent:visible');
+  assert.ok(await consents.count() >= 6, 'The real onboarding consent controls are present');
+  for (const consent of await consents.all()) {
+    await consent.scrollIntoViewIfNeeded();
+    const bounds = await consent.evaluate(label => {
+      const card = label.closest('.onboard-step').getBoundingClientRect();
+      const input = label.querySelector('input').getBoundingClientRect();
+      const text = label.querySelector('span').getBoundingClientRect();
+      return {cardLeft: card.left, cardRight: card.right, inputLeft: input.left, inputRight: input.right,
+        inputWidth: input.width, textLeft: text.left, textRight: text.right, textWidth: text.width};
+    });
+    assert.ok(bounds.inputWidth <= 24 && bounds.inputLeft >= bounds.cardLeft && bounds.textLeft >= bounds.inputRight && bounds.textWidth > 0 && bounds.textRight <= bounds.cardRight,
+      `Checkbox and consent text remain readable inside their card: ${JSON.stringify(bounds)}`);
+  }
+  await assertCanvasLayout(page, 'chatOnboardingCanvas');
+}
 try {
   browser = await chromium.launch({headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH} : {})});
 
@@ -207,6 +245,12 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.locator('#chatOnboardingToggle').click();
   assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.open), false);
   assert.equal(await page.locator('#chatOnboardingCanvas').isVisible(), true);
+  for (const viewport of [{width: 1440, height: 900}, {width: 1024, height: 768}, {width: 390, height: 844}, {width: 320, height: 640}]) {
+    await page.setViewportSize(viewport);
+    await assertOnboardingLayout(page);
+  }
+  assert.equal(microphoneCalls, 0, 'Inspecting consent controls never starts capture');
+  await page.setViewportSize({width: 1440, height: 900});
   await page.locator('#onboardLater').click();
   await page.locator('#chatOptionsButton').click();
   await page.locator('#chatOptionsTabMore').click();
@@ -260,6 +304,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.unroute('**/api/v1/control/cloud-connection');
   await page.evaluate(() => {
     const messages = document.getElementById('chatMessages');
+    messages.style.scrollBehavior = 'auto';
     for (let i = 0; i < 500; i++) {
       const row = document.createElement('div'); row.className = 'chat-message assistant'; row.textContent = `Long chat ${i}: ` + 'Example content. '.repeat(20); messages.appendChild(row);
     }
@@ -271,6 +316,18 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     return {scroll: messages.scrollHeight > messages.clientHeight, bottom: form.bottom, height: innerHeight, pageHeight: document.documentElement.scrollHeight};
   });
   assert.ok(geometry.scroll && geometry.bottom <= geometry.height && geometry.pageHeight <= geometry.height + 2, JSON.stringify(geometry));
+  for (const viewport of [{width: 1440, height: 900}, {width: 1024, height: 768}, {width: 390, height: 844}, {width: 320, height: 640}]) {
+    await page.setViewportSize(viewport);
+    await assertCanvasLayout(page, 'chatMessages');
+    await page.locator('#chatMessages .chat-message').last().scrollIntoViewIfNeeded();
+    const last = await page.locator('#chatMessages .chat-message').last().boundingBox();
+    const composer = await page.locator('#chatForm').boundingBox();
+    assert.ok(last.y + last.height <= composer.y, 'The newest message can be read above the composer');
+    await page.locator('#chatInput').evaluate(node => {node.style.height = '120px';});
+    await assertCanvasLayout(page, 'chatMessages');
+    await page.locator('#chatInput').evaluate(node => {node.style.height = '';});
+  }
+  await page.setViewportSize({width: 1440, height: 900});
   await page.locator('#chatOptionsButton').click();
   await page.locator('#chatOptionsClose').click();
   await page.setViewportSize({width: 390, height: 844});
@@ -284,7 +341,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.ok(mobileDialog.x >= 0 && mobileDialog.x + mobileDialog.width <= 390);
   await page.screenshot({path: process.env.CHAT_SCREENSHOT_PATH || path.join(dataDir, 'chat-mobile.png')});
   assert.deepEqual(errors, [], 'Complete owner UI has no unhandled browser errors');
-  console.log('PASS: voice observer becomes idle; clean composer; dialog tabs/focus; no automatic capture; chat send; persisted context/voice; Stop; full sidebar/deep links; 500-message scroll; mobile navigation.');
+  console.log('PASS: voice observer becomes idle; clean composer; dialog tabs/focus; no automatic capture; chat send; persisted context/voice; Stop; full sidebar/deep links; 500-message scroll; readable consent and footer separation at four viewport sizes; mobile navigation.');
 } finally {
   if (browser) await browser.close();
   if (child && child.exitCode === null) {child.kill('SIGTERM'); await Promise.race([new Promise(resolve => child.once('exit', resolve)), delay(5000)]); if (child.exitCode === null) child.kill('SIGKILL');}
