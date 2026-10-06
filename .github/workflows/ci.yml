@@ -155,6 +155,7 @@ jobs:
       - name: VP3 account-token pairing regression
         run: |
           python tests/vp3_account_pairing_v062.py
+          python tests/remote_bridge_sqlite_recovery.py
           python tests/onboarding_accounts_section11.py
           node tests/onboarding_lifecycle_section11.mjs
       - name: VP3 HTTPS session replacement race regression
