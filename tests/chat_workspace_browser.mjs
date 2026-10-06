@@ -27,9 +27,12 @@ async function assertCanvasLayout(page, regionId) {
     return {regionBottom: bounds.bottom, composerTop: composer.top, composerBottom: composer.bottom,
       composerLeft: composer.left, composerRight: composer.right, panelLeft: panel.left, panelRight: panel.right,
       viewportHeight: innerHeight, viewportWidth: innerWidth, pageWidth: document.documentElement.scrollWidth,
-      regionWidth: region.clientWidth, regionScrollWidth: region.scrollWidth};
+      regionWidth: region.clientWidth, regionScrollWidth: region.scrollWidth,
+      overflow: getComputedStyle(region).overflowY, composerPosition: getComputedStyle(document.getElementById('chatForm')).position};
   }, regionId);
-  assert.ok(layout.regionBottom <= layout.composerTop + 1, `Content scrolls above the composer: ${JSON.stringify(layout)}`);
+  assert.equal(layout.overflow, 'visible', 'Chat/setup have no independent scrollbar');
+  assert.equal(layout.composerPosition, 'sticky');
+  if(layout.viewportWidth >= 1440) assert.ok(layout.composerRight-layout.composerLeft>1000, 'Wide desktop composer uses the right canvas');
   assert.ok(layout.composerBottom <= layout.viewportHeight && layout.composerLeft >= layout.panelLeft - 1 && layout.composerRight <= layout.panelRight + 1,
     `Composer stays fully inside the canvas: ${JSON.stringify(layout)}`);
   assert.ok(Math.abs((layout.composerLeft + layout.composerRight) - (layout.panelLeft + layout.panelRight)) <= 2,
@@ -40,6 +43,9 @@ async function assertCanvasLayout(page, regionId) {
 
 async function assertOnboardingLayout(page) {
   await assertCanvasLayout(page, 'chatOnboardingCanvas');
+  assert.equal(await page.locator('#chatOnboardingCanvas .onboard-visual-consent:visible').count(), 0, 'Basic setup asks no camera/biometric questions');
+  await page.locator('#onboardOptional').evaluate(node => {node.open=true;});
+  await page.locator('.onboard-feature').evaluateAll(nodes=>nodes.forEach(node=>{node.open=true;}));
   const consents = page.locator('#chatOnboardingCanvas .onboard-visual-consent:visible');
   assert.ok(await consents.count() >= 6, 'The real onboarding consent controls are present');
   for (const consent of await consents.all()) {
@@ -55,6 +61,8 @@ async function assertOnboardingLayout(page) {
       `Checkbox and consent text remain readable inside their card: ${JSON.stringify(bounds)}`);
   }
   await assertCanvasLayout(page, 'chatOnboardingCanvas');
+  await page.locator('.onboard-feature').evaluateAll(nodes=>nodes.forEach(node=>{node.open=false;}));
+  await page.locator('#onboardOptional').evaluate(node=>{node.open=false;});
 }
 try {
   browser = await chromium.launch({headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH} : {})});
@@ -251,7 +259,26 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   }
   assert.equal(microphoneCalls, 0, 'Inspecting consent controls never starts capture');
   await page.setViewportSize({width: 1440, height: 900});
+  let setupState = {setup:{complete:true},cloud:{paired:true,connected:false},pairing:{state:'paired'},provision:{phase:'ready'}};
+  await page.route('**/api/v1/control/onboarding/summary*', route => route.fulfill({json: setupState}));
+  await page.locator('#onboardCheckConnection').click();
+  await page.waitForFunction(()=>document.querySelector('#onboardFeedback').textContent.includes('still retrying'));
+  assert.equal(await page.locator('#onboardCloud').getAttribute('data-complete'),'false');
+  assert.equal(await page.locator('#onboardFinish').isVisible(),false,'Saved pairing is not live completion');
+  setupState={...setupState,cloud:{paired:true,connected:true}};
+  await page.locator('#onboardCheckConnection').click();
+  await page.waitForFunction(()=>document.querySelector('#onboardFinish').hidden===false);
+  assert.equal(await page.locator('#onboardCloud').getAttribute('data-complete'),'true');
+  // The real server has no paired connection: a late disconnect must reject finish.
+  await page.locator('#onboardFinish').click();
+  await page.waitForFunction(()=>document.querySelector('#onboardFeedback').textContent.includes('not connected yet'));
+  assert.equal(await page.locator('#chatOnboardingCanvas').isVisible(),true);
+  setupState={...setupState,cloud:{paired:false,connected:false}};
+  await page.locator('#onboardCheckConnection').click();
+  await page.waitForFunction(()=>!document.querySelector('#onboardLater').hidden);
   await page.locator('#onboardLater').click();
+  await page.locator('#chatOnboardingCanvas').waitFor({state:'hidden'});
+  await page.unroute('**/api/v1/control/onboarding/summary*');
   await page.locator('#chatOptionsButton').click();
   await page.locator('#chatOptionsTabMore').click();
   await page.locator('#chatBrainToggle').click();
@@ -308,18 +335,18 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     for (let i = 0; i < 500; i++) {
       const row = document.createElement('div'); row.className = 'chat-message assistant'; row.textContent = `Long chat ${i}: ` + 'Example content. '.repeat(20); messages.appendChild(row);
     }
-    messages.scrollTop = messages.scrollHeight;
+    messages.lastElementChild.scrollIntoView({block:'end'});
   });
   await delay(400);
   const geometry = await page.evaluate(() => {
     const messages = document.getElementById('chatMessages'); const form = document.getElementById('chatForm').getBoundingClientRect();
-    return {scroll: messages.scrollHeight > messages.clientHeight, bottom: form.bottom, height: innerHeight, pageHeight: document.documentElement.scrollHeight};
+    return {scroll: getComputedStyle(messages).overflowY, bottom: form.bottom, height: innerHeight, pageHeight: document.documentElement.scrollHeight};
   });
-  assert.ok(geometry.scroll && geometry.bottom <= geometry.height && geometry.pageHeight <= geometry.height + 2, JSON.stringify(geometry));
+  assert.ok(geometry.scroll==='visible' && geometry.bottom <= geometry.height && geometry.pageHeight > geometry.height * 5, JSON.stringify(geometry));
   for (const viewport of [{width: 1440, height: 900}, {width: 1024, height: 768}, {width: 390, height: 844}, {width: 320, height: 640}]) {
     await page.setViewportSize(viewport);
     await assertCanvasLayout(page, 'chatMessages');
-    await page.locator('#chatMessages .chat-message').last().scrollIntoViewIfNeeded();
+    await page.locator('#chatMessages .chat-message').last().evaluate(node=>node.scrollIntoView({block:'end'}));
     const last = await page.locator('#chatMessages .chat-message').last().boundingBox();
     const composer = await page.locator('#chatForm').boundingBox();
     assert.ok(last.y + last.height <= composer.y, 'The newest message can be read above the composer');

@@ -123,7 +123,9 @@
       if (message?.card?.card_type === 'meeting') return renderMeetingCard(message.card);
       return chatMessageMarkup(message);
     }).join('');
-    node.scrollTop = node.scrollHeight;
+    if (byId('view-chat')?.classList.contains('active')) {
+      requestAnimationFrame(() => node.lastElementChild?.scrollIntoView({block: 'end', behavior: 'instant'}));
+    }
   }
 
   async function loadConversation(id, revision = null, turnId = null) {

@@ -22,8 +22,19 @@ def _invoke(function):
 
 
 @router.get("/summary")
-def summary() -> dict:
-    return onboarding_chat.summary()
+def summary(optional: bool = Query(default=True)) -> dict:
+    return onboarding_chat.summary(optional=optional)
+
+
+class SetupFinish(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: str = Field(pattern="^(connected|local)$")
+
+
+@router.post("/finish")
+def finish(payload: SetupFinish, x_requested_with: str | None = Header(default=None)) -> dict:
+    _require_ui(x_requested_with)
+    return _invoke(lambda: onboarding_chat.finish_setup(mode=payload.mode))
 
 
 @router.get("/device/status")

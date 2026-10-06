@@ -180,7 +180,14 @@ def device_status() -> dict[str, Any]:
             "pairing_recovery_pending": cloud_pairing.has_pending_pairing()}
 
 
-def summary() -> dict[str, Any]:
+def summary(*, optional: bool = True) -> dict[str, Any]:
+    if not optional:
+        progress = _provision_state()
+        phase = str(progress.get("phase") or "ready")
+        if phase == "running" and not (_WORKER and _WORKER.is_alive()):
+            phase = "interrupted"
+        return {"setup": system_state.first_run_status(),
+                "provision": {"phase": phase}, **device_status()}
     return {"setup": system_state.first_run_status(),
             "provision": provision_status(), "visual": onboarding_visual.status(),
             "visual_contact_association": tracky_visual_contact_link.status(), "native_camera": tracky_native_camera.status(),
@@ -190,6 +197,15 @@ def summary() -> dict[str, Any]:
             "agent_eyes": tracky_agent_eyes.agent_context(),
             "tracky_provider_exposure": tracky_physical_context.provider_exposure(),
             **device_status()}
+
+
+def finish_setup(*, mode: str) -> dict[str, Any]:
+    if mode == "connected" and not device_status()["cloud"]["connected"]:
+        raise OnboardingError("Cloud is not connected yet. Check the connection or choose local use.", 409)
+    if mode not in {"connected", "local"}:
+        raise OnboardingError("Choose connected setup or local use.")
+    return {"updated": True, "mode": mode,
+            "setup": system_state.set_first_run_complete(True)}
 
 
 def _cloud(action: str, device: dict[str, Any]) -> dict[str, Any]:

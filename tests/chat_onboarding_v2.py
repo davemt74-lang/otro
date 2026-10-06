@@ -49,6 +49,19 @@ with tempfile.TemporaryDirectory(prefix="hs-chat-onboard-") as path:
         assert client.post("/api/v1/control/onboarding/voice/start").status_code == 403
 
         headers={"X-Requested-With":"XMLHttpRequest"}
+        with patch.object(onboard.tracky_native_diagnosis,"diagnose",side_effect=AssertionError("Optional diagnostics ran")), \
+             patch.object(onboard.local_apps,"catalog",side_effect=AssertionError("Optional package scan ran")):
+            simple=client.get("/api/v1/control/onboarding/summary?optional=false")
+            assert simple.status_code==200,simple.text
+            assert "native_camera" not in simple.json() and "visual" not in simple.json()
+        finish="/api/v1/control/onboarding/finish"
+        assert client.post(finish,json={"mode":"local"}).status_code==403
+        assert client.post(finish,json={"mode":"unknown"},headers=headers).status_code==422
+        with patch.object(onboard.remote_bridge,"cloud_connection_status",return_value={"cloud":{"paired":True,"connected":False}}):
+            assert client.post(finish,json={"mode":"connected"},headers=headers).status_code==409
+            assert not onboard.system_state.first_run_status()["complete"]
+            assert client.post(finish,json={"mode":"local"},headers=headers).json()["setup"]["complete"]
+            onboard.system_state.set_first_run_complete(False)
         registered = []
         def fake_cloud(action, state):
             registered.append(action)
@@ -82,6 +95,7 @@ with tempfile.TemporaryDirectory(prefix="hs-chat-onboard-") as path:
             assert completed.json()["pairing"]["code"] is None
             assert onboard._read_device() is None
             assert registered==["start","poll","complete"]
+            assert client.post(finish,json={"mode":"connected"},headers=headers).json()["mode"]=="connected"
 
         installed=set()
         def packages():

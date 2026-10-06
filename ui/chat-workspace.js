@@ -112,6 +112,11 @@
   });
 
   window.HomeServerChatOptions = Object.freeze({open, close, isVoiceOpen: () => dialog.open && !byId('chatOptionsVoice').hidden});
+  const composerObserver = new ResizeObserver(entries => {
+    const height = Math.ceil(entries[0].target.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--chat-composer-height', `${height}px`);
+  });
+  composerObserver.observe(byId('chatForm'));
   // Existing voice modules attach controls asynchronously. Bound discovery to
   // startup; never observe the whole page or poll throughout the chat session.
   if (!adoptControls()) {
@@ -122,4 +127,5 @@
     window.addEventListener('pagehide', () => clearInterval(timer), {once: true});
   }
   window.addEventListener('pagehide', () => captureObserver.disconnect(), {once: true});
+  window.addEventListener('pagehide', () => composerObserver.disconnect(), {once: true});
 })();
