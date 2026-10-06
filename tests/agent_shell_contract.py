@@ -6,6 +6,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 index = (ROOT_DIR / "ui" / "index.html").read_text(encoding="utf-8")
 shell = (ROOT_DIR / "ui" / "shell.js").read_text(encoding="utf-8")
 styles = (ROOT_DIR / "ui" / "shell.css").read_text(encoding="utf-8")
+workspace_styles = (ROOT_DIR / "ui" / "chat-workspace.css").read_text(encoding="utf-8")
 brain = (ROOT_DIR / "ui" / "brain.js").read_text(encoding="utf-8")
 
 # The agent-first shell must be part of the actual owner entry point, not only
@@ -23,7 +24,8 @@ assert "history.appendChild(conversationList)" in shell
 
 # Required v0.14 navigation and status surfaces are built by the active shell.
 for label in ('New Chat', 'Approvals', 'Knowledge', 'Memory', 'Contacts'):
-    assert label in shell
+    assert label in shell or label in index
+assert "sidebar.querySelectorAll('.nav [data-view]')" in shell
 assert 'AGENT BRAIN' in shell
 assert 'Token Usage History' in shell
 assert 'homeServerConnectionButton' in shell
@@ -31,9 +33,8 @@ assert 'loadConnectionModal' in shell
 assert 'openDefaultChat' in shell
 assert "history.replaceState(null, '', '#chat')" in shell
 
-# Desktop shell layout must remain viewport-sticky while only the chat-history
-# region is independently scrollable. The chat composer must not be trapped by
-# hidden/auto overflow ancestors or the legacy 520px message cap.
+# The sidebar remains viewport-sticky. The new chat canvas independently scrolls
+# messages so a long conversation cannot push its composer below the viewport.
 assert '.shell-agent-first .sidebar {\n  position: sticky;' in styles
 assert 'height: 100dvh;' in styles
 assert 'max-height: 100dvh;' in styles
@@ -42,10 +43,13 @@ assert 'overscroll-behavior: contain;' in styles
 assert '.shell-agent-first #view-chat .chat-panel {' in styles
 assert '.shell-agent-first #view-chat .chat-messages {' in styles
 assert 'max-height: none;' in styles
-assert 'overflow: visible;' in styles
+assert 'overflow: auto;' in workspace_styles
 assert '.shell-agent-first #view-chat .chat-compose {' in styles
 assert 'position: sticky;' in styles
-assert 'bottom: 14px;' in styles
+assert 'bottom: auto;' in workspace_styles
+assert 'height: 100dvh;' in workspace_styles
+assert 'chatOptionsDialog' in index
+assert '/assets/chat-workspace.js' in index
 
 # The shell's outside-click closer must not immediately close the conversation
 # options toggle on the same click that brain.js uses to open it.

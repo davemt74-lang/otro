@@ -118,7 +118,7 @@ function ensure(){
  const button=document.createElement('button');button.id='hsTranscriptOpen';button.type='button';
  button.className='chat-dictate-button';button.textContent='Transcriptions';
  button.setAttribute('aria-label','Open persistent transcription workspace');
- const group=document.querySelector('#chatForm .chat-voice-options');
+ const group=document.getElementById('chatVoiceControls')||document.querySelector('.chat-voice-options');
  (group||document.getElementById('chatForm')).append(button);
  button.addEventListener('click',()=>{drawer.hidden=false;void Promise.allSettled([refresh(),refreshDiarizationOption(),refreshFusionProfiles()]);});
  $('hsTranscriptClose').addEventListener('click',()=>{window.HomeServerSpeakerFusion?.cancelVoiceEnrollment?.();window.HomeServerSpeakerFusion?.stopCameraCorroboration?.();syncFusionControls();drawer.hidden=true;});
@@ -358,5 +358,4 @@ window.addEventListener('homeserver:voice-settings-loaded',()=>{if(drawer&&!draw
 window.addEventListener('tracky:visual-state-changed',()=>{if(drawer&&!drawer.hidden)void refreshFusionProfiles();});
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensure,{once:true});else ensure();
 })();
-
 

@@ -187,16 +187,39 @@
 
     const primary = document.createElement('div');
     primary.className = 'primary-sidebar-nav';
+    primary.setAttribute('role', 'navigation');
+    primary.setAttribute('aria-label', 'HomeServer workspaces');
     const newChat = document.createElement('button');
     newChat.type = 'button';
     newChat.id = 'sidebarNewChat';
     newChat.className = 'sidebar-new-chat';
     newChat.textContent = '+  New Chat';
     primary.appendChild(newChat);
-    primary.appendChild(primaryButton('Approvals', 'approvals'));
-    primary.appendChild(primaryButton('Knowledge', 'knowledge'));
-    primary.appendChild(primaryButton('Memory', 'memory'));
-    primary.appendChild(primaryButton('Contacts', 'contacts'));
+    // Keep every canonical workspace reachable from Agent Chat. The original
+    // nav remains available to modules that use its buttons programmatically.
+    function syncWorkspaceLinks() {
+      const known = new Set([...primary.querySelectorAll('[data-view]')].map(button => button.dataset.view));
+      sidebar.querySelectorAll('.nav [data-view]').forEach(original => {
+        if (known.has(original.dataset.view)) return;
+        known.add(original.dataset.view);
+        const label = original.dataset.view === 'agent' ? 'Agent Brain' : original.textContent.trim();
+        primary.appendChild(primaryButton(label, original.dataset.view, original.classList.contains('active') ? 'nav-item active' : 'nav-item'));
+      });
+    }
+    syncWorkspaceLinks();
+    // Apps may add workspaces after DOMContentLoaded. Watch only the canonical
+    // nav's additions, never chat/status rendering or our mirrored navigation.
+    const navigationObserver = new MutationObserver(syncWorkspaceLinks);
+    const originalNav = sidebar.querySelector('.nav');
+    if (originalNav) navigationObserver.observe(originalNav, {childList: true});
+    window.addEventListener('pagehide', () => navigationObserver.disconnect(), {once: true});
+    primary.appendChild(primaryButton('Token Usage History', 'usage', 'nav-item'));
+    for (const [label, href] of [['Tasks & Notifications', '/tasks'], ['Cloud Connection', '/remote'], ['Setup & Diagnostics', '/system']]) {
+      const link = document.createElement('a');
+      link.textContent = label;
+      link.href = href;
+      primary.appendChild(link);
+    }
     brandRow.insertAdjacentElement('afterend', primary);
 
     const divider = document.createElement('div');
@@ -306,11 +329,11 @@
     const title = document.querySelector('#view-agent .section-intro h2');
     if (title) title.textContent = 'AGENT BRAIN';
     const chatNav = document.querySelector('.nav [data-view="chat"]');
-    if (chatNav) {
+    if (chatNav && !location.hash) {
       history.replaceState(null, '', '#chat');
       chatNav.click();
     }
-    byId('chatInput')?.focus();
+    if (byId('view-chat')?.classList.contains('active')) byId('chatInput')?.focus();
   }
 
   document.addEventListener('click', async event => {

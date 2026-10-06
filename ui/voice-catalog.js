@@ -72,7 +72,8 @@
       const voice = catalog.voices.find(item => item.key === option.value);
       if (!voice) return;
       const suffix = voice.available ? 'Installed' : voice.management_state === 'repair' ? 'Repair required' : 'Install required';
-      option.textContent = `${voice.label || voice.key} · ${suffix}`;
+      const label = `${voice.label || voice.key} · ${suffix}`;
+      if (option.textContent !== label) option.textContent = label;
     });
   }
 
@@ -276,16 +277,27 @@
     if (event.target?.closest?.('#voicePackUninstallButton')) uninstallSelectedVoice();
   });
   window.addEventListener('homeserver:voice-settings-loaded', () => loadCatalog().catch(() => null));
+  window.addEventListener('homeserver:voice-settings-rendered', () => { if (catalog) renderStatus(); });
   window.addEventListener('homeserver:voice-settings-changed', () => loadCatalog().catch(() => null));
   window.addEventListener('homeserver:agent-voice-profile-changed', () => loadCatalog().catch(() => null));
 
-  const observer = new MutationObserver(() => {
-    if (document.getElementById('voiceTtsVoice')) {
-      ensureStatusUi();
-      if (catalog) renderStatus();
-    }
-  });
-  observer.observe(document.documentElement, {childList: true, subtree: true});
+  // Discover the asynchronously created settings form once. Watching our own
+  // status text forever creates an endless mutation/render feedback loop.
+  function attachStatus() {
+    if (!document.getElementById('voiceTtsVoice')) return false;
+    ensureStatusUi();
+    if (catalog) renderStatus();
+    return true;
+  }
+  if (!attachStatus()) {
+    const observer = new MutationObserver(() => {
+      if (!document.getElementById('voiceTtsVoice')) return;
+      observer.disconnect();
+      attachStatus();
+    });
+    observer.observe(document.documentElement, {childList: true, subtree: true});
+    window.addEventListener('pagehide', () => observer.disconnect(), {once: true});
+  }
 
   window.HomeServerVoiceCatalog = Object.freeze({
     load: loadCatalog,

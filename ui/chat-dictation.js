@@ -100,7 +100,7 @@
 
   function ensureControl() {
     if (byId('dictateInputButton')) return true;
-    const options = document.querySelector('#chatForm .chat-voice-options');
+    const options = document.querySelector('.chat-voice-options');
     const badge = byId('localVoiceBadge');
     if (!options || !badge) return false;
 
