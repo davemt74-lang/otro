@@ -167,7 +167,9 @@ assert "HomeServer.exe" in ci
 assert "HomeServerSetup.exe" in ci
 assert "SHA256SUMS.txt" in ci
 assert "RELEASE.json" in ci
-assert "Verify packaged v2.1 to v2.4 upgrade takeover" in ci
+assert "Verify packaged same-version older-build takeover" in ci
+assert "$env:HOMESERVER_MOCK_VERSION = '2.4'" in ci
+assert "$response.build_id -eq $expectedBuild" in ci
 assert "Verify silent installer upgrade preserves private data" in ci
 
 release_workflow = (ROOT / ".github" / "workflows" / "homeserver-v24-release.yml").read_text(encoding="utf-8")

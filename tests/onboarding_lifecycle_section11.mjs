@@ -4,21 +4,30 @@ import vm from 'node:vm';
 const source=fs.readFileSync(new URL('../ui/chat-onboarding.js',import.meta.url),'utf8');
 class Element {
   hidden=false;disabled=false;textContent='';value='';dataset={};listeners={};
-  classList={toggle(){}};
+  classList={toggle(){},contains(){return true;}};
   addEventListener(name,fn){this.listeners[name]=fn;}
   append(node){elements.set(node.id,node);}
   focus(){}
+  setAttribute(){}
+  querySelector(){return null;}
+  querySelectorAll(){return [];}
 }
 const elements=new Map();
 const el=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
 const requests=[];const timers=[];
+const deadlines=new Map();let deadlineId=0;
 const document={readyState:'complete',visibilityState:'visible',getElementById:el,querySelector:()=>el('head'),createElement:()=>new Element(),addEventListener(){}};
-function fetch(path){return new Promise(resolve=>requests.push({path,resolve:body=>resolve({ok:true,json:async()=>body})}));}
-const window={dispatchEvent(){},open:()=>({opener:null,location:{replace(){}},close(){}})};
-vm.runInNewContext(source,{document,window,fetch,Event:class{},setInterval:fn=>timers.push(fn),navigator:{clipboard:{writeText:async()=>{}}},console});
+function fetch(path,options){return new Promise((resolve,reject)=>{
+  options.signal.addEventListener('abort',()=>reject(new Error('aborted')),{once:true});
+  requests.push({path,resolve:body=>resolve({ok:true,json:async()=>body})});
+});}
+const window={addEventListener(){},dispatchEvent(){},open:()=>({opener:null,location:{replace(){}},close(){}})};
+vm.runInNewContext(source,{document,window,fetch,Event:class{},setInterval:fn=>timers.push(fn),clearInterval(){},AbortController,
+  setTimeout:fn=>{deadlines.set(++deadlineId,fn);return deadlineId;},clearTimeout:id=>deadlines.delete(id),
+  navigator:{clipboard:{writeText:async()=>{}}},console});
 const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
 const state=code=>({setup:{complete:true},cloud:{paired:false,connected:false},pairing:{state:code?'pending':'not_started',code,expires_at:'2026-10-05T06:00:00Z'},provision:{packages:[],supported_count:0}});
-assert.equal(requests[0].path,'/api/v1/control/onboarding/summary');
+assert.equal(requests[0].path,'/api/v1/control/onboarding/summary?optional=false');
 requests.shift().resolve(state(null));await flush();
 el('chatOnboardingToggle').listeners.click();
 const old=requests.shift();
@@ -46,4 +55,27 @@ el('chatOnboardingToggle').listeners.click();el('chatOnboardingToggle').listener
 requests.shift().resolve({...state(null),pairing_recovery_pending:true});await flush();
 assert.equal(el('onboardResetCode').hidden,false,'advanced pairing recovery has an explicit reset action');
 assert.equal(el('onboardStartCloud').hidden,true);
+// A saved pairing is not a verified live connection, and cannot finish as connected.
+el('chatOnboardingToggle').listeners.click();el('chatOnboardingToggle').listeners.click();
+requests.shift().resolve({...state(null),cloud:{paired:true,connected:false}});await flush();
+assert.equal(el('onboardCloud').dataset.complete,'false');
+assert.equal(el('onboardFinish').hidden,true);
+await el('onboardFinish').listeners.click();assert.equal(requests.length,0);
+// A stalled status read aborts and releases the busy controls without claiming success.
+const check=el('onboardCheckConnection').listeners.click();await flush();
+assert.equal(el('onboardCheckConnection').disabled,true);
+assert.equal(requests.shift().path,'/api/v1/control/onboarding/summary?optional=false');
+assert.equal(deadlines.size,1);
+deadlines.values().next().value();await flush();await check;
+assert.match(el('onboardFeedback').textContent,/took too long/);
+assert.equal(el('onboardCheckConnection').disabled,false);
+assert.equal(deadlines.size,0,'Completed/aborted requests release their timeout');
+document.visibilityState='hidden';await timers.at(-1)();assert.equal(requests.length,0);
+document.visibilityState='visible';
+// Leaving setup while a start is in flight suppresses its late refresh/tab navigation.
+const starting=el('onboardStartCloud').listeners.click();
+assert.equal(requests.length,1);
+await el('onboardStartCloud').listeners.click();assert.equal(requests.length,1,'Duplicate start does not make a second request');
+el('chatOnboardingToggle').listeners.click();requests.shift().resolve({});await flush();await starting;
+assert.equal(requests.length,0);assert.equal(el('chatOnboardingCanvas').hidden,true);
 console.log('ONBOARDING_LIFECYCLE_SECTION11=PASS: current summary/code and owner action supersede stale polling');

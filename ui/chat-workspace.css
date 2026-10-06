@@ -1,14 +1,15 @@
-/* The owner chat uses the viewport; messages scroll while the composer stays visible. */
-body.shell-agent-first .main:has(#view-chat.active) { height: 100dvh; min-height: 0; padding: 20px 24px 14px; display: flex; flex-direction: column; overflow: hidden; }
+/* The document owns chat and setup scrolling; the composer follows its bottom edge. */
+html:has(#view-chat.active) { scroll-padding-bottom: calc(var(--chat-composer-height, 150px) + 24px); }
+body.shell-agent-first .main:has(#view-chat.active) { height: auto; min-height: 100dvh; padding: 20px 24px 14px; display: flex; flex-direction: column; overflow: visible; --hs-v220-canvas: 1120px; }
 body.shell-agent-first .main:has(#view-chat.active) > .topbar { display: none; }
-body.shell-agent-first #view-chat.active { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: auto; margin: 0; }
-body.shell-agent-first #view-chat .chat-layout { display: flex; flex: 1; min-width: 0; min-height: 0; height: auto; }
-body.shell-agent-first #view-chat .chat-panel { flex: 1; min-width: 0; min-height: 0; height: auto; width: 100%; padding: 0; overflow: hidden; }
+body.shell-agent-first #view-chat.active { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; height: auto; margin: 0; overflow: visible; }
+body.shell-agent-first #view-chat .chat-layout { display: flex; flex: 1; min-width: 0; min-height: 0; height: auto; overflow: visible; }
+body.shell-agent-first #view-chat .chat-panel { flex: 1; min-width: 0; min-height: 0; height: auto; width: 100%; padding: 0; overflow: visible; }
 body.shell-agent-first #view-chat .chat-head { display: none; }
-body.shell-agent-first #view-chat .chat-messages { flex: 1 1 0; min-height: 0; max-height: none; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 24px 14px; }
-body.shell-agent-first #view-chat .chat-message { width: min(760px, 100%); content-visibility: auto; contain-intrinsic-size: auto 100px; }
-body.shell-agent-first #view-chat .chat-message.user { width: fit-content; }
-body.shell-agent-first #view-chat .chat-compose { position: relative; left: auto; bottom: auto; transform: none; flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: min(780px, 100%); margin: 8px auto 0; padding: 12px 14px 8px; border-radius: 22px; box-shadow: 0 4px 18px rgba(15,23,42,.06); backdrop-filter: none; }
+body.shell-agent-first #view-chat .chat-messages { flex: 1 0 auto; min-height: 0; max-height: none; overflow: visible; padding: 24px 0; scroll-behavior: auto; }
+body.shell-agent-first #view-chat .chat-message { width: min(1120px, 100%); max-width: 1120px; content-visibility: auto; contain-intrinsic-size: auto 100px; }
+body.shell-agent-first #view-chat .chat-message.user { width: min(1120px, 100%); }
+body.shell-agent-first #view-chat .chat-compose { position: sticky; left: auto; bottom: 14px; transform: none; flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: min(1120px, 100%); margin: 8px auto 0; padding: 12px 14px 8px; border-radius: 22px; box-shadow: 0 4px 18px rgba(15,23,42,.06), 0 18px 0 6px #fff; backdrop-filter: none; }
 body.shell-agent-first #view-chat .chat-compose textarea { width: 100%; min-height: 36px; padding: 6px 2px; }
 .chat-composer-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .chat-composer-icon { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border, #d8dadd); border-radius: 50%; background: transparent; color: inherit; font: inherit; font-size: 25px; line-height: 1; cursor: pointer; }
@@ -17,7 +18,7 @@ body.shell-agent-first #view-chat .chat-compose .chat-send { font-size: 23px; ba
 body.shell-agent-first #view-chat .chat-compose .chat-send::after { content: none; }
 .chat-capture-stop { border: 1px solid #b91c1c; border-radius: 18px; color: #b91c1c; padding: 7px 12px; background: #fff; cursor: pointer; }
 #chatCaptureStatus { font-size: 12px; color: var(--muted); margin-right: auto; }
-body.shell-agent-first #view-chat #chatOnboardingCanvas:not([hidden]) { flex: 1 1 0; min-width: 0; min-height: 0; width: 100%; max-width: 780px; max-height: none; overflow: auto; margin: 0 auto; }
+body.shell-agent-first #view-chat #chatOnboardingCanvas:not([hidden]) { flex: 1 0 auto; min-width: 0; min-height: 0; width: 100%; max-width: 1120px; max-height: none; overflow: visible; margin: 0 auto; }
 body.shell-agent-first #view-chat .chat-panel:has(#chatOnboardingCanvas:not([hidden])) .chat-messages { display: none; }
 body.shell-agent-first .primary-sidebar-nav { flex: 0 1 auto; min-height: 120px; max-height: 48dvh; overflow: auto; overscroll-behavior: contain; }
 body.shell-agent-first .primary-sidebar-nav a { display: block; padding: 9px 10px; border-radius: 9px; color: inherit; text-decoration: none; font-size: 12px; }
@@ -46,7 +47,7 @@ body.shell-agent-first .primary-sidebar-nav .agent-brain-drawer-toggle { width: 
 .chat-options-dialog #voiceInputButton svg { width: 18px; height: 18px; }
 .chat-options-dialog #voiceInputButton .chat-control-label { display: inline; }
 .chat-more-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
-body.shell-agent-first #view-chat #agentWorkflowPanel:not(.hidden) { flex: 0 1 auto; max-height: 60%; overflow: auto; }
+body.shell-agent-first #view-chat #agentWorkflowPanel:not(.hidden) { flex: 0 0 auto; max-height: none; overflow: visible; }
 .chat-options-dialog #deleteChat { display: inline-block; }
 .chat-options-dialog #chatOptionsStatus { padding: 0 18px 16px; color: #b91c1c; }
 .chat-options-dialog :focus-visible, .chat-compose :focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
@@ -56,3 +57,8 @@ body.shell-agent-first #view-chat #agentWorkflowPanel:not(.hidden) { flex: 0 1 a
   body.shell-agent-first #view-chat .chat-messages { padding: 12px 2px; }
   .chat-options-dialog .voice-settings-grid { grid-template-columns: 1fr; }
 }
+
+/* Closed drawers must not contribute offscreen width to the document. */
+body.shell-agent-first #view-chat .chat-brain-drawer[aria-hidden="true"]{display:none;transform:none}
+body.shell-agent-first #view-chat .chat-brain-drawer[aria-hidden="false"]{position:fixed;top:0;bottom:0;right:0;max-width:100vw;z-index:90}
+body.shell-agent-first #view-chat .chat-brain-backdrop{position:fixed;z-index:89}

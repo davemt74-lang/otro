@@ -332,7 +332,7 @@ jobs:
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
             throw 'Packaged smoke left a HomeServer listener on port 4377'
           }
-      - name: Verify packaged v2.1 to v2.4 upgrade takeover
+      - name: Verify packaged same-version older-build takeover
         shell: pwsh
         run: |
           if (Get-NetTCPConnection -LocalPort 4377 -State Listen -ErrorAction SilentlyContinue) {
