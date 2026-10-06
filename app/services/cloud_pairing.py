@@ -4,7 +4,6 @@ import os
 import hashlib
 import json
 import secrets
-import threading
 from datetime import datetime, timedelta, timezone
 import re
 from typing import Any
@@ -16,7 +15,7 @@ from ..config import settings
 from ..database import db
 from .pairing import create_pairing_request, approve_pairing_request, revoke_paired_app, authenticate
 from .remote_identity import load_or_create_remote_identity
-from .https_bridge_session import save_https_session, load_https_session, clear_https_session
+from .https_bridge_session import SESSION_LOCK, save_https_session, load_https_session, clear_https_session
 from .owner_secret import _atomic_write, _protect_windows, _unprotect_windows
 from .remote_bridge import (
     dispatch_remote_request,
@@ -104,7 +103,7 @@ def _revoke_local_vp3_pairing() -> None:
         pass
 
 
-_PAIR_LOCK = threading.RLock()
+_PAIR_LOCK = SESSION_LOCK
 
 
 def _pending_path():

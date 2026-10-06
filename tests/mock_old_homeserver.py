@@ -34,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/v1/health":
-            self._json(200, {"ok": True, "version": "2.1"})
+            self._json(200, {"ok": True, "version": os.environ.get("HOMESERVER_MOCK_VERSION", "2.1"), "build_id": "older-build"})
             return
         self._json(404, {"detail": "Not found"})
 

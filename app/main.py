@@ -220,7 +220,8 @@ def control_center():
 
 @app.get("/api/v1/health")
 def health() -> dict:
-    return {"ok": True, "service": settings.app_name, "version": settings.version}
+    from .services.runtime_build import runtime_build_id
+    return {"ok": True, "service": settings.app_name, "version": settings.version, "build_id": runtime_build_id()}
 
 
 @app.get("/api/v1/status")

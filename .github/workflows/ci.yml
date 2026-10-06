@@ -155,6 +155,7 @@ jobs:
       - name: VP3 account-token pairing regression
         run: |
           python tests/vp3_account_pairing_v062.py
+          python tests/connection_lifecycle.py
           python tests/remote_bridge_sqlite_recovery.py
           python tests/remote_bridge_feature_isolation.py
           python tests/onboarding_accounts_section11.py
@@ -339,6 +340,8 @@ jobs:
           }
           $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-upgrade-takeover'
           Remove-Item -Recurse -Force $env:HOMESERVER_DATA_DIR -ErrorAction SilentlyContinue
+          $env:HOMESERVER_MOCK_VERSION = '2.4'
+          $expectedBuild = (Get-FileHash 'dist/HomeServer.exe' -Algorithm SHA256).Hash.ToLower()
           $old = Start-Process -FilePath 'python' -ArgumentList 'tests/mock_old_homeserver.py' -PassThru
           try {
             $oldHealthy = $false
@@ -346,7 +349,7 @@ jobs:
               Start-Sleep -Milliseconds 300
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
-                if ($response.version -eq '2.1') { $oldHealthy = $true; break }
+                if ($response.version -eq '2.4' -and $response.build_id -eq 'older-build') { $oldHealthy = $true; break }
               } catch {}
             }
             if (-not $oldHealthy) { throw 'Old HomeServer fixture did not become healthy' }
@@ -357,18 +360,19 @@ jobs:
               Start-Sleep -Milliseconds 500
               try {
                 $response = Invoke-RestMethod -Uri 'http://127.0.0.1:4377/api/v1/health' -TimeoutSec 1
-                if ($response.version -eq '2.4') { $newHealthy = $true; break }
+                if ($response.version -eq '2.4' -and $response.build_id -eq $expectedBuild) { $newHealthy = $true; break }
               } catch {
                 $new.Refresh()
                 if ($new.HasExited) { throw "New HomeServer exited during takeover with code $($new.ExitCode)" }
               }
             }
-            if (-not $newHealthy) { throw 'New HomeServer did not replace the old running instance' }
+            if (-not $newHealthy) { throw 'New HomeServer did not replace the older running build with the same product version' }
 
             $old.Refresh()
             if (-not $old.HasExited) { throw 'Old HomeServer process remained alive after upgrade takeover' }
           } finally {
             Get-Process -Name 'HomeServer' -ErrorAction SilentlyContinue | Stop-Process -Force
+            Remove-Item Env:HOMESERVER_MOCK_VERSION -ErrorAction SilentlyContinue
             if ($old -and -not $old.HasExited) { Stop-Process -Id $old.Id -Force -ErrorAction SilentlyContinue }
             Start-Sleep -Milliseconds 750
           }

@@ -22,11 +22,13 @@ def build_recovery_app(reason: str) -> FastAPI:
 
     @app.get("/api/v1/health")
     def health() -> dict:
+        from .services.runtime_build import runtime_build_id
         return {
             "ok": False,
             "recovery": True,
             "service": settings.app_name,
             "version": settings.version,
+            "build_id": runtime_build_id(),
             "reason": reason[:120],
         }
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from urllib.parse import urlparse
 
 from ..config import settings
@@ -13,6 +14,7 @@ class HttpsBridgeSessionError(RuntimeError):
 
 
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+SESSION_LOCK = threading.RLock()
 
 
 def normalize_https_endpoint(value: str) -> str:
@@ -42,7 +44,8 @@ def save_https_session(endpoint: str, session_token: str) -> dict:
     if len(token) < 32 or len(token) > 512:
         raise HttpsBridgeSessionError("VP3 HTTPS session token is invalid.")
     body = json.dumps({"endpoint": endpoint, "session_token": token}, separators=(",", ":")).encode("utf-8")
-    _atomic_write(settings.remote_https_session_path, _encode(body))
+    with SESSION_LOCK:
+        _atomic_write(settings.remote_https_session_path, _encode(body))
     return {"endpoint": endpoint, "configured": True}
 
 
@@ -69,14 +72,13 @@ def https_session_matches(session_token: str) -> bool:
 
 
 def clear_https_session_if_matches(session_token: str) -> bool:
-    if not https_session_matches(session_token):
-        return False
-    clear_https_session()
-    return True
+    with SESSION_LOCK:
+        if not https_session_matches(session_token):
+            return False
+        clear_https_session()
+        return True
 
 
 def clear_https_session() -> None:
-    try:
+    with SESSION_LOCK:
         settings.remote_https_session_path.unlink(missing_ok=True)
-    except OSError:
-        pass
