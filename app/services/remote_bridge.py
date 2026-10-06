@@ -18,7 +18,7 @@ from websockets.sync.client import connect
 from ..config import settings
 from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
-from .https_bridge_session import load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
+from .https_bridge_session import SESSION_LOCK, load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
 from . import agent_voice_profiles, local_transcription_sessions, federated_data, homeserver_app_agent, homeserver_app_control, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
@@ -1476,8 +1476,8 @@ class RemoteBridgeWorker:
                 database_error = isinstance(exc, sqlite3.OperationalError)
                 details = _database_error_details(exc) if database_error else {}
                 message = str(details.get("message") or f"{type(exc).__name__}: remote bridge worker crashed")
-                stage = "database-retrying" if database_error else "crashed"
-                _set_state(running=database_error, stage=stage, connected=False,
+                stage = "database-retrying" if database_error else "crashed-retrying"
+                _set_state(running=True, stage=stage, connected=False,
                            claimed=False, claim_code=None, connection_id=None,
                            last_error=message)
                 if database_error:
@@ -1488,7 +1488,7 @@ class RemoteBridgeWorker:
                 except sqlite3.Error:
                     pass
                 _event("bridge.worker", "failed", metadata={"stage": stage, "error_type": type(exc).__name__, **details})
-                if not database_error or self._stop.wait(backoff):
+                if self._stop.wait(backoff):
                     return
                 backoff = min(backoff * 2.0, 30.0)
 
@@ -1555,6 +1555,8 @@ class RemoteBridgeWorker:
                         return
                 data = self._https_pending_exchange
 
+                if self._stop.is_set() or _RELOAD_EVENT.is_set() or not https_session_matches(token):
+                    return
                 touch_paired_app("vp3")
                 first_contact = not announced
                 if first_contact:
@@ -1574,7 +1576,12 @@ class RemoteBridgeWorker:
 
                 # Keep an accepted response across SQLite failures before dispatch.
                 requests = data.get("requests") if isinstance(data.get("requests"), list) else []
-                for message in requests:
+                while requests:
+                    if self._stop.is_set() or _RELOAD_EVENT.is_set() or not https_session_matches(token):
+                        return
+                    # Consume before dispatch: an interrupted action has an unknown
+                    # outcome and must never replay earlier commands in this batch.
+                    message = requests.pop(0)
                     if not isinstance(message, dict):
                         continue
                     request_id = str(message.get("request_id") or "")
@@ -1584,11 +1591,14 @@ class RemoteBridgeWorker:
                         continue
                     started = time.monotonic()
                     try:
-                        result = dispatch_remote_request(
-                            operation,
-                            message.get("payload") if isinstance(message.get("payload"), dict) else {},
-                            str(message.get("bearer_token") or "") or None,
-                        )
+                        with SESSION_LOCK:
+                            if self._stop.is_set() or _RELOAD_EVENT.is_set() or not https_session_matches(token):
+                                return
+                            result = dispatch_remote_request(
+                                operation,
+                                message.get("payload") if isinstance(message.get("payload"), dict) else {},
+                                str(message.get("bearer_token") or "") or None,
+                            )
                     except RemoteBridgeError as exc:
                         result = {"status": 400, "ok": False, "payload": {"detail": str(exc)}}
                     except sqlite3.OperationalError as exc:
@@ -1596,6 +1606,9 @@ class RemoteBridgeWorker:
                         # automatically replaying this action during recovery.
                         result = {"status": 503, "ok": False,
                                   "payload": {"detail": _database_error_details(exc)["message"]}}
+                    except Exception as exc:
+                        result = {"status": 503, "ok": False,
+                                  "payload": {"detail": f"{type(exc).__name__}: remote operation interrupted; verify its outcome before retrying."}}
                     duration_ms = int((time.monotonic() - started) * 1000)
                     _event(
                         "bridge.request",
@@ -1628,7 +1641,7 @@ class RemoteBridgeWorker:
             elif self._feature_sync_backoff > 1.0 and tracky_physical_context.sync_status().get("last_error"):
                 # An existing feature transport backoff is not a successful sync.
                 return
-        except (sqlite3.OperationalError, tracky_physical_context.TrackyPhysicalError) as exc:
+        except Exception as exc:
             details = _database_error_details(exc) if isinstance(exc, sqlite3.OperationalError) else {}
             message = str(details.get("message") or "Feature synchronization is temporarily unavailable.")
             _set_state(feature_sync_error=message)
@@ -1650,21 +1663,20 @@ class RemoteBridgeWorker:
                 "results": pending_results,
             },
         )
-        if response.status_code == 410:
-            # Only an explicit Gone response means this exact session was
-            # intentionally revoked. Never let a stale worker destroy a
-            # replacement session that was saved after this loop started.
-            if clear_https_session_if_matches(token):
-                disable_vp3_https_settings()
-                revoke_paired_app("vp3")
-                _set_state(
-                    stage="revoked",
-                    connected=False,
-                    claimed=False,
-                    last_error="VP3 pairing was explicitly revoked. Save a new pairing key to connect again.",
-                )
-                _event("bridge.disconnected", "revoked", metadata={"transport": "vp3_https"})
-            return
+        with SESSION_LOCK:
+            if self._stop.is_set() or _RELOAD_EVENT.is_set() or not https_session_matches(token):
+                _event("bridge.worker", "superseded", metadata={"transport": "vp3_https"})
+                return
+            if response.status_code == 410:
+                # Hold the pairing lock through all revocation writes, so a
+                # replacement cannot be disabled after this token was checked.
+                if clear_https_session_if_matches(token):
+                    disable_vp3_https_settings()
+                    revoke_paired_app("vp3")
+                    _set_state(stage="revoked", connected=False, claimed=False,
+                               last_error="VP3 pairing was explicitly revoked. Save a new pairing key to connect again.")
+                    _event("bridge.disconnected", "revoked", metadata={"transport": "vp3_https"})
+                return
         if response.status_code in {401, 403}:
             # Authentication failures are retryable and must never erase
             # the saved pairing. If a newer pairing replaced this token,

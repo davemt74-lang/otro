@@ -40,6 +40,7 @@ from PIL import Image, ImageDraw  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.security import OWNER_CONTROL_TOKEN  # noqa: E402
 from app.services import backups  # noqa: E402
+from app.services.runtime_build import runtime_build_id  # noqa: E402
 from app.services.remote_bridge import RemoteBridgeWorker  # noqa: E402
 from app.services.restore_runtime import apply_pending_restore_for_startup  # noqa: E402
 from app.services.runtime_control import register_runtime_handler  # noqa: E402
@@ -99,11 +100,15 @@ def _probe_health() -> dict | None:
         return None
 
 
+def _same_running_build(health: dict) -> bool:
+    return health.get("version") == settings.version and health.get("build_id") == runtime_build_id()
+
+
 def _wait_until_listening(*, require_current_version: bool = True, attempts: int = 60) -> dict | None:
     for _ in range(max(1, int(attempts))):
         payload = _probe_health()
         if payload is not None:
-            if not require_current_version or payload.get("version") == settings.version:
+            if not require_current_version or _same_running_build(payload):
                 return payload
         time.sleep(0.2)
     return None
@@ -518,7 +523,7 @@ def main() -> None:
             raise SystemExit(EXIT_ALREADY_RUNNING)
 
         health = _wait_until_listening(require_current_version=False, attempts=20)
-        if health is not None and str(health.get("version") or "") == settings.version:
+        if health is not None and _same_running_build(health):
             _open(_path_for_health(health))
             return
 

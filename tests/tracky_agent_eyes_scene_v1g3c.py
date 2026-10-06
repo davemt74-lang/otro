@@ -103,15 +103,20 @@ with tempfile.TemporaryDirectory() as root:
             projected=context.projection();assert projected['scene']['objects']==['chair','cup'],projected
             clock=[datetime.fromisoformat(worker['last_observed_at'])+timedelta(seconds=59)]
             authority_calls=[0];original_reason=context._session_reason
+            projection_thread=threading.get_ident()
             class FinalClock(datetime):
                 @classmethod
                 def now(cls,tz=None):return clock[0]
             def slow_final_authority(snapshot):
-                authority_calls[0]+=1
-                if authority_calls[0]==3:clock[0]+=timedelta(seconds=2)
+                # Runtime background projections must not advance this test's
+                # foreground clock before its final authority check.
+                if threading.get_ident()==projection_thread:
+                    authority_calls[0]+=1
+                    if authority_calls[0]==3:clock[0]+=timedelta(seconds=2)
                 return original_reason(snapshot)
             with patch.object(context,'datetime',FinalClock), patch.object(context,'_session_reason',side_effect=slow_final_authority):
-                assert context.projection()['reason']=='observation_expired','Final authority check crossed freshness deadline'
+                expired=context.projection()
+                assert expired['reason']=='observation_expired',('Final authority check crossed freshness deadline',expired,authority_calls)
             fragment,_=context.prompt_fragment(max_chars=1500)
             assert fragment and 'chair' in fragment and 'binding' not in fragment and 'vision:local' not in fragment
             with db() as connection:

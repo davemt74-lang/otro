@@ -95,6 +95,7 @@ jobs:
           python tests/onboarding_accounts_section11.py
           node tests/onboarding_lifecycle_section11.mjs
           python tests/vp3_account_pairing_v062.py
+          python tests/connection_lifecycle.py
           python tests/remote_bridge_sqlite_recovery.py
           python tests/remote_bridge_feature_isolation.py
           python tests/homeserver_members_v400.py
