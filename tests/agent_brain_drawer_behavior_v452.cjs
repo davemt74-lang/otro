@@ -73,7 +73,7 @@ const document={
   })[sel]||null; },
   addEventListener:(event,fn)=>handlers.set(event,fn)
 };
-let healthRequests=0,activityRequests=0,manualSyncs=0;
+let healthRequests=0,activityRequests=0,cognitionRequests=0,manualSyncs=0;
 let healthTitle='Disk pressure';
 const fetch=(url,options)=>{
   assert.equal(options.credentials,'same-origin');
@@ -89,6 +89,15 @@ const fetch=(url,options)=>{
     return Promise.resolve({ok:true,json:async()=>({
       overall:'attention',issues:[{key:'storage:disk-pressure',title:healthTitle,
         severity:'warning',repair:{action_key:null,agent_can_execute:false}}]
+    })});
+  }
+  if(url==='/api/v1/control/cognition') {
+    cognitionRequests++;
+    return Promise.resolve({ok:true,json:async()=>({
+      runtime:{scheduler_running:true,event_count:17},
+      awareness:[{id:7,event_type:'room.observation',summary:'Kitchen activity changed'}],
+      memory_candidates:[{id:3,status:'pending'}],
+      plugins:[{plugin_key:'tracky',status:'active'}]
     })});
   }
   if(url.includes('/activity-center/brain-context')) {
@@ -123,13 +132,21 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   assert.equal(submitCalls,0);
   toggle.fire('click');
   await flush();
+  const awareness=registry.get('agentBrainAwareness');
+  assert.equal(awareness.children.length,1,'Current awareness is visible');
+  assert.equal(registry.get('agentBrainCognitionState').textContent,'1 active');
+  assert.equal(registry.get('agentBrainMemoryState').textContent,'1 pending');
+  assert.equal(registry.get('agentBrainMemory').children.length,4,'Brain context summary is rendered');
+  awareness.fire('click',{target:{closest:()=>awareness.children[0]}});
+  assert.equal(chatNavClicks,2);
+  assert.ok(input.value.includes('Kitchen activity changed'));
   const alerts=registry.get('agentBrainAlerts');
   assert.equal(alerts.children.length,1,'Warning maintenance event visible');
   registry.get('agentBrainRefresh').fire('click');
   await flush();
   assert.equal(manualSyncs,1,'Explicit refresh synchronizes maintenance');
   alerts.fire('click',{target:{closest:()=>alerts.children[0]}});
-  assert.equal(chatNavClicks,2);
+  assert.equal(chatNavClicks,3);
   assert.ok(input.value.includes('notification:42'));
   assert.ok(!input.value.includes('Maintenance warning'));
   toggle.fire('click');
@@ -144,7 +161,7 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
     'Same-severity issue detail changes refresh the Brain sidebar');
   registry.get('agentBrainHealth').fire('click');
   assert.equal(healthNavClicks,1,'Health action uses existing workspace');
-  assert.ok(healthRequests>=2&&activityRequests>=2);
+  assert.ok(healthRequests>=2&&activityRequests>=2&&cognitionRequests>=2);
   // From a standalone owner page the same drawer preserves an opaque prompt
   // across navigation into the existing owner Chat canvas.
   registry.delete('chatInput');
@@ -170,5 +187,6 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   assert.equal(stored.size,0,'Workspace route is consumed once');
   assert.match(css,/position:fixed/);
   assert.match(css,/max-width:100vw/);
-  console.log('Section 31: real drawer interactions, warning handoff and governance PASS');
+  assert.match(css,/agent-brain-context-grid/);
+  console.log('Agent experience: unified Brain cognition, context, activity and governance PASS');
 })().catch(error=>{console.error(error);process.exitCode=1;});
