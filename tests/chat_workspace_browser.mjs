@@ -312,7 +312,8 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   // Workspace browser stays bounded and exposes complete details only on request.
   let syncRequests = 0;
   const fullText = 'Full original text 💡 '.repeat(2500);
-  await page.route('**/api/v1/control/workspace-sync**', async route => {
+  const syncRoute = /\/api\/v1\/control\/workspace-sync(?:\/|\?|$)/;
+  await page.route(syncRoute, async route => {
     syncRequests++;
     const url = new URL(route.request().url());
     if (url.pathname.includes('/records/')) {
@@ -345,11 +346,12 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.evaluate(()=>document.querySelector('#view-cloud-data').classList.add('inactive-fixture'));
   await delay(100);
   assert.equal(syncRequests,awayRequests,'Inactive workspace does no background fetch');
-  await page.unroute('**/api/v1/control/workspace-sync**');
+  await page.unroute(syncRoute);
 
   // Unsaved Ambient settings survive polling, and testing saves before speech.
   const ambientCalls=[];
-  await page.route('**/api/v1/control/vp3-os/ambient**',async route=>{
+  const ambientRoute = /\/api\/v1\/control\/vp3-os\/ambient(?:\/|\?|$)/;
+  await page.route(ambientRoute,async route=>{
     const request=route.request(),path=new URL(request.url()).pathname;
     ambientCalls.push({path,method:request.method(),body:request.postDataJSON()});
     if(path.endsWith('/announce-test'))return route.fulfill({json:{spoken:true}});
@@ -369,7 +371,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.ok(saved>=0&&spoken>saved);
   assert.equal(ambientCalls[saved].body.presence_policy,'assume_present');
   assert.equal(ambientCalls[saved].body.enabled,true);
-  await page.unroute('**/api/v1/control/vp3-os/ambient**');
+  await page.unroute(ambientRoute);
   console.log('PASS: workspace pagination, originals, responsive full-text details and saved Ambient speech choice');
   await page.goto(base + '/#contacts');
   await page.waitForFunction(() => window.HomeServerChatOptions);
