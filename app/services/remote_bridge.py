@@ -127,6 +127,7 @@ _STATE: dict[str, Any] = {
     "last_connected_at": None,
     "last_message_at": None,
     "last_error": None,
+    "feature_sync_error": None,
     "reconnect_count": 0,
 }
 
@@ -322,6 +323,7 @@ def cloud_connection_status() -> dict:
             "transport_label": "VP3 HTTPS Relay" if transport == "vp3_https" else "Custom WebSocket Relay",
             "last_seen_at": last_cloud_contact,
             "last_error": str(runtime.get("last_error") or ""),
+            "feature_sync_error": str(runtime.get("feature_sync_error") or ""),
         },
         "compute": {
             "available": bool(inference.get("available")),
@@ -1443,6 +1445,8 @@ class RemoteBridgeWorker:
         self._https_session_token: str | None = None
         self._https_pending_results: list[dict] = []
         self._https_pending_exchange: dict | None = None
+        self._feature_sync_retry_at = 0.0
+        self._feature_sync_backoff = 1.0
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -1530,6 +1534,9 @@ class RemoteBridgeWorker:
             self._https_session_token = token
             self._https_pending_results.clear()
             self._https_pending_exchange = None
+            self._feature_sync_retry_at = 0.0
+            self._feature_sync_backoff = 1.0
+            _set_state(feature_sync_error=None)
         pending_results = self._https_pending_results
         announced = False
         _set_state(stage="connecting", connected=False, claimed=True, claim_code=None, last_error=None)
@@ -1564,15 +1571,6 @@ class RemoteBridgeWorker:
                            connection_id=identity["device_id"],
                            last_connected_at=now if first_contact else _STATE.get("last_connected_at"),
                            last_message_at=now, last_error=None)
-
-                # The relay response above has already completed, so any pending
-                # Tracky semantic state can now synchronize on the same VP3 session
-                # without nesting a Cloud callback inside an active relay request.
-                try:
-                    if tracky_physical_context.sync_due():
-                        tracky_physical_context.sync_cloud(timeout=8.0)
-                except tracky_physical_context.TrackyPhysicalError:
-                    pass
 
                 # Keep an accepted response across SQLite failures before dispatch.
                 requests = data.get("requests") if isinstance(data.get("requests"), list) else []
@@ -1609,12 +1607,38 @@ class RemoteBridgeWorker:
                     pending_results.append({"request_id": request_id, **result})
                 self._https_pending_exchange = None
 
+                # Complete accepted commands before supplementary synchronization.
+                # A feature database fault must not strand their receipts or the
+                # next heartbeat on an already accepted relay response.
+                self._sync_features()
+
                 poll_after = data.get("poll_after_ms", 900)
                 try:
                     wait_seconds = max(0.25, min(float(poll_after) / 1000.0, 5.0))
                 except (TypeError, ValueError):
                     wait_seconds = 0.9
                 self._stop.wait(wait_seconds)
+
+    def _sync_features(self) -> None:
+        if time.monotonic() < self._feature_sync_retry_at:
+            return
+        try:
+            if tracky_physical_context.sync_due():
+                tracky_physical_context.sync_cloud(timeout=8.0)
+            elif self._feature_sync_backoff > 1.0 and tracky_physical_context.sync_status().get("last_error"):
+                # An existing feature transport backoff is not a successful sync.
+                return
+        except (sqlite3.OperationalError, tracky_physical_context.TrackyPhysicalError) as exc:
+            details = _database_error_details(exc) if isinstance(exc, sqlite3.OperationalError) else {}
+            message = str(details.get("message") or "Feature synchronization is temporarily unavailable.")
+            _set_state(feature_sync_error=message)
+            _event("bridge.feature-sync", "failed", metadata={"error_type": type(exc).__name__, **details})
+            self._feature_sync_retry_at = time.monotonic() + self._feature_sync_backoff
+            self._feature_sync_backoff = min(self._feature_sync_backoff * 2.0, 30.0)
+        else:
+            self._feature_sync_retry_at = 0.0
+            self._feature_sync_backoff = 1.0
+            _set_state(feature_sync_error=None)
 
     def _receive_https_exchange(self, client, endpoint, headers, token, capabilities, pending_results) -> None:
         response = client.post(
