@@ -83,7 +83,7 @@ for source in (TALK_JS, DICTATE_JS):
 assert "let conversationStarting = false;" in TALK_JS
 assert "const engaged = conversationMode || conversationStarting;" in TALK_JS
 assert "if (conversationMode || conversationStarting)" in TALK_JS
-assert TALK_JS.count("if (!conversationStarting) return;") >= 2
+assert TALK_JS.count("if (!conversationStarting || setupGeneration!==captureGeneration) return;") >= 2
 assert "conversationStarting = false;\n    conversationMode = true;" in TALK_JS
 
 # Dictation also rechecks its generation after settings and status awaits so a

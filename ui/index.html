@@ -33,6 +33,7 @@
   <link rel="stylesheet" href="/assets/governed-recordings.css">
   <link rel="stylesheet" href="/assets/transcription-workspace.css">
 <link rel="stylesheet" href="/assets/chat-onboarding.css">
+  <link rel="stylesheet" href="/assets/chat-workspace.css">
 </head>
 <body>
   <div class="shell">
@@ -230,10 +231,9 @@
       </section>
 
       <section class="view" id="view-chat">
-        <div class="section-intro split"><div><h2>Agent Chat</h2><p>Chat through the private HomeServer brain. Read tools remain permission-bounded and write proposals require owner approval.</p></div><span id="chatContext" class="brain-context"></span></div>
         <div class="chat-layout">
           <aside class="panel conversation-panel"><button class="button secondary" id="newChat" type="button">New conversation</button><div id="conversationList" class="conversation-list"><div class="empty-state">No conversations yet.</div></div></aside>
-          <article class="panel chat-panel"><div class="chat-head"><h3 id="chatConversationTitle">New conversation</h3><button class="text-button danger" id="deleteChat" type="button">Delete</button></div><div id="fahChatAlert" class="fah-chat-alert" role="status" aria-live="polite" hidden></div><section id="chatOnboardingCanvas" class="chat-onboarding" aria-label="HomeServer Agent guided onboarding" hidden>
+          <article class="panel chat-panel"><div class="chat-head" hidden><h3 id="chatConversationTitle">New conversation</h3><button class="text-button danger" id="deleteChat" type="button">Delete</button></div><div id="fahChatAlert" class="fah-chat-alert" role="status" aria-live="polite" hidden></div><section id="chatOnboardingCanvas" class="chat-onboarding" aria-label="HomeServer Agent guided onboarding" hidden>
   <div class="onboard-agent-message"><span class="onboard-orb" aria-hidden="true">✦</span><div class="onboard-agent-content">
     <span class="onboard-name">HOMESERVER AGENT · FIRST CONVERSATION</span>
     <h3>Hi. I'm your HomeServer Agent.</h3>
@@ -341,7 +341,7 @@
     <div class="onboard-actions"><button id="onboardFinish" type="button" class="onboard-button">Finish setup & start chatting →</button><button id="onboardLater" type="button" class="onboard-minor">Close for now</button></div>
   </div></div>
   <div class="onboard-feedback" id="onboardFeedback" role="status" aria-live="polite" hidden></div>
-</section><div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local context is added only when permitted.</div></div><form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="2" maxlength="32000" placeholder="Message your HomeServer agent…" required></textarea><button class="button primary" type="submit">Send</button></form></article>
+</section><div id="chatMessages" class="chat-messages"><div class="chat-empty">Start a private conversation with your HomeServer agent. Relevant local context is added only when permitted.</div></div><form id="chatForm" class="chat-compose"><textarea id="chatInput" rows="1" maxlength="32000" aria-label="Message your HomeServer agent" placeholder="Message your HomeServer agent…" required></textarea><div class="chat-composer-actions"><span id="chatCaptureStatus" role="status" hidden></span><button id="chatCaptureStop" class="chat-capture-stop" type="button" hidden>Stop microphone</button><button id="chatOptionsButton" class="chat-composer-icon" type="button" aria-label="Open chat options" aria-haspopup="dialog" aria-controls="chatOptionsDialog" aria-expanded="false">+</button><button class="button primary chat-send" type="submit" aria-label="Send message" title="Send message"><span aria-hidden="true">↑</span></button></div></form></article>
         </div>
       </section>
 
@@ -882,6 +882,18 @@
       </section>
     </main>
   </div>
+  <dialog id="chatOptionsDialog" class="chat-options-dialog" aria-labelledby="chatOptionsTitle">
+    <div class="chat-options-header"><h2 id="chatOptionsTitle">Chat options</h2><button id="chatOptionsClose" class="chat-composer-icon" type="button" aria-label="Close chat options">×</button></div>
+    <div class="chat-options-tabs" role="tablist" aria-label="Chat options">
+      <button id="chatOptionsTabContext" type="button" role="tab" aria-selected="true" aria-controls="chatOptionsContext" data-chat-options-tab="context">Private Context</button>
+      <button id="chatOptionsTabVoice" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="chatOptionsVoice" data-chat-options-tab="voice">Voice</button>
+      <button id="chatOptionsTabMore" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="chatOptionsMore" data-chat-options-tab="more">More</button>
+    </div>
+    <section id="chatOptionsContext" class="chat-options-panel" role="tabpanel" aria-labelledby="chatOptionsTabContext"><p id="chatContext" class="brain-context"></p><div id="chatPrivateContextPanel"></div></section>
+    <section id="chatOptionsVoice" class="chat-options-panel" role="tabpanel" aria-labelledby="chatOptionsTabVoice" hidden><div id="chatVoiceControls"></div><div id="chatVoicePreferences"></div><div id="chatAgentVoicePanel"></div></section>
+    <section id="chatOptionsMore" class="chat-options-panel" role="tabpanel" aria-labelledby="chatOptionsTabMore" hidden><div id="chatConversationDetails"></div><div id="chatMoreActions" class="chat-more-actions"></div></section>
+    <p id="chatOptionsStatus" role="status" hidden></p>
+  </dialog>
   <script src="/assets/app.js" defer></script>
   <script src="/assets/maintenance-workspace.js" defer></script>
   <script src="/assets/runtime-diagnostics.js" defer></script>
@@ -926,5 +938,6 @@
   <script src="/assets/shell.js" data-homeserver-shell="1" defer></script>
   <script src="/assets/agent-brain-drawer.js" defer></script>
   <script src="/assets/universal-shell-v220.js" data-homeserver-universal-shell="v2.2" defer></script>
+  <script src="/assets/chat-workspace.js" defer></script>
 </body>
 </html>

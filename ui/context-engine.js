@@ -37,8 +37,9 @@
 
   function ensureControls() {
     if (byId('chatContextControls')) return;
+    const host = byId('chatPrivateContextPanel');
     const intro = document.querySelector('#view-chat .section-intro');
-    if (!intro) return;
+    if (!host && !intro) return;
     const panel = document.createElement('div');
     panel.id = 'chatContextControls';
     panel.className = 'context-engine-panel';
@@ -76,7 +77,8 @@
         <p id="contextAgentEyesGuidance">Enable Agent Eyes context to use recent permitted observations.</p>
         <p id="contextAgentEyesLimits" class="muted">Status is a checked snapshot, not a live view. Refreshing status never starts the camera or renews consent.</p>
       </div>`;
-    intro.insertAdjacentElement('afterend', panel);
+    if (host) host.appendChild(panel);
+    else intro.insertAdjacentElement('afterend', panel);
     setControlsEnabled(false);
   }
 

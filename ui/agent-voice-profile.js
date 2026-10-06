@@ -84,7 +84,9 @@
         <span id="agentVoiceSaved" class="muted"></span>
         <div><button id="agentVoicePreview" class="button secondary" type="button">Preview effective voice</button><button class="button primary" type="submit">Save voice profile</button></div>
       </div>`;
-    agentForm.insertAdjacentElement('afterend', form);
+    const chatHost = byId('chatAgentVoicePanel');
+    if (chatHost) chatHost.appendChild(form);
+    else agentForm.insertAdjacentElement('afterend', form);
     bindPanel(form);
     return true;
   }

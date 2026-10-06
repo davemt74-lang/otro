@@ -94,7 +94,7 @@
       voice.setAttribute('aria-describedby', 'voicePrivacyNote');
       voice.title = 'Conversation mode';
       voice.innerHTML = `${micIcon()}<span class="chat-control-label">Talk</span>`;
-      compose.insertBefore(voice, compose.querySelector('button[type="submit"]'));
+      compose.insertBefore(voice, compose.querySelector('.chat-composer-actions') || compose.querySelector('button[type="submit"]'));
 
       const options = document.createElement('div');
       options.className = 'chat-voice-options';

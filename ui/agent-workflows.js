@@ -79,7 +79,9 @@
       button.textContent = 'Delegate';
       button.setAttribute('aria-expanded', 'false');
       const deleteButton = byId('deleteChat');
-      if (deleteButton) head.insertBefore(button, deleteButton);
+      const chatOptions = byId('chatMoreActions');
+      if (chatOptions) chatOptions.appendChild(button);
+      else if (deleteButton?.parentNode === head) head.insertBefore(button, deleteButton);
       else head.appendChild(button);
     }
 

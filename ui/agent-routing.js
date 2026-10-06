@@ -128,7 +128,9 @@
       control.className = 'chat-agent-routing';
       control.innerHTML = `<span>Agent</span><select id="chatAgentSelect" aria-label="Agent persona"></select><span id="chatAgentRoutingLock" class="routing-lock"></span>`;
       const actions = head.querySelector('.chat-head-actions');
-      if (actions) head.insertBefore(control, actions);
+      const chatOptions = byId('chatMoreActions');
+      if (chatOptions) chatOptions.appendChild(control);
+      else if (actions) head.insertBefore(control, actions);
       else head.appendChild(control);
       byId('chatAgentSelect')?.addEventListener('change', event => {
         if (state.activeConversationId) {

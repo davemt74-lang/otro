@@ -259,6 +259,7 @@
     updateRangeOutput('voiceListenSilence', 'voiceListenSilenceValue', value => `${Number(value)} ms`);
     updateRangeOutput('voiceNoSpeechTimeout', 'voiceNoSpeechTimeoutValue', value => `${(Number(value) / 1000).toFixed(1)} s`);
     updateRangeOutput('voiceMaxSegment', 'voiceMaxSegmentValue', value => `${(Number(value) / 1000).toFixed(0)} s`);
+    window.dispatchEvent(new Event('homeserver:voice-settings-rendered'));
   }
 
   function ensureDialog() {
@@ -310,7 +311,7 @@
 
   function ensureControl() {
     if (byId('chatVoiceSettingsButton')) return true;
-    const options = document.querySelector('#chatForm .chat-voice-options');
+    const options = document.querySelector('.chat-voice-options');
     const badge = byId('localVoiceBadge');
     if (!options || !badge) return false;
     const button = document.createElement('button');
@@ -339,6 +340,10 @@
     try { await loadSettings(); } catch (error) { flash(error.message, true); }
     renderForm();
     enumerateDevices(false).catch(() => null);
+    if (window.HomeServerChatOptions) {
+      window.HomeServerChatOptions.open('voice', state.opener);
+      return;
+    }
     const overlay = byId('voiceSettingsOverlay');
     overlay?.classList.remove('hidden');
     byId('voiceSettingsDialog')?.focus({preventScroll: true});
@@ -346,6 +351,7 @@
 
   function closeDialog() {
     byId('voiceSettingsOverlay')?.classList.add('hidden');
+    window.HomeServerChatOptions?.close();
     const opener = state.opener;
     state.opener = null;
     opener?.focus?.({preventScroll: true});
@@ -468,12 +474,17 @@
       if (event.key === 'Escape' && !byId('voiceSettingsOverlay')?.classList.contains('hidden')) closeDialog();
     });
     navigator.mediaDevices?.addEventListener?.('devicechange', () => {
-      if (!byId('voiceSettingsOverlay')?.classList.contains('hidden')) enumerateDevices(false).catch(() => null);
+      if (window.HomeServerChatOptions?.isVoiceOpen() || !byId('voiceSettingsOverlay')?.classList.contains('hidden')) enumerateDevices(false).catch(() => null);
     });
   }
 
   window.HomeServerVoiceSettings = Object.freeze({
     load: loadSettings,
+    prepare: async () => {
+      await loadSettings();
+      renderForm();
+      await enumerateDevices(false);
+    },
     getPreferences,
     getCaptureTiming,
     getInputDeviceId,
