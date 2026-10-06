@@ -1,6 +1,8 @@
 """Real API, relay and SQLite regression: feature faults cannot stop the bridge."""
 from __future__ import annotations
 
+from contextlib import closing
+
 import hashlib
 import json
 import os
@@ -145,7 +147,7 @@ def main():
                 ping()
                 assert status()["connected"] and not status()["last_error"]
                 print("PASS workspace HTTP failure preserves the live relay and authenticated ping", flush=True)
-                with sqlite3.connect(data / "homeserver.db") as db:
+                with closing(sqlite3.connect(data / "homeserver.db")) as db, db:
                     db.execute("ALTER TABLE tracky_cloud_sync_state RENAME TO unavailable_sync_state")
                 wait_until(lambda: status()["feature_sync_error"].startswith("SQLITE_ERROR:"))
                 polls = state["polls"]
@@ -153,7 +155,7 @@ def main():
                 assert status()["connected"] and not status()["last_error"]
                 assert state["capabilities"] == {}, "Unavailable feature capabilities must fail closed"
                 ping()
-                with sqlite3.connect(data / "homeserver.db") as db:
+                with closing(sqlite3.connect(data / "homeserver.db")) as db, db:
                     db.execute("ALTER TABLE unavailable_sync_state RENAME TO tracky_cloud_sync_state")
                 wait_until(lambda: not status()["feature_sync_error"])
                 wait_until(lambda: bool(state["capabilities"]))
@@ -178,7 +180,7 @@ ctx.ingest_semantic_projection({"events": [{"event_id": "bridge-sync-fixture", "
                 with lock:
                     state["sync_fail"] = False
                 wait_until(lambda: not status()["feature_sync_error"])
-                with sqlite3.connect(data / "homeserver.db") as db:
+                with closing(sqlite3.connect(data / "homeserver.db")) as db, db:
                     assert db.execute("SELECT cloud_synced FROM tracky_physical_events WHERE event_id='bridge-sync-fixture'").fetchone()[0] == 1
                     saved_hash = db.execute("SELECT token_hash FROM paired_apps WHERE app_key='vp3'").fetchone()[0]
                 assert saved_hash == hashlib.sha256(token.encode()).hexdigest()
