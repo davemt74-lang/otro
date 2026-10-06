@@ -105,12 +105,13 @@ function ensure(){
  drawer.setAttribute('aria-label','HomeServer Transcription');
  drawer.hidden=true;
  drawer.innerHTML='<div class="hs-transcription-head"><div><small>AGENT CHAT · LISTENING</small><h3>Transcriptions</h3></div><button type="button" id="hsTranscriptClose" aria-label="Close transcription workspace">×</button></div>'+
- '<p>Conversation/Talk sends spoken turns to Agent Chat. Transcription builds a private document without invoking the Agent. Cloud can import only sessions you explicitly share.</p>'+
+ '<p>Conversation/Talk sends spoken turns to Agent Chat. Transcription builds a private document without invoking the Agent. Completed text syncs automatically to your paired Cloud account. Choose local-only below to keep a new transcription on this device.</p>'+
  '<div class="hs-transcription-actions"><button type="button" id="hsTranscriptStart">New transcription</button><button type="button" id="hsTranscriptStop" disabled>Stop listening</button><button type="button" id="hsTranscriptResume" disabled>Resume listening</button></div>'+
+ '<label class="hs-transcription-note"><input type="checkbox" id="hsTranscriptLocalOnly"> Keep the next transcription local</label>'+
  '<label class="hs-transcription-note"><input type="checkbox" id="hsTranscriptDiarization"> Enhanced speaker separation · uses ElevenLabs Scribe for transient audio chunks; this workspace does not retain the audio. Speaker separation is not identity verification.</label>'+
  '<p id="hsTranscriptDiarizationState" class="hs-transcription-note">Checking enhanced speaker separation…</p>'+
  '<div id="hsSpeakerFusionPanel" class="hs-transcription-note"><strong>Local speaker identity</strong><p>Optional voice profiles use local numeric features only; raw enrollment audio is not stored. Camera corroboration is separately started and can only confirm or challenge a voice match.</p><div class="hs-transcription-actions"><select id="hsVoiceParticipant" aria-label="Tracky participant for voice profile"><option value="">Loading participants…</option></select><button type="button" id="hsVoiceEnroll">Enroll next voice samples</button><button type="button" id="hsVoiceClear">Clear voice profile</button></div><div class="hs-transcription-actions"><button type="button" id="hsFusionCameraStart">Start camera corroboration</button><button type="button" id="hsFusionCameraStop" disabled>Stop camera</button></div><video id="hsFusionCameraPreview" muted playsinline hidden style="max-width:220px"></video><p id="hsSpeakerFusionState" role="status" aria-live="polite">Local speaker fusion is optional.</p></div>'+
- '<p id="hsTranscriptStatus" role="status" aria-live="polite">Transcriptions are private until shared.</p>'+
+ '<p id="hsTranscriptStatus" role="status" aria-live="polite">Completed text syncs by default; audio stays local.</p>'+
  '<div class="hs-transcription-columns"><nav aria-label="Saved transcripts"><h4>My transcriptions</h4><div id="hsTranscriptList"></div></nav>'+
  '<div class="hs-transcription-document"><h4 id="hsTranscriptTitle">Choose a transcription</h4><div id="hsTranscriptText" aria-label="Transcript document"></div><div class="hs-transcription-actions"><button type="button" id="hsTranscriptShare" disabled>Share text with paired Cloud</button><button type="button" id="hsTranscriptExport" disabled>Export text</button><button type="button" id="hsTranscriptDelete" disabled>Delete</button></div></div></div>'+
  '<div class="hs-transcription-actions"><button type="button" id="hsTranscriptRecoveryExport">Export unsaved text</button><button type="button" id="hsTranscriptRecoveryClear">Clear browser recovery</button></div><p class="hs-transcription-note">Unsaved text uses this browser for recovery. Listening may use installed local Whisper or your browser fallback according to Voice Settings. Audio is not retained by this workspace. Use the separately consented saved-recording controls in Health to retain audio or video.</p>';
@@ -284,7 +285,7 @@ async function start(create){
   if(active)throw Error('Finish the active session first.');
   const title=window.prompt('Transcription title','HomeServer transcription');
   if(title===null)return;
-  const j=await request('','POST',{title:title||'HomeServer transcription'});
+  const j=await request('','POST',{title:title||'HomeServer transcription',cloud_sync:!$('hsTranscriptLocalOnly')?.checked});
   active=j.session;
  }
  if(!active)throw Error('Create a transcription first.');

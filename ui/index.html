@@ -34,6 +34,7 @@
   <link rel="stylesheet" href="/assets/transcription-workspace.css">
 <link rel="stylesheet" href="/assets/chat-onboarding.css">
   <link rel="stylesheet" href="/assets/chat-workspace.css">
+  <link rel="stylesheet" href="/assets/workspace-sync.css">
 </head>
 <body>
   <div class="shell">
@@ -48,6 +49,7 @@
         <button class="nav-item" data-view="tools">Skills & Tools</button>
         <button class="nav-item" data-view="approvals">Approvals <span id="approvalNavCount" class="nav-count hidden">0</span></button>
         <button class="nav-item" data-view="knowledge">Knowledge</button>
+        <button class="nav-item" data-view="cloud-data">Cloud data</button>
         <button class="nav-item" data-view="memory">Memory</button>
         <button class="nav-item" data-view="contacts">Contacts</button>
         <button class="nav-item" data-view="members">Users</button>
@@ -369,6 +371,12 @@
         <div id="approvalsList" class="approval-list"><div class="panel empty-state">No pending approvals.</div></div>
       </section>
 
+      <section class="view" id="view-cloud-data">
+        <div class="section-intro split"><div><h2>Cloud data</h2><p>Your synchronized workspace, available on this HomeServer. Source records remain authoritative.</p></div><button class="button secondary" id="workspaceSyncRefresh" type="button">Sync now</button></div>
+        <div class="panel"><label><input id="workspaceSyncEnabled" type="checkbox" checked> Sync automatically</label><p id="workspaceSyncStatus" role="status" aria-live="polite">Checking synchronization…</p></div>
+        <div class="panel"><label>Workspace <select id="workspaceSyncDataset"></select></label><label>Search <input id="workspaceSyncSearch" type="search" maxlength="240" placeholder="Search synchronized records"></label><div id="workspaceSyncRecords"></div><div class="top-actions"><button class="button secondary" id="workspaceSyncPrevious" type="button">Previous</button><span id="workspaceSyncPage"></span><button class="button secondary" id="workspaceSyncNext" type="button">Next</button></div></div>
+        <dialog id="workspaceSyncDetail"><form method="dialog"><button class="button secondary">Close</button></form><h3 id="workspaceSyncDetailTitle"></h3><dl id="workspaceSyncDetailText"></dl><div id="workspaceSyncAttachments"></div></dialog>
+      </section>
       <section class="view" id="view-knowledge">
         <div class="section-intro split"><div><h2>Knowledge</h2><p>Add notes, import documents, or watch local folders. HomeServer extracts text, chunks it, and maintains a private SQLite full-text index.</p></div><button class="button primary" id="showKnowledgeForm">Add knowledge</button></div>
         <form id="knowledgeForm" class="panel compact-form hidden"><div class="form-grid"><label>Title<input id="knowledgeTitle" required maxlength="240"></label><label>Type<select id="knowledgeKind"><option value="note">Note</option><option value="document">Document</option><option value="reference">Reference</option><option value="profile">Profile</option></select></label></div><label>Content<textarea id="knowledgeContent" rows="8" maxlength="250000"></textarea></label><label>Source path <span class="muted">optional metadata only</span><input id="knowledgeSource" maxlength="1000" placeholder="C:\Users\... or another source reference"></label><div class="form-actions"><button class="button secondary" type="button" id="cancelKnowledge">Cancel</button><button class="button primary" type="submit">Save knowledge</button></div></form>
@@ -438,12 +446,14 @@
             <label class="ambient-toggle"><input type="checkbox" id="ambientProactiveVoice"><span><strong>Proactive voice</strong><small>Speak eligible local notifications when presence policy allows.</small></span></label>
 
             <div class="ambient-field-grid">
-              <label><span>Presence policy</span><select id="ambientPresencePolicy"><option value="sensor_required">Require presence sensor</option><option value="assume_present">Assume present</option></select></label>
+              <label><span>Presence policy</span><select id="ambientPresencePolicy"><option value="sensor_required">Require presence sensor</option><option value="assume_present">Assume present (no sensor needed)</option></select></label>
               <label><span>Announcement detail</span><select id="ambientAnnouncementDetail"><option value="title_only">Title only</option><option value="title_and_body">Title + body</option></select></label>
               <label><span>Cooldown (seconds)</span><input id="ambientCooldown" type="number" min="5" max="3600" step="1"></label>
               <label><span>Wake timeout (seconds)</span><input id="ambientWakeTimeout" type="number" min="5" max="120" step="1"></label>
               <label><span>Max announcements / hour</span><input id="ambientMaxPerHour" type="number" min="1" max="60" step="1"></label>
             </div>
+
+            <p class="ambient-feedback" id="ambientSpeechHint" aria-live="polite">Choose Assume present to allow speech without a presence sensor.</p>
 
             <fieldset class="ambient-levels">
               <legend>Speak notification levels</legend>
@@ -454,7 +464,7 @@
 
             <div class="ambient-actions">
               <button class="button primary" id="ambientSave">Save Ambient Settings</button>
-              <button class="button secondary" id="ambientTestVoice">Test Local Voice</button>
+              <button class="button secondary" id="ambientTestVoice">Save &amp; Test Voice</button>
             </div>
             <p class="ambient-feedback" id="ambientFeedback" aria-live="polite"></p>
           </section>
@@ -905,6 +915,7 @@
     <p id="chatOptionsStatus" role="status" hidden></p>
   </dialog>
   <script src="/assets/app.js" defer></script>
+  <script src="/assets/workspace-sync.js" defer></script>
   <script src="/assets/maintenance-workspace.js" defer></script>
   <script src="/assets/runtime-diagnostics.js" defer></script>
   <script src="/assets/live-certification.js" defer></script>

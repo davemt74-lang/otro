@@ -185,7 +185,7 @@ function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach(v => v.classList.toggle('active', v.dataset.view === name));
-  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',members:'Users','homeserver-apps':'Apps',apps:'Connected Apps',backups:'Backup & Restore',storage:'Storage',health:'Health',ambient:'Ambient Agent',automation:'Rooms & Devices',tracky:'Tracky',federation:'Physical Network','physical-world':'Physical World',activity:'Activity'};
+  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',members:'Users','homeserver-apps':'Apps',apps:'Connected Apps',backups:'Backup & Restore',storage:'Storage',health:'Health',ambient:'Ambient Agent',automation:'Rooms & Devices',tracky:'Tracky',federation:'Physical Network','physical-world':'Physical World',activity:'Activity','cloud-data':'Cloud data'};
   $('pageTitle').textContent = labels[name] || 'HomeServer';
   loadView(name).catch(err => flash(err.message, true));
 }
@@ -634,7 +634,7 @@ $('refreshButton').addEventListener('click', () => loadView(state.view).then(() 
 ensureBackupWorkspace();
 ensureStorageWorkspace();
 ensureHealthWorkspace();
-const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','storage','health','ambient','automation','federation','physical-world','activity'];
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','storage','health','ambient','automation','federation','physical-world','activity','cloud-data'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();

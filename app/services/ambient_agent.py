@@ -289,6 +289,8 @@ class AmbientAgentRuntime:
     def _sync_presence_from_hardware(self) -> None:
         sensor = vp3_os.hardware_inventory().get("presence_sensor", {})
         if not bool(sensor.get("present")) or not bool(sensor.get("ready")):
+            with self._lock:
+                self._presence = "unknown"
             return
         occupied = "present" if bool(sensor.get("occupied")) else "absent"
         with self._lock:
@@ -629,8 +631,13 @@ class AmbientAgentRuntime:
             raise AmbientAgentError("Ambient Agent is disabled.")
         if self._privacy_engaged():
             raise AmbientAgentError("Physical microphone privacy is engaged.")
+        self._sync_presence_from_hardware()
         if not self._presence_allowed(settings):
-            raise AmbientAgentError("Ambient presence policy does not currently allow speech.")
+            raise AmbientAgentError(
+                "No presence sensor currently confirms you are here. "
+                "In Ambient Agent, choose 'Assume present (no sensor needed)' "
+                "and save, or connect a presence sensor that reports you present."
+            )
         if not self._can_announce(settings):
             raise AmbientAgentError("Ambient Agent is currently busy or rate-limited.")
         fake = {

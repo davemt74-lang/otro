@@ -38,3 +38,4 @@ body.agent-brain-drawer-open{overflow:hidden}
   .agent-brain-drawer{width:100vw;border-left:0}
   .agent-brain-context-grid{grid-template-columns:1fr 1fr}
 }
+.agent-brain-time{color:var(--muted,#697687);font-size:12px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}

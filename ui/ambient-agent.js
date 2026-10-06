@@ -5,6 +5,7 @@
     try { return new Date(value).toLocaleString(); } catch (_) { return String(value); }
   };
   const yesNo = value => value ? 'Available' : 'Not reported';
+  let dirty = false, actionBusy = false, latestStatus = null;
 
   async function request(path, options = {}) {
     const response = await fetch(path, {
@@ -37,7 +38,9 @@
 
   function render(data) {
     if (!data) return;
+    latestStatus = data;
     const settings = data.settings || {};
+    if (!dirty) {
     $('ambientEnabled').checked = Boolean(settings.enabled);
     $('ambientWakeEnabled').checked = Boolean(settings.wake_enabled);
     $('ambientProactiveVoice').checked = Boolean(settings.proactive_voice);
@@ -49,6 +52,8 @@
     const levels = new Set(Array.isArray(settings.announcement_levels) ? settings.announcement_levels : ['warning']);
     document.querySelectorAll('[data-ambient-level]').forEach(node => { node.checked = levels.has(node.value); });
 
+    }
+    renderSpeechHint();
     const state = data.state || 'disabled';
     const badge = $('ambientStateBadge');
     badge.textContent = state.replaceAll('_', ' ');
@@ -65,6 +70,20 @@
     $('ambientVadHardware').textContent = yesNo(hardware.voice_activity_event);
   }
 
+  function renderSpeechHint() {
+    const hint = $('ambientSpeechHint');
+    if (!$('ambientEnabled').checked) hint.textContent = 'Enable Ambient Agent to allow speech.';
+    else if ($('ambientPresencePolicy').value === 'sensor_required' && latestStatus?.presence !== 'present') hint.textContent = 'Speech is waiting for a presence sensor. Choose Assume present if you use HomeServer without one.';
+    else if (!$('ambientProactiveVoice').checked) hint.textContent = 'Voice tests are available. Enable Proactive voice to hear notifications automatically.';
+    else hint.textContent = 'Speech is enabled for the selected notification levels. Info includes ordinary reminders. The privacy switch, busy audio and rate limits still apply.';
+  }
+
+  function setBusy(value) {
+    actionBusy = value;
+    $('ambientSave').disabled = value;
+    $('ambientTestVoice').disabled = value;
+  }
+
   let loadPromise = null;
   async function load() {
     if (!$('ambientEnabled')) return;
@@ -72,9 +91,9 @@
     loadPromise = (async () => {
     try {
       render(await request('/api/v1/control/vp3-os/ambient'));
-      $('ambientFeedback').textContent = '';
+      if (!actionBusy) $('ambientFeedback').textContent = '';
     } catch (error) {
-      $('ambientFeedback').textContent = error.message;
+      if (!actionBusy) $('ambientFeedback').textContent = error.message;
     } finally {
       loadPromise = null;
     }
@@ -86,41 +105,49 @@
     const levels = selectedLevels();
     if (!levels.length) {
       $('ambientFeedback').textContent = 'Choose at least one notification level.';
-      return;
+      return false;
     }
+    const submitted = JSON.stringify(settingsFromForm());
     $('ambientFeedback').textContent = 'Saving…';
     try {
       const result = await request('/api/v1/control/vp3-os/ambient/settings', {
         method: 'PUT',
-        body: JSON.stringify(settingsFromForm()),
+        body: submitted,
       });
+      dirty = JSON.stringify(settingsFromForm()) !== submitted;
       render(result.status);
       $('ambientFeedback').textContent = 'Ambient settings saved.';
+      return true;
     } catch (error) {
       $('ambientFeedback').textContent = error.message;
+      return false;
     }
   }
 
   async function testVoice() {
-    $('ambientFeedback').textContent = 'Testing local voice…';
+    if (actionBusy) return;
+    setBusy(true);
     try {
+      if (!await save()) return;
+      $('ambientFeedback').textContent = 'Testing local voice…';
       await request('/api/v1/control/vp3-os/ambient/announce-test', { method: 'POST', body: '{}' });
       $('ambientFeedback').textContent = 'Local Ambient Agent voice played.';
       await load();
     } catch (error) {
       $('ambientFeedback').textContent = error.message;
-    }
+    } finally { setBusy(false); }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
     if (!$('ambientEnabled')) return;
-    $('ambientSave').addEventListener('click', save);
+    $('ambientSave').addEventListener('click', async () => { if (actionBusy) return; setBusy(true); try { await save(); } finally { setBusy(false); } });
+    document.querySelectorAll('#view-ambient input, #view-ambient select').forEach(node => node.addEventListener('change', () => { dirty = true; renderSpeechHint(); }));
     $('ambientTestVoice').addEventListener('click', testVoice);
     document.querySelectorAll('.nav-item[data-view="ambient"]').forEach(node => node.addEventListener('click', load));
     load();
     window.setInterval(() => {
       const view = $('view-ambient');
-      if (view && view.classList.contains('active')) load();
+      if (!document.hidden && !actionBusy && view && view.classList.contains('active')) load();
     }, 5000);
   });
 })();

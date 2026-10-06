@@ -51,6 +51,15 @@ jobs:
           python tests/task_calendar_continuity_v243.py
           node --check ui/contacts.js
           node --check ui/tasks.js
+      - name: Complete workspace synchronization and ambient speech
+        run: |
+          python tests/workspace_sync_v1.py
+          python tests/ambient_agent_v050.py
+          python tests/ambient_agent_ui_contract_v050.py
+          python tests/agent_brain_drawer_v451.py
+          node tests/agent_brain_drawer_behavior_v452.cjs
+          node --check ui/workspace-sync.js
+          node --check ui/ambient-agent.js
       - name: Compile Python
         run: python -m compileall app desktop tests
       - name: Interactive capture ownership and Stop acceptance
@@ -740,7 +749,7 @@ jobs:
         shell: pwsh
         run: |
           $schema = (& python -c "from app.database import migration_files; print(max([1] + [version for version, _ in migration_files()]))").Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 67) {
+          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 68) {
             throw "HomeServer release manifest cannot verify its current migration version"
           }
           $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe')

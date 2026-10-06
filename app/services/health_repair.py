@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from contextvars import ContextVar
 
@@ -341,6 +342,7 @@ def status()->dict[str,Any]:
         "contract":CONTRACT,
         "overall":overall,
         "snapshot_complete":not bool(failures),
+        "checked_at":datetime.now(timezone.utc).isoformat(),
         "unavailable_check_count":len(failures),
         "issues":issues,
         "count":len(issues),

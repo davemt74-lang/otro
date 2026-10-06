@@ -47,9 +47,12 @@ async def lifespan(_: FastAPI):
     ambient_orchestration.start()
     hosting_health_recovery.start()
     homeserver_app_runtime.start()
+    from .services import workspace_sync
+    workspace_sync.start()
     try:
         yield
     finally:
+        workspace_sync.stop()
         homeserver_app_runtime.stop()
         hosting_health_recovery.stop()
         ambient_orchestration.stop()

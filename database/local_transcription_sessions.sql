@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS local_transcription_sessions (
   title TEXT NOT NULL,
   status TEXT NOT NULL CHECK(status IN ('active','completed')),
   cloud_share INTEGER NOT NULL DEFAULT 0 CHECK(cloud_share IN (0,1)),
+  cloud_auto_sync INTEGER NOT NULL DEFAULT 0 CHECK(cloud_auto_sync IN (0,1)),
   started_at TEXT NOT NULL,
   ended_at TEXT,
   segment_count INTEGER NOT NULL DEFAULT 0
