@@ -86,6 +86,8 @@ jobs:
           python tests/chat_dictation_ui_contract.py
           python tests/chat_enhancements_ui_contract.py
           node --check ui/transcription-workspace.js
+      - name: Agent-first shell integration contract
+        run: python tests/agent_shell_contract.py
       - name: First-run welcome contract and browser syntax
         run: |
           python tests/first_run_v2.py
