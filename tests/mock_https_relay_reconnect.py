@@ -21,6 +21,7 @@ state = {
     "polls": 0,
     "ping_verified": False,
     "shared_verified": False,
+    "workspace_failures": 0,
 }
 
 
@@ -57,7 +58,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
-            if self.path != "/poll":
+            if self.path not in ("/poll", "/homeserver-workspace-sync-v1.php"):
                 raise AssertionError(f"unexpected path: {self.path}")
 
             auth = self.headers.get("Authorization", "")
@@ -75,6 +76,12 @@ class Handler(BaseHTTPRequestHandler):
 
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if self.path == "/homeserver-workspace-sync-v1.php":
+                # Simulate an older/unavailable workspace service without changing
+                # the independent relay's ping/restart/shared-context state.
+                state["workspace_failures"] += 1
+                self._send({"ok": False, "error": "Workspace service intentionally unavailable"}, status=503)
+                return
             if payload.get("version") != "2.4":
                 raise AssertionError("unexpected HomeServer version")
             if not isinstance(payload.get("capabilities"), dict):
@@ -171,6 +178,7 @@ class Handler(BaseHTTPRequestHandler):
                             "shared_verified": state["shared_verified"],
                             "device_id": state["device_id"],
                             "polls": state["polls"],
+                            "workspace_failures": state["workspace_failures"],
                         }
                     )
 

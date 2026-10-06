@@ -18,7 +18,7 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 SESSION_TOKEN = "S" * 64
-state = {"requests": [], "results": [], "polls": 0, "capabilities": {}, "sync_fail": True}
+state = {"requests": [], "results": [], "polls": 0, "capabilities": {}, "sync_fail": True, "workspace_failures": 0}
 lock = threading.Lock()
 
 
@@ -42,6 +42,10 @@ class Relay(BaseHTTPRequestHandler):
             elif self.path == "/api/tracky-sync-v270.php":
                 status = 503 if state["sync_fail"] else 200
                 reply = {"ok": status == 200}
+            elif self.path == "/homeserver-workspace-sync-v1.php":
+                state["workspace_failures"] += 1
+                status = 503
+                reply = {"ok": False, "error": "Workspace service intentionally unavailable"}
             else:
                 raise AssertionError("Unexpected relay route: " + self.path)
         encoded = json.dumps(reply).encode()
@@ -81,7 +85,8 @@ pairing.approve_pairing_request(p["request_id"])
 endpoint = os.environ["BRIDGE_TEST_RELAY"]
 save_https_session(endpoint, "S" * 64)
 remote_bridge.save_vp3_https_settings(endpoint, True)
-(settings.data_dir / "fixture.json").write_text(json.dumps({"token": p["claim_token"]}))
+from app.security import OWNER_CONTROL_TOKEN
+(settings.data_dir / "fixture.json").write_text(json.dumps({"token": p["claim_token"], "owner": OWNER_CONTROL_TOKEN}), encoding="utf-8")
 from app.runtime import app
 worker = remote_bridge.RemoteBridgeWorker()
 worker.start()
@@ -111,9 +116,10 @@ def main():
                                        env=env, stdout=log, stderr=log)
             try:
                 wait_until(lambda: client.get("/api/v1/health").status_code == 200)
-                secret = (data / "security/owner-bootstrap.dat").read_text()
+                fixture = json.loads((data / "fixture.json").read_text(encoding="utf-8"))
+                secret = fixture["owner"]
                 assert client.post("/__owner/session", headers={"x-homeserver-owner": secret}).status_code == 200
-                token = json.loads((data / "fixture.json").read_text())["token"]
+                token = fixture["token"]
                 session = data / "security/vp3-https-session.dat"
                 original_session = session.read_bytes()
 
@@ -135,7 +141,10 @@ def main():
                     assert sum(r.get("request_id") == request_id for r in state["results"]) == 1
 
                 wait_until(lambda: status()["connected"])
+                wait_until(lambda: state["workspace_failures"] > 0)
                 ping()
+                assert status()["connected"] and not status()["last_error"]
+                print("PASS workspace HTTP failure preserves the live relay and authenticated ping", flush=True)
                 with sqlite3.connect(data / "homeserver.db") as db:
                     db.execute("ALTER TABLE tracky_cloud_sync_state RENAME TO unavailable_sync_state")
                 wait_until(lambda: status()["feature_sync_error"].startswith("SQLITE_ERROR:"))
