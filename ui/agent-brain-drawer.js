@@ -8,6 +8,7 @@
   let requestSequence = 0;
   let alertSequence = 0;
   let cognitionSequence = 0;
+  let syncSequence = 0;
   const MAX_ITEMS = 8;
   const CHAT_DRAFT_KEY = 'homeserver:agent-brain:chat-draft-v1';
   const WORKSPACE_KEY = 'homeserver:agent-brain:workspace-v1';
@@ -49,12 +50,14 @@
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Awareness</h3><span id="agentBrainCognitionState" class="agent-brain-section-meta">Loading…</span></div><div id="agentBrainAwareness" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Memory & context</h3><span id="agentBrainMemoryState" class="agent-brain-section-meta">Loading…</span></div><div id="agentBrainMemory" class="agent-brain-context-grid" aria-live="polite"></div></div>
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Tools & activity</h3><button id="agentBrainActivity" type="button">Activity</button></div><div id="agentBrainAlerts" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
+        <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Cloud synchronization</h3><button id="agentBrainCloudData" type="button">Cloud data</button></div><div id="agentBrainSync" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
         <div class="agent-brain-drawer-actions"><button id="agentBrainAsk" type="button" class="button primary">Discuss in Agent Chat</button><button id="agentBrainHealth" type="button" class="button secondary">Health workspace</button></div>
       </div>`;
     document.body.appendChild(drawer);
     toggle.addEventListener('click', () => setOpen(!open));
     drawer.querySelector('.agent-brain-close').addEventListener('click', () => setOpen(false));
     $('agentBrainRefresh').addEventListener('click', () => explicitRefresh());
+    $('agentBrainCloudData').addEventListener('click', () => openWorkspace('cloud-data'));
     $('agentBrainActivity').addEventListener('click', () => openWorkspace('activity'));
     $('agentBrainAwareness').addEventListener('click', e => {
       const button = e.target.closest('button[data-awareness-key]');
@@ -89,7 +92,7 @@
       window.addEventListener('load', () => { consumePendingDraft(); consumePendingWorkspace(); }, {once:true});
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) stop();
-      else if (open) { refresh(); refreshCognition(); refreshAlerts(); start(); }
+      else if (open) { refresh(); refreshCognition(); refreshAlerts(); refreshSync(); start(); }
     });
   }
 
@@ -103,13 +106,13 @@
     else drawer.setAttribute('inert', '');
     $('agentBrainDrawerToggle')?.setAttribute('aria-expanded', String(open));
     document.body.classList.toggle('agent-brain-drawer-open', open);
-    if (open) { refresh(); refreshCognition(); refreshAlerts(); start(); drawer.querySelector('.agent-brain-close')?.focus(); }
+    if (open) { refresh(); refreshCognition(); refreshAlerts(); refreshSync(); start(); drawer.querySelector('.agent-brain-close')?.focus(); }
     else { stop(); if (restoreFocus) $('agentBrainDrawerToggle')?.focus(); }
   }
 
-  function stop() { if (timer !== null) clearInterval(timer); timer = null; requestSequence++; alertSequence++; cognitionSequence++; }
+  function stop() { if (timer !== null) clearInterval(timer); timer = null; requestSequence++; alertSequence++; cognitionSequence++; syncSequence++; }
   function start() {
-    if (timer === null) timer = setInterval(() => { if (open && !document.hidden) { refresh(); refreshCognition(); refreshAlerts(); } }, 60000);
+    if (timer === null) timer = setInterval(() => { if (open && !document.hidden) { refresh(); refreshCognition(); refreshAlerts(); refreshSync(); } }, 60000);
   }
   function sendToChat(prompt) {
     setOpen(false,false);
@@ -142,7 +145,7 @@
       view=sessionStorage.getItem(WORKSPACE_KEY) || '';
       sessionStorage.removeItem(WORKSPACE_KEY);
     } catch (_) { return; }
-    if (view==='health'||view==='activity')
+    if (view==='health'||view==='activity'||view==='cloud-data')
       document.querySelector('[data-view="' + view + '"]')?.click();
   }
 
@@ -161,6 +164,22 @@
     input.focus();
   }
 
+  function timestamp(value, label = '') {
+    const node = document.createElement('time');
+    node.className = 'agent-brain-time';
+    const raw = typeof value === 'string' ? value.trim() : '';
+    const iso = raw && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw.replace(' ', 'T') + 'Z' : raw;
+    const date = new Date(iso);
+    if (!raw || !Number.isFinite(date.getTime())) {
+      node.textContent = 'Time unavailable';
+      return node;
+    }
+    node.setAttribute('datetime', date.toISOString());
+    node.textContent = (label ? label + ' ' : '') + date.toLocaleString(undefined, {dateStyle:'medium', timeStyle:'medium'});
+    node.setAttribute('title', date.toISOString() + ' · displayed in your local timezone');
+    return node;
+  }
+
   function render(data) {
     const issues = Array.isArray(data.issues) ? data.issues : [];
     const overall = String(data.overall || 'unknown');
@@ -169,7 +188,7 @@
     const badge = $('agentBrainDrawerCount');
     badge.textContent = issues.length ? String(issues.length) : '';
     toggleSeverity(overall);
-    const signature = JSON.stringify(issues.map(i => [i.key,i.title,i.severity,i.repair?.class,i.repair?.action_key,i.repair?.agent_can_execute]));
+    const signature = JSON.stringify(issues.map(i => [i.key,i.title,i.severity,i.repair?.class,i.repair?.action_key,i.repair?.agent_can_execute,i.observed_at || data.checked_at]));
     if (signature === previousSignature) return;
     previousSignature = signature;
     details.clear();
@@ -192,7 +211,7 @@
       hint.textContent = issue.repair?.agent_can_execute
         ? 'Discuss governed recovery in Chat'
         : 'Diagnose in Chat';
-      button.append(tag,title,hint);
+      button.append(tag,title,hint,timestamp(issue.observed_at || data.checked_at, 'Checked'));
       host.appendChild(button);
     });
     if (issues.length > MAX_ITEMS) {
@@ -219,7 +238,7 @@
       label.textContent = String(item.level || 'attention');
       const title = document.createElement('strong');
       title.textContent = String(item.title || 'Maintenance attention');
-      button.append(label,title);
+      button.append(label,title,timestamp(item.occurred_at || item.created_at));
       host.appendChild(button);
     });
     if (items.length > 5) {
@@ -267,6 +286,21 @@
   }
 
 
+  async function refreshSync() {
+    const seq=++syncSequence;
+    try {
+      const response=await fetch('/api/v1/control/workspace-sync',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
+      if(!response.ok)throw new Error('Synchronization status unavailable');
+      const data=await response.json();
+      if(!open||seq!==syncSequence)return;
+      const host=$('agentBrainSync');host.replaceChildren();
+      const description=document.createElement('p');
+      description.textContent=!data.enabled?'Automatic sync paused.':!data.paired?'Connect HomeServer to Cloud to begin automatic sync.':data.last_error||`${(data.cloud_datasets||[]).length} Cloud workspaces available locally.`;
+      host.appendChild(description);
+      if(data.last_success_at)host.appendChild(timestamp(data.last_success_at,'Last complete sync'));
+    } catch(error) { if(open&&seq===syncSequence)$('agentBrainSync').textContent='Synchronization status unavailable. Open Cloud data to retry.'; }
+  }
+
   function renderCognition(data) {
     const runtime = data && typeof data.runtime === 'object' ? data.runtime : {};
     const awareness = Array.isArray(data?.awareness) ? data.awareness : [];
@@ -290,7 +324,7 @@
         const tag=document.createElement('span'); tag.className='agent-brain-severity'; tag.textContent=String(item.kind || item.event_type || 'awareness').replaceAll('_',' ');
         const title=document.createElement('strong'); title.textContent=String(item.summary || item.title || 'Current awareness');
         const hint=document.createElement('small'); hint.textContent='Review context in Agent Chat';
-        button.append(tag,title,hint); host.appendChild(button);
+        button.append(tag,title,hint,timestamp(item.updated_at || item.occurred_at || item.created_at)); host.appendChild(button);
       });
     }
 

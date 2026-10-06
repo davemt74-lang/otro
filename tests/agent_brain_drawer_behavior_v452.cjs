@@ -87,15 +87,16 @@ const fetch=(url,options)=>{
   if(url==='/api/v1/control/health') {
     healthRequests++;
     return Promise.resolve({ok:true,json:async()=>({
-      overall:'attention',issues:[{key:'storage:disk-pressure',title:healthTitle,
+      overall:'attention',checked_at:'2026-10-06T19:49:00Z',issues:[{key:'storage:disk-pressure',title:healthTitle,
         severity:'warning',repair:{action_key:null,agent_can_execute:false}}]
     })});
   }
+  if(url==='/api/v1/control/workspace-sync')return Promise.resolve({ok:true,json:async()=>({enabled:true,paired:true,cloud_datasets:[{}],last_success_at:'2026-10-06T20:15:00Z'})});
   if(url==='/api/v1/control/cognition') {
     cognitionRequests++;
     return Promise.resolve({ok:true,json:async()=>({
       runtime:{scheduler_running:true,event_count:17},
-      awareness:[{id:7,event_type:'room.observation',summary:'Kitchen activity changed'}],
+      awareness:[{id:7,event_type:'room.observation',summary:'Kitchen activity changed',created_at:'2026-10-06 20:15:45'}],
       memory_candidates:[{id:3,status:'pending'}],
       plugins:[{plugin_key:'tracky',status:'active'}]
     })});
@@ -103,7 +104,7 @@ const fetch=(url,options)=>{
   if(url.includes('/activity-center/brain-context')) {
     activityRequests++;
     return Promise.resolve({ok:true,json:async()=>({
-      attention:[{event_id:'notification:42',title:'Maintenance warning',level:'warning'}]
+      attention:[{event_id:'notification:42',title:'Maintenance warning',level:'warning',created_at:'2026-10-06 19:48:12'}]
     })});
   }
   throw new Error('Unexpected fetch '+url);
@@ -123,6 +124,8 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   assert.equal(registry.get('agentBrainHealthState').textContent,'Attention');
   const issues=registry.get('agentBrainIssues');
   assert.equal(issues.children.length,1);
+  assert.equal(issues.children[0].children[3].attributes.datetime,'2026-10-06T19:49:00.000Z');
+  assert.ok(issues.children[0].children[3].textContent.startsWith('Checked '));
   issues.fire('click',{target:{closest:()=>issues.children[0]}});
   assert.equal(chatNavClicks,1);
   assert.ok(input.value.includes('storage:disk-pressure'));
@@ -134,6 +137,8 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   await flush();
   const awareness=registry.get('agentBrainAwareness');
   assert.equal(awareness.children.length,1,'Current awareness is visible');
+  assert.equal(registry.get('agentBrainSync').children[1].attributes.datetime,'2026-10-06T20:15:00.000Z');
+  assert.equal(awareness.children[0].children[3].attributes.datetime,'2026-10-06T20:15:45.000Z');
   assert.equal(registry.get('agentBrainCognitionState').textContent,'1 active');
   assert.equal(registry.get('agentBrainMemoryState').textContent,'1 pending');
   assert.equal(registry.get('agentBrainMemory').children.length,4,'Brain context summary is rendered');
@@ -142,6 +147,7 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   assert.ok(input.value.includes('Kitchen activity changed'));
   const alerts=registry.get('agentBrainAlerts');
   assert.equal(alerts.children.length,1,'Warning maintenance event visible');
+  assert.equal(alerts.children[0].children[2].attributes.datetime,'2026-10-06T19:48:12.000Z');
   registry.get('agentBrainRefresh').fire('click');
   await flush();
   assert.equal(manualSyncs,1,'Explicit refresh synchronizes maintenance');

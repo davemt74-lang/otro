@@ -309,6 +309,65 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     await nav.click();
     assert.equal(await page.locator(`#view-${view}`).evaluate(node => node.classList.contains('active')), true);
   }
+  // Workspace browser stays bounded and exposes complete details only on request.
+  let syncRequests = 0;
+  const fullText = 'Full original text 💡 '.repeat(2500);
+  await page.route('**/api/v1/control/workspace-sync**', async route => {
+    syncRequests++;
+    const url = new URL(route.request().url());
+    if (url.pathname.includes('/records/')) {
+      const detail = url.searchParams.has('key'), offset = Number(url.searchParams.get('offset') || 0);
+      await route.fulfill({json: detail ? {items:[{data:{title:'Cloud record',content_text:fullText,sku:'SKU-7'}}], attachments:[{name:'own.pdf',sha256:'a'.repeat(64)}]} : {items:Array.from({length:50},(_,i)=>({table:'knowledge_items',source_id:String(offset+i+1),title:'Cloud record '+(offset+i+1),preview:'Safe preview',updated_at:'2026-10-06 19:48:12'})),count:500}});
+    } else await route.fulfill({json:{enabled:true,paired:true,last_success_at:'2026-10-06T19:49:00Z',last_error:''}});
+  });
+  await page.locator('.primary-sidebar-nav [data-view="cloud-data"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('.workspace-sync-record').length === 50);
+  assert.equal(await page.locator('#workspaceSyncDataset option').count(),16);
+  await page.locator('#workspaceSyncNext').click();
+  await page.waitForFunction(() => document.querySelector('#workspaceSyncPage').textContent === '51–100 of 500');
+  await page.locator('.workspace-sync-record').first().click();
+  await page.locator('#workspaceSyncDetail[open]').waitFor();
+  assert.equal(await page.locator('#workspaceSyncAttachments a').getAttribute('href'),'/api/v1/control/workspace-sync/assets/'+'a'.repeat(64));
+  await page.getByRole('button',{name:'Show full text',exact:true}).click();
+  assert.ok((await page.locator('#workspaceSyncDetailText').textContent()).includes(fullText));
+  for(const width of [1440,320]){
+    await page.setViewportSize({width,height:900});
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    assert.ok(await page.locator('#workspaceSyncDetail').evaluate(node => node.scrollWidth <= node.clientWidth + 1));
+  }
+  await page.setViewportSize({width:1440,height:900});
+  await page.locator('#workspaceSyncDetail button').first().click();
+  await page.locator('.primary-sidebar-nav [data-view="contacts"]').click();
+  const awayRequests=syncRequests;
+  await page.evaluate(()=>document.querySelector('#view-cloud-data').classList.add('inactive-fixture'));
+  await delay(100);
+  assert.equal(syncRequests,awayRequests,'Inactive workspace does no background fetch');
+  await page.unroute('**/api/v1/control/workspace-sync**');
+
+  // Unsaved Ambient settings survive polling, and testing saves before speech.
+  const ambientCalls=[];
+  await page.route('**/api/v1/control/vp3-os/ambient**',async route=>{
+    const request=route.request(),path=new URL(request.url()).pathname;
+    ambientCalls.push({path,method:request.method(),body:request.postDataJSON()});
+    if(path.endsWith('/announce-test'))return route.fulfill({json:{spoken:true}});
+    const settings=request.method()==='PUT'?request.postDataJSON():{enabled:false,wake_enabled:true,proactive_voice:true,presence_policy:'sensor_required',announcement_levels:['warning']};
+    const status={settings,state:'armed',presence:'unknown',hardware:{}};
+    await route.fulfill({json:request.method()==='PUT'?{status,settings}:status});
+  });
+  await page.locator('.primary-sidebar-nav [data-view="ambient"]').click();
+  await page.waitForFunction(()=>document.querySelector('#ambientPresencePolicy').value==='sensor_required');
+  await page.locator('#ambientEnabled').check();
+  await page.locator('#ambientPresencePolicy').selectOption('assume_present');
+  await delay(5200);
+  assert.equal(await page.locator('#ambientPresencePolicy').inputValue(),'assume_present','Polling preserves unsaved policy');
+  await page.locator('#ambientTestVoice').click();
+  await page.waitForFunction(()=>document.querySelector('#ambientFeedback').textContent.includes('voice played'));
+  const saved=ambientCalls.findIndex(call=>call.method==='PUT'),spoken=ambientCalls.findIndex(call=>call.path.endsWith('/announce-test'));
+  assert.ok(saved>=0&&spoken>saved);
+  assert.equal(ambientCalls[saved].body.presence_policy,'assume_present');
+  assert.equal(ambientCalls[saved].body.enabled,true);
+  await page.unroute('**/api/v1/control/vp3-os/ambient**');
+  console.log('PASS: workspace pagination, originals, responsive full-text details and saved Ambient speech choice');
   await page.goto(base + '/#contacts');
   await page.waitForFunction(() => window.HomeServerChatOptions);
   assert.equal(await page.locator('#view-contacts').evaluate(node => node.classList.contains('active')), true, 'Startup preserves deep links');

@@ -1,0 +1,35 @@
+name: Workspace Sync HTTP Acceptance
+on:
+  pull_request:
+    paths: [app/services/workspace_sync.py, app/workspace_sync_api.py, tests/workspace_sync_http.py, .github/workflows/workspace-sync-http.yml]
+  push:
+    branches: [main]
+    paths: [app/services/workspace_sync.py, app/workspace_sync_api.py, tests/workspace_sync_http.py, .github/workflows/workspace-sync-http.yml]
+permissions:
+  contents: read
+concurrency:
+  group: workspace-sync-http-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: davemt74-lang/software
+          ref: main
+          path: cloud-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite,mbstring
+          coverage: none
+      - run: pip install -r requirements.txt
+      - run: python tests/workspace_sync_http.py
+        env:
+          VP3_CLOUD_SOURCE: ${{ github.workspace }}/cloud-source

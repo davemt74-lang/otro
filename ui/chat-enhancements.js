@@ -3,7 +3,18 @@
 
   const byId = id => document.getElementById(id);
   const esc = (value = '') => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const fmt = value => value ? new Date(value).toLocaleString() : '—';
+  const eventDate = value => {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const raw = value.trim();
+    const iso = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw) ? raw : raw.replace(' ', 'T') + 'Z';
+    const date = new Date(iso);
+    return Number.isFinite(date.getTime()) ? date : null;
+  };
+  const fmt = value => eventDate(value)?.toLocaleString(undefined, {dateStyle:'medium', timeStyle:'medium'}) || 'Time unavailable';
+  const eventTime = value => {
+    const date = eventDate(value);
+    return date ? `<time datetime="${esc(date.toISOString())}" title="${esc(date.toISOString())} · displayed in your local timezone">${esc(fmt(value))}</time>` : '<span>Time unavailable</span>';
+  };
   const AudioContextCtor = () => window.AudioContext || window.webkitAudioContext || null;
 
   let recognition = null;
@@ -167,6 +178,7 @@
       readJson('/api/v1/control/tool-runs?limit=12'),
       readJson('/api/v1/control/activity?limit=12'),
       readJson('/api/v1/control/tasks?q='),
+      readJson('/api/v1/control/workspace-sync'),
     ]);
 
     const inference = settledValue(results[0]);
@@ -175,6 +187,7 @@
     const tools = settledValue(results[3], {items: []});
     const activity = settledValue(results[4], {items: []});
     const tasks = settledValue(results[5], {items: []});
+    const sync = settledValue(results[6]);
     const failures = results.filter(result => result.status === 'rejected').length;
     const runtime = cognition.runtime || {};
     const context = byId('chatContext')?.textContent?.trim() || 'No chat context summary yet. Send a message to populate it.';
@@ -182,21 +195,23 @@
       ? `${inference.compute_source === 'homeserver_local' ? 'HomeServer local' : 'User provider'} · ${inference.selected_provider || 'auto'}${inference.model ? ` · ${inference.model}` : ''}`
       : 'No HomeServer inference provider is currently ready.';
     const activeGoals = (tasks.items || []).filter(item => ['pending', 'in_progress'].includes(item.status)).slice(0, 8);
-    const latestDecision = (events.items || []).find(item => item.summary)?.summary || 'No current decision summary has been recorded yet.';
+    const latestDecisionEvent = (events.items || []).find(item => item.summary);
+    const latestDecision = latestDecisionEvent?.summary || 'No current decision summary has been recorded yet.';
 
     content.innerHTML = `
       ${failures ? `<div class="chat-brain-warning">${failures} activity source${failures === 1 ? '' : 's'} could not be read. Available data is shown below.</div>` : ''}
+      <section class="chat-brain-card"><p class="eyebrow">WORKSPACE SYNC</p><strong>${esc(sync.state || 'Unavailable')}</strong><small>Last complete sync ${eventTime(sync.last_success_at)}</small><p>${esc(sync.last_error || (sync.enabled ? 'Automatic synchronization enabled.' : 'Automatic synchronization paused.'))}</p><button class="text-button" type="button" data-view="cloud-data">Open synchronized data</button></section>
       <section class="chat-brain-card"><p class="eyebrow">CURRENT BRAIN</p><strong>${esc(provider)}</strong><p>${esc(context)}</p></section>
-      <section class="chat-brain-card"><p class="eyebrow">CURRENT PLAN / DECISION SUMMARY</p><strong>${esc(latestDecision)}</strong><p>Only concise, inspectable summaries are shown here—not private chain-of-thought.</p></section>
+      <section class="chat-brain-card"><p class="eyebrow">CURRENT PLAN / DECISION SUMMARY</p><strong>${esc(latestDecision)}</strong><small>${eventTime(latestDecisionEvent?.occurred_at || latestDecisionEvent?.created_at)}</small><p>Only concise, inspectable summaries are shown here—not private chain-of-thought.</p></section>
       <div class="chat-brain-stats">
         <div><strong>${Number(activeGoals.length).toLocaleString()}</strong><span>active goals</span></div>
         <div><strong>${Number(runtime.events || 0).toLocaleString()}</strong><span>cognitive events</span></div>
         <div><strong>${Number(runtime.open_awareness || 0).toLocaleString()}</strong><span>open signals</span></div>
       </div>
-      <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">GOALS</p><h4>Active goals & tasks</h4></div></div>${renderList(activeGoals, item => `<article><div><strong>${esc(item.title || 'Goal')}</strong><span>${esc(item.status || 'pending')}</span></div><p>${esc(item.description || 'No description')}</p><small>${item.due_at ? `Due ${esc(fmt(item.due_at))}` : 'No due date'}${item.priority ? ` · ${esc(item.priority)} priority` : ''}</small></article>`, 'No active goals or tasks yet. User and agent-created goals will appear here as they are persisted.')}</section>
-      <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">COGNITION</p><h4>Recent decision/activity summaries</h4></div></div>${renderList(events.items || [], item => `<article><div><strong>${esc(item.title || item.event_type || 'Cognitive event')}</strong><span>${esc(fmt(item.occurred_at || item.created_at))}</span></div><p>${esc(item.summary || '')}</p><small>${esc(item.source_app_key || 'HomeServer')}${item.event_type ? ` · ${esc(item.event_type)}` : ''}</small></article>`, 'No cognitive events yet.')}</section>
-      <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">TOOLS</p><h4>Recent agent tool runs</h4></div></div>${renderList(tools.items || [], item => `<article><div><strong>${esc(item.tool_key || 'Tool')}</strong><span>${esc(fmt(item.created_at))}</span></div><p>${esc(item.status || 'unknown')}${item.duration_ms == null ? '' : ` · ${Number(item.duration_ms)} ms`}</p><small>${esc(item.source_app_key || 'HomeServer')}</small></article>`, 'No tool runs yet.')}</section>
-      <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">HISTORY</p><h4>Recent audited actions</h4></div></div>${renderList(activity.items || [], item => `<article><div><strong>${esc(item.action || 'Activity')}</strong><span>${esc(fmt(item.created_at))}</span></div><p>${esc([item.resource_type, item.resource_key].filter(Boolean).join(' · ') || 'HomeServer')}</p><small>${esc(item.actor_type || 'owner')}${item.actor_key ? ` · ${esc(item.actor_key)}` : ''}</small></article>`, 'No audited activity yet.')}</section>`;
+      <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">GOALS</p><h4>Active goals & tasks</h4></div></div>${renderList(activeGoals, item => `<article><div><strong>${esc(item.title || 'Goal')}</strong><span>${esc(item.status || 'pending')}</span></div><small>Updated ${eventTime(item.updated_at || item.created_at)}</small><p>${esc(item.description || 'No description')}</p><small>${item.due_at ? `Due ${esc(fmt(item.due_at))}` : 'No due date'}${item.priority ? ` · ${esc(item.priority)} priority` : ''}</small></article>`, 'No active goals or tasks yet. User and agent-created goals will appear here as they are persisted.')}</section>
+      <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">COGNITION</p><h4>Recent decision/activity summaries</h4></div></div>${renderList(events.items || [], item => `<article><div><strong>${esc(item.title || item.event_type || 'Cognitive event')}</strong><span>${eventTime(item.occurred_at || item.created_at)}</span></div><p>${esc(item.summary || '')}</p><small>${esc(item.source_app_key || 'HomeServer')}${item.event_type ? ` · ${esc(item.event_type)}` : ''}</small></article>`, 'No cognitive events yet.')}</section>
+      <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">TOOLS</p><h4>Recent agent tool runs</h4></div></div>${renderList(tools.items || [], item => `<article><div><strong>${esc(item.tool_key || 'Tool')}</strong><span>${eventTime(item.created_at)}</span></div><p>${esc(item.status || 'unknown')}${item.duration_ms == null ? '' : ` · ${Number(item.duration_ms)} ms`}</p><small>${esc(item.source_app_key || 'HomeServer')}</small></article>`, 'No tool runs yet.')}</section>
+      <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">HISTORY</p><h4>Recent audited actions</h4></div></div>${renderList(activity.items || [], item => `<article><div><strong>${esc(item.action || 'Activity')}</strong><span>${eventTime(item.created_at)}</span></div><p>${esc([item.resource_type, item.resource_key].filter(Boolean).join(' · ') || 'HomeServer')}</p><small>${esc(item.actor_type || 'owner')}${item.actor_key ? ` · ${esc(item.actor_key)}` : ''}</small></article>`, 'No audited activity yet.')}</section>`;
   }
 
   function setDrawer(open) {

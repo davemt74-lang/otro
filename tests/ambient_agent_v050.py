@@ -395,6 +395,34 @@ with tempfile.TemporaryDirectory(prefix="vp3-os-v050-ambient-") as data_dir:
             assert stale_present["duplicate"] is True
             assert vp3_os.hardware_inventory()["presence_sensor"]["occupied"] is False
 
+            # Desktop speech is an explicit no-sensor option, saved through the real API.
+            hardware_adapters.manager.handle_message(
+                {'type': 'event', 'seq': 51, 'event': 'privacy_switch', 'action': 'disengaged'}
+            )
+            blocked = client.post('/api/v1/control/vp3-os/ambient/announce-test')
+            assert blocked.status_code == 409, blocked.text
+            assert 'Assume present' in blocked.json()['detail']
+            assumed = client.put('/api/v1/control/vp3-os/ambient/settings', json={
+                'enabled': True, 'wake_enabled': False, 'proactive_voice': True,
+                'presence_policy': 'assume_present', 'announcement_levels': ['info', 'warning'],
+            })
+            assert assumed.status_code == 200, assumed.text
+            with ambient_agent.runtime._lock:
+                ambient_agent.runtime._last_announcement_at = ''
+            before_tests = len(play_calls)
+            spoken = client.post('/api/v1/control/vp3-os/ambient/announce-test')
+            assert spoken.status_code == 200 and spoken.json()['spoken'], spoken.text
+            assert len(play_calls) == before_tests + 1
+            hardware_adapters.manager.handle_message(
+                {'type': 'event', 'seq': 52, 'event': 'privacy_switch', 'action': 'engaged'}
+            )
+            private = client.post('/api/v1/control/vp3-os/ambient/announce-test')
+            assert private.status_code == 409 and 'privacy' in private.json()['detail'].lower()
+            assert len(play_calls) == before_tests + 1
+            hardware_adapters.manager.handle_message(
+                {'type': 'event', 'seq': 53, 'event': 'privacy_switch', 'action': 'disengaged'}
+            )
+
             # Disable clears local presence tracking and stops ambient actions.
             disabled = client.put(
                 "/api/v1/control/vp3-os/ambient/settings",

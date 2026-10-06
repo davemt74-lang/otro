@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="hs-local-transcription-") as folder:
         assert client.post(base,json={"title":"Private speech"},headers=req).status_code==401
         assert client.post("/__owner/session",headers={"X-HomeServer-Owner":OWNER_CONTROL_TOKEN}).status_code==200
         assert client.post(base,json={"title":"Private speech"}).status_code==403
-        created=client.post(base,json={"title":"Private speech"},headers=req)
+        created=client.post(base,json={"title":"Private speech","cloud_sync":False},headers=req)
         assert created.status_code==200,created.text
         sid=created.json()["session"]["id"]
         assert created.json()["session"]["cloud_shared"] is False

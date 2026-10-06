@@ -9,6 +9,7 @@ router=APIRouter(prefix="/api/v1/control/transcription-sessions",tags=["local-tr
 class Start(BaseModel):
     model_config=ConfigDict(extra="forbid")
     title:str=Field(default="Untitled transcription",max_length=190)
+    cloud_sync:bool=True
 
 class SpeakerEvidence(BaseModel):
     model_config=ConfigDict(extra="forbid")
@@ -96,7 +97,7 @@ def read_local_session(session_id:str)->dict:
 @router.post("")
 def start_local_session(body:Start,request:Request,requested_with:str|None=Header(None,alias="X-Requested-With"))->dict:
     _mutation(request,requested_with)
-    return _call(sessions.start,body.title)
+    return _call(sessions.start,body.title,cloud_sync=body.cloud_sync)
 
 @router.post("/{session_id}/segments")
 def append_local_session(session_id:str,body:Segment,request:Request,requested_with:str|None=Header(None,alias="X-Requested-With"))->dict:

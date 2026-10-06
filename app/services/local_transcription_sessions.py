@@ -1,7 +1,7 @@
 """Owner-local Cloud-compatible persistent transcription, separate from Agent Chat.
 
-Cloud cannot read local sessions until the owner explicitly shares one completed
-session. Raw audio and recordings never cross the transcript relay.
+Completed text syncs by default for new sessions; per-session local-only choices
+remain authoritative. Raw audio and recordings never cross the transcript relay.
 """
 from __future__ import annotations
 from datetime import datetime, timezone
@@ -191,7 +191,7 @@ def _paired_payload(payload:dict[str,Any])->dict[str,Any]:
     safe["speaker_identity_verified"]=False
     return safe
 
-def start(title:str="Untitled transcription")->dict[str,Any]:
+def start(title:str="Untitled transcription", *, cloud_sync:bool=True)->dict[str,Any]:
     title=str(title or "").strip()[:190] or "Untitled transcription"
     sid=secrets.token_hex(16)
     with db() as conn:
@@ -203,8 +203,8 @@ def start(title:str="Untitled transcription")->dict[str,Any]:
         if active is not None:
             raise TranscriptError("Stop the active transcription before creating another.",409)
         conn.execute(
-            "INSERT INTO local_transcription_sessions(id,title,status,cloud_share,started_at)"
-            " VALUES(?,?,'active',0,?)",(sid,title,_utc()),
+            "INSERT INTO local_transcription_sessions(id,title,status,cloud_share,started_at,cloud_auto_sync)"
+            " VALUES(?,?,'active',0,?,?)",(sid,title,_utc(),int(cloud_sync)),
         )
         return {"contract":CONTRACT,"session":_payload(conn,_get(conn,sid))}
 
@@ -287,9 +287,14 @@ def stop(session_id:str)->dict[str,Any]:
         conn.execute("BEGIN IMMEDIATE")
         row=_get(conn,sid)
         if row["status"]=="active":
+            sync_enabled=False
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workspace_sync_settings'").fetchone():
+                setting=conn.execute("SELECT enabled FROM workspace_sync_settings WHERE id=1").fetchone()
+                sync_enabled=bool(setting and setting[0])
             conn.execute(
-                "UPDATE local_transcription_sessions SET status='completed',ended_at=? WHERE id=?",
-                (_utc(),sid),
+                "UPDATE local_transcription_sessions SET status='completed',ended_at=?,cloud_share=CASE "
+                "WHEN cloud_auto_sync=1 AND ?=1 THEN 1 ELSE cloud_share END WHERE id=?",
+                (_utc(),int(sync_enabled),sid),
             )
         return {"contract":CONTRACT,"session":_payload(conn,_get(conn,sid),True)}
 
@@ -334,8 +339,8 @@ def share_with_cloud(session_id:str,allowed:bool)->dict[str,Any]:
         if allowed and row["status"]!="completed":
             raise TranscriptError("Stop listening before sharing a transcription.",409)
         conn.execute(
-            "UPDATE local_transcription_sessions SET cloud_share=? WHERE id=?",
-            (int(allowed),sid),
+            "UPDATE local_transcription_sessions SET cloud_share=?,cloud_auto_sync=? WHERE id=?",
+            (int(allowed),int(allowed),sid),
         )
         return {"contract":CONTRACT,"session":_payload(conn,_get(conn,sid)),
                 "cloud_shares_text_only":True}
@@ -367,5 +372,5 @@ def correct_speaker(session_id:str,segment_id:str,label:str,revision:int=0)->dic
         conn.execute("INSERT INTO local_transcription_speaker_corrections(segment_id,speaker_label,revision,corrected_at) VALUES(?,?,?,?) ON CONFLICT(segment_id) DO UPDATE SET speaker_label=excluded.speaker_label,revision=excluded.revision,corrected_at=excluded.corrected_at",(segment_id,label,revision+1,_utc()))
         # Existing imported Cloud copies remain independent; renewed relay access
         # requires the owner to explicitly share the corrected document again.
-        conn.execute("UPDATE local_transcription_sessions SET cloud_share=0 WHERE id=?",(sid,))
+        conn.execute("UPDATE local_transcription_sessions SET cloud_share=0,cloud_auto_sync=0 WHERE id=?",(sid,))
         return {"contract":CONTRACT,"session":_payload(conn,_get(conn,sid),True),"cloud_access_revoked":bool(session["cloud_share"]),"existing_cloud_copy_is_independent":True}

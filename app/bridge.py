@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from .action_policy_api import router as action_policy_router
 from .activity_center_api import router as activity_center_router
+from .workspace_sync_api import router as workspace_sync_router
 from .ambient_orchestration_api import router as ambient_orchestration_router
 from .automation_intelligence_api import router as automation_intelligence_router
 from .agent_routing_api import router as agent_routing_router
@@ -99,6 +100,7 @@ app.include_router(brain_router)
 app.include_router(tools_router)
 app.include_router(action_policy_router)
 app.include_router(activity_center_router)
+app.include_router(workspace_sync_router)
 app.include_router(approvals_router)
 app.include_router(contacts_router)
 app.include_router(tasks_router)
