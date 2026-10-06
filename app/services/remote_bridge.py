@@ -4,6 +4,7 @@ import base64
 import binascii
 import json
 import re
+import sqlite3
 import threading
 import time
 from datetime import datetime, timezone
@@ -24,6 +25,24 @@ from . import agent_voice_profiles, local_transcription_sessions, federated_data
 
 class RemoteBridgeError(RuntimeError):
     pass
+
+
+def _database_error_details(exc: sqlite3.OperationalError) -> dict[str, Any]:
+    # Report stable codes and owner guidance, never SQL, paths or credentials.
+    code = getattr(exc, "sqlite_errorcode", None)
+    primary = (code & 255) if isinstance(code, int) else None
+    explanations = {
+        sqlite3.SQLITE_BUSY: ("SQLITE_BUSY", "The HomeServer database is busy. Retrying automatically."),
+        sqlite3.SQLITE_LOCKED: ("SQLITE_LOCKED", "The HomeServer database is locked. Retrying automatically."),
+        sqlite3.SQLITE_FULL: ("SQLITE_FULL", "The database drive or database size limit is full. Free space or review the database limit."),
+        sqlite3.SQLITE_READONLY: ("SQLITE_READONLY", "The HomeServer database is read-only. Check write access to the data folder."),
+        sqlite3.SQLITE_CANTOPEN: ("SQLITE_CANTOPEN", "HomeServer cannot open its database. Check the data folder and drive access."),
+        sqlite3.SQLITE_IOERR: ("SQLITE_IOERR", "The database reported a disk I/O error. Check the drive and data folder access."),
+        sqlite3.SQLITE_ERROR: ("SQLITE_ERROR", "A database query failed. Check database schema and installed-version diagnostics."),
+        sqlite3.SQLITE_SCHEMA: ("SQLITE_SCHEMA", "The database schema changed. Retrying automatically."),
+    }
+    name, message = explanations.get(primary, ("SQLITE_OPERATIONAL_ERROR", "The database operation failed. Check database diagnostics."))
+    return {"sqlite_code": code, "sqlite_name": name, "message": f"{name}: {message}"}
 
 
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -1421,6 +1440,9 @@ class RemoteBridgeWorker:
     def __init__(self) -> None:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._https_session_token: str | None = None
+        self._https_pending_results: list[dict] = []
+        self._https_pending_exchange: dict | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -1441,22 +1463,30 @@ class RemoteBridgeWorker:
         _set_state(running=False, stage="stopped", connected=False)
 
     def _run_guarded(self) -> None:
-        try:
-            self._run()
-        except Exception as exc:
-            _set_state(
-                running=False,
-                stage="crashed",
-                connected=False,
-                claimed=False,
-                claim_code=None,
-                connection_id=None,
-                last_error=f"{type(exc).__name__}: remote bridge worker crashed",
-            )
-            federated_data.note_peer_disconnected(
-                "vp3_cloud", f"{type(exc).__name__}: remote bridge worker crashed"
-            )
-            _event("bridge.worker", "failed", metadata={"stage": "crashed", "error_type": type(exc).__name__})
+        backoff = 1.0
+        while not self._stop.is_set():
+            try:
+                self._run()
+                return
+            except Exception as exc:
+                database_error = isinstance(exc, sqlite3.OperationalError)
+                details = _database_error_details(exc) if database_error else {}
+                message = str(details.get("message") or f"{type(exc).__name__}: remote bridge worker crashed")
+                stage = "database-retrying" if database_error else "crashed"
+                _set_state(running=database_error, stage=stage, connected=False,
+                           claimed=False, claim_code=None, connection_id=None,
+                           last_error=message)
+                if database_error:
+                    _increment_reconnect_count()
+                # A second database failure while reporting must not kill recovery.
+                try:
+                    federated_data.note_peer_disconnected("vp3_cloud", message)
+                except sqlite3.Error:
+                    pass
+                _event("bridge.worker", "failed", metadata={"stage": stage, "error_type": type(exc).__name__, **details})
+                if not database_error or self._stop.wait(backoff):
+                    return
+                backoff = min(backoff * 2.0, 30.0)
 
     def _wait_local_api(self) -> bool:
         url = f"http://{settings.host}:{settings.port}/api/v1/health"
@@ -1495,7 +1525,12 @@ class RemoteBridgeWorker:
             "X-VP3-HomeServer-Session": token,
             "X-HomeServer-Device": identity["device_id"],
         }
-        pending_results: list[dict] = []
+        if self._https_session_token != token:
+            # Accepted requests and receipts belong to this exact Cloud session.
+            self._https_session_token = token
+            self._https_pending_results.clear()
+            self._https_pending_exchange = None
+        pending_results = self._https_pending_results
         announced = False
         _set_state(stage="connecting", connected=False, claimed=True, claim_code=None, last_error=None)
         _event("bridge.connection", "attempting", metadata={"stage": "connecting", "transport": "vp3_https"})
@@ -1507,71 +1542,28 @@ class RemoteBridgeWorker:
                 if not isinstance(capabilities, dict):
                     capabilities = {}
 
-                response = client.post(
-                    endpoint,
-                    headers=headers,
-                    json={
-                        "version": settings.version,
-                        "capabilities": capabilities,
-                        "results": pending_results,
-                    },
-                )
-                if response.status_code == 410:
-                    # Only an explicit Gone response means this exact session was
-                    # intentionally revoked. Never let a stale worker destroy a
-                    # replacement session that was saved after this loop started.
-                    if clear_https_session_if_matches(token):
-                        disable_vp3_https_settings()
-                        revoke_paired_app("vp3")
-                        _set_state(
-                            stage="revoked",
-                            connected=False,
-                            claimed=False,
-                            last_error="VP3 pairing was explicitly revoked. Save a new pairing key to connect again.",
-                        )
-                        _event("bridge.disconnected", "revoked", metadata={"transport": "vp3_https"})
-                    return
-                if response.status_code in {401, 403}:
-                    # Authentication failures are retryable and must never erase
-                    # the saved pairing. If a newer pairing replaced this token,
-                    # stop this stale worker immediately so the reload can take over.
-                    if not https_session_matches(token):
-                        _event("bridge.worker", "superseded", metadata={"transport": "vp3_https"})
+                if self._https_pending_exchange is None:
+                    self._receive_https_exchange(client, endpoint, headers, token, capabilities, pending_results)
+                    if self._https_pending_exchange is None:
                         return
-                    raise RemoteBridgeError(f"VP3 HTTPS authentication returned HTTP {response.status_code}.")
-                if response.status_code < 200 or response.status_code >= 300:
-                    raise RemoteBridgeError(f"VP3 HTTPS relay returned HTTP {response.status_code}.")
-                try:
-                    data = response.json()
-                except ValueError as exc:
-                    raise RemoteBridgeError("VP3 HTTPS relay returned invalid JSON.") from exc
-                if not isinstance(data, dict) or not data.get("ok"):
-                    raise RemoteBridgeError("VP3 HTTPS relay rejected the exchange.")
+                data = self._https_pending_exchange
 
                 touch_paired_app("vp3")
-                now = _iso_now()
-                _set_state(
-                    stage="ready",
-                    connected=True,
-                    claimed=True,
-                    claim_code=None,
-                    connection_id=identity["device_id"],
-                    last_connected_at=now if not announced else _STATE.get("last_connected_at"),
-                    last_message_at=now,
-                    last_error=None,
-                )
-                if not announced:
-                    announced = True
+                first_contact = not announced
+                if first_contact:
                     peer_state = federated_data.note_peer_connected("vp3_cloud")
+                    announced = True
                     _event(
                         "bridge.reconnected" if peer_state.get("reconnected") else "bridge.connected",
                         "completed",
-                        metadata={
-                            "device_id": identity["device_id"],
-                            "transport": "vp3_https",
-                            "reconciliation_required": bool(peer_state.get("needs_reconciliation")),
-                        },
+                        metadata={"device_id": identity["device_id"], "transport": "vp3_https",
+                                  "reconciliation_required": bool(peer_state.get("needs_reconciliation"))},
                     )
+                now = _iso_now()
+                _set_state(stage="ready", connected=True, claimed=True, claim_code=None,
+                           connection_id=identity["device_id"],
+                           last_connected_at=now if first_contact else _STATE.get("last_connected_at"),
+                           last_message_at=now, last_error=None)
 
                 # The relay response above has already completed, so any pending
                 # Tracky semantic state can now synchronize on the same VP3 session
@@ -1582,7 +1574,7 @@ class RemoteBridgeWorker:
                 except tracky_physical_context.TrackyPhysicalError:
                     pass
 
-                pending_results = []
+                # Keep an accepted response across SQLite failures before dispatch.
                 requests = data.get("requests") if isinstance(data.get("requests"), list) else []
                 for message in requests:
                     if not isinstance(message, dict):
@@ -1601,6 +1593,11 @@ class RemoteBridgeWorker:
                         )
                     except RemoteBridgeError as exc:
                         result = {"status": 400, "ok": False, "payload": {"detail": str(exc)}}
+                    except sqlite3.OperationalError as exc:
+                        # Execution may have started. Report failure without
+                        # automatically replaying this action during recovery.
+                        result = {"status": 503, "ok": False,
+                                  "payload": {"detail": _database_error_details(exc)["message"]}}
                     duration_ms = int((time.monotonic() - started) * 1000)
                     _event(
                         "bridge.request",
@@ -1610,6 +1607,7 @@ class RemoteBridgeWorker:
                         metadata={"http_status": int(result.get("status") or 500), "duration_ms": duration_ms, "transport": "vp3_https"},
                     )
                     pending_results.append({"request_id": request_id, **result})
+                self._https_pending_exchange = None
 
                 poll_after = data.get("poll_after_ms", 900)
                 try:
@@ -1617,6 +1615,52 @@ class RemoteBridgeWorker:
                 except (TypeError, ValueError):
                     wait_seconds = 0.9
                 self._stop.wait(wait_seconds)
+
+    def _receive_https_exchange(self, client, endpoint, headers, token, capabilities, pending_results) -> None:
+        response = client.post(
+            endpoint,
+            headers=headers,
+            json={
+                "version": settings.version,
+                "capabilities": capabilities,
+                "results": pending_results,
+            },
+        )
+        if response.status_code == 410:
+            # Only an explicit Gone response means this exact session was
+            # intentionally revoked. Never let a stale worker destroy a
+            # replacement session that was saved after this loop started.
+            if clear_https_session_if_matches(token):
+                disable_vp3_https_settings()
+                revoke_paired_app("vp3")
+                _set_state(
+                    stage="revoked",
+                    connected=False,
+                    claimed=False,
+                    last_error="VP3 pairing was explicitly revoked. Save a new pairing key to connect again.",
+                )
+                _event("bridge.disconnected", "revoked", metadata={"transport": "vp3_https"})
+            return
+        if response.status_code in {401, 403}:
+            # Authentication failures are retryable and must never erase
+            # the saved pairing. If a newer pairing replaced this token,
+            # stop this stale worker immediately so the reload can take over.
+            if not https_session_matches(token):
+                _event("bridge.worker", "superseded", metadata={"transport": "vp3_https"})
+                return
+            raise RemoteBridgeError(f"VP3 HTTPS authentication returned HTTP {response.status_code}.")
+        if response.status_code < 200 or response.status_code >= 300:
+            raise RemoteBridgeError(f"VP3 HTTPS relay returned HTTP {response.status_code}.")
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise RemoteBridgeError("VP3 HTTPS relay returned invalid JSON.") from exc
+        if not isinstance(data, dict) or not data.get("ok"):
+            raise RemoteBridgeError("VP3 HTTPS relay rejected the exchange.")
+
+        # A successful validated exchange acknowledges previous receipts.
+        pending_results.clear()
+        self._https_pending_exchange = data
 
     def _run(self) -> None:
         _set_state(running=True, stage="starting", last_error=None)
@@ -1626,6 +1670,8 @@ class RemoteBridgeWorker:
         while not self._stop.is_set():
             try:
                 configured = get_bridge_settings()
+            except sqlite3.OperationalError:
+                raise
             except Exception as exc:
                 _set_state(stage="settings-error", last_error=f"settings:{type(exc).__name__}")
                 _event("bridge.worker", "failed", metadata={"stage": "settings-error", "error_type": type(exc).__name__})
