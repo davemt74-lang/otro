@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 index = (ROOT_DIR / "ui" / "index.html").read_text(encoding="utf-8")
@@ -33,8 +34,8 @@ assert 'loadConnectionModal' in shell
 assert 'openDefaultChat' in shell
 assert "history.replaceState(null, '', '#chat')" in shell
 
-# The sidebar remains viewport-sticky. The new chat canvas independently scrolls
-# messages so a long conversation cannot push its composer below the viewport.
+# The sidebar stays viewport-sticky; the document owns chat/setup scrolling.
+# Actual footer visibility and long-conversation geometry are covered in Chromium.
 assert '.shell-agent-first .sidebar {\n  position: sticky;' in styles
 assert 'height: 100dvh;' in styles
 assert 'max-height: 100dvh;' in styles
@@ -43,11 +44,16 @@ assert 'overscroll-behavior: contain;' in styles
 assert '.shell-agent-first #view-chat .chat-panel {' in styles
 assert '.shell-agent-first #view-chat .chat-messages {' in styles
 assert 'max-height: none;' in styles
-assert 'overflow: auto;' in workspace_styles
+for selector in ('.chat-messages', '.chat-panel'):
+    rule = re.search(re.escape(selector) + r'\s*\{([^}]*)\}', workspace_styles).group(1)
+    assert 'overflow: visible;' in rule, selector
 assert '.shell-agent-first #view-chat .chat-compose {' in styles
 assert 'position: sticky;' in styles
-assert 'bottom: auto;' in workspace_styles
-assert 'height: 100dvh;' in workspace_styles
+composer = re.search(r'\.chat-compose\s*\{([^}]*)\}', workspace_styles).group(1)
+assert 'position: sticky;' in composer
+assert 'bottom: 14px;' in composer
+assert 'min-height: 100dvh;' in workspace_styles
+assert 'scroll-padding-bottom:' in workspace_styles
 assert 'chatOptionsDialog' in index
 assert '/assets/chat-workspace.js' in index
 
