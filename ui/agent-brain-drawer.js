@@ -7,14 +7,12 @@
   let previousSignature = null;
   let requestSequence = 0;
   let alertSequence = 0;
-  let cognitionSequence = 0;
   let syncSequence = 0;
   const MAX_ITEMS = 8;
   const CHAT_DRAFT_KEY = 'homeserver:agent-brain:chat-draft-v1';
   const WORKSPACE_KEY = 'homeserver:agent-brain:workspace-v1';
   const details = new Map();
   const alerts = new Map();
-  const awarenessItems = new Map();
 
   function build() {
     if ($('agentBrainDrawer')) return;
@@ -47,9 +45,7 @@
         <p class="agent-brain-intro">Live system context. All instructions and approvals stay in Agent Chat and existing governed workflows.</p>
         <section class="agent-brain-summary" aria-live="polite"><span>System health</span><strong id="agentBrainHealthState">Checking…</strong><small id="agentBrainHealthCount">Reading local health signals</small></section>
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Needs attention</h3><button id="agentBrainRefresh" type="button">Refresh</button></div><div id="agentBrainIssues" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
-        <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Awareness</h3><span id="agentBrainCognitionState" class="agent-brain-section-meta">Loading…</span></div><div id="agentBrainAwareness" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
-        <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Memory & context</h3><span id="agentBrainMemoryState" class="agent-brain-section-meta">Loading…</span></div><div id="agentBrainMemory" class="agent-brain-context-grid" aria-live="polite"></div></div>
-        <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Tools & activity</h3><button id="agentBrainActivity" type="button">Activity</button></div><div id="agentBrainAlerts" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
+        <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Proactive maintenance</h3><button id="agentBrainActivity" type="button">Activity</button></div><div id="agentBrainAlerts" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Cloud synchronization</h3><button id="agentBrainCloudData" type="button">Cloud data</button></div><div id="agentBrainSync" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
         <div class="agent-brain-drawer-actions"><button id="agentBrainAsk" type="button" class="button primary">Discuss in Agent Chat</button><button id="agentBrainHealth" type="button" class="button secondary">Health workspace</button></div>
       </div>`;
@@ -59,13 +55,6 @@
     $('agentBrainRefresh').addEventListener('click', () => explicitRefresh());
     $('agentBrainCloudData').addEventListener('click', () => openWorkspace('cloud-data'));
     $('agentBrainActivity').addEventListener('click', () => openWorkspace('activity'));
-    $('agentBrainAwareness').addEventListener('click', e => {
-      const button = e.target.closest('button[data-awareness-key]');
-      const item = button && awarenessItems.get(button.dataset.awarenessKey);
-      if (!item) return;
-      const summary = String(item.summary || item.title || 'current awareness item').slice(0,900);
-      sendToChat('Review this current HomeServer awareness item: ' + JSON.stringify(summary) + '. Explain why it matters, what context supports it, and what governed next action is appropriate. Do not execute anything automatically.');
-    });
     $('agentBrainAlerts').addEventListener('click', e => {
       const button = e.target.closest('button[data-alert-key]');
       const alert = button && alerts.get(button.dataset.alertKey);
@@ -92,7 +81,7 @@
       window.addEventListener('load', () => { consumePendingDraft(); consumePendingWorkspace(); }, {once:true});
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) stop();
-      else if (open) { refresh(); refreshCognition(); refreshAlerts(); refreshSync(); start(); }
+      else if (open) { refresh(); refreshAlerts(); refreshSync(); start(); }
     });
   }
 
@@ -106,13 +95,13 @@
     else drawer.setAttribute('inert', '');
     $('agentBrainDrawerToggle')?.setAttribute('aria-expanded', String(open));
     document.body.classList.toggle('agent-brain-drawer-open', open);
-    if (open) { refresh(); refreshCognition(); refreshAlerts(); refreshSync(); start(); drawer.querySelector('.agent-brain-close')?.focus(); }
+    if (open) { refresh(); refreshAlerts(); refreshSync(); start(); drawer.querySelector('.agent-brain-close')?.focus(); }
     else { stop(); if (restoreFocus) $('agentBrainDrawerToggle')?.focus(); }
   }
 
-  function stop() { if (timer !== null) clearInterval(timer); timer = null; requestSequence++; alertSequence++; cognitionSequence++; syncSequence++; }
+  function stop() { if (timer !== null) clearInterval(timer); timer = null; requestSequence++; alertSequence++; syncSequence++; }
   function start() {
-    if (timer === null) timer = setInterval(() => { if (open && !document.hidden) { refresh(); refreshCognition(); refreshAlerts(); refreshSync(); } }, 60000);
+    if (timer === null) timer = setInterval(() => { if (open && !document.hidden) { refresh(); refreshAlerts(); refreshSync(); } }, 60000);
   }
   function sendToChat(prompt) {
     setOpen(false,false);
@@ -281,7 +270,7 @@
         $('agentBrainAlerts').textContent='Could not synchronize maintenance notifications.';
     } finally {
       if(button) button.disabled=false;
-      if(open) { await refresh(); await refreshCognition(); await refreshAlerts(); }
+      if(open) { await refresh(); await refreshAlerts(); }
     }
   }
 
@@ -299,68 +288,6 @@
       host.appendChild(description);
       if(data.last_success_at)host.appendChild(timestamp(data.last_success_at,'Last complete sync'));
     } catch(error) { if(open&&seq===syncSequence)$('agentBrainSync').textContent='Synchronization status unavailable. Open Cloud data to retry.'; }
-  }
-
-  function renderCognition(data) {
-    const runtime = data && typeof data.runtime === 'object' ? data.runtime : {};
-    const awareness = Array.isArray(data?.awareness) ? data.awareness : [];
-    const memory = Array.isArray(data?.memory_candidates) ? data.memory_candidates : [];
-    const plugins = Array.isArray(data?.plugins) ? data.plugins : [];
-    const state = $('agentBrainCognitionState');
-    if (state) state.textContent = runtime.scheduler_running === false ? 'Paused' : awareness.length ? awareness.length + ' active' : 'Clear';
-    const memoryState = $('agentBrainMemoryState');
-    if (memoryState) memoryState.textContent = memory.length ? memory.length + ' pending' : 'Current';
-
-    const host = $('agentBrainAwareness');
-    if (host) {
-      host.replaceChildren();
-      awarenessItems.clear();
-      if (!awareness.length) host.textContent = 'No open awareness items. The Agent is monitoring current local context.';
-      awareness.slice(0,6).forEach((item,index) => {
-        const key=String(item.id ?? item.awareness_id ?? index);
-        awarenessItems.set(key,item);
-        const button=document.createElement('button');
-        button.type='button'; button.className='agent-brain-issue'; button.dataset.awarenessKey=key;
-        const tag=document.createElement('span'); tag.className='agent-brain-severity'; tag.textContent=String(item.kind || item.event_type || 'awareness').replaceAll('_',' ');
-        const title=document.createElement('strong'); title.textContent=String(item.summary || item.title || 'Current awareness');
-        const hint=document.createElement('small'); hint.textContent='Review context in Agent Chat';
-        button.append(tag,title,hint,timestamp(item.updated_at || item.occurred_at || item.created_at)); host.appendChild(button);
-      });
-    }
-
-    const contextHost=$('agentBrainMemory');
-    if (contextHost) {
-      contextHost.replaceChildren();
-      const cards=[
-        ['Memory candidates', memory.length ? String(memory.length) : '0'],
-        ['Active plugins', String(plugins.filter(p => String(p.status || 'active') === 'active').length)],
-        ['Cognitive events', String(runtime.event_count ?? runtime.events ?? '—')],
-        ['Open awareness', String(awareness.length)]
-      ];
-      cards.forEach(([label,value])=>{
-        const card=document.createElement('div'); card.className='agent-brain-context-card';
-        const strong=document.createElement('strong'); strong.textContent=value;
-        const span=document.createElement('span'); span.textContent=label;
-        card.append(strong,span); contextHost.appendChild(card);
-      });
-    }
-  }
-
-  async function refreshCognition() {
-    const seq=++cognitionSequence;
-    try {
-      const response=await fetch('/api/v1/control/cognition',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
-      if(!response.ok) throw new Error('Cognition unavailable');
-      const data=await response.json();
-      if(!open || seq!==cognitionSequence) return;
-      renderCognition(data);
-    } catch (_) {
-      if(!open || seq!==cognitionSequence) return;
-      if($('agentBrainCognitionState')) $('agentBrainCognitionState').textContent='Unavailable';
-      if($('agentBrainAwareness')) $('agentBrainAwareness').textContent='Cognitive status is temporarily unavailable.';
-      if($('agentBrainMemoryState')) $('agentBrainMemoryState').textContent='Unavailable';
-      if($('agentBrainMemory')) $('agentBrainMemory').replaceChildren();
-    }
   }
 
   async function refreshAlerts() {
