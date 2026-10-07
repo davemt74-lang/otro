@@ -75,6 +75,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Complete workspace synchronization and ambient speech
         run: |
+          python tests/native_workspaces.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/workspace_sync_v1.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_v050.py

@@ -287,6 +287,12 @@
       description.textContent=!data.enabled?'Automatic sync paused.':!data.paired?'Connect HomeServer to Cloud to begin automatic sync.':data.last_error||`${(data.cloud_datasets||[]).length} Cloud workspaces available locally.`;
       host.appendChild(description);
       if(data.last_success_at)host.appendChild(timestamp(data.last_success_at,'Last complete sync'));
+      for(const dataset of data.cloud_datasets||[]){
+        const row=document.createElement('p');
+        row.textContent=String(dataset.dataset||'Workspace').replaceAll('_',' ')+' · '+Number(dataset.record_count||0)+' records';
+        row.appendChild(timestamp(dataset.synced_at,'Last checked'));
+        host.appendChild(row);
+      }
     } catch(error) { if(open&&seq===syncSequence)$('agentBrainSync').textContent='Synchronization status unavailable. Open Cloud data to retry.'; }
   }
 

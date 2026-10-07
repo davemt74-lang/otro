@@ -13,6 +13,12 @@ from .tasks import TaskError, create_task, list_notifications, list_tasks
 TOOL_EXECUTE_PERMISSION = "tools.execute"
 
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "workspace.search": {
+        "key":"workspace.search", "name":"Search Synced Cloud Workspaces",
+        "description":"Owner-only search of current account's complete synced Cloud contacts, CRM, products, calendar, knowledge, transcriptions, meetings and schedules. Returns bounded factual excerpts with source identity; never executes copied schedules or edits records.",
+        "mode":"read", "owner_only":True, "required_permissions":[],
+        "input_schema":{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":240},"dataset":{"type":"string","maxLength":40},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["query"],"additionalProperties":False},
+    },
     "backups.status": {
         "key": "backups.status",
         "name": "Read Backup Protection Status",
@@ -2250,6 +2256,17 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _apps_start(payload)
         elif tool["key"] == "apps.stop":
             result, result_meta = _apps_stop(payload)
+        elif tool["key"] == "workspace.search":
+            if not resource_owner:
+                raise ToolError("Synced Cloud workspaces are available only to the owner.",403)
+            from . import native_workspaces, workspace_sync
+            if set(payload)-{'query','dataset','limit'}:
+                raise ToolError("Unsupported workspace search argument.")
+            try:
+                rows=native_workspaces.search(str(payload.get('query') or ''),str(payload.get('dataset') or ''),_bounded_int(payload.get('limit'),8,1,20,'limit'))
+            except workspace_sync.WorkspaceSyncError as exc:
+                raise ToolError(str(exc)) from exc
+            result,result_meta={"items":rows,"count":len(rows)},{"count":len(rows),"source":"vp3_cloud"}
         elif tool["key"] == "contacts.search":
             result, result_meta = _contacts_search(payload)
         elif tool["key"] == "contacts.create":

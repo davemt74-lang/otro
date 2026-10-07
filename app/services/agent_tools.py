@@ -9,6 +9,7 @@ from ..database import db
 from . import action_policy, approvals, app_scopes, maintenance_conversation, plugins, tools
 
 MODEL_TOOL_NAMES = {
+    "homeserver_workspace_search": "workspace.search",
     "homeserver_health_status": "health.status",
     "homeserver_health_issue": "health.issue",
     "homeserver_runtime_diagnostics": "runtime.diagnostics",
@@ -158,6 +159,8 @@ def model_tool_schemas(
     by_key = {item["key"]: item for item in tools.list_tools(granted_permissions, owner=owner)}
     schemas: list[dict[str, Any]] = []
     for model_name, tool_key in MODEL_TOOL_NAMES.items():
+        if tool_key=='workspace.search' and not owner:
+            continue
         item = by_key.get(tool_key)
         if not item or item.get("mode") != "read" or not item.get("available"):
             continue

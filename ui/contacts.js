@@ -9,6 +9,7 @@
   let formGeneration = 0;
   let pendingCreate = null;
   let searchTimer = null;
+  let cloudOffset=0,lastQuery=null;
 
   async function api(path, options = {}) {
     const headers = {...(options.headers || {})};
@@ -57,7 +58,8 @@
   async function loadContacts() {
     const generation = ++requestGeneration;
     const query = encodeURIComponent(byId('contactsSearch')?.value || '');
-    const data = await api(`/api/v1/control/contacts?q=${query}&limit=500`);
+    if(query!==lastQuery){cloudOffset=0;lastQuery=query;}
+    const data = await api(`/api/v1/control/contacts?q=${query}&limit=500&cloud_offset=${cloudOffset}`);
     if (generation !== requestGeneration) return;
     const list = byId('contactsList');
     const count = byId('contactsCount');
@@ -72,11 +74,15 @@
       ].filter(Boolean).join('');
       const source=contact.source_label||((contact.authority_source||'homeserver')==='vp3_cloud'?'VP3 Cloud':'HomeServer');
       const actions=contact.read_only
-        ? `<div class="contact-actions"><span class="muted">Read-only mirror · ${esc(source)}</span></div>`
+        ? `<div class="contact-actions">${contact.record_key?`<button type="button" class="text-button" data-workspace-detail="contacts" data-record-key="${esc(contact.record_key)}">Details & source</button>`:`<span class="muted">${esc(source)}</span>`}</div>`
         : `<div class="contact-actions"><button type="button" class="text-button" data-edit-contact="${contact.id}">Edit</button><button type="button" class="text-button danger" data-delete-contact="${contact.id}">Delete</button></div>`;
       return `<article class="panel contact-card" data-contact-id="${contact.id}" data-authority="${esc(contact.authority_source||'homeserver')}"><div><h3>${esc(contact.display_name)} <small>${esc(source)}</small></h3><div class="contact-lines">${lines}</div>${contact.notes ? `<p class="contact-notes">${esc(contact.notes)}</p>` : ''}</div>${actions}</article>`;
     }).join('') : '<div class="panel empty-state">No contacts found.</div>';
     list.dataset.contacts = JSON.stringify(data.items);
+    let pages=byId('contactsCloudPages');if(!data.cloud_count){if(pages)pages.hidden=true;return;}if(!pages){pages=document.createElement('div');pages.id='contactsCloudPages';pages.className='toolbar';list.after(pages);}
+    pages.replaceChildren();
+    for(const [label,offset,disabled] of [['Previous Cloud records',Math.max(0,cloudOffset-500),cloudOffset===0],['Next Cloud records',cloudOffset+500,cloudOffset+500>=(data.cloud_count||0)]]){const b=document.createElement('button');b.type='button';b.className='button secondary';b.textContent=label;b.disabled=disabled;b.onclick=()=>{cloudOffset=offset;loadContacts().catch(err=>flash(err.message,true));};pages.append(b);}
+    pages.hidden=(data.cloud_count||0)<=500;
   }
 
   function currentContact(id) {

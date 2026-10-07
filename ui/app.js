@@ -185,7 +185,7 @@ function openView(name) {
   state.view = name;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${name}`));
   document.querySelectorAll('.nav-item').forEach(v => v.classList.toggle('active', v.dataset.view === name));
-  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',members:'Users','homeserver-apps':'Apps',apps:'Connected Apps',backups:'Backup & Restore',storage:'Storage',health:'Health',ambient:'Ambient Agent',automation:'Rooms & Devices',tracky:'Tracky',federation:'Physical Network','physical-world':'Physical World',activity:'Activity','cloud-data':'Cloud data'};
+  const labels = {dashboard:'Overview',agent:'My Agent',chat:'Agent Chat',tools:'Skills & Tools',approvals:'Approvals',knowledge:'Knowledge',memory:'Memory',contacts:'Contacts',members:'Users','homeserver-apps':'Apps',apps:'Connected Apps',backups:'Backup & Restore',storage:'Storage',health:'Health',ambient:'Ambient Agent',automation:'Rooms & Devices',tracky:'Tracky',federation:'Physical Network','physical-world':'Physical World',activity:'Activity','cloud-data':'Cloud data','native-calendar':'Calendar','native-crm':'CRM','native-products':'Products','native-transcriptions':'Transcriptions','native-meetings':'Meetings','native-schedules':'Schedules'};
   $('pageTitle').textContent = labels[name] || 'HomeServer';
   loadView(name).catch(err => flash(err.message, true));
 }
@@ -275,17 +275,26 @@ async function loadAgent() {
   $('agentUpdated').textContent = agent.updated_at ? `Last updated ${fmt(agent.updated_at)}` : '';
 }
 
+let knowledgeCloudOffset=0,knowledgeCloudQuery=null,knowledgeGeneration=0;
 async function loadKnowledge() {
+  const generation=++knowledgeGeneration;
   ensureKnowledgeControls();
   const q = encodeURIComponent($('knowledgeSearch')?.value || '');
-  const data = await api(`/api/v1/control/knowledge?q=${q}`);
+  if(q!==knowledgeCloudQuery){knowledgeCloudOffset=0;knowledgeCloudQuery=q;}
+  const data = await api(`/api/v1/control/knowledge?q=${q}&cloud_offset=${knowledgeCloudOffset}`);
+  if(generation!==knowledgeGeneration)return;
+  let pages=$('knowledgeCloudPages');if(!pages){pages=document.createElement('div');pages.id='knowledgeCloudPages';pages.className='toolbar';$('knowledgeList').after(pages);}
+  pages.replaceChildren();
+  for(const [label,offset,disabled] of [['Previous Cloud records',Math.max(0,knowledgeCloudOffset-250),knowledgeCloudOffset===0],['Next Cloud records',knowledgeCloudOffset+250,knowledgeCloudOffset+250>=(data.cloud_count||0)]]){const b=document.createElement('button');b.type='button';b.className='button secondary';b.textContent=label;b.disabled=disabled;b.onclick=()=>{knowledgeCloudOffset=offset;loadKnowledge().catch(err=>flash(err.message,true));};pages.append(b);}
+  pages.hidden=(data.cloud_count||0)<=250;
   $('knowledgeCount').textContent = `${data.items.length} item${data.items.length === 1 ? '' : 's'}`;
   $('knowledgeList').innerHTML = data.items.length ? data.items.map(item => {
     const preview = item.snippet || (item.content || '').slice(0, 900);
     const source = item.original_name || item.source_path || '';
     const size = item.size_bytes ? formatBytes(item.size_bytes) : '';
     const chunks = Number(item.chunk_count || 0);
-    return `<article class="item-card"><div><h3>${esc(item.title)}</h3><p>${esc(preview)}</p><div class="item-meta"><span class="tag">${esc(item.kind)}</span>${source ? `<span>${esc(source)}</span>` : ''}${size ? `<span>${esc(size)}</span>` : ''}<span>${chunks} chunk${chunks === 1 ? '' : 's'}</span><span>${esc(fmt(item.updated_at))}</span></div></div><div><button class="icon-button danger" data-delete-knowledge="${item.id}">Delete</button></div></article>`;
+    const actions=item.authority_source==='vp3_cloud'?`<button class="button secondary" data-workspace-detail="knowledge" data-record-key="${esc(item.record_key)}">Details & source</button>`:`<button class="icon-button danger" data-delete-knowledge="${item.id}">Delete</button>`;
+    return `<article class="item-card"><div><h3>${esc(item.title)}</h3><p>${esc(preview)}</p><div class="item-meta"><span class="tag">${esc(item.kind)}</span><span>${esc(item.source_label||'HomeServer')}</span>${source ? `<span>${esc(source)}</span>` : ''}${size ? `<span>${esc(size)}</span>` : ''}<span>${chunks} chunk${chunks === 1 ? '' : 's'}</span><span>${esc(fmt(item.updated_at))}</span></div></div><div>${actions}</div></article>`;
   }).join('') : '<div class="panel empty-state">No knowledge items found.</div>';
 }
 
@@ -456,6 +465,7 @@ async function loadStorage() {
 }
 
 async function loadView(name) {
+  if(name.startsWith('native-')&&typeof window.loadHomeServerNativeWorkspace==='function')return window.loadHomeServerNativeWorkspace(name.slice(7));
   if (name === 'dashboard') return loadOverview();
   if (name === 'agent') return loadAgent();
   if (name === 'knowledge') return loadKnowledge();
@@ -634,7 +644,8 @@ $('refreshButton').addEventListener('click', () => loadView(state.view).then(() 
 ensureBackupWorkspace();
 ensureStorageWorkspace();
 ensureHealthWorkspace();
-const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','storage','health','ambient','automation','federation','physical-world','activity','cloud-data'];
+window.openHomeServerView = openView;
+const viewNames = ['dashboard','agent','chat','tools','approvals','knowledge','memory','contacts','members','homeserver-apps','apps','backups','storage','health','ambient','automation','federation','physical-world','activity','cloud-data','native-calendar','native-crm','native-products','native-transcriptions','native-meetings','native-schedules'];
 window.addEventListener('hashchange', () => { const next = location.hash.replace('#',''); if (viewNames.includes(next)) openView(next); });
 
 ensureKnowledgeControls();
