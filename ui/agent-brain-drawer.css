@@ -24,18 +24,4 @@
 .agent-brain-drawer-actions button{flex:1}
 @media (max-width:600px){.agent-brain-toggle-label{display:none}.agent-brain-drawer-head{padding:16px}.agent-brain-drawer-body{padding:16px}}
 @media (prefers-reduced-motion:reduce){.agent-brain-drawer{transition:none}}
-.agent-brain-drawer-section{display:grid;gap:10px;margin-top:20px}
-.agent-brain-section-meta{font-size:11px;color:var(--muted,#697687)}
-.agent-brain-context-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.agent-brain-context-card{display:grid;gap:3px;padding:12px;border:1px solid #e0e6ee;border-radius:10px;background:color-mix(in srgb,var(--panel,#fff) 94%,#eef3f8)}
-.agent-brain-context-card strong{font-size:18px}
-.agent-brain-context-card span{font-size:11px;color:var(--muted,#697687)}
-body.agent-brain-drawer-open{overflow:hidden}
-@media (max-width:900px){
-  .agent-brain-drawer{width:min(92vw,410px)}
-}
-@media (max-width:600px){
-  .agent-brain-drawer{width:100vw;border-left:0}
-  .agent-brain-context-grid{grid-template-columns:1fr 1fr}
-}
 .agent-brain-time{color:var(--muted,#697687);font-size:12px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
