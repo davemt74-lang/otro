@@ -1,0 +1,32 @@
+name: Verified deploy package
+on:
+  push:
+    branches: [codex/package-home-auto-sync-2824ece4]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: 2824ece4cf4ec37fba94cc4c22d2cc2b9ce0122b
+          path: verified-source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate packaging script
+        run: python -m py_compile tools/package_verified_deploy.py
+      - name: Verify official artifact and publish deploy ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/package_verified_deploy.py home davemt74-lang/otro 2824ece4cf4ec37fba94cc4c22d2cc2b9ce0122b 37550055670 homeserver-auto-sync-2824ece4 HomeServer-AutoSync-2824ece4-Deploy.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-deploy-2824ece4
+          path: deploy-output/*
+          if-no-files-found: error
+          retention-days: 30
