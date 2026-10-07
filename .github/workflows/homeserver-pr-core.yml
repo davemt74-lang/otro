@@ -56,6 +56,7 @@ jobs:
           node --check ui/tasks.js
       - name: Complete workspace synchronization and ambient speech
         run: |
+          python tests/workspace_actions.py
           python tests/workspace_sync_v1.py
           python tests/ambient_agent_v050.py
           python tests/ambient_agent_ui_contract_v050.py

@@ -13,6 +13,18 @@ from .tasks import TaskError, create_task, list_notifications, list_tasks
 TOOL_EXECUTE_PERMISSION = "tools.execute"
 
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "workspace.get": {
+        "key":"workspace.get", "name":"Read Synced Record for Editing",
+        "description":"Owner-only read of a synced Cloud contact, personal knowledge item or calendar event. Returns exact source key, revision and supported fields before proposing a change.",
+        "mode":"read", "owner_only":True, "required_permissions":[],
+        "input_schema":{"type":"object","properties":{"dataset":{"type":"string","enum":["contacts","knowledge","calendar"]},"key":{"type":"string","maxLength":240}},"required":["dataset","key"],"additionalProperties":False},
+    },
+    "workspace.update": {
+        "key":"workspace.update", "name":"Update Synced Cloud Record",
+        "description":"Queue a revision-checked Cloud contact, personal knowledge or calendar change. Cloud remains authoritative; queued does not mean saved. Agent changes require owner approval.",
+        "mode":"write", "owner_only":True, "required_permissions":[],
+        "input_schema":{"type":"object","properties":{"dataset":{"type":"string","enum":["contacts","knowledge","calendar"]},"key":{"type":"string","maxLength":240},"expected_revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"mutation_id":{"type":"string","minLength":8,"maxLength":128},"fields":{"type":"object","description":"Only changed editable fields from workspace.get. Do not send ownership, status, files or execution settings."}},"required":["dataset","key","expected_revision","mutation_id","fields"],"additionalProperties":False},
+    },
     "workspace.search": {
         "key":"workspace.search", "name":"Search Synced Cloud Workspaces",
         "description":"Owner-only search of current account's complete synced Cloud contacts, CRM, products, calendar, knowledge, transcriptions, meetings and schedules. Returns bounded factual excerpts with source identity; never executes copied schedules or edits records.",
@@ -1032,6 +1044,8 @@ def _safe_numeric(value: Any, default: int | float | None = None) -> int | float
 
 
 def _safe_argument_metadata(tool_key: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if tool_key.startswith('workspace.'):
+        return {'dataset':str(arguments.get('dataset') or '')[:40],'key_length':len(str(arguments.get('key') or '')),'field_names':sorted((arguments.get('fields') or {}).keys()) if isinstance(arguments.get('fields'),dict) else [],'query_length':len(str(arguments.get('query') or ''))}
     if tool_key in {"contacts.create", "contacts.update", "contacts.delete"}:
         return contacts.safe_contact_mutation_meta(tool_key, arguments)
     if tool_key in {"knowledge.create", "knowledge.update", "knowledge.delete"}:
@@ -2256,6 +2270,27 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _apps_start(payload)
         elif tool["key"] == "apps.stop":
             result, result_meta = _apps_stop(payload)
+        elif tool["key"] in {"workspace.get", "workspace.update"}:
+            if not resource_owner:
+                raise ToolError("Synced Cloud workspaces are available only to the owner.",403)
+            from . import workspace_actions
+            try:
+                if tool['key']=='workspace.get':
+                    if set(payload)-{'dataset','key'}:
+                        raise ToolError('Unsupported workspace get argument.')
+                    result=workspace_actions.editable(str(payload.get('dataset') or ''),str(payload.get('key') or ''))
+                    # Keep revision/field identities before bounded record content.
+                    row=result.pop('record')
+                    values=result.pop('editable_values')
+                    truncated=[field for field,value in values.items() if isinstance(value,str) and len(value)>1000]
+                    result={'dataset':payload['dataset'],'key':payload['key'],'record_revision':row['record_revision'],**result,'editable_values':{field:value[:1000] if isinstance(value,str) else value for field,value in values.items()},'truncated_fields':truncated}
+                else:
+                    if not approval_request_id:
+                        raise ToolError('Agent workspace changes require owner approval.',403)
+                    result=workspace_actions.enqueue(payload)
+                result_meta={'dataset':payload.get('dataset'),'state':(result.get('action') or {}).get('state','read')}
+            except workspace_actions.WorkspaceActionError as exc:
+                raise ToolError(str(exc),exc.status_code) from exc
         elif tool["key"] == "workspace.search":
             if not resource_owner:
                 raise ToolError("Synced Cloud workspaces are available only to the owner.",403)

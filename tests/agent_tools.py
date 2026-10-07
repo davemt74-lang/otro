@@ -70,6 +70,7 @@ try:
         assert set(default_policy.json()["available_tools"]) == {
             "homeserver_contacts_search",
             "homeserver_workspace_search",
+            "homeserver_workspace_get",
             "homeserver_devices_list",
             "homeserver_file_read",
             "homeserver_files_list",
@@ -130,6 +131,7 @@ try:
         offered = {item["function"]["name"] for item in owner_steps[0]["tools"]}
         assert offered == {
             "homeserver_workspace_search",
+            "homeserver_workspace_get",
             "homeserver_contacts_search",
             "homeserver_devices_list",
             "homeserver_file_read",

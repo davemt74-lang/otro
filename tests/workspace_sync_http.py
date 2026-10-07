@@ -8,7 +8,7 @@ with tempfile.TemporaryDirectory(prefix='workspace-http-') as directory:
     os.environ['HOMESERVER_DATA_DIR']=directory+'/home'
     import httpx
     from app.database import initialize_database,db
-    from app.services import workspace_sync as sync,native_workspaces as native,local_transcription_sessions as transcripts
+    from app.services import workspace_sync as sync,workspace_actions as actions,native_workspaces as native,local_transcription_sessions as transcripts
     from app.services.https_bridge_session import save_https_session
     from app.services.remote_identity import load_or_create_remote_identity
     initialize_database()
@@ -59,6 +59,48 @@ with tempfile.TemporaryDirectory(prefix='workspace-http-') as directory:
                 cloud.execute("UPDATE agent_commerce_products_v800 SET sku='SKU-UPDATED' WHERE id=1")
             assert sync.sync_once().get('ok')
             assert 'SKU-UPDATED' in json.dumps(sync.records('products',detail_key='agent_commerce_products_v800:1'))
+            # Real native write + lost acknowledgement: the server commits once.
+            source=actions.editable('contacts','crm_contacts:1')['record']
+            edit={'dataset':'contacts','key':'crm_contacts:1','mutation_id':'http-contact-0001','expected_revision':source['record_revision'],'fields':{'display_name':'Edited from HomeServer 💡','email':'edited@example.invalid'}}
+            actions.enqueue(edit)
+            attempts=[]
+            with httpx.Client(timeout=12.0) as network:
+                def drop_receipt(request):
+                    body=json.loads(request.content)
+                    response=network.post(str(request.url),content=request.content,headers=request.headers)
+                    if body.get('action')=='mutate':
+                        attempts.append(body)
+                        if len(attempts)==1:raise httpx.ReadTimeout('lost-after-cloud-commit',request=request)
+                    return response
+                with httpx.Client(transport=httpx.MockTransport(drop_receipt)) as client:
+                    assert sync.sync_once(client).get('ok')
+                    assert actions.status()['items'][0]['state']=='queued'
+                    assert sync.sync_once(client).get('ok')
+            assert len(attempts)==2 and attempts[0]==attempts[1]
+            assert actions.status()['items'][0]['state']=='synced'
+            with sqlite3.connect(directory+'/cloud.sqlite') as cloud:
+                assert cloud.execute('SELECT name,email_normalized FROM crm_contacts WHERE id=1').fetchone()==('Edited from HomeServer 💡','edited@example.invalid')
+                assert cloud.execute('SELECT count(*) FROM homeserver_workspace_mutations_v1 WHERE mutation_id=?',('http-contact-0001',)).fetchone()[0]==1
+            for dataset,key,fields in [('knowledge','knowledge_items:1',{'title':'Updated native knowledge','content_text':'New indexed 中文 source text'}),('calendar','user_calendar_events:1',{'date':'2026-10-10','end_date':'2026-10-10','start_time':'10:00','end_time':'11:00'})]:
+                base=actions.editable(dataset,key)['record']
+                actions.enqueue({'dataset':dataset,'key':key,'expected_revision':base['record_revision'],'mutation_id':'http-'+dataset+'-0001','fields':fields})
+            assert sync.sync_once().get('ok')
+            assert actions.status()['pending_count']==0
+            with sqlite3.connect(directory+'/cloud.sqlite') as cloud:
+                assert 'New indexed 中文' in cloud.execute('SELECT chunk_text FROM knowledge_chunks WHERE knowledge_id=1').fetchone()[0]
+                assert cloud.execute('SELECT start_at_utc FROM user_calendar_events WHERE id=1').fetchone()[0]=='2026-10-10 17:00:00'
+                assert cloud.execute('SELECT count(*) FROM user_calendar_events').fetchone()[0]==1
+            with db() as home:
+                assert home.execute('SELECT count(*) FROM local_calendar_events').fetchone()[0]==0
+                assert home.execute('SELECT count(*) FROM automation_routines').fetchone()[0]==0
+            assert sync.records('knowledge',detail_key='knowledge_items:1')['items'][0]['data']['content_text']=='New indexed 中文 source text'
+            # Concurrent source edits are conflicts and preserve the source value.
+            base=actions.editable('contacts','crm_contacts:1')['record']
+            actions.enqueue({'dataset':'contacts','key':'crm_contacts:1','mutation_id':'http-conflict-0001','expected_revision':base['record_revision'],'fields':{'display_name':'Stale draft'}})
+            with sqlite3.connect(directory+'/cloud.sqlite') as cloud:cloud.execute("UPDATE crm_contacts SET name='Newer Cloud edit' WHERE id=1")
+            assert sync.sync_once().get('ok')
+            assert actions.status()['items'][0]['state']=='conflict'
+            assert native.items('contacts')['items'][0]['title']=='Newer Cloud edit'
             before=sync.status()['last_success_at']
             with sqlite3.connect(directory+'/cloud.sqlite') as cloud:cloud.execute("UPDATE homeserver_https_sessions SET status='revoked' WHERE user_id=1")
             try:
@@ -68,7 +110,7 @@ with tempfile.TemporaryDirectory(prefix='workspace-http-') as directory:
                 pass
             assert not sync.sync_once().get('ok')
             assert sync.status()['last_success_at']==before
-            print('Real Python/PHP HTTP, both-way full UTF-8 records, originals, account isolation, updates and revocation PASS')
+            print('Real Python/PHP HTTP, native edits, dropped receipts, index rebuild, calendar, conflicts, original files and no duplicate jobs PASS')
         except Exception:
             log.flush();log.seek(0);print(log.read()[-4000:],file=sys.stderr);raise
         finally:

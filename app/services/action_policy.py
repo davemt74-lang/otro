@@ -12,6 +12,7 @@ APPROVAL_REQUIRED = "approval_required"
 SENSITIVE_HIGH_IMPACT = "sensitive_high_impact"
 VALID_MODES = {READ_ONLY, SAFE_AUTOMATIC, APPROVAL_REQUIRED, SENSITIVE_HIGH_IMPACT}
 APPROVAL_ONLY_WRITE_TOOLS = {
+    "workspace.update",
     "files.update",
     "files.delete",
     "devices.command",

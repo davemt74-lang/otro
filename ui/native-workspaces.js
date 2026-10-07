@@ -11,7 +11,7 @@
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
     try{
       const response=await fetch(base+path,{cache:'no-store',credentials:'same-origin',...options,signal:controller.signal});
-      const data=await response.json();if(!response.ok)throw Error(data.detail||'Workspace unavailable');return data;
+      const data=await response.json();if(!response.ok){const error=Error(data.detail||'Workspace unavailable');error.status=response.status;throw error;}return data;
     }finally{clearTimeout(timer);}
   }
   function element(tag,text,className=''){
@@ -21,6 +21,63 @@
     const link=element('a','Manage in Cloud','button secondary');
     link.href=base+'/source/'+encodeURIComponent(dataset)+'?key='+encodeURIComponent(key);
     link.target='_blank';link.rel='noopener noreferrer';return link;
+  }
+  async function edit(dataset,key){
+    const epoch=++detailEpoch,dialog=$('nativeWorkspaceDetail');
+    dialog.replaceChildren(element('p','Loading editor…'));if(!dialog.open)dialog.showModal();
+    try{
+      const data=await request('/edit/'+encodeURIComponent(dataset)+'?key='+encodeURIComponent(key));
+      if(epoch!==detailEpoch||!dialog.open)return;
+      const row=data.record,form=document.createElement('form'),inputs=new Map();
+      let retryPayload=null;
+      dialog.replaceChildren(element('h2','Edit '+(row.data.title||row.data.name||key)),element('p','Changes save to Cloud. Offline changes wait here and are checked against the original revision.','muted'));
+      const feedback=element('p','','muted');feedback.setAttribute('role','status');dialog.append(feedback);
+      for(const action of data.actions||[])feedback.textContent=action.state+' · '+(action.error||'Updated '+stamp(action.updated_at));
+      for(const [field,limit] of Object.entries(data.editable_fields)){
+        const label=element('label',field.replaceAll('_',' '),'native-edit-field');
+        const input=document.createElement(limit>500?'textarea':'input');input.name=field;
+        if(field==='all_day'){input.type='checkbox';input.checked=Boolean(data.editable_values[field]);}
+        else{
+          if(field==='date'||field==='end_date')input.type='date';
+          else if(field==='start_time'||field==='end_time')input.type='time';
+          else if(field==='email')input.type='email';
+          input.value=String(data.editable_values[field]??'');input.maxLength=limit;
+          // A title-only edit must never truncate a larger original document.
+          if(input.value.length>limit){input.disabled=true;label.append(element('small','Use the Cloud editor to change this larger field.','muted'));}
+          if(field==='title'||field==='display_name')input.required=true;
+        }
+        label.append(input);form.append(label);inputs.set(field,input);
+      }
+      const save=element('button','Save to Cloud','button primary');save.type='submit';
+      const close=element('button','Close','button secondary');close.type='button';close.onclick=()=>dialog.close();
+      form.append(save,close);dialog.append(form);
+      form.onsubmit=async event=>{
+        event.preventDefault();
+        if(!retryPayload){
+          const fields={};
+          for(const [field,input] of inputs){if(input.disabled)continue;const value=field==='all_day'?input.checked:input.value;if(value!==data.editable_values[field])fields[field]=value;}
+          if(!Object.keys(fields).length){feedback.textContent='No fields changed.';return;}
+          const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);
+          const mutation=Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('');
+          retryPayload={dataset,key,expected_revision:row.record_revision,mutation_id:mutation,fields};
+        }
+        save.disabled=true;for(const input of inputs.values())input.disabled=true;
+        feedback.textContent='Queuing your change…';
+        try{
+          const result=await request('/edits',{method:'POST',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify(retryPayload)});
+          if(epoch!==detailEpoch||!dialog.open)return;
+          form.remove();feedback.textContent=result.action.state==='synced'?'Saved and synchronized.':'Change '+result.action.state+'. Agent Brain shows delivery and any conflicts. The original copy stays visible until synchronization confirms it.';
+          const inspect=element('button','Refresh record & status','button secondary');inspect.onclick=()=>details(dataset,key);dialog.append(inspect,close);
+          window.dispatchEvent(new Event('homeserver:workspace-edits'));
+        }catch(error){
+          if(epoch!==detailEpoch||!dialog.open)return;
+          feedback.textContent=error.message;
+          if(error.status){retryPayload=null;for(const [field,input] of inputs)input.disabled=typeof data.editable_values[field]==='string'&&data.editable_values[field].length>data.editable_fields[field];save.textContent='Save to Cloud';}
+          else{save.textContent='Retry same change';feedback.textContent='Delivery status is uncertain. Retry this same change; your draft is preserved.';}
+          save.disabled=false;
+        }
+      };
+    }catch(error){if(epoch===detailEpoch&&dialog.open){dialog.replaceChildren(element('p',error.message));const back=element('button','Back to record','button secondary');back.onclick=()=>details(dataset,key);dialog.append(back);}}
   }
   async function details(dataset,key){
     const epoch=++detailEpoch,dialog=$('nativeWorkspaceDetail');
@@ -34,6 +91,12 @@
       const title=record.data.title||record.data.name||record.data.display_name||key;
       dialog.append(element('h2',String(title)),element('p','VP3 Cloud · last checked '+stamp(data.synced_at),'muted'));
       if(window.HomeServerNativeSourceTables.has(record.table))dialog.append(sourceLink(dataset,key));
+      if(record.record_revision&&['crm_contacts','knowledge_items','user_calendar_events'].includes(record.table)){
+        const button=element('button','Edit here','button primary');button.type='button';button.onclick=()=>edit(dataset,key);dialog.append(button);
+        const actions=await request('/edits');
+        if(epoch!==detailEpoch||!dialog.open)return;
+        for(const action of actions.items||[]){if(action.dataset===dataset&&action.record_key===key)dialog.append(element('p',action.state+' · '+(action.error||stamp(action.updated_at)),'muted'));}
+      }
       for(const file of data.attachments||[]){
         if(!/^[a-f0-9]{64}$/.test(file.sha256))continue;
         const link=element('a','Download '+file.name,'button secondary');link.href=base+'/assets/'+file.sha256;link.download=file.name;dialog.append(link);
@@ -75,7 +138,7 @@
     for(const [dataset,label] of Object.entries(labels)){
       const name='native-'+dataset,button=element('button',label,'nav-item');button.dataset.view=name;button.type='button';nav.append(button);
       const view=element('section','','view');view.id='view-'+name;
-      view.append(element('h2',label),element('p','Cloud records are available here from the last complete sync. Manage changes at their source; saved changes synchronize automatically.','muted'));
+      view.append(element('h2',label),element('p','Cloud records are available here from the last complete sync. Supported records can be edited here; saved changes synchronize automatically.','muted'));
       if(dataset==='schedules')view.append(element('p','Schedules and reminders execute only on their owning system.','muted'));
       const status=element('p','','muted');status.setAttribute('role','status');view.append(status);
       const toolbar=element('div','','toolbar'),search=document.createElement('input');search.type='search';search.placeholder='Search '+label.toLowerCase();search.maxLength=240;search.setAttribute('aria-label',search.placeholder);toolbar.append(search);

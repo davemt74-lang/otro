@@ -26,9 +26,11 @@ with db() as c:
  c.execute('UPDATE workspace_sync_settings SET enabled=0,peer_id=?,session_hash=? WHERE id=1',(peer,hashlib.sha256(('a'*64).encode()).hexdigest()))
  c.execute("INSERT INTO contacts(display_name,notes) VALUES('Local contact','Local original')")
 for dataset,table,count in [('contacts','crm_contacts',501),('knowledge','knowledge_items',251),('calendar','user_calendar_events',75),('crm','crm_leads',1),('products','agent_commerce_products_v800',1),('transcriptions','artist_transcript_sessions_v172',1),('meetings','video_meetings',1),('schedules','agent_scheduling_schedules',1)]:
- rows=[{'table':table,'source_id':str(i),'data':{'title':dataset+' item '+str(i),'name':dataset+' item '+str(i),'content_text':('Full Unicode 中文 evidence '*10000+' tailneedle <img src=x onerror=alert(1)>') if dataset=='knowledge' and i in (1,251) else 'Complete source data','email':'cloud'+str(i)+'@example.invalid'}} for i in range(1,count+1)]
+ rows=[{'table':table,'source_id':str(i),'record_revision':'1'*64,'data':{'title':dataset+' item '+str(i),'name':dataset+' item '+str(i),'knowledge_scope':'personal','status':'active','timezone':'UTC','start_at_utc':'2026-10-10 10:00:00','end_at_utc':'2026-10-10 11:00:00','all_day':0,'content_text':('Full Unicode 中文 evidence '*10000+' tailneedle <img src=x onerror=alert(1)>') if dataset=='knowledge' and i in (1,251) else 'Complete source data','email':'cloud'+str(i)+'@example.invalid'}} for i in range(1,count+1)]
  raw=json.dumps({'contract':sync.CONTRACT,'source':'cloud','dataset':dataset,'records':rows,'files':[]},ensure_ascii=False).encode()
  sync.apply_snapshot(peer,dataset,raw,hashlib.sha256(raw).hexdigest())
+from app.services import approvals
+approvals.create_workspace_update_request('owner',{'dataset':'contacts','key':'crm_contacts:1','expected_revision':'1'*64,'mutation_id':'browser-agent-0001','fields':{'display_name':'Agent proposal <img src=x onerror=alert(1)>'}},owner=True)
 from app.runtime import app
 from app.security import OWNER_CONTROL_TOKEN
 import uvicorn
@@ -62,6 +64,39 @@ uvicorn.run(app,host='127.0.0.1',port=${port},log_level='error')
   await page.locator('#contactsCloudPages button').filter({hasText:'Next Cloud records'}).click();
   await page.locator('#contactsList h3').filter({hasText:'contacts item 501'}).waitFor();
   assert.equal(await page.locator('#contactsList [data-workspace-detail]').count(),1);
+  await page.locator('#contactsList [data-workspace-detail]').click();
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:/^Edit here$/}).click();
+  await page.locator('#nativeWorkspaceDetail input[name="display_name"]').fill('Offline contact 中文');
+  let lost=false;const sent=[];
+  await page.route('**/workspace-sync/edits',async route=>{
+    if(route.request().method()!=='POST')return route.continue();
+    sent.push(route.request().postDataJSON());
+    if(!lost){lost=true;await route.fetch();await route.abort('failed');}else await route.continue();
+  });
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:/^Save to Cloud$/}).click();
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:/^Retry same change$/}).waitFor();
+  assert.equal(await page.locator('#nativeWorkspaceDetail input[name="display_name"]').inputValue(),'Offline contact 中文');
+  assert.ok(await page.locator('#nativeWorkspaceDetail input[name="display_name"]').isDisabled());
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:/^Retry same change$/}).click();
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:'Refresh record & status'}).waitFor();
+  assert.equal(sent.length,2);assert.deepEqual(sent[0],sent[1]);
+  let edits=await (await context.request.get(base+'/api/v1/control/workspace-sync/edits')).json();
+  assert.equal(edits.pending_count,1);assert.equal(edits.items[0].state,'queued');
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:/^Close$/}).click();
+  await page.locator('[data-view="approvals"]').first().click();
+  await page.locator('#approvalsList .approval-card').first().waitFor();
+  assert.ok((await page.locator('#approvalsList').textContent()).includes('Proposed Cloud contacts change'));
+  assert.equal(await page.locator('#approvalsList img').count(),0);
+  page.removeAllListeners('dialog');page.on('dialog',async dialog=>{assert.ok(dialog.message().startsWith('Approve these exact fields'));await dialog.accept();});
+  await page.locator('#approvalsList [data-action-approve]').click();
+  await page.waitForFunction(()=>document.querySelector('#flash')?.textContent.includes('queued'));
+  edits=await (await context.request.get(base+'/api/v1/control/workspace-sync/edits')).json();assert.equal(edits.pending_count,2);
+  await page.locator('#agentBrainDrawerToggle').click();
+  await page.waitForFunction(()=>document.querySelector('#agentBrainSync')?.textContent.includes('2 changes pending'));
+  assert.equal(await page.locator('#agentBrainSync button').filter({hasText:'Cancel unsent change'}).count(),2);
+  await page.locator('#agentBrainSync button').filter({hasText:'Cancel unsent change'}).first().click();
+  await page.waitForFunction(()=>document.querySelector('#agentBrainSync')?.textContent.includes('1 changes pending'));
+  await page.locator('#agentBrainDrawer .agent-brain-close').click();
   await page.locator('[data-view="knowledge"]').first().click();
   await page.locator('#knowledgeCloudPages button').filter({hasText:'Next Cloud records'}).waitFor();
   await page.locator('#knowledgeCloudPages button').filter({hasText:'Next Cloud records'}).click();
@@ -70,6 +105,10 @@ uvicorn.run(app,host='127.0.0.1',port=${port},log_level='error')
   await page.waitForFunction(()=>document.querySelector('#nativeWorkspaceDetail').textContent.includes('tailneedle'));
   assert.equal(await page.locator('#nativeWorkspaceDetail img').count(),0);
   assert.equal(dialogs,0);
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:/^Edit here$/}).click();
+  await page.locator('#nativeWorkspaceDetail textarea[name="content_text"]').waitFor();
+  assert.ok(await page.locator('#nativeWorkspaceDetail textarea[name="content_text"]').isDisabled());
+  assert.ok((await page.locator('#nativeWorkspaceDetail textarea[name="content_text"]').inputValue()).includes('tailneedle'));
   await page.setViewportSize({width:390,height:844});
   const dimensions=await page.locator('#nativeWorkspaceDetail').evaluate(el=>({width:el.getBoundingClientRect().width,scroll:el.scrollWidth,client:el.clientWidth,viewport:innerWidth}));
   assert.ok(dimensions.width<=dimensions.viewport&&dimensions.scroll<=dimensions.client+1,JSON.stringify(dimensions));
@@ -79,7 +118,7 @@ uvicorn.run(app,host='127.0.0.1',port=${port},log_level='error')
     await page.locator('#view-native-'+dataset+' article').first().waitFor();
   }
   assert.ok((await page.locator('#view-native-schedules').textContent()).includes('execute only on their owning system'));
-  console.log('Native browser deep links, pagination, full Unicode details, source links, local edit isolation, escaped content and mobile layout PASS');
+  console.log('Native browser editing, offline drafts, lost response retries, exact Agent approvals, Brain status, cancellation, Unicode, pagination and mobile layout PASS');
 }finally{
   await browser?.close();
   if(child&&child.exitCode===null&&!child.killed){child.kill('SIGTERM');await new Promise(resolve=>{child.once('exit',resolve);setTimeout(()=>{child.kill('SIGKILL');resolve();},5000);});}

@@ -178,6 +178,7 @@ def _generate_with_agent_tools(
     state: dict[str, Any] | None = None,
     provider_key: str | None = None,
     cancellation_token: CancellationToken | None = None,
+    workspace_datasets: tuple[str, ...] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     policy = agent_tools.get_policy()
     schemas = (
@@ -191,6 +192,8 @@ def _generate_with_agent_tools(
         else []
     )
     tool_state = state if state is not None else {}
+    if workspace_datasets is not None and not workspace_datasets:
+        schemas=[item for item in schemas if not item['function']['name'].startswith('homeserver_workspace_')]
     tool_state.clear()
     tool_state.update(
         {
@@ -289,9 +292,14 @@ def _generate_with_agent_tools(
             try:
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled()
-                result = agent_tools.execute_model_tool(
-                    source_app_key, model_name, arguments, granted_permissions, owner=owner
-                )
+                from . import workspace_actions
+                context_token=workspace_actions.agent_datasets.set(workspace_datasets)
+                try:
+                    result = agent_tools.execute_model_tool(
+                        source_app_key, model_name, arguments, granted_permissions, owner=owner
+                    )
+                finally:
+                    workspace_actions.agent_datasets.reset(context_token)
                 tool_state["run_ids"].append(int(result["run_id"]))
                 request_id = result.get("result", {}).get("request_id")
                 if request_id:

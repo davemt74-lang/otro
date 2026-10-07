@@ -608,6 +608,17 @@ def create_device_command_request(
 
 
 
+def create_workspace_update_request(source_app_key: str, arguments: dict[str, Any] | None, *, owner: bool = False) -> dict[str, Any]:
+    if not owner:
+        raise ApprovalError('Cloud workspace changes are available only to the owner Agent.',403)
+    from . import workspace_actions
+    try:
+        normalized=workspace_actions.normalize(arguments or {})
+    except workspace_actions.WorkspaceActionError as exc:
+        raise ApprovalError(str(exc),exc.status_code) from exc
+    return _create_action_request(source_app_key.strip() or 'owner','owner','workspace.update',normalized,tools._safe_argument_metadata('workspace.update',normalized),[])
+
+
 def create_app_action_request(
     source_app_key:str,
     action_key:str,
@@ -832,6 +843,7 @@ def approve_request(request_id: str) -> dict[str, Any]:
         "contacts.create", "contacts.update", "contacts.delete",
         "knowledge.create", "knowledge.update", "knowledge.delete",
         "calendar.create", "calendar.update", "calendar.delete",
+        "workspace.update",
         "apps.prebuilt.install", "apps.build_install", "apps.rollback", "apps.recover", "apps.start", "apps.stop",
         "apps.git.inspect", "apps.source.install", "apps.source.detach",
         "apps.permission.set", "apps.settings.set", "apps.invoke",

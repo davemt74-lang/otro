@@ -1,10 +1,10 @@
 name: Workspace Sync HTTP Acceptance
 on:
   pull_request:
-    paths: [app/services/workspace_sync.py, app/workspace_sync_api.py, app/services/native_workspaces.py, tests/workspace_sync_http.py, .github/workflows/workspace-sync-http.yml]
+    paths: [app/services/workspace_sync.py, app/services/workspace_actions.py, app/workspace_sync_api.py, app/services/native_workspaces.py, database/migrations/069_workspace_actions.sql, tests/workspace_sync_http.py, .github/workflows/workspace-sync-http.yml]
   push:
     branches: [main]
-    paths: [app/services/workspace_sync.py, app/workspace_sync_api.py, app/services/native_workspaces.py, tests/workspace_sync_http.py, .github/workflows/workspace-sync-http.yml]
+    paths: [app/services/workspace_sync.py, app/services/workspace_actions.py, app/workspace_sync_api.py, app/services/native_workspaces.py, database/migrations/069_workspace_actions.sql, tests/workspace_sync_http.py, .github/workflows/workspace-sync-http.yml]
 permissions:
   contents: read
 concurrency:

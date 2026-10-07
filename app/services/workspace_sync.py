@@ -41,7 +41,9 @@ _ASSET_VERIFIED: dict[str,tuple[int,int]] = {}
 
 
 class WorkspaceSyncError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int = 422):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def now() -> str:
@@ -65,6 +67,7 @@ def set_enabled(enabled: bool) -> dict:
 
 
 def status() -> dict:
+    from . import workspace_actions
     state = settings()
     with db() as connection:
         rows = connection.execute('SELECT dataset,record_count,synced_at FROM workspace_sync_snapshots WHERE peer_id=? ORDER BY dataset',(state['peer_id'],)).fetchall()
@@ -77,7 +80,8 @@ def status() -> dict:
             'last_attempt_at':state['last_attempt_at'],'last_success_at':state['last_success_at'] if verified else None,
             'last_error':state['last_error'],'cloud_datasets':[dict(row) for row in rows] if verified else [],
             'homeserver_datasets':[dict(row) for row in deliveries] if verified else [],
-            'supported_datasets':list(DATASETS),'source_authority_preserved':True,'copied_schedules_execute':False}
+            'supported_datasets':list(DATASETS),'source_authority_preserved':True,'copied_schedules_execute':False,
+            'edits':workspace_actions.status()}
 
 
 def _safe(value: Any) -> Any:
@@ -305,12 +309,12 @@ def _request(client: httpx.Client, session: dict, body: dict) -> dict:
     if response.status_code==404:
         raise WorkspaceSyncError('Update VP3 Cloud to enable workspace sync.')
     if not response.is_success:
-        raise WorkspaceSyncError(f'Workspace sync unavailable ({response.status_code}); previous copy preserved.')
+        raise WorkspaceSyncError(f'Workspace sync unavailable ({response.status_code}); previous copy preserved.',response.status_code)
     if len(response.content)>1500000:
-        raise WorkspaceSyncError('Workspace response exceeds transfer limits.')
+        raise WorkspaceSyncError('Workspace response exceeds transfer limits.',503)
     data=response.json()
     if not isinstance(data,dict) or data.get('ok') is not True or data.get('contract')!=CONTRACT:
-        raise WorkspaceSyncError('Invalid workspace sync response.')
+        raise WorkspaceSyncError('Invalid workspace sync response.',503)
     return data
 
 
@@ -344,6 +348,8 @@ def sync_once(client: httpx.Client | None = None) -> dict:
                     connection.execute('UPDATE workspace_sync_settings SET peer_id=?,last_success_at=NULL WHERE id=1',(peer,))
                 connection.execute('UPDATE workspace_sync_settings SET session_hash=? WHERE id=1',(hashlib.sha256(session['session_token'].encode()).hexdigest(),))
         remote_deliveries={row['dataset']:row['revision'] for row in catalog.get('homeserver',[]) if isinstance(row,dict) and row.get('dataset') in DATASETS}
+        from . import workspace_actions
+        workspace_actions.deliver(client,session)
         for dataset in DATASETS:
             manifest=_request(client,session,{'action':'prepare','dataset':dataset})
             revision=manifest.get('revision');total=manifest.get('byte_count')
@@ -379,6 +385,7 @@ def sync_once(client: httpx.Client | None = None) -> dict:
                         raise WorkspaceSyncError('Workspace pairing changed.')
                     with db() as connection:
                         connection.execute('UPDATE workspace_sync_snapshots SET synced_at=? WHERE peer_id=? AND dataset=?',(now(),peer,dataset))
+            workspace_actions.reconcile(peer,dataset,json.loads(bytes(raw).decode('utf-8') if before is None or before['revision']!=revision else before['body_json']))
             if dataset in OUTBOUND:
                 snapshot=local_snapshot(dataset)
                 if remote_deliveries.get(dataset)!=snapshot['revision']:
