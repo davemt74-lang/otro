@@ -1,10 +1,10 @@
 name: Native Workspace Acceptance
 on:
   pull_request:
-    paths: [app/**, ui/**, tests/native_workspaces.py, tests/native_workspaces_browser.mjs, .github/workflows/native-workspaces.yml]
+    paths: [app/**, ui/**, database/migrations/069_workspace_actions.sql, tests/native_workspaces.py, tests/workspace_actions.py, tests/native_workspaces_browser.mjs, .github/workflows/native-workspaces.yml]
   push:
     branches: [main]
-    paths: [app/**, ui/**, tests/native_workspaces.py, tests/native_workspaces_browser.mjs, .github/workflows/native-workspaces.yml]
+    paths: [app/**, ui/**, database/migrations/069_workspace_actions.sql, tests/native_workspaces.py, tests/workspace_actions.py, tests/native_workspaces_browser.mjs, .github/workflows/native-workspaces.yml]
 permissions:
   contents: read
 concurrency:
@@ -27,4 +27,5 @@ jobs:
           npm install --no-save --ignore-scripts playwright@1.51.1
           npx playwright install --with-deps chromium
       - run: python tests/native_workspaces.py
+      - run: python tests/workspace_actions.py
       - run: node tests/native_workspaces_browser.mjs

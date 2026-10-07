@@ -2,13 +2,48 @@ from __future__ import annotations
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
-from .services import workspace_sync, native_workspaces
+from .services import workspace_sync, native_workspaces, workspace_actions
 
 router=APIRouter(prefix='/api/v1/control/workspace-sync',tags=['workspace-sync'])
 
 class SyncSettings(BaseModel):
     model_config=ConfigDict(extra='forbid')
     enabled:bool
+
+class WorkspaceEdit(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    dataset:str
+    key:str
+    expected_revision:str
+    mutation_id:str
+    fields:dict
+
+@router.get('/edit/{dataset}')
+def editable(dataset:str,key:str=Query(max_length=240))->dict:
+    try:
+        return workspace_actions.editable(dataset,key)
+    except workspace_actions.WorkspaceActionError as exc:
+        raise HTTPException(exc.status_code,detail=str(exc)) from exc
+
+@router.post('/edits')
+def save_edit(body:WorkspaceEdit,request:Request,x_requested_with:str|None=Header(default=None))->dict:
+    mutation(request,x_requested_with)
+    try:
+        return workspace_actions.enqueue(body.model_dump())
+    except workspace_actions.WorkspaceActionError as exc:
+        raise HTTPException(exc.status_code,detail=str(exc)) from exc
+
+@router.get('/edits')
+def edits()->dict:
+    return workspace_actions.status()
+
+@router.post('/edits/{mutation_id}/cancel')
+def cancel_edit(mutation_id:str,request:Request,x_requested_with:str|None=Header(default=None))->dict:
+    mutation(request,x_requested_with)
+    try:
+        return workspace_actions.cancel(mutation_id)
+    except workspace_actions.WorkspaceActionError as exc:
+        raise HTTPException(exc.status_code,detail=str(exc)) from exc
 
 
 def mutation(request:Request, requested_with:str|None)->None:

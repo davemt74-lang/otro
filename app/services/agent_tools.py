@@ -9,6 +9,7 @@ from ..database import db
 from . import action_policy, approvals, app_scopes, maintenance_conversation, plugins, tools
 
 MODEL_TOOL_NAMES = {
+    "homeserver_workspace_get": "workspace.get",
     "homeserver_workspace_search": "workspace.search",
     "homeserver_health_status": "health.status",
     "homeserver_health_issue": "health.issue",
@@ -41,6 +42,7 @@ TASK_PROPOSAL_TOOL_KEY = "tasks.create"
 MAINTENANCE_PROPOSAL_TOOL_NAME="homeserver_maintenance_repair_request"
 DEVICE_PROPOSAL_TOOL_NAME = "homeserver_device_command_request"
 DEVICE_PROPOSAL_TOOL_KEY = "devices.command"
+WORKSPACE_PROPOSAL_TOOL_NAME = "homeserver_workspace_update_request"
 
 APP_ACTION_MODEL_TOOLS = {
     "homeserver_app_install_prebuilt_request": "apps.prebuilt.install",
@@ -195,6 +197,9 @@ def model_tool_schemas(
         )
 
     if allow_write_proposals:
+        workspace_tool=by_key.get('workspace.update')
+        if owner and workspace_tool and workspace_tool.get('available'):
+            schemas.append({'type':'function','function':{'name':WORKSPACE_PROPOSAL_TOOL_NAME,'description':'Propose changed fields for a synced Cloud record. Read workspace.get first for its exact key, supported fields and revision. Nothing is saved until the owner approves, Cloud accepts and sync confirms the change. Use a unique change ID.','parameters':workspace_tool['input_schema']}})
         memory_tool = by_key.get(MEMORY_PROPOSAL_TOOL_KEY)
         memory_execution = _execution_policy(source_app_key, MEMORY_PROPOSAL_TOOL_KEY, owner)
         if (
@@ -416,6 +421,15 @@ def execute_model_tool(
         if item.get("available")
     }
     args = arguments or {}
+
+    if model_tool_name == WORKSPACE_PROPOSAL_TOOL_NAME:
+        policy=get_policy()
+        if not owner or not policy['enabled'] or not policy['allow_write_proposals'] or not available.get('workspace.update'):
+            raise _deny_unavailable(source_app_key,owner)
+        try:
+            return approvals.create_workspace_update_request(source_app_key,args,owner=True)
+        except approvals.ApprovalError as exc:
+            raise AgentToolError(str(exc)) from exc
 
     if model_tool_name == MAINTENANCE_PROPOSAL_TOOL_NAME:
         policy=get_policy()

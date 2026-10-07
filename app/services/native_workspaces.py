@@ -64,6 +64,14 @@ def items(dataset: str, query: str = '', offset: int = 0, limit: int = 50) -> di
 
 
 def search(query: str, dataset: str = '', limit: int = 8, *, datasets: tuple[str, ...] | None = None) -> list[dict]:
+    from . import workspace_actions
+    allowed=workspace_actions.agent_datasets.get()
+    if allowed is not None:
+        if dataset and dataset not in allowed:
+            raise sync.WorkspaceSyncError('This conversation excludes that Cloud workspace.',403)
+        datasets=tuple(name for name in (datasets or sync.DATASETS) if name in allowed)
+        if not datasets and not dataset:
+            return []
     if not query.strip() or len(query) > 240:
         raise sync.WorkspaceSyncError('Enter a workspace query of 1 to 240 characters.')
     if (dataset and dataset not in sync.DATASETS) or (datasets and any(name not in sync.DATASETS for name in datasets)):
@@ -88,6 +96,7 @@ def search(query: str, dataset: str = '', limit: int = 8, *, datasets: tuple[str
             position = min(lowered.find(term) for term in terms if term in lowered)
             item = {'id':'cloud:'+name+':'+key,'dataset':name,'record_key':key,'title':title,
                     'authority_source':'vp3_cloud','synced_at':payload['synced_at'],
+                    'record_revision':row.get('record_revision'),
                     'excerpt':text[max(0,position-300):max(0,position-300)+1600]}
             matches.append((hits,item))
     matches.sort(key=lambda row:row[0], reverse=True)

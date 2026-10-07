@@ -215,7 +215,9 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "tasks.delete",
             "tasks.list",
             "tasks.update",
+            "workspace.get",
             "workspace.search",
+            "workspace.update",
         ]
         assert all(item["enabled"] and item["available"] for item in owner_tools.json()["items"])
         owner_skills = client.get("/api/v1/control/skills")

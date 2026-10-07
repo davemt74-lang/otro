@@ -5,3 +5,7 @@
 .native-workspace-detail .button,.view[id^="view-native-"] .button{margin:6px 8px 6px 0}
 .view[id^="view-native-"] .toolbar{flex-wrap:wrap}
 .view[id^="view-native-"] .cards-list{overflow-wrap:anywhere}
+.native-edit-field{display:flex;flex-direction:column;gap:6px;margin:14px 0;text-transform:capitalize}
+.native-edit-field input,.native-edit-field textarea{width:100%;box-sizing:border-box;max-width:100%;padding:10px;border:1px solid var(--border,#ccc);border-radius:8px;background:var(--surface,#fff);color:inherit}
+.native-edit-field textarea{min-height:100px;resize:vertical}
+.native-edit-field input[type=checkbox]{width:auto;align-self:flex-start}

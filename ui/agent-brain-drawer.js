@@ -287,6 +287,17 @@
       description.textContent=!data.enabled?'Automatic sync paused.':!data.paired?'Connect HomeServer to Cloud to begin automatic sync.':data.last_error||`${(data.cloud_datasets||[]).length} Cloud workspaces available locally.`;
       host.appendChild(description);
       if(data.last_success_at)host.appendChild(timestamp(data.last_success_at,'Last complete sync'));
+      const edits=data.edits||{};
+      if(edits.pending_count||edits.attention_count){const summary=document.createElement('p');summary.textContent=Number(edits.pending_count||0)+' changes pending · '+Number(edits.attention_count||0)+' need review';host.appendChild(summary);}
+      for(const action of (edits.items||[]).slice(0,8)){
+        const row=document.createElement('div'),text=document.createElement('p');
+        const labels={queued:'Waiting to send',sending:'Awaiting acknowledgement',applied:'Saved in Cloud · waiting for sync',synced:'Saved and synchronized',conflict:'Conflict · review required',blocked:'Permission or pairing requires review',failed:'Edit needs correction',superseded:'Saved · source changed again',cancelled:'Cancelled'};
+        text.textContent=String(action.dataset||'Workspace')+' · '+(labels[action.state]||action.state)+(action.error?' · '+action.error:'');
+        row.appendChild(text);row.appendChild(timestamp(action.updated_at,'Changed'));
+        const details=document.createElement('button');details.type='button';details.textContent='Review record';details.dataset.workspaceDetail=action.dataset;details.dataset.recordKey=action.record_key;row.appendChild(details);
+        if(action.state==='queued'&&Number(action.attempts)===0){const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel unsent change';cancel.onclick=async()=>{cancel.disabled=true;try{const response=await fetch('/api/v1/control/workspace-sync/edits/'+encodeURIComponent(action.mutation_id)+'/cancel',{method:'POST',credentials:'same-origin',headers:{'X-Requested-With':'XMLHttpRequest'}});if(!response.ok)throw Error('This change is already sending. Refresh its status.');refreshSync();}catch(error){text.textContent=error.message;cancel.disabled=false;}};row.appendChild(cancel);}
+        host.appendChild(row);
+      }
       for(const dataset of data.cloud_datasets||[]){
         const row=document.createElement('p');
         row.textContent=String(dataset.dataset||'Workspace').replaceAll('_',' ')+' · '+Number(dataset.record_count||0)+' records';
@@ -295,6 +306,7 @@
       }
     } catch(error) { if(open&&seq===syncSequence)$('agentBrainSync').textContent='Synchronization status unavailable. Open Cloud data to retry.'; }
   }
+  window.addEventListener('homeserver:workspace-edits',()=>{if(open)refreshSync();});
 
   async function refreshAlerts() {
     const seq=++alertSequence;

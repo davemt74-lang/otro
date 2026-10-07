@@ -51,6 +51,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-agent-routing-v047-") as dat
         owner,
         state=None,
         provider_key=None,
+        workspace_datasets=None,
     ):
         tool_state = state if isinstance(state, dict) else {}
         tool_state.setdefault("call_count", 0)

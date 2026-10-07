@@ -27,6 +27,12 @@
 
   function proposalContent(item) {
     const args = item.arguments || {};
+    if(item.action_key==='workspace.update'){
+      return {title:'Proposed Cloud '+escapeHtml(args.dataset||'workspace')+' change',
+        body:Object.entries(args.fields||{}).map(([field,value])=>escapeHtml(field.replaceAll('_',' '))+': '+escapeHtml(String(value))).join('<br>'),
+        detail:`<span>${escapeHtml(args.key||'')}</span><button type="button" class="text-button" data-workspace-detail="${escapeHtml(args.dataset||'')}" data-record-key="${escapeHtml(args.key||'')}">Review source record</button>`,
+        confirm:'Approve these exact fields and queue this change to Cloud? Conflicts and delivery status will appear in Agent Brain.'};
+    }
     if (item.action_key === 'tasks.create') {
       const detail = [];
       if (args.priority) detail.push(`priority ${escapeHtml(args.priority)}`);
@@ -106,8 +112,9 @@
         const base=(approve.dataset.actionKey||'').startsWith('apps.')
           ? '/api/v1/control/homeserver-apps/agent-actions'
           : '/api/v1/control/action-requests';
-        await request(`${base}/${encodeURIComponent(approve.dataset.actionApprove)}/approve`, {method:'POST'});
-        notify('Action approved and executed.');
+        const result=await request(`${base}/${encodeURIComponent(approve.dataset.actionApprove)}/approve`, {method:'POST'});
+        if(approve.dataset.actionKey==='workspace.update'&&result.status==='failed')throw Error(result.error||'This edit failed its current authority check.');
+        notify(approve.dataset.actionKey==='workspace.update'?'Change approved and queued. Agent Brain tracks delivery.':'Action approved and executed.');
         await loadApprovals();
       } catch (err) { notify(err.message, true); }
       finally { approve.disabled = false; }

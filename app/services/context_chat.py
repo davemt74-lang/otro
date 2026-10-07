@@ -304,6 +304,14 @@ def chat(
                     (conversation_id, conversation_id),
                 )
 
+    from . import workspace_sync
+    workspace_datasets = tuple(
+        name for name in workspace_sync.DATASETS
+        if canonical.cloud_allowed
+        and (name not in ('contacts', 'crm') or canonical.effective_settings['include_contacts'])
+        and (name not in ('knowledge', 'transcriptions', 'meetings') or canonical.effective_settings['include_knowledge'])
+        and (name not in ('agents', 'chats') or canonical.effective_settings['include_memory'])
+    )
     try:
         if cancellation_token is None:
             generated, tool_state = brain._generate_with_agent_tools(
@@ -314,6 +322,7 @@ def chat(
                 owner=bool(owner_tools and not read_only),
                 state=tool_state,
                 provider_key=provider_override,
+                workspace_datasets=workspace_datasets,
             )
         else:
             generated, tool_state = brain._generate_with_agent_tools(
@@ -325,6 +334,7 @@ def chat(
                 state=tool_state,
                 provider_key=provider_override,
                 cancellation_token=cancellation_token,
+                workspace_datasets=workspace_datasets,
             )
         tool_state["read_only"] = bool(read_only)
         if cancellation_token is not None:
