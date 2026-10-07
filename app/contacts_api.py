@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .main import require
-from .services import contacts, shared_agent_context
+from .services import contacts, native_workspaces
 
 router = APIRouter()
 
@@ -43,39 +43,19 @@ def client_contacts(
 def control_contacts(
     q: str = Query(default="", max_length=240),
     limit: int = Query(default=250, ge=1, le=500),
+    cloud_offset: int = Query(default=0,ge=0),
 ) -> dict:
     try:
         local_items = contacts.list_federated_contacts(q, limit)
-        cloud_items = []
-        remaining = max(0, min(500, int(limit)) - len(local_items))
-        if remaining:
-            for row in shared_agent_context.cloud_candidates("contacts", q, min(remaining, 100)):
-                key = str(row.get("key") or row.get("authority_key") or "")
-                cloud_items.append({
-                    "id": row.get("id"),
-                    "display_name": row.get("title") or "VP3 Cloud contact",
-                    "first_name": None,
-                    "last_name": None,
-                    "organization": None,
-                    "email": None,
-                    "phone": None,
-                    "relationship": "VP3 Cloud · " + (key.split(":",1)[0].replace("_"," ") if ":" in key else "relationship"),
-                    "notes": row.get("content") or "",
-                    "created_at": None,
-                    "updated_at": row.get("updated_at"),
-                    "authority_source": "vp3_cloud",
-                    "authority_key": row.get("authority_key") or row.get("key"),
-                    "canonical_id": row.get("canonical_id"),
-                    "record_revision": row.get("record_revision"),
-                    "federation_version": row.get("federation_version") or "2.4",
-                    "mirror_only": True,
-                    "read_only": True,
-                    "source_label": "VP3 Cloud",
-                })
+        native = native_workspaces.items('contacts',q,offset=cloud_offset,limit=limit)
+        cloud_items = [{**row,'display_name':row.get('display_name') or row['title'],
+                        'organization':row.get('organization') or row.get('company'),
+                        'notes':row['content']} for row in native['items']]
         return {
             "items": local_items + cloud_items,
             "query": q.strip(),
             "sources": {"homeserver": len(local_items), "vp3_cloud": len(cloud_items)},
+            "cloud_count": native['count'], "synced_at":native['synced_at'],
         }
     except contacts.ContactError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

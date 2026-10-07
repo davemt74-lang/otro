@@ -236,6 +236,27 @@ def _base_context(
                 sources.append(context_engine._source("cloud_knowledge", item, title))
                 remaining -= len(excerpt)
 
+    # Complete account-bound replicas augment the owner conversation only.
+    # Keep the canonical budget and context settings in force.
+    if owner and source_app_key == "owner" and settings["cloud_allowed"] and remaining >= MIN_FRAGMENT_CHARS:
+        from . import native_workspaces
+        datasets = []
+        if settings["include_knowledge"]:
+            datasets.extend(['knowledge','calendar','crm','products','transcriptions','meetings','schedules'])
+        if settings["include_contacts"]:
+            datasets.append('contacts')
+        if datasets:
+            for item in native_workspaces.search(query[:240], limit=4, datasets=tuple(datasets)):
+                if remaining < MIN_FRAGMENT_CHARS:
+                    break
+                excerpt = context_engine._take_excerpt(item['excerpt'], min(1600,remaining))
+                if not excerpt:
+                    continue
+                title = context_engine._take_excerpt('[VP3 Cloud · '+item['dataset']+'] '+item['title'],240)
+                knowledge.append({'id':item['id'],'title':title,'content':excerpt,'kind':'vp3_cloud','updated_at':item['synced_at']})
+                sources.append({'kind':'cloud_workspace','id':item['id'],'title':title,'dataset':item['dataset'],'record_key':item['record_key'],'updated_at':item['synced_at']})
+                remaining -= len(excerpt)
+
     if settings["include_contacts"] and remaining >= MIN_FRAGMENT_CHARS:
         for item in context_engine._contact_candidates(query):
             if remaining < MIN_FRAGMENT_CHARS:

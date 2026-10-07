@@ -8,7 +8,7 @@ with tempfile.TemporaryDirectory(prefix='workspace-http-') as directory:
     os.environ['HOMESERVER_DATA_DIR']=directory+'/home'
     import httpx
     from app.database import initialize_database,db
-    from app.services import workspace_sync as sync,local_transcription_sessions as transcripts
+    from app.services import workspace_sync as sync,native_workspaces as native,local_transcription_sessions as transcripts
     from app.services.https_bridge_session import save_https_session
     from app.services.remote_identity import load_or_create_remote_identity
     initialize_database()
@@ -38,6 +38,10 @@ with tempfile.TemporaryDirectory(prefix='workspace-http-') as directory:
                 except OSError:time.sleep(.05)
             outcome=sync.sync_once();assert outcome.get('ok'),outcome
             assert len(sync.status()['cloud_datasets'])==16
+            assert native.items('contacts')['items'][0]['source_id']=='1'
+            assert native.source_url('contacts','crm_contacts:1')==f'http://127.0.0.1:{port}/contacts.php?edit_cloud=1'
+            assert native.source_url('products','agent_commerce_products_v800:1')==f'http://127.0.0.1:{port}/profile-commerce-products.php?workspace_product=1'
+            assert native.search('SKU-HTTP','products')[0]['record_key']=='agent_commerce_products_v800:1'
             assert 'Cloud contact' in json.dumps(sync.records('contacts'))
             assert 'SKU-HTTP' in json.dumps(sync.records('products',detail_key='agent_commerce_products_v800:1'))
             detail=sync.records('knowledge',detail_key='knowledge_items:1')
@@ -57,6 +61,11 @@ with tempfile.TemporaryDirectory(prefix='workspace-http-') as directory:
             assert 'SKU-UPDATED' in json.dumps(sync.records('products',detail_key='agent_commerce_products_v800:1'))
             before=sync.status()['last_success_at']
             with sqlite3.connect(directory+'/cloud.sqlite') as cloud:cloud.execute("UPDATE homeserver_https_sessions SET status='revoked' WHERE user_id=1")
+            try:
+                native.source_url('contacts','crm_contacts:1')
+                raise AssertionError('Revoked Cloud session opened editor')
+            except sync.WorkspaceSyncError:
+                pass
             assert not sync.sync_once().get('ok')
             assert sync.status()['last_success_at']==before
             print('Real Python/PHP HTTP, both-way full UTF-8 records, originals, account isolation, updates and revocation PASS')

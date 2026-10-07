@@ -505,8 +505,12 @@ def control_cross_site_presence() -> dict:
 
 
 @app.get("/api/v1/control/knowledge")
-def control_knowledge(q: str = Query(default="", max_length=240)) -> dict:
-    return {"items": list_knowledge(q, limit=250), "query": q.strip()}
+def control_knowledge(q: str = Query(default="", max_length=240), cloud_offset: int = Query(default=0,ge=0)) -> dict:
+    from .services import native_workspaces
+    cloud = native_workspaces.items('knowledge',q,offset=cloud_offset,limit=250)
+    local = list_knowledge(q, limit=250)
+    return {"items":local+[{**row,'kind':row.get('file_type') or ('Cloud folder' if row['table']=='artist_transcript_folders_v177' else 'Cloud document')} for row in cloud['items']],
+            "query":q.strip(),"sources":{"homeserver":len(local),"vp3_cloud":cloud['count']},"cloud_count":cloud['count'],"synced_at":cloud['synced_at']}
 
 
 @app.post("/api/v1/control/knowledge")

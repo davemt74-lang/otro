@@ -259,7 +259,8 @@ def asset(sha256: str) -> tuple[Path,str]:
     if not re.fullmatch('[a-f0-9]{64}',sha256):
         raise WorkspaceSyncError('Invalid attachment identity.')
     state=settings();session=load_https_session()
-    if not session or state['session_hash']!=hashlib.sha256(session['session_token'].encode()).hexdigest():
+    authority=_authority()
+    if not session or not authority['active'] or not authority['scope'].get('cloud_allowed',False) or state['session_hash']!=hashlib.sha256(session['session_token'].encode()).hexdigest():
         raise WorkspaceSyncError('Attachment unavailable for the current pairing.')
     with db() as connection:
         rows=connection.execute('SELECT body_json FROM workspace_sync_snapshots WHERE peer_id=?',(state['peer_id'],)).fetchall()
@@ -426,7 +427,8 @@ def records(dataset: str, query: str='', offset: int=0, limit: int=50, *, detail
         raise WorkspaceSyncError('Unknown workspace dataset.')
     state=settings()
     session=load_https_session()
-    if not session or state['session_hash']!=hashlib.sha256(session['session_token'].encode()).hexdigest():
+    authority=_authority()
+    if not session or not authority['active'] or not authority['scope'].get('cloud_allowed',False) or state['session_hash']!=hashlib.sha256(session['session_token'].encode()).hexdigest():
         return {'items':[],'count':0,'dataset':dataset,'source':'cloud','offline':True,'state':'not_paired'}
     with db() as connection:
         row=connection.execute('SELECT body_json,synced_at FROM workspace_sync_snapshots WHERE peer_id=? AND dataset=?',(state['peer_id'],dataset)).fetchone()

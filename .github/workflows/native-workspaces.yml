@@ -1,0 +1,30 @@
+name: Native Workspace Acceptance
+on:
+  pull_request:
+    paths: [app/**, ui/**, tests/native_workspaces.py, tests/native_workspaces_browser.mjs, .github/workflows/native-workspaces.yml]
+  push:
+    branches: [main]
+    paths: [app/**, ui/**, tests/native_workspaces.py, tests/native_workspaces_browser.mjs, .github/workflows/native-workspaces.yml]
+permissions:
+  contents: read
+concurrency:
+  group: native-workspaces-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          pip install -r requirements.txt
+          npm install --no-save --ignore-scripts playwright@1.51.1
+          npx playwright install --with-deps chromium
+      - run: python tests/native_workspaces.py
+      - run: node tests/native_workspaces_browser.mjs

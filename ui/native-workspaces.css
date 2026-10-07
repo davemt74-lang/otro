@@ -1,0 +1,7 @@
+.native-workspace-detail{width:min(760px,calc(100vw - 32px));max-height:85vh;overflow:auto;border:1px solid var(--border,#ccc);border-radius:18px;padding:24px;background:var(--surface,#fff);color:var(--text,#172438)}
+.native-workspace-detail::backdrop{background:#17243888}
+.native-workspace-detail dt{font-weight:600;margin-top:18px;text-transform:capitalize}
+.native-workspace-detail dd{margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.native-workspace-detail .button,.view[id^="view-native-"] .button{margin:6px 8px 6px 0}
+.view[id^="view-native-"] .toolbar{flex-wrap:wrap}
+.view[id^="view-native-"] .cards-list{overflow-wrap:anywhere}
