@@ -1,0 +1,24 @@
+name: Workspace Sync Relay Isolation
+on:
+  pull_request:
+    paths: [app/services/workspace_sync.py, tests/remote_bridge_feature_isolation.py, tests/mock_https_relay_reconnect.py, tests/https_reconnect_fixture_routes.py, .github/workflows/workspace-sync-isolation.yml]
+  push:
+    branches: [main]
+    paths: [app/services/workspace_sync.py, tests/remote_bridge_feature_isolation.py, tests/mock_https_relay_reconnect.py, tests/https_reconnect_fixture_routes.py, .github/workflows/workspace-sync-isolation.yml]
+permissions:
+  contents: read
+jobs:
+  isolation:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python tests/https_reconnect_fixture_routes.py
+      - run: python tests/remote_bridge_feature_isolation.py

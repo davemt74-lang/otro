@@ -24,73 +24,129 @@ jobs:
       - name: Section 16 app control and plugin lifecycle
         run: |
           python tests/apps_plugins_section16.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/homeserver_app_control_v300.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/homeserver_app_agent_runtime_v380.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/cognitive_runtime.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Section 14 current permissions and deferred approval authority
         run: |
           python tests/authority_section14.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/authority_secrets_section14.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/approval_federation_v031.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/action_policy_v035.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/app_scopes_v026.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/tools_security.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/governed_file_owner_approval_v039.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Section 13 events, notifications and automation
         run: |
           python tests/events_automation_section13.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/federated_events_section13.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/local_automation_v070.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/agent_workflow_automation_v058.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/agent_workflow_automation_recovery_v058.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Contacts tasks and calendar Section 12 integrity
         run: |
           python tests/productivity_section12.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/productivity_ui_section12.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/tasks_notifications.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/task_calendar_continuity_v243.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/contacts.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/tasks.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Complete workspace synchronization and ambient speech
         run: |
           python tests/workspace_sync_v1.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_v050.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_ui_contract_v050.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/agent_brain_drawer_v451.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/agent_brain_drawer_behavior_v452.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/workspace-sync.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/ambient-agent.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compile Python
         run: python -m compileall app desktop tests
       - name: Interactive capture ownership and Stop acceptance
         run: |
           node tests/capture-ownership-section1.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/listening-section2.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/transcription-section3.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/transcription_processing_section3.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/transcription-section4.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/participants-section5.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/transfer_retention_section7.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/interactive_agent_context_section8.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/speaker_attribution_section9.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/meeting_recording_section9.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/speaker_diarization_section9.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/speaker_diarization_ui_section9.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/speaker_fusion_section9.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --experimental-vm-modules tests/speaker_fusion_lifecycle_section9.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/speaker_fusion_ui_section9.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/knowledge_backup_v032.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/governed_recordings_v502.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/local_transcription_sessions_v503.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/meetings_reliability_section6.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/meeting_transcription_v1860.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/meeting_transcription_control_v1880.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/transcription_integrity_section4.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/brain.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/chat-enhancements.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/chat_dictation_ui_contract.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/chat_enhancements_ui_contract.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/transcription-workspace.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Validate control center JavaScript
         run: node --check ui/app.js
       - name: Validate Tracky overview JavaScript
@@ -104,19 +160,33 @@ jobs:
       - name: Governed Agent Eyes chat context and evidence explanations
         run: |
           node --check ui/context-engine.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/tracky_agent_eyes_context_v1g3a.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/tracky_agent_eyes_evidence_v1g3b.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/tracky_agent_eyes_scene_v1g3c.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/tracky_agent_eyes_shared_scene_v1g3d.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/tracky_agent_eyes_experience_v1g4.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/tracky_agent_eyes_release_acceptance_v1g5.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/tracky_agent_eyes_release_acceptance_ui_v1g5.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/tracky/agent-eyes-release-acceptance.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/tracky_agent_eyes_shared_scene_ui_v1g3d.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/tracky_agent_eyes_scene_ui_v1g3c.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --check ui/tracky/agent-eyes-scene.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/tracky_agent_eyes_context_ui_v1g3a.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/tracky_agent_eyes_evidence_ui_v1g3b.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Validate agent-first shell JavaScript
         run: node --check ui/shell.js
       - name: Validate Skills and Tools JavaScript
@@ -164,11 +234,17 @@ jobs:
       - name: VP3 account-token pairing regression
         run: |
           python tests/vp3_account_pairing_v062.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/connection_lifecycle.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/remote_bridge_sqlite_recovery.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/remote_bridge_feature_isolation.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/onboarding_accounts_section11.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/onboarding_lifecycle_section11.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: VP3 HTTPS session replacement race regression
         run: python tests/vp3_https_session_race.py
       - name: VP3 HTTPS bidirectional relay regression
@@ -459,6 +535,7 @@ jobs:
           $env:HOMESERVER_REMOTE_TOKEN_FILE = $tokenFile
           $env:HOMESERVER_REMOTE_PROGRESS = $progress
           python tests/remote_packaged_setup.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ($LASTEXITCODE -ne 0) { throw 'Could not configure the packaged remote bridge fixture' }
           $broker = Start-Process -FilePath 'python' -ArgumentList 'tests/mock_remote_broker.py' -PassThru
           Start-Sleep -Milliseconds 800
@@ -519,6 +596,7 @@ jobs:
           $env:HOMESERVER_HTTPS_RECONNECT_RESTART_FLAG = $restartFlag
 
           python tests/https_packaged_reconnect_setup.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ($LASTEXITCODE -ne 0) { throw 'Could not configure packaged VP3 HTTPS reconnect fixture' }
 
           $relay = Start-Process -FilePath 'python' -ArgumentList 'tests/mock_https_relay_reconnect.py' -PassThru
@@ -580,6 +658,9 @@ jobs:
             if ($result.ping_verified -ne $true -or $result.shared_verified -ne $true) {
               throw 'Packaged HTTPS reconnect proof did not validate ping and shared context'
             }
+            if ($result.workspace_failures -lt 1) {
+              throw 'Packaged reconnect did not exercise concurrent automatic workspace sync failure'
+            }
             $sessionPath = Join-Path $env:HOMESERVER_DATA_DIR 'security\vp3-https-session.dat'
             if (-not (Test-Path $sessionPath)) { throw 'VP3 HTTPS session was not preserved across restart' }
           } finally {
@@ -634,6 +715,7 @@ jobs:
           }
           $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-exe-restore'
           python tests/packaged_restore.py setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList '--headless' -PassThru
           $healthy = $false
           try {
@@ -663,6 +745,7 @@ jobs:
             throw 'Packaged restore smoke left a HomeServer listener on port 4377'
           }
           python tests/packaged_restore.py verify
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Stage managed FFmpeg runtime
         shell: pwsh
         run: ./scripts/stage_ffmpeg_windows.ps1
