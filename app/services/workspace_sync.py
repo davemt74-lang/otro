@@ -311,10 +311,10 @@ def _request(client: httpx.Client, session: dict, body: dict) -> dict:
     if not response.is_success:
         raise WorkspaceSyncError(f'Workspace sync unavailable ({response.status_code}); previous copy preserved.',response.status_code)
     if len(response.content)>1500000:
-        raise WorkspaceSyncError('Workspace response exceeds transfer limits.')
+        raise WorkspaceSyncError('Workspace response exceeds transfer limits.',503)
     data=response.json()
     if not isinstance(data,dict) or data.get('ok') is not True or data.get('contract')!=CONTRACT:
-        raise WorkspaceSyncError('Invalid workspace sync response.')
+        raise WorkspaceSyncError('Invalid workspace sync response.',503)
     return data
 
 

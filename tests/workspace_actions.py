@@ -70,6 +70,20 @@ with tempfile.TemporaryDirectory(prefix='workspace-actions-') as directory:
     actions.reconcile(peer,'contacts',native.snapshot('contacts'))
     assert actions.status()['items'][0]['state']=='synced'
     assert actions.enqueue(payload('retry-0001'))['action']['state']=='synced'
+    # Invalid success acknowledgements may follow a commit: retry the same ID.
+    actions.enqueue(payload('malformed-0001','2'*64))
+    malformed=[]
+    def malformed_transport(request):
+        body=json.loads(request.content);malformed.append(body)
+        if len(malformed)==1:return httpx.Response(200,json={'ok':True,'contract':'unexpected'})
+        return httpx.Response(200,json={'ok':True,'contract':sync.CONTRACT,'account_id':'1','mutation_id':body['mutation_id'],'record_key':body['key'],'record_revision':'2'*64,'applied':True})
+    with httpx.Client(transport=httpx.MockTransport(malformed_transport)) as client:
+        actions.deliver(client,load_https_session())
+        assert actions.status()['items'][0]['state']=='queued'
+        actions.deliver(client,load_https_session())
+        assert malformed[0]==malformed[1]
+    actions.reconcile(peer,'contacts',native.snapshot('contacts'))
+    assert actions.status()['items'][0]['state']=='synced'
     # Conflict is terminal, with an explicit fresh revision/new edit required.
     actions.enqueue(payload('conflict-0001','2'*64))
     with httpx.Client(transport=httpx.MockTransport(lambda request:httpx.Response(409,json={'ok':False,'error':'stale'}))) as client:actions.deliver(client,load_https_session())
