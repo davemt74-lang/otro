@@ -49,4 +49,5 @@ jobs:
           python tests/agent_mission_execution_a5.py
           python tests/agent_mission_browser_a5b.py
           python tests/agent_mission_live_browser_a5b2.py
-          python tests/agent_mission_browser_actions_a5b3.py
+          python tests/agent_browser_dom_a5b3.py
+          python tests/agent_mission_dom_approval_a5b3.py
