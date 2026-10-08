@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing
+from . import agent_routing, context_engine, app_scopes
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -61,26 +61,38 @@ def _ensure_conversation(thread: Any, request_id: str, objective: str) -> str:
     return cid
 
 
+def _cloud_export_allowed(raw: dict) -> bool:
+    # A paired Cloud agent.chat grant does not override conversation privacy
+    # or current app Cloud-export restrictions.
+    try:
+        settings = context_engine.get_settings(str(raw.get("conversation_id") or ""))
+        scope = app_scopes.get_scope_for_source("app:vp3")
+        return bool(settings.get("cloud_allowed", False) and scope.get("cloud_allowed", False))
+    except Exception:
+        return False
+
+
 def _projection(raw: dict, *, detailed: bool = False) -> dict:
+    allowed = _cloud_export_allowed(raw)
     tasks = []
     for task in raw.get("tasks", [])[:4]:
         item = {
             "id": str(task.get("id") or ""),
-            "title": str(task.get("title") or "")[:160],
-            "role": str(task.get("role") or "")[:80],
+            "title": str(task.get("title") or "")[:160] if allowed else "Private HomeServer worker",
+            "role": str(task.get("role") or "")[:80] if allowed else "private",
             "status": str(task.get("status") or "queued"),
             "attempt": int(task.get("attempt") or 0),
             "started_at": task.get("started_at"),
             "completed_at": task.get("completed_at"),
         }
         if detailed:
-            item["result"] = str(task.get("result") or "")[:6000]
-            item["error"] = str(task.get("error") or "")[:500]
-            item["model"] = str(task.get("model") or "")[:160]
+            item["result"] = str(task.get("result") or "")[:6000] if allowed else ""
+            item["error"] = str(task.get("error") or "")[:500] if allowed else ""
+            item["model"] = str(task.get("model") or "")[:160] if allowed else ""
         tasks.append(item)
     result = {
         "id": str(raw.get("id") or ""),
-        "objective": str(raw.get("objective") or "")[:2000],
+        "objective": str(raw.get("objective") or "")[:2000] if allowed else "Private HomeServer mission",
         "status": str(raw.get("status") or ""),
         "created_at": raw.get("created_at"),
         "updated_at": raw.get("updated_at"),
@@ -88,15 +100,16 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
         "tasks": tasks,
         "read_only": True,
         "verified": False,
+        "private": not allowed,
         "contract": CONTRACT,
     }
     if detailed:
-        result["result"] = str(raw.get("result") or "")[:8000]
+        result["result"] = str(raw.get("result") or "")[:8000] if allowed else ""
         result["events"] = [
             {"id": int(e.get("id") or 0), "task_id": e.get("task_id"),
              "kind": str(e.get("kind") or "")[:120],
              "created_at": e.get("created_at")}
-            for e in raw.get("events", [])[-40:]
+            for e in raw.get("events", [])[-40:] if allowed
         ]
     return result
 
