@@ -366,3 +366,24 @@ def recover_interrupted() -> int:
             )
             mission._event(conn, row["mission_id"], "browser.live_recovered", row["task_id"])
     return len(rows)
+
+
+def stop_for_task(tid: str) -> None:
+    """Worker termination always closes its browser, regardless of caller."""
+    actor.close_session(tid)
+    with db() as conn:
+        conn.execute(
+            "UPDATE agent_mission_live_browser_v2 SET status='stopped',"
+            "pending_proposal_json='{}',updated_at=CURRENT_TIMESTAMP "
+            "WHERE task_id=? AND status!='stopped'", (tid,)
+        )
+
+
+def stop_for_mission(mid: str) -> None:
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT task_id FROM agent_mission_live_browser_v2 "
+            "WHERE mission_id=? AND status!='stopped'", (mid,)
+        ).fetchall()
+    for row in rows:
+        stop_for_task(str(row["task_id"]))
