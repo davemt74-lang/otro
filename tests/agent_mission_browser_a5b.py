@@ -118,7 +118,10 @@ with tempfile.TemporaryDirectory(prefix="vp3-browser-a5b-") as data:
     browser.authorize("owner",mid,tid,"https://example.com/reapproved")
 
     # Privacy changes must deny web work even with a previously approved grant.
+    # The fixture replaces normal _route(), so seed its conversation settings.
     with db() as conn:
+        conn.execute("INSERT OR IGNORE INTO conversation_context_settings(conversation_id) "
+                     "VALUES(?)",("a5b-owner",))
         conn.execute("UPDATE conversation_context_settings SET cloud_allowed=0 "
                      "WHERE conversation_id=?",("a5b-owner",))
     try:
