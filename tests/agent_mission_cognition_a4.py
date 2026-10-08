@@ -98,12 +98,8 @@ with tempfile.TemporaryDirectory(prefix="vp3-cognition-a4-") as temp:
     assert len(complete["tasks"])==2
     assert state["workers"]==2, "Approved worker must execute once"
     assert all(t["status"]=="completed" for t in complete["tasks"])
-    try:
-        cognition.evaluate("owner",mid)
-        raise AssertionError("Third review was accepted")
-    except runtime.MissionError as exc:
-        # complete is idempotent; the rule forbids a new round.
-        assert cognition.latest("owner",mid)["round"]==2
+    assert cognition.evaluate("owner",mid)["id"] == cognition.latest("owner",mid)["id"]
+    assert cognition.latest("owner",mid)["round"] == 2
 
     # A user may reject a proposal, but rejected workers never execute.
     state["reviews"]=0
