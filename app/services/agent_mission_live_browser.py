@@ -113,6 +113,8 @@ def get(source: str, mid: str, tid: str, *, image: bool = True) -> dict | None:
         projected["proposed_action"] = json.loads(controls["pending_action_json"] or "{}")
         projected["actions_used"] = int(controls["action_count"])
         projected["max_actions"] = 6
+    from . import agent_mission_browser_takeover
+    projected["owner_takeover"] = agent_mission_browser_takeover.status(source,mid,tid)
     return projected
 
 
@@ -156,6 +158,18 @@ def _store_snapshot(conn, tid: str, mid: str, token: str, response: dict,
         "candidates_json=excluded.candidates_json,"
         "pending_action_json='{}',updated_at=CURRENT_TIMESTAMP",
         (tid, mid, token, json.dumps(response.get("controls", [])[:32]))
+    )
+    # Store only safe search-form labels and action URLs; no form values.
+    # A5B4 owner control is opt-in and defaults to agent observation.
+    from . import agent_mission_browser_takeover
+    conn.execute(
+        "INSERT INTO agent_mission_browser_takeover_v4 "
+        "(task_id,mission_id,source_app_key,session_token,forms_json) "
+        "SELECT ?,?,source_app_key,?,? FROM agent_mission_live_browser_v2 "
+        "WHERE task_id=? AND session_token=? "
+        "ON CONFLICT(task_id) DO UPDATE SET forms_json=excluded.forms_json,"
+        "pending_form_json='{}',updated_at=CURRENT_TIMESTAMP",
+        (tid,mid,token,json.dumps(response.get("search_forms",[])[:6]),tid,token)
     )
     if navigation:
         conn.execute(
@@ -236,6 +250,8 @@ def refresh(source: str, mid: str, tid: str) -> dict:
 
 
 def propose(source: str, mid: str, tid: str) -> dict:
+    from . import agent_mission_browser_takeover as takeover
+    takeover.guard_agent(source,mid,tid)
     context, grant = _required(source, mid, tid, executable=True)
     with db() as conn:
         row = conn.execute(
@@ -280,6 +296,8 @@ def propose(source: str, mid: str, tid: str) -> dict:
                 "title": selected["title"], "reason": str(raw["reason"])[:450],
                 "revision": int(row["revision"])}
     _required(source, mid, tid, executable=True)
+    from . import agent_mission_browser_takeover as takeover
+    takeover.guard_agent(source,mid,tid)
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         saved = conn.execute(
@@ -296,6 +314,8 @@ def propose(source: str, mid: str, tid: str) -> dict:
 
 
 def approve_navigation(source: str, mid: str, tid: str, proposal_id: str) -> dict:
+    from . import agent_mission_browser_takeover as takeover
+    takeover.guard_agent(source,mid,tid)
     _required(source, mid, tid, executable=True)
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")

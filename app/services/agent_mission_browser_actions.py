@@ -19,6 +19,8 @@ MAX_ACTIONS = 6
 
 
 def _state(source: str, mid: str, tid: str):
+    from . import agent_mission_browser_takeover as takeover
+    takeover.guard_agent(source,mid,tid)
     context, grant = live._required(source, mid, tid, executable=True)
     if context["task"]["status"] != "queued":
         raise MissionError("Only queued workers can interact with pages.", 409)

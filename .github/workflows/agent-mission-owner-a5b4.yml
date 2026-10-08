@@ -1,0 +1,53 @@
+name: Agent Mission Owner Takeover A5B4
+on:
+  pull_request:
+    paths:
+      - 'app/services/agent_browser_search_policy.py'
+      - 'app/services/agent_mission_browser_takeover.py'
+      - 'app/services/agent_browser_live_actor.py'
+      - 'app/services/agent_mission_live_browser.py'
+      - 'app/services/agent_mission_browser_actions.py'
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/services/remote_bridge.py'
+      - 'app/agent_mission_browser_api.py'
+      - 'app/database.py'
+      - 'database/agent_mission_browser_takeover.sql'
+      - 'HomeServer.spec'
+      - 'tests/agent_mission_browser_takeover_a5b4.py'
+      - 'tests/agent_browser_search_chromium_a5b4.py'
+      - '.github/workflows/agent-mission-owner-a5b4.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_mission_browser_takeover.py'
+      - 'app/services/agent_browser_search_policy.py'
+      - 'database/agent_mission_browser_takeover.sql'
+      - '.github/workflows/agent-mission-owner-a5b4.yml'
+jobs:
+  owner-takeover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Syntax and import checks
+        run: python -m py_compile app/services/agent_mission_browser_takeover.py app/services/agent_browser_search_policy.py app/services/agent_browser_live_actor.py app/services/agent_mission_live_browser.py app/agent_mission_browser_api.py tests/agent_mission_browser_takeover_a5b4.py
+      - name: A5B4 owner exclusivity and one-time approved search
+        run: python tests/agent_mission_browser_takeover_a5b4.py
+      - name: Install Chromium
+        run: python -m playwright install chromium
+      - name: A5B4 real browser safe-form acceptance
+        run: python tests/agent_browser_search_chromium_a5b4.py
+      - name: A1 through A5B3 regressions
+        run: |
+          python tests/agent_mission_runtime_a1.py
+          python tests/agent_mission_control_a2.py
+          python tests/agent_mission_cloud_a3.py
+          python tests/agent_mission_cognition_a4.py
+          python tests/agent_mission_execution_a5.py
+          python tests/agent_mission_browser_a5b.py
+          python tests/agent_mission_live_browser_a5b2.py
+          python tests/agent_browser_dom_a5b3.py
+          python tests/agent_mission_dom_approval_a5b3.py
