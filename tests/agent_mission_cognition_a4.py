@@ -41,6 +41,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-mission-a4-") as data_dir:
                      (app_id,"agent.chat"))
         conn.execute("INSERT INTO conversations(id,agent_id,source_app_key,title) VALUES(?,?,?,?)",
                      ("a4-vp3",aid,"app:vp3","A4 adaptive staffing"))
+        conn.execute("INSERT OR IGNORE INTO conversation_context_settings(conversation_id) VALUES(?)",("a4-vp3",))
 
     providers.inference_status=lambda:{"available":True,"selected_provider":"anthropic","model":"claude-fixture"}
     counts={"supervisor":0,"worker":0}
