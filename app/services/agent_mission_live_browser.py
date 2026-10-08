@@ -203,32 +203,41 @@ def start(source: str, mid: str, tid: str) -> dict:
     if int(grant["visit_count"]) >= MAX_VISITS:
         raise mission.MissionError("Browser grant has no remaining visits.", 409)
     token = str(uuid.uuid4())
-    with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        current = conn.execute(
-            "SELECT status FROM agent_mission_live_browser_v2 WHERE task_id=?", (tid,)
-        ).fetchone()
-        if current and current["status"] != "stopped":
-            raise mission.MissionError("Browser session is already open.", 409)
-        conn.execute(
-            "INSERT INTO agent_mission_live_browser_v2 "
-            "(task_id,mission_id,source_app_key,status,session_token) "
-            "VALUES(?,?,?,'starting',?) ON CONFLICT(task_id) DO UPDATE SET "
-            "status='starting',session_token=excluded.session_token,revision=0,"
-            "link_candidates_json='[]',pending_proposal_json='{}',"
-            "updated_at=CURRENT_TIMESTAMP", (tid, mid, source, token)
-        )
+    @atomic_write
+    def claim_start():
+        context, current_grant=_required(source,mid,tid,executable=True)
+        if context["task"]["status"]!="queued":raise mission.MissionError("Worker changed before browser startup.",409)
+        with db() as conn:
+            current = conn.execute(
+                "SELECT status FROM agent_mission_live_browser_v2 WHERE task_id=?", (tid,)
+            ).fetchone()
+            if current and current["status"] != "stopped":
+                raise mission.MissionError("Browser session is already open.", 409)
+            conn.execute(
+                "INSERT INTO agent_mission_live_browser_v2 "
+                "(task_id,mission_id,source_app_key,status,session_token) "
+                "VALUES(?,?,?,'starting',?) ON CONFLICT(task_id) DO UPDATE SET "
+                "status='starting',session_token=excluded.session_token,revision=0,"
+                "link_candidates_json='[]',pending_proposal_json='{}',"
+                "updated_at=CURRENT_TIMESTAMP", (tid, mid, source, token)
+            )
+            reserved=conn.execute("UPDATE agent_mission_browser_v1 SET visit_count=visit_count+1 WHERE task_id=? AND status='approved' AND datetime('now')<datetime(expires_at) AND visit_count<?",(tid,MAX_VISITS))
+            if reserved.rowcount!=1:raise mission.MissionError('Browser visit budget expired before startup.',409)
+        return current_grant
+    grant=claim_start()
     try:
         response = actor.open_session(
             tid, str(grant["approved_origin"]), str(grant["pinned_ip"]),
             str(grant["current_url"])
         )
-        with db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            _store_snapshot(conn, tid, mid, token, response,
-                            status="starting", navigation=True)
-            mission._event(conn, mid, "browser.live_started", tid,
-                           {"origin": grant["approved_origin"]})
+        @atomic_write
+        def save_start():
+            try:_required(source,mid,tid,executable=True)
+            except mission.MissionError as exc:raise mission.MissionError('Browser authority changed during startup.',409) from exc
+            with db() as conn:
+                _store_snapshot(conn,tid,mid,token,response,status='starting',navigation=True,reserved=True)
+                mission._event(conn,mid,'browser.live_started',tid,{'origin':grant['approved_origin']})
+        save_start()
     except Exception:
         actor.close_session(tid)
         with db() as conn:
@@ -250,10 +259,14 @@ def refresh(source: str, mid: str, tid: str) -> dict:
     if not session or session["status"] != "live":
         raise mission.MissionError("Live browser must be open.", 409)
     response = actor.execute(tid, "snapshot")
-    with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        _store_snapshot(conn, tid, mid, str(session["session_token"]), response,
-                        status="live", navigation=False)
+    @atomic_write
+    def save_refresh():
+        _required(source,mid,tid,executable=True)
+        with db() as conn:
+            current=conn.execute('SELECT revision FROM agent_mission_live_browser_v2 WHERE task_id=? AND session_token=?',(tid,session['session_token'])).fetchone()
+            if not current or current['revision']!=session['revision']:raise mission.MissionError('Browser changed during view refresh.',409)
+            _store_snapshot(conn,tid,mid,str(session['session_token']),response,status='live',navigation=False)
+    save_refresh()
     return get(source, mid, tid)
 
 

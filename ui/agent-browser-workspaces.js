@@ -45,7 +45,7 @@ async function api(action,extra){
  headers:{'Accept':'application/json','Content-Type':'application/json'},
  body:JSON.stringify(Object.assign({csrf_token:String(cfg.csrf),action:action},extra||{}))});
  let payload;try{payload=await response.json();}catch(_){throw new Error('Mission server response was invalid.');}
- if(!response.ok||!payload||!payload.ok)throw new Error(String(payload&&(payload.detail||payload.error)||'Mission operation failed.').slice(0,240));
+ if(!response.ok||!payload||!payload.ok){const error=new Error(String(payload&&(payload.detail||payload.error)||'Mission operation failed.').slice(0,240));error.status=response.status;throw error;}
  return payload;
 }
 function showList(){
@@ -459,6 +459,7 @@ async function operation(action,id,taskId){
    else browserByWorker.delete(key);
    if(action==='browser.revoke')liveByWorker.delete(key);
   }
+  const currentBrain=document.querySelector('[data-agent-teams-brain-a3]');if(currentBrain?.parentNode)renderBrain(currentBrain.parentNode);
   if(response.mission)showMission(response.mission);
   if(response.supervision){
    staffingByMission.set(id,[response.supervision,...(staffingByMission.get(id)||[]).filter(p=>p.id!==response.supervision.id)]);
@@ -520,8 +521,11 @@ async function pollBrowserStatus(){
    const full=await api('get',{mission_id:m.id});
    if(full.mission){const idx=items.findIndex(x=>x.id===m.id);if(idx>=0)items[idx]=full.mission;}
    for(const task of (full.mission?.tasks||m.tasks||[]).slice(0,6)){
-    const response=await api('browser.live.get',{mission_id:m.id,task_id:task.id});
+    let response;
+    try{response=await api('browser.live.get',{mission_id:m.id,task_id:task.id});}
+    catch(_){if(!busy&&generation===viewGeneration){liveByWorker.delete(m.id+'|'+task.id);browserByWorker.delete(m.id+'|'+task.id);}continue;}
     if(busy||generation!==viewGeneration)return;
+    if(response.live_browser?.status==='private'){browserByWorker.delete(m.id+'|'+task.id);}
     if(response.live_browser)liveByWorker.set(m.id+'|'+task.id,response.live_browser);
     else liveByWorker.delete(m.id+'|'+task.id);
    }

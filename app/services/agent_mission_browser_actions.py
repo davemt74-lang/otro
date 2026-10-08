@@ -183,21 +183,23 @@ def approve(source: str, mid: str, tid: str, proposal_id: str, *, value) -> dict
             "index": proposal["index"], "fingerprint": proposal["fingerprint"],
             "kind": kind, "value": value,
         })
-        live._required(source, mid, tid, executable=True)
-        with db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            live._store_snapshot(conn, tid, mid, str(session["session_token"]),
-                                 result, status="navigating", navigation=False)
-            conn.execute(
-                "UPDATE agent_mission_live_browser_v2 SET status='live',"
-                "revision=revision+1,link_candidates_json=?,"
-                "pending_proposal_json='{}',updated_at=CURRENT_TIMESTAMP "
-                "WHERE task_id=? AND session_token=?",
-                (json.dumps(result.get("links", [])[:24]),
-                 tid, session["session_token"]),
-            )
-            mission._event(conn, mid, "browser.action_approved", tid,
-                           {"kind": kind, "label": proposal["label"][:100]})
+        @atomic_write
+        def save_action():
+            live._required(source, mid, tid, executable=True)
+            with db() as conn:
+                live._store_snapshot(conn, tid, mid, str(session["session_token"]),
+                                     result, status="navigating", navigation=False)
+                conn.execute(
+                    "UPDATE agent_mission_live_browser_v2 SET status='live',"
+                    "revision=revision+1,link_candidates_json=?,"
+                    "pending_proposal_json='{}',updated_at=CURRENT_TIMESTAMP "
+                    "WHERE task_id=? AND session_token=?",
+                    (json.dumps(result.get("links", [])[:24]),
+                     tid, session["session_token"]),
+                )
+                mission._event(conn, mid, "browser.action_approved", tid,
+                               {"kind": kind, "label": proposal["label"][:100]})
+        save_action()
     except Exception:
         actor.close_session(tid)
         with db() as conn:

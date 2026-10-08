@@ -45,6 +45,7 @@ with sync_playwright() as pw:
         page.get_by_role('button',name='Review GET search').click()
         page.wait_for_function('document.querySelector(".vp3-owner-takeover").textContent.includes("Exact query: reviewed query")')
         page.evaluate('() => window.VP3_AGENT_TEAMS_A3_BRAIN(document.getElementById("chatBrainContent"))')
+        page.locator('#chatBrainContent .vp3-brain-worker summary').click()
         assert 'Public reports' in page.locator('#chatBrainContent').inner_text()
         assert 'form awaiting confirmation' in page.locator('#chatBrainContent').inner_text()
         assert page.locator('#chatBrainContent img').count()==0,'Evidence injected markup'
