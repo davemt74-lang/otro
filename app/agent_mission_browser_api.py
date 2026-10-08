@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from .agent_mission_api import authorized, execute
 from .services import agent_mission_browser as browser
 from .services import agent_mission_live_browser as live
+from .services import agent_mission_browser_actions as dom_actions
 
 router = APIRouter()
 
@@ -113,3 +114,31 @@ def owner_live_approve(mission_id: str, task_id: str, body: ApproveNavigation):
 @router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/stop")
 def owner_live_stop(mission_id: str, task_id: str):
     return execute(live.stop, "owner", mission_id, task_id)
+
+
+class ApproveAction(BaseModel):
+    proposal_id: str = Field(min_length=36,max_length=36)
+    value: str | int | bool
+
+
+@router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/actions/propose")
+def app_action_propose(mission_id: str,task_id: str,identity: dict=Depends(authorized)):
+    return execute(dom_actions.suggest,"app:"+identity["app_key"],mission_id,task_id)
+
+
+@router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/actions/approve")
+def app_action_approve(mission_id: str,task_id: str,body: ApproveAction,
+                       identity: dict=Depends(authorized)):
+    return execute(dom_actions.approve,"app:"+identity["app_key"],mission_id,task_id,
+                   body.proposal_id,value=body.value)
+
+
+@router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/actions/propose")
+def owner_action_propose(mission_id: str,task_id: str):
+    return execute(dom_actions.suggest,"owner",mission_id,task_id)
+
+
+@router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/actions/approve")
+def owner_action_approve(mission_id: str,task_id: str,body: ApproveAction):
+    return execute(dom_actions.approve,"owner",mission_id,task_id,
+                   body.proposal_id,value=body.value)
