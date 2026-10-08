@@ -131,6 +131,11 @@ with tempfile.TemporaryDirectory(prefix="vp3-missions-cloud-a3-") as data:
     assert not private["events"]
     private_events=call("events",{"mission_id":mid,"after":0})["payload"]
     assert private_events["private"] and not private_events["items"]
+    blocked_review=call("cognition.evaluate",{"mission_id":mid})
+    assert blocked_review["status"]==403
+    blocked_decision=call("cognition.decide",{
+        "mission_id":mid,"review_id":review_id,"approve":True})
+    assert blocked_decision["status"]==403
     # Restore only in the test fixture; the service itself never changes privacy.
     with db() as conn:
         conn.execute("UPDATE conversation_context_settings SET cloud_allowed=1 WHERE conversation_id=?",(cid,))
