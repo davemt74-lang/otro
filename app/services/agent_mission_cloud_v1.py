@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition
+from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -188,6 +188,17 @@ def execute(action: str, body: dict) -> dict:
         decision = cognition.decide("app:vp3", mid, decision_id, approve=(action == "approve"))
         return {"ok": True, "contract": CONTRACT,
                 "supervision": _supervisor_projection(decision, runtime.get_mission("app:vp3", mid))}
+    if action in {"execution", "bind_provider"}:
+        snapshot = runtime.get_mission("app:vp3", mid)
+        if not _cloud_export_allowed(snapshot):
+            raise runtime.MissionError("Configure private mission workers on HomeServer.", 403)
+        if action == "execution":
+            return {"ok": True, "contract": CONTRACT,
+                    "execution": execution.list_profiles("app:vp3", mid)}
+        tid = _bounded_string(body.get("task_id"), "Task ID", 80)
+        key = _bounded_string(body.get("provider_key"), "Provider key", 20)
+        updated = execution.configure("app:vp3", mid, tid, key)
+        return {"ok": True, "contract": CONTRACT, "worker_execution": updated}
     if action == "events":
         snapshot = runtime.get_mission("app:vp3", mid)
         if not _cloud_export_allowed(snapshot):
