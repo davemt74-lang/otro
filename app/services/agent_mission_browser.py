@@ -35,6 +35,9 @@ def _projection(row,*,image=False) -> dict:
 def inspect(source: str,mid: str,tid: str,*,image: bool=False):
     _context(source,mid,tid)
     with db() as conn:
+        conn.execute("UPDATE agent_mission_browser_v1 SET status='closed',capture_token=NULL,"
+                     "text_snapshot='',image_base64='',updated_at=CURRENT_TIMESTAMP "
+                     "WHERE task_id=? AND status!='closed' AND datetime('now')>=datetime(expires_at)",(tid,))
         row=conn.execute("SELECT * FROM agent_mission_browser_v1 "
                          "WHERE task_id=? AND mission_id=? AND source_app_key=?",
                          (tid,mid,source)).fetchone()
@@ -65,7 +68,7 @@ def authorize(source: str,mid: str,tid: str,url: str):
     return inspect(source,mid,tid)
 
 def revoke(source: str,mid: str,tid: str):
-    _context(source,mid,tid)
+    mission.get_mission(source,mid)
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         updated=conn.execute("UPDATE agent_mission_browser_v1 SET status='closed',capture_token=NULL,"
@@ -92,7 +95,9 @@ def recover_interrupted():
 
 def capture(source: str,mid: str,tid: str,url: str|None=None):
     """Capture only a previously approved origin, never an arbitrary model URL."""
-    _context(source,mid,tid)
+    ctx=_context(source,mid,tid)
+    if ctx["mission"]["status"] not in ("planned","running"):
+        raise mission.MissionError("Finished missions cannot navigate browser pages.",409)
     token=str(uuid.uuid4())
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
