@@ -89,6 +89,20 @@ with tempfile.TemporaryDirectory(prefix="vp3-missions-cloud-a3-") as data:
     missing=call("get",{"mission_id":"9b41d4fc-7b6c-4b6a-b7a1-70e567950daa"})
     assert missing["status"]==404
 
+    # Privacy changes must instantly redact mission text from Cloud responses.
+    with db() as conn:
+        cid=conn.execute("SELECT conversation_id FROM agent_missions_v1 WHERE id=?",(mid,)).fetchone()["conversation_id"]
+        conn.execute("UPDATE conversation_context_settings SET cloud_allowed=0 WHERE conversation_id=?",(cid,))
+    private=call("get",{"mission_id":mid})["payload"]["mission"]
+    assert private["private"] is True
+    assert private["objective"]=="Private HomeServer mission"
+    assert not private["result"]
+    assert all(not t.get("result") and not t.get("model") for t in private["tasks"])
+    assert not private["events"]
+    # Restore only in the test fixture; the service itself never changes privacy.
+    with db() as conn:
+        conn.execute("UPDATE conversation_context_settings SET cloud_allowed=1 WHERE conversation_id=?",(cid,))
+
     with db() as conn:
         conn.execute("UPDATE app_permissions SET allowed=0 WHERE paired_app_id=? AND permission='agent.chat'",(ids["vp3"],))
     try:
