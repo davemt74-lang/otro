@@ -143,6 +143,16 @@ with tempfile.TemporaryDirectory(prefix="vp3-cognition-a4-") as temp:
     assert len(runtime.get_mission("owner",invalid["id"])["tasks"])==1
     runtime._infer=old_model
 
+    # A restart cannot silently replay an in-flight cognitive model request.
+    with db() as conn:
+        conn.execute("UPDATE agent_mission_reviews_v1 SET status='evaluating' "
+                     "WHERE id=?", (result["id"],))
+    assert cognition.recover_interrupted()==1
+    reviewed=cognition.latest("owner",invalid["id"])
+    assert reviewed["status"]=="failed"
+    assert "restart" in reviewed["error"]
+    assert len(runtime.get_mission("owner",invalid["id"])["tasks"])==1
+
     # Configuration locked once a mission has run.
     try:
         cognition.configure("owner",mid,enabled=False)
