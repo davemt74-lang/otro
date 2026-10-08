@@ -89,6 +89,36 @@ with tempfile.TemporaryDirectory(prefix="vp3-missions-cloud-a3-") as data:
     missing=call("get",{"mission_id":"9b41d4fc-7b6c-4b6a-b7a1-70e567950daa"})
     assert missing["status"]==404
 
+    # A4 supervises completed work but must not spawn another worker until
+    # the paired Cloud owner explicitly approves the proposal.
+    original_generate=providers.generate
+    def cognitive_reply(messages,model_override=None):
+        if "mission supervisor" in str(messages[0].get("content","")).lower():
+            return {"content":json.dumps({
+                "decision":"extend","rationale":"Independent verification is useful.",
+                "tasks":[{"role":"reviewer","title":"Recheck findings",
+                          "objective":"Review findings without tools",
+                          "instructions":"Read-only validation","depends_on":[]}]
+            })}
+        return original_generate(messages,model_override=model_override)
+    providers.generate=cognitive_reply
+    proposal=call("cognition.evaluate",{"mission_id":mid})
+    assert proposal["ok"] and proposal["payload"]["review"]["status"]=="proposed"
+    assert len(call("get",{"mission_id":mid})["payload"]["mission"]["tasks"])==2
+    review_id=proposal["payload"]["review"]["id"]
+    invalid_decision=call("cognition.decide",{"mission_id":mid,"review_id":review_id,"approve":"yes"})
+    assert invalid_decision["status"]==422
+    approved=call("cognition.decide",{"mission_id":mid,"review_id":review_id,"approve":True})
+    assert approved["ok"] and approved["payload"]["review"]["status"]=="applied"
+    deadline=time.monotonic()+12
+    while time.monotonic()<deadline:
+        current=call("get",{"mission_id":mid})["payload"]["mission"]
+        if current["status"]=="completed" and len(current["tasks"])==3:
+            break
+        time.sleep(.025)
+    assert current["status"]=="completed" and len(current["tasks"])==3,current
+    providers.generate=original_generate
+
     # Privacy changes must instantly redact mission text from Cloud responses.
     with db() as conn:
         cid=conn.execute("SELECT conversation_id FROM agent_missions_v1 WHERE id=?",(mid,)).fetchone()["conversation_id"]
