@@ -83,6 +83,7 @@ _VP3_PERMISSIONS = [
     "contacts.read",
     "events.read",
     "events.write",
+    "files.read",
     "knowledge.search",
     "memory.read",
     "memory.write",

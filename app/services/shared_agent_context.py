@@ -247,7 +247,7 @@ def _fit_datasets(datasets: dict[str, list[dict[str, Any]]], max_bytes: int = 17
             return datasets
 
 
-def local_snapshot(query: str = "") -> dict[str, Any]:
+def local_snapshot(query: str = "", *, include_files: bool = True) -> dict[str, Any]:
     text = _text(query, 240)
     memory_rows = _local_memory(text)
     knowledge_rows = [
@@ -374,7 +374,7 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
             index,
         )
         for index, row in enumerate(
-            file_continuity.list_federated_files(None, text, limit=40, owner=True)[:40]
+            file_continuity.list_federated_files(None, text, limit=40, owner=True)[:40] if include_files else []
         )
         if isinstance(row, dict)
     ]
@@ -418,16 +418,19 @@ def local_snapshot(query: str = "") -> dict[str, Any]:
         "authoritative_source": "homeserver",
         "federation_version": federated_data.FEDERATED_DATA_VERSION,
         "snapshot_mode": "full" if not text else "filtered",
-        "covered_datasets": list(_DATASETS),
+        # An unavailable dataset is outside coverage, not an empty native store.
+        # Cloud must retain its previous file mirrors rather than tombstone them.
+        "covered_datasets": [name for name in _DATASETS if include_files or name != "files"],
+        "unavailable_datasets": {} if include_files else {"files": "permission_required:files.read"},
         "datasets": datasets,
     }
     federated_data.observe_snapshot(snapshot, observed_source="homeserver")
     return snapshot
 
 
-def exchange(cloud: dict[str, Any], query: str = "") -> dict[str, Any]:
+def exchange(cloud: dict[str, Any], query: str = "", *, include_files: bool = True) -> dict[str, Any]:
     applied = apply_cloud_snapshot(cloud)
-    home = local_snapshot(query)
+    home = local_snapshot(query, include_files=include_files)
     return {
         "ok": True,
         "version": SHARED_AGENT_CONTEXT_VERSION,
@@ -438,3 +441,4 @@ def exchange(cloud: dict[str, Any], query: str = "") -> dict[str, Any]:
             "homeserver_peer_state": federated_data.reconciliation_state("vp3_cloud"),
         },
     }
+

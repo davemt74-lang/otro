@@ -23,6 +23,7 @@ session_token = "S" * 64
 from app.database import initialize_database  # noqa: E402
 from app.services.https_bridge_session import load_https_session, save_https_session  # noqa: E402
 from app.services.pairing import approve_pairing_request, create_pairing_request  # noqa: E402
+from app.services.cloud_pairing import _VP3_PERMISSIONS  # noqa: E402
 from app.services.remote_bridge import cloud_connection_status, get_bridge_settings, save_vp3_https_settings  # noqa: E402
 
 initialize_database()
@@ -30,7 +31,7 @@ initialize_database()
 pair = create_pairing_request(
     "vp3",
     "VP3",
-    ["memory.read", "knowledge.search", "contacts.read", "tasks.read", "events.read", "files.read", "notifications.read"],
+    _VP3_PERMISSIONS,
 )
 approved = approve_pairing_request(pair["request_id"])
 assert approved is not None
