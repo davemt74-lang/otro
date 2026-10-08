@@ -160,6 +160,14 @@ def get_mission(source: str, mid: str) -> dict:
     }
 
 
+def _assert_same_request(previous, objective: str, conversation_id: str, agent_id: int) -> None:
+    """An idempotency key may repeat only the same mission creation intent."""
+    if (str(previous["objective"]) != objective or
+        str(previous["conversation_id"]) != conversation_id or
+        int(previous["parent_agent_id"]) != agent_id):
+        raise MissionError("Idempotency key already belongs to a different mission.", 409)
+
+
 def create_mission(source: str, *, conversation_id: str, objective: str, client_request_id: str,
                    parent_agent_id: int | None = None, owner: bool = False,
                    tasks: list[dict] | None = None) -> dict:
@@ -167,14 +175,18 @@ def create_mission(source: str, *, conversation_id: str, objective: str, client_
     conversation_id = _clean(conversation_id, "Conversation", 160)
     objective = _clean(objective, "Objective", 16000)
     key = _clean(client_request_id, "Idempotency key", 128)
-    parent = agent_routing.resolve_agent(source, parent_agent_id, owner=owner)
-    agent_routing.validate_conversation_agent(source, conversation_id, int(parent["id"]))
+    try:
+        parent = agent_routing.resolve_agent(source, parent_agent_id, owner=owner)
+        agent_routing.validate_conversation_agent(source, conversation_id, int(parent["id"]))
+    except agent_routing.AgentRoutingError as exc:
+        raise MissionError(str(exc), exc.status_code) from exc
     with db() as conn:
         existing = conn.execute(
-            "SELECT id FROM agent_missions_v1 WHERE source_app_key=? AND client_request_id=?",
+            "SELECT id,objective,conversation_id,parent_agent_id FROM agent_missions_v1 WHERE source_app_key=? AND client_request_id=?",
             (source, key),
         ).fetchone()
     if existing:
+        _assert_same_request(existing, objective, conversation_id, int(parent["id"]))
         return get_mission(source, str(existing["id"]))
     _route(source, conversation_id)
     proposed = validate_plan(tasks) if tasks is not None else _plan(source, conversation_id, objective)
@@ -183,10 +195,11 @@ def create_mission(source: str, *, conversation_id: str, objective: str, client_
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
-            "SELECT id FROM agent_missions_v1 WHERE source_app_key=? AND client_request_id=?",
+            "SELECT id,objective,conversation_id,parent_agent_id FROM agent_missions_v1 WHERE source_app_key=? AND client_request_id=?",
             (source, key),
         ).fetchone()
         if existing:
+            _assert_same_request(existing, objective, conversation_id, int(parent["id"]))
             mid = str(existing["id"])
         else:
             conn.execute(
