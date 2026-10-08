@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser, agent_mission_live_browser as live, agent_mission_browser_actions as actions
+from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser, agent_mission_live_browser as live, agent_mission_browser_actions as actions, agent_mission_browser_takeover as takeover
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -252,6 +252,41 @@ def execute(action: str, body: dict) -> dict:
                 raise runtime.MissionError("Browser input type is invalid.", 422)
             result = actions.approve("app:vp3", mid, tid, pid, value=value)
         return {"ok": True, "contract": CONTRACT, "live_browser": result}
+    if action in {"browser.owner.takeover","browser.owner.release","browser.owner.control",
+                  "browser.owner.search.review","browser.owner.search.submit"}:
+        current = runtime.get_mission("app:vp3", mid)
+        if not _cloud_export_allowed(current):
+            raise runtime.MissionError("Private takeover controls stay on HomeServer.",403)
+        source = "app:vp3"
+        tid = _bounded_string(body.get("task_id"),"Browser task ID",80)
+        if action == "browser.owner.takeover":
+            result = takeover.acquire(source,mid,tid)
+        elif action == "browser.owner.release":
+            result = takeover.release(source,mid,tid)
+        elif action == "browser.owner.control":
+            if body.get("confirmed") is not True:
+                raise runtime.MissionError("Owner confirmation required.",422)
+            index=body.get("index")
+            if type(index) is not int or index<0 or index>119:
+                raise runtime.MissionError("Control index is invalid.",422)
+            fingerprint=_bounded_string(body.get("fingerprint"),"Control fingerprint",24)
+            kind=_bounded_string(body.get("kind"),"Safe control kind",12)
+            value=body.get("value")
+            if type(value) not in (bool,int,str):
+                raise runtime.MissionError("Control input type is invalid.",422)
+            result=takeover.manual(source,mid,tid,index=index,fingerprint=fingerprint,kind=kind,value=value)
+        elif action == "browser.owner.search.review":
+            index=body.get("index")
+            if type(index) is not int or index<0 or index>19:
+                raise runtime.MissionError("Search form index is invalid.",422)
+            fingerprint=_bounded_string(body.get("fingerprint"),"Search fingerprint",24)
+            result=takeover.review_search(source,mid,tid,index=index,fingerprint=fingerprint)
+        else:
+            if body.get("confirmed") is not True:
+                raise runtime.MissionError("Explicit GET search submission approval required.",422)
+            proposal_id=_bounded_string(body.get("proposal_id"),"Search approval ID",80)
+            result=takeover.submit_search(source,mid,tid,proposal_id=proposal_id)
+        return {"ok":True,"contract":CONTRACT,"live_browser":result}
     if action == "events":
         snapshot = runtime.get_mission("app:vp3", mid)
         if not _cloud_export_allowed(snapshot):
