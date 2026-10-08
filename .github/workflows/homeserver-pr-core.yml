@@ -23,7 +23,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Saved and normal pairing reconciliation permissions
-        run: python tests/shared_context_pairing_permissions.py
+        run: |
+          python tests/shared_context_pairing_permissions.py
+          node tests/shared_context_permissions_ui.mjs
       - name: Section 15 device command and hardware lifecycle
         run: python tests/hardware_automation_section15.py
       - name: Section 16 app control and plugin lifecycle

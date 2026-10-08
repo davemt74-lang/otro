@@ -35,7 +35,7 @@
       return;
     }
     const script = document.createElement('script');
-    script.src = '/assets/connected-apps-v029.js';
+    script.src = '/assets/connected-apps-v029.js?v=continuity-permissions-20261007';
     script.dataset.homeserverConnectedAppsV029 = '1';
     script.async = false;
     script.addEventListener('load', ensureConnectedAppsExtensions, {once:true});

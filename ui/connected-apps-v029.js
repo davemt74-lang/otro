@@ -9,7 +9,7 @@
   const parseList = value => String(value || '').split(',').map(item => item.trim()).filter((item, index, list) => item && list.indexOf(item) === index).slice(0, 32);
   const groups = [
     ['Agent', ['agent.chat']],
-    ['Private data', ['memory.read','memory.write','knowledge.search','contacts.read']],
+    ['Private data', ['memory.read','memory.write','knowledge.search','contacts.read','files.read']],
     ['Operations', ['tools.execute','tasks.read','tasks.write','notifications.read','events.read','events.write','plugins.read','awareness.read','usage.read','usage.write']],
   ];
   let data = {apps: [], pending: [], counts: {}, available_permissions: []};
