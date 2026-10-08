@@ -187,11 +187,15 @@ def execute(action: str, body: dict) -> dict:
         return {"ok": True, "contract": CONTRACT, "settings": settings,
                 "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}
     if action == "cognition.evaluate":
+        if not _cloud_export_allowed(runtime.get_mission("app:vp3", mid)):
+            raise runtime.MissionError("Review this private mission on HomeServer.", 403)
         review = cognition.evaluate("app:vp3", mid)
         allowed = _cloud_export_allowed(runtime.get_mission("app:vp3", mid))
         return {"ok": True, "contract": CONTRACT, "review": _review_projection(review, allowed),
                 "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}
     if action == "cognition.decide":
+        if not _cloud_export_allowed(runtime.get_mission("app:vp3", mid)):
+            raise runtime.MissionError("Review this private mission on HomeServer.", 403)
         review_id = _bounded_string(body.get("review_id"), "Review ID", 80)
         approve = body.get("approve")
         if type(approve) is not bool:
