@@ -108,7 +108,7 @@ def _reset_blocked(conn, mission_id: str) -> int:
     """Revisit automatically blocked descendants; successful tasks stay immutable."""
     rows = conn.execute(
         "SELECT id,worker_id,depends_on_json FROM agent_mission_tasks_v1 "
-        "WHERE mission_id=? AND status='failed' AND error='Dependency failed'",
+        "WHERE mission_id=? AND status='failed' AND error='Dependency failed' ORDER BY position",
         (mission_id,),
     ).fetchall()
     count = 0
