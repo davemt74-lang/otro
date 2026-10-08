@@ -57,13 +57,22 @@ def authorize(source: str,mid: str,tid: str,url: str):
                          (tid,mid,source)).fetchone()
         if not row or row["status"]!="queued" or row["mission_status"] not in ("planned","running"):
             raise mission.MissionError("Task state changed while approving browser.",409)
-        exists=conn.execute("SELECT 1 FROM agent_mission_browser_v1 WHERE task_id=?", (tid,)).fetchone()
+        exists=conn.execute("SELECT status FROM agent_mission_browser_v1 WHERE task_id=?", (tid,)).fetchone()
+        if exists and exists["status"]!="closed":
+            raise mission.MissionError("Revoke the existing browser grant first.",409)
         if exists:
-            raise mission.MissionError("A browser grant already exists for this worker.",409)
-        conn.execute("INSERT INTO agent_mission_browser_v1 "
-                     "(task_id,mission_id,source_app_key,pinned_ip,approved_origin,current_url,expires_at) "
-                     "VALUES(?,?,?,?,?,?,datetime('now','+15 minutes'))",
-                     (tid,mid,source,pinned,origin,valid))
+            conn.execute("UPDATE agent_mission_browser_v1 SET status='approved',"
+                         "pinned_ip=?,approved_origin=?,current_url=?,visit_count=0,"
+                         "text_snapshot='',image_base64='',page_title='',last_error='',"
+                         "capture_token=NULL,approved_at=CURRENT_TIMESTAMP,"
+                         "expires_at=datetime('now','+15 minutes'),updated_at=CURRENT_TIMESTAMP "
+                         "WHERE task_id=? AND mission_id=? AND source_app_key=? AND status='closed'",
+                         (pinned,origin,valid,tid,mid,source))
+        else:
+            conn.execute("INSERT INTO agent_mission_browser_v1 "
+                         "(task_id,mission_id,source_app_key,pinned_ip,approved_origin,current_url,expires_at) "
+                         "VALUES(?,?,?,?,?,?,datetime('now','+15 minutes'))",
+                         (tid,mid,source,pinned,origin,valid))
         mission._event(conn,mid,"browser.approved",tid,{"origin":origin,"read_only":True})
     return inspect(source,mid,tid)
 
