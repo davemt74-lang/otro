@@ -12,6 +12,7 @@ import time
 from concurrent.futures import Future
 from urllib.parse import urljoin, urlsplit
 from . import agent_browser_policy as policy
+from . import agent_browser_dom_policy as dom
 from .agent_mission_runtime import MissionError
 
 MAX_SESSIONS = 2
@@ -80,8 +81,12 @@ class LiveActor:
                             self.stopped.set()
                             future.set_result({"stopped": True})
                             break
-                        if kind not in ("navigate", "snapshot"):
+                        if kind not in ("navigate", "snapshot", "interact"):
                             raise MissionError("Unsupported browser command.", 422)
+                        if kind == "interact":
+                            if not isinstance(url, dict) or set(url) != {"index","fingerprint","kind","value"}:
+                                raise MissionError("Unrecognized browser action payload.", 422)
+                            dom.apply(page, **url)
                         if kind == "navigate":
                             validated, _, origin = policy.parse_url(url)
                             if origin != self.origin:
@@ -120,6 +125,7 @@ class LiveActor:
                         future.set_result({
                             "url": page.url[:1400], "page_title": title, "text_snapshot": body,
                             "image_base64": image, "links": links,
+                            "controls": dom.candidates(page),
                         })
                     except Exception as exc:
                         future.set_exception(exc)
@@ -143,7 +149,7 @@ class LiveActor:
                 if _registry.get(self.task_id) is self:
                     _registry.pop(self.task_id, None)
 
-    def submit(self, kind: str, url: str = "") -> dict:
+    def submit(self, kind: str, url: str | dict = "") -> dict:
         if self.stopped.is_set() or time.monotonic() >= self.expires:
             raise MissionError("Browser session expired or stopped.", 409)
         future = Future()
@@ -186,7 +192,7 @@ def open_session(task_id: str, origin: str, pinned_ip: str, url: str) -> dict:
         raise
 
 
-def execute(task_id: str, command: str, url: str = "") -> dict:
+def execute(task_id: str, command: str, url: str | dict = "") -> dict:
     with _guard:
         actor = _registry.get(task_id)
     if actor is None:
