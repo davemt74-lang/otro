@@ -255,6 +255,10 @@ jobs:
         run: python tests/vp3_https_relay_v019.py
       - name: Shared Agent fabric, ping and context regression
         run: python tests/shared_agent_context_v210.py
+      - name: Saved and normal pairing reconciliation permissions
+        run: python tests/shared_context_pairing_permissions.py
+      - name: Owner file permission control
+        run: node tests/shared_context_permissions_ui.mjs
       - name: Federated data authority v2.4 regression
         run: python tests/federated_data_authority_v240.py
       - name: Contacts continuity v2.4 regression

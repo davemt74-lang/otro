@@ -436,13 +436,13 @@ def _local_response(response: httpx.Response) -> dict:
     }
 
 
-def _direct_identity(token: str, required_permissions: set[str] | None = None) -> dict:
+def _direct_identity(token: str, required_permissions: set[str] | None = None, *, optional_permissions: set[str] | None = None) -> dict:
     identity = authenticate(token)
     if identity is None:
         raise RemoteBridgeError("HomeServer paired-app authorization is invalid or revoked.")
     granted = set(identity.get("permissions") or [])
     required = set(required_permissions or set())
-    missing = sorted(required - granted)
+    missing = sorted(required - granted - set(optional_permissions or set()))
     if missing:
         raise RemoteBridgeError("HomeServer shared context permission is unavailable: " + ", ".join(missing))
     return identity
@@ -1138,16 +1138,21 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                 },
             }
         if op == "shared.context.exchange":
-            _direct_identity(
+            identity = _direct_identity(
                 token,
                 {"memory.read", "knowledge.search", "contacts.read", "tasks.read", "events.read", "files.read", "notifications.read"},
+                # Saved VP3 pairings predate the native file-read grant. Keep
+                # their authorized context live without granting file access.
+                optional_permissions={"files.read"},
             )
             cloud_snapshot = body.get("cloud_snapshot")
             if not isinstance(cloud_snapshot, dict):
                 raise RemoteBridgeError("shared.context.exchange requires cloud_snapshot.")
             query = str(body.get("query") or "")[:240]
             try:
-                payload_out = shared_agent_context.exchange(cloud_snapshot, query)
+                payload_out = shared_agent_context.exchange(
+                    cloud_snapshot, query, include_files="files.read" in identity["permissions"]
+                )
             except shared_agent_context.SharedAgentContextError as exc:
                 raise RemoteBridgeError(str(exc)) from exc
             return {"status": 200, "ok": True, "payload": payload_out}
@@ -1943,3 +1948,4 @@ class RemoteBridgeWorker:
 
         _set_state(running=False, stage="stopped", connected=False)
         _event("bridge.worker", "stopped", metadata={"stage": "stopped"})
+
