@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution
+from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -199,6 +199,22 @@ def execute(action: str, body: dict) -> dict:
         key = _bounded_string(body.get("provider_key"), "Provider key", 20)
         updated = execution.configure("app:vp3", mid, tid, key)
         return {"ok": True, "contract": CONTRACT, "worker_execution": updated}
+    if action in {"browser.grant", "browser.capture", "browser.get", "browser.revoke"}:
+        snapshot = runtime.get_mission("app:vp3", mid)
+        if not _cloud_export_allowed(snapshot):
+            raise runtime.MissionError("Private browser workspaces must stay on HomeServer.", 403)
+        tid = _bounded_string(body.get("task_id"), "Browser worker ID", 80)
+        if action == "browser.grant":
+            url = _bounded_string(body.get("url"), "Approved browser URL", 1400)
+            state = browser.authorize("app:vp3", mid, tid, url)
+        elif action == "browser.capture":
+            target = body.get("url")
+            state = browser.capture("app:vp3", mid, tid, str(target) if target else None)
+        elif action == "browser.revoke":
+            state = browser.revoke("app:vp3", mid, tid)
+        else:
+            state = browser.inspect("app:vp3", mid, tid, image=True)
+        return {"ok": True, "contract": CONTRACT, "browser": state}
     if action == "events":
         snapshot = runtime.get_mission("app:vp3", mid)
         if not _cloud_export_allowed(snapshot):
