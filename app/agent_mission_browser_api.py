@@ -1,5 +1,5 @@
 """Owner and paired-app routes for supervised worker browser evidence."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .agent_mission_api import authorized, execute
@@ -131,7 +131,7 @@ def app_action_propose(mission_id: str,task_id: str,identity: dict=Depends(autho
 def app_action_approve(mission_id: str,task_id: str,body: ApproveAction,
                        identity: dict=Depends(authorized)):
     if body.confirmed is not True:
-        raise ValueError("An explicit owner confirmation is required.")
+        raise HTTPException(status_code=422, detail="Explicit confirmation required.")
     return execute(dom_actions.approve,"app:"+identity["app_key"],mission_id,task_id,
                    body.proposal_id,value=body.value)
 
@@ -144,6 +144,6 @@ def owner_action_propose(mission_id: str,task_id: str):
 @router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/actions/approve")
 def owner_action_approve(mission_id: str,task_id: str,body: ApproveAction):
     if body.confirmed is not True:
-        raise ValueError("An explicit owner confirmation is required.")
+        raise HTTPException(status_code=422, detail="Explicit confirmation required.")
     return execute(dom_actions.approve,"owner",mission_id,task_id,
                    body.proposal_id,value=body.value)
