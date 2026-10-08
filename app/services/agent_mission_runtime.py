@@ -312,6 +312,12 @@ def _perform(mid: str, tid: str, lease: str) -> None:
                          (status, task["worker_id"]))
             _event(conn, mid, "task." + status, tid, {"error": error} if error else None)
             _finalize(conn, mid)
+    from . import agent_mission_live_browser
+    agent_mission_live_browser.stop_for_task(tid)
+    with db() as conn:
+        final = conn.execute("SELECT status FROM agent_missions_v1 WHERE id=?", (mid,)).fetchone()
+    if final and final["status"] in ("completed","partial","failed","cancelled"):
+        agent_mission_live_browser.stop_for_mission(mid)
     _dispatch(mid)
 
 
@@ -401,6 +407,8 @@ def cancel_mission(source: str, mid: str) -> dict:
             "WHERE mission_id=? AND status IN ('ready','running')", (mid,),
         )
         _event(conn, mid, "mission.cancelled")
+    from . import agent_mission_live_browser
+    agent_mission_live_browser.stop_for_mission(mid)
     return get_mission(source, mid)
 
 
