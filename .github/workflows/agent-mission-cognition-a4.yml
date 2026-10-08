@@ -1,0 +1,43 @@
+name: Agent Mission Cognitive Orchestration A4
+on:
+  pull_request:
+    paths:
+      - 'app/services/agent_mission_cognition.py'
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/services/remote_bridge.py'
+      - 'app/agent_mission_cognition_api.py'
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'database/agent_mission_cognition.sql'
+      - 'tests/agent_mission_cognition_a4.py'
+      - 'tests/agent_mission_cloud_a3.py'
+      - '.github/workflows/agent-mission-cognition-a4.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_mission_cognition.py'
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/agent_mission_cognition_api.py'
+      - 'database/agent_mission_cognition.sql'
+      - '.github/workflows/agent-mission-cognition-a4.yml'
+jobs:
+  cognitive-supervision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Syntax check
+        run: python -m py_compile app/agent_mission_cognition_api.py app/services/agent_mission_cognition.py app/services/agent_mission_cloud_v1.py tests/agent_mission_cognition_a4.py
+      - name: A1 parallelism and mission regression
+        run: python tests/agent_mission_runtime_a1.py
+      - name: A2 supervised recovery regression
+        run: python tests/agent_mission_control_a2.py
+      - name: A3 paired Cloud relay regression
+        run: python tests/agent_mission_cloud_a3.py
+      - name: A4 bounded cognitive staffing and authorization
+        run: python tests/agent_mission_cognition_a4.py
