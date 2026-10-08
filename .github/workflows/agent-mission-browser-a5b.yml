@@ -1,0 +1,52 @@
+name: Agent Mission Browser A5B
+on:
+  pull_request:
+    paths:
+      - 'app/services/agent_browser_policy.py'
+      - 'app/services/agent_browser_capture.py'
+      - 'app/services/agent_mission_browser.py'
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/agent_mission_browser_api.py'
+      - 'app/bridge.py'
+      - 'app/main.py'
+      - 'app/database.py'
+      - 'database/agent_mission_browser.sql'
+      - 'requirements.txt'
+      - 'tests/agent_mission_browser_a5b.py'
+      - 'tests/agent_mission_chromium_a5b.py'
+      - '.github/workflows/agent-mission-browser-a5b.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_browser_policy.py'
+      - 'app/services/agent_browser_capture.py'
+      - 'app/services/agent_mission_browser.py'
+      - 'tests/agent_mission_browser_a5b.py'
+      - 'tests/agent_mission_chromium_a5b.py'
+      - '.github/workflows/agent-mission-browser-a5b.yml'
+
+jobs:
+  governed-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Syntax validation
+        run: python -m py_compile app/services/agent_browser_policy.py app/services/agent_browser_capture.py app/services/agent_mission_browser.py app/services/agent_mission_runtime.py app/agent_mission_browser_api.py tests/agent_mission_browser_a5b.py
+      - name: A5B deterministic privacy and origin isolation
+        run: python tests/agent_mission_browser_a5b.py
+      - name: Install isolated Chromium runtime
+        run: python -m playwright install chromium
+      - name: A5B real Chromium context and preview acceptance
+        run: python tests/agent_mission_chromium_a5b.py
+      - name: A1-A5 regression
+        run: |
+          python tests/agent_mission_runtime_a1.py
+          python tests/agent_mission_control_a2.py
+          python tests/agent_mission_cloud_a3.py
+          python tests/agent_mission_cognition_a4.py
+          python tests/agent_mission_execution_a5.py
