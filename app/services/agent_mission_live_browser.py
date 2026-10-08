@@ -89,7 +89,8 @@ def get(source: str, mid: str, tid: str, *, image: bool = True) -> dict | None:
 def _store_snapshot(conn, tid: str, mid: str, token: str, response: dict,
                     *, status: str, navigation: bool):
     grant = conn.execute(
-        "SELECT status,visit_count FROM agent_mission_browser_v1 WHERE task_id=? AND mission_id=?",
+        "SELECT status,visit_count FROM agent_mission_browser_v1 "
+        "WHERE task_id=? AND mission_id=? AND datetime('now')<datetime(expires_at)",
         (tid, mid)
     ).fetchone()
     if not grant or grant["status"] != "approved":
@@ -109,19 +110,29 @@ def _store_snapshot(conn, tid: str, mid: str, token: str, response: dict,
         (response["url"], response["page_title"], response["text_snapshot"],
          response["image_base64"], int(navigation), tid)
     )
-    conn.execute(
-        "UPDATE agent_mission_live_browser_v2 SET status='live',revision=revision+1,"
-        "link_candidates_json=?,pending_proposal_json='{}',last_error='',"
-        "screenshot_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP "
-        "WHERE task_id=? AND session_token=?",
-        (json.dumps(response["links"][:24]), tid, token)
-    )
+    if navigation:
+        conn.execute(
+            "UPDATE agent_mission_live_browser_v2 SET status='live',revision=revision+1,"
+            "link_candidates_json=?,pending_proposal_json='{}',last_error='',"
+            "screenshot_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP "
+            "WHERE task_id=? AND session_token=?",
+            (json.dumps(response["links"][:24]), tid, token)
+        )
+    else:
+        conn.execute(
+            "UPDATE agent_mission_live_browser_v2 SET screenshot_at=CURRENT_TIMESTAMP,"
+            "last_error='',updated_at=CURRENT_TIMESTAMP "
+            "WHERE task_id=? AND session_token=?",
+            (tid, token)
+        )
 
 
 def start(source: str, mid: str, tid: str) -> dict:
     context, grant = _required(source, mid, tid, executable=True)
     if context["task"]["status"] != "queued":
         raise mission.MissionError("Start browser before this worker runs.", 409)
+    if int(grant["visit_count"]) >= MAX_VISITS:
+        raise mission.MissionError("Browser grant has no remaining visits.", 409)
     token = str(uuid.uuid4())
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -290,6 +301,14 @@ def approve_navigation(source: str, mid: str, tid: str, proposal_id: str) -> dic
 
 def stop(source: str, mid: str, tid: str) -> dict:
     mission.get_mission(source, mid)
+    with db() as conn:
+        owned = conn.execute(
+            "SELECT 1 FROM agent_mission_live_browser_v2 "
+            "WHERE task_id=? AND mission_id=? AND source_app_key=?",
+            (tid, mid, source)
+        ).fetchone()
+    if not owned:
+        raise mission.MissionError("Live browser does not belong to this mission.", 404)
     actor.close_session(tid)
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
