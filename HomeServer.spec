@@ -5,7 +5,8 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 livekit_datas, livekit_binaries, livekit_hiddenimports = collect_all('livekit')
 sounddevice_datas, sounddevice_binaries, sounddevice_hiddenimports = collect_all('sounddevice')
 cv2_datas, cv2_binaries, cv2_hiddenimports = collect_all('cv2')
-hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + sounddevice_hiddenimports + livekit_hiddenimports + cv2_hiddenimports + [
+playwright_datas, playwright_binaries, playwright_hiddenimports = collect_all('playwright')
+hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + sounddevice_hiddenimports + livekit_hiddenimports + cv2_hiddenimports + playwright_hiddenimports + [
     'app.services.meeting_intelligence',
     'app.services.meeting_intelligence_remote',
 ]
@@ -13,13 +14,17 @@ hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + s
 a = Analysis(
     ['desktop/launcher.py'],
     pathex=['.'],
-    binaries=livekit_binaries + sounddevice_binaries + cv2_binaries,
+    binaries=livekit_binaries + sounddevice_binaries + cv2_binaries + playwright_binaries,
     datas=[
         ('database/schema.sql', 'database'),
         ('database/knowledge_collections.sql', 'database'),
         ('database/agent_voice_profiles.sql', 'database'),
         ('database/agent_routing.sql', 'database'),
         ('database/agent_delegation_workflows.sql', 'database'),
+        ('database/agent_mission_runtime.sql', 'database'),
+        ('database/agent_mission_execution.sql', 'database'),
+        ('database/agent_mission_browser.sql', 'database'),
+        ('database/agent_mission_cognition.sql', 'database'),
         ('database/agent_workflow_supervision.sql', 'database'),
         ('database/agent_workflow_automation.sql', 'database'),
         ('database/runtime_certification.sql', 'database'),
@@ -27,7 +32,7 @@ a = Analysis(
         ('database/local_transcription_sessions.sql', 'database'),
         ('database/migrations', 'database/migrations'),
         ('ui', 'ui'),
-    ] + livekit_datas + sounddevice_datas + cv2_datas,
+    ] + livekit_datas + sounddevice_datas + cv2_datas + playwright_datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
