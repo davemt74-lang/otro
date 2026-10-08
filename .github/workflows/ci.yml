@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   test:
+    if: ${{ github.event_name != 'pull_request' || !startsWith(github.head_ref, 'feature/hosting-v2') || endsWith(github.head_ref, '-section5') || endsWith(github.head_ref, '-section10') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,0 +1,68 @@
+name: HomeServer Hosting Section Gate
+
+on:
+  pull_request:
+    paths:
+      - "app/hosting_api.py"
+      - "app/hosting_public_api.py"
+      - "app/services/hosting_*.py"
+      - "tests/hosting_*.py"
+      - "tests/run_hosting_suite.py"
+      - "ui/system.html"
+      - "ui/system.js"
+      - "ui/system.css"
+      - ".github/workflows/hosting-section-gate.yml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/homeserver-v23-release.yml"
+      - ".github/workflows/homeserver-v24-data-continuity.yml"
+      - ".github/workflows/homeserver-v24-release.yml"
+      - ".github/workflows/vp3-os-hardware-experience-v130.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: hosting-section-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hosting:
+    name: Hosting section · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile Hosting surfaces
+        run: >-
+          python -m py_compile
+          app/hosting_api.py
+          app/hosting_public_api.py
+          app/services/hosting_runtime.py
+          app/services/hosting_deployment.py
+          app/services/hosting_serving.py
+          app/services/hosting_scheduler.py
+          app/services/hosting_cloud_control.py
+          app/services/hosting_cloud_deployment.py
+          app/services/hosting_recovery.py
+          app/services/hosting_sqlite.py
+          app/services/hosting_public.py
+          app/services/hosting_entitlements.py
+          app/services/hosting_operations.py
+          tests/run_hosting_suite.py
+      - name: Validate Hosting dashboard JavaScript
+        run: node --check ui/system.js
+      - name: Run complete Hosting regression suite
+        run: python tests/run_hosting_suite.py
