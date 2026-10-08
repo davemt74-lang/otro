@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import threading
 from pathlib import Path
 
@@ -70,9 +71,13 @@ with tempfile.TemporaryDirectory(prefix="vp3-mission-runtime-") as data_dir:
 
     runtime.start_mission("owner", mid)
     gate.wait()
-    runtime.shutdown()
+    deadline = time.monotonic() + 15
     finished = runtime.get_mission("owner", mid)
+    while finished["status"] == "running" and time.monotonic() < deadline:
+        time.sleep(0.025)
+        finished = runtime.get_mission("owner", mid)
     assert finished["status"] == "completed", finished
+    runtime.shutdown()
     assert all(t["status"] == "completed" for t in finished["tasks"])
     assert counts["max"] >= 2, "Independent tasks must actually overlap."
     assert finished["verified"] is False
