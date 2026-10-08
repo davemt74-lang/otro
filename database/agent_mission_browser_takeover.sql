@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS agent_mission_browser_takeover_v4 (
   expires_at TEXT,
   actions_used INTEGER NOT NULL DEFAULT 0 CHECK(actions_used BETWEEN 0 AND 8),
   pending_form_json TEXT NOT NULL DEFAULT '{}',
+  forms_json TEXT NOT NULL DEFAULT '[]',
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_browser_takeover_mission_v4
