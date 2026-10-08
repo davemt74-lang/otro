@@ -1,0 +1,44 @@
+name: Agent Mission Cognition A4
+on:
+  pull_request:
+    paths:
+      - 'app/services/agent_mission_cognition.py'
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/agent_mission_cognition_api.py'
+      - 'app/services/remote_bridge.py'
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'database/agent_mission_cognition.sql'
+      - 'tests/agent_mission_cognition_a4.py'
+      - '.github/workflows/agent-mission-cognition-a4.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_mission_cognition.py'
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/agent_mission_cognition_api.py'
+      - 'app/services/remote_bridge.py'
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'database/agent_mission_cognition.sql'
+      - 'tests/agent_mission_cognition_a4.py'
+      - '.github/workflows/agent-mission-cognition-a4.yml'
+jobs:
+  cognitive-staffing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Syntax
+        run: python -m py_compile app/services/agent_mission_cognition.py app/agent_mission_cognition_api.py app/services/agent_mission_cloud_v1.py app/services/remote_bridge.py tests/agent_mission_cognition_a4.py
+      - name: Preserve A1 runtime behavior
+        run: python tests/agent_mission_runtime_a1.py
+      - name: Preserve A2 reviewed recovery
+        run: python tests/agent_mission_control_a2.py
+      - name: Preserve A3 paired Cloud relay
+        run: python tests/agent_mission_cloud_a3.py
+      - name: A4 cognitive staffing and decision ledger
+        run: python tests/agent_mission_cognition_a4.py

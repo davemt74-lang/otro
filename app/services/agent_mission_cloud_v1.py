@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing, context_engine, app_scopes
+from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -75,7 +75,7 @@ def _cloud_export_allowed(raw: dict) -> bool:
 def _projection(raw: dict, *, detailed: bool = False) -> dict:
     allowed = _cloud_export_allowed(raw)
     tasks = []
-    for task in raw.get("tasks", [])[:4]:
+    for task in raw.get("tasks", [])[:12]:
         item = {
             "id": str(task.get("id") or ""),
             "title": str(task.get("title") or "")[:160] if allowed else "Private HomeServer worker",
@@ -112,6 +112,22 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
             for e in raw.get("events", [])[-40:] if allowed
         ]
     return result
+
+
+def _supervisor_projection(raw: dict, mission_snapshot: dict) -> dict:
+    allowed = _cloud_export_allowed(mission_snapshot)
+    return {
+        "id": str(raw.get("id") or ""),
+        "status": str(raw.get("status") or ""),
+        "decision": str(raw.get("decision") or "") if allowed else "private",
+        "reason": str(raw.get("reason") or "")[:1800] if allowed else "",
+        "confidence": int(raw.get("confidence") or 0) if allowed else 0,
+        "tasks": raw.get("tasks", [])[:4] if allowed else [],
+        "created_at": raw.get("created_at"),
+        "decided_at": raw.get("decided_at"),
+        "private": not allowed,
+        "requires_approval": raw.get("status") == "proposed",
+    }
 
 
 def execute(action: str, body: dict) -> dict:
@@ -157,6 +173,21 @@ def execute(action: str, body: dict) -> dict:
         tid = _bounded_string(body.get("task_id"), "Task ID", 80)
         result = control.retry("app:vp3", mid, tid)
         return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
+    if action in {"evaluate", "decisions", "approve", "reject"}:
+        current = runtime.get_mission("app:vp3", mid)
+        if action == "evaluate":
+            request_id = _bounded_string(body.get("request_id"), "Staffing request ID", 128)
+            decision = cognition.propose("app:vp3", mid, request_id)
+            return {"ok": True, "contract": CONTRACT,
+                    "supervision": _supervisor_projection(decision, runtime.get_mission("app:vp3", mid))}
+        if action == "decisions":
+            recent = cognition.list_decisions("app:vp3", mid)
+            return {"ok": True, "contract": CONTRACT,
+                    "items": [_supervisor_projection(d, current) for d in recent["items"]]}
+        decision_id = _bounded_string(body.get("decision_id"), "Decision ID", 80)
+        decision = cognition.decide("app:vp3", mid, decision_id, approve=(action == "approve"))
+        return {"ok": True, "contract": CONTRACT,
+                "supervision": _supervisor_projection(decision, runtime.get_mission("app:vp3", mid))}
     if action == "events":
         snapshot = runtime.get_mission("app:vp3", mid)
         if not _cloud_export_allowed(snapshot):
