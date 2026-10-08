@@ -215,7 +215,9 @@ def auto_review(mid: str) -> None:
 def decide(source: str, mid: str, review_id: str, *, approve: bool) -> dict:
     if type(approve) is not bool:
         raise runtime.MissionError("Decision must be a boolean.", 422)
-    runtime.get_mission(source, mid)
+    snapshot = runtime.get_mission(source, mid)
+    if approve:
+        runtime._route(source, str(snapshot["conversation_id"]))
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         current = conn.execute(
@@ -235,7 +237,6 @@ def decide(source: str, mid: str, review_id: str, *, approve: bool) -> dict:
         if review["status"] != "proposed" or current["status"] not in TERMINAL:
             raise runtime.MissionError("Review is no longer awaiting approval.", 409)
         if approve:
-            runtime._route(source, str(current["conversation_id"]))
             tasks = runtime.validate_plan(json.loads(review["proposed_tasks_json"]))
             row = conn.execute(
                 "SELECT COUNT(*) AS n FROM agent_mission_tasks_v1 WHERE mission_id=?",
