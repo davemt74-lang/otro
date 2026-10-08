@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser
+from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser, agent_mission_live_browser as live
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -215,6 +215,27 @@ def execute(action: str, body: dict) -> dict:
         else:
             state = browser.inspect("app:vp3", mid, tid, image=True)
         return {"ok": True, "contract": CONTRACT, "browser": state}
+    if action in {"browser.live.start", "browser.live.get", "browser.live.refresh",
+                  "browser.live.propose", "browser.live.approve", "browser.live.stop"}:
+        current = runtime.get_mission("app:vp3", mid)
+        if not _cloud_export_allowed(current):
+            raise runtime.MissionError("Private live browsers must stay on HomeServer.", 403)
+        tid = _bounded_string(body.get("task_id"), "Live browser worker", 80)
+        source = "app:vp3"
+        if action == "browser.live.start":
+            result = live.start(source, mid, tid)
+        elif action == "browser.live.get":
+            result = live.get(source, mid, tid)
+        elif action == "browser.live.refresh":
+            result = live.refresh(source, mid, tid)
+        elif action == "browser.live.propose":
+            result = live.propose(source, mid, tid)
+        elif action == "browser.live.approve":
+            proposal_id = _bounded_string(body.get("proposal_id"), "Approved navigation proposal", 80)
+            result = live.approve_navigation(source, mid, tid, proposal_id)
+        else:
+            result = live.stop(source, mid, tid)
+        return {"ok": True, "contract": CONTRACT, "live_browser": result}
     if action == "events":
         snapshot = runtime.get_mission("app:vp3", mid)
         if not _cloud_export_allowed(snapshot):
