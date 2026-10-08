@@ -119,22 +119,22 @@ def execute(action: str, body: dict) -> dict:
             "app:vp3", conversation_id=cid, objective=objective,
             client_request_id=request_id, owner=False,
         )
-        return {"ok": True, "mission": _projection(created, detailed=True)}
+        return {"ok": True, "contract": CONTRACT, "mission": _projection(created, detailed=True)}
     mid = _bounded_string(body.get("mission_id"), "Mission ID", 80)
     # Source-scoped lookup prevents a paired Cloud call from reading owner
     # missions or a different app's mission ID.
     runtime.get_mission("app:vp3", mid)
     if action == "get":
-        return {"ok": True, "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}
+        return {"ok": True, "contract": CONTRACT, "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}
     if action == "start":
         result = runtime.start_mission("app:vp3", mid)
-        return {"ok": True, "mission": _projection(result, detailed=True)}
+        return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
     if action == "cancel":
         result = runtime.cancel_mission("app:vp3", mid)
-        return {"ok": True, "mission": _projection(result, detailed=True)}
+        return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
     if action == "pause":
         result = control.pause("app:vp3", mid)
-        return {"ok": True, "mission": _projection(result, detailed=True)}
+        return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
     if action == "events":
         after, limit = body.get("after", 0), body.get("limit", 40)
         if isinstance(after, bool) or isinstance(limit, bool):
@@ -143,5 +143,5 @@ def execute(action: str, body: dict) -> dict:
             after, limit = int(after), int(limit)
         except (TypeError, ValueError) as exc:
             raise runtime.MissionError("Event cursor is invalid.") from exc
-        return {"ok": True, **control.events("app:vp3", mid, after=after, limit=min(60, limit))}
+        return {"ok": True, "contract": CONTRACT, **control.events("app:vp3", mid, after=after, limit=min(60, limit))}
     raise runtime.MissionError("Mission operation is not allowed.", 404)
