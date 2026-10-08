@@ -18,6 +18,7 @@ FEATURE_SCHEMA_PATHS = (
     ROOT_DIR / "database" / "agent_voice_profiles.sql",
     ROOT_DIR / "database" / "agent_routing.sql",
     ROOT_DIR / "database" / "agent_delegation_workflows.sql",
+    ROOT_DIR / "database" / "agent_mission_runtime.sql",
     ROOT_DIR / "database" / "agent_workflow_supervision.sql",
     ROOT_DIR / "database" / "agent_workflow_automation.sql",
     ROOT_DIR / "database" / "runtime_certification.sql",
