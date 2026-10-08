@@ -1,0 +1,50 @@
+name: Agent Mission Persistent Browser A5B2
+on:
+  pull_request:
+    paths:
+      - 'app/services/agent_browser_live_actor.py'
+      - 'app/services/agent_mission_live_browser.py'
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/services/agent_mission_browser.py'
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/services/remote_bridge.py'
+      - 'app/agent_mission_browser_api.py'
+      - 'app/main.py'
+      - 'app/database.py'
+      - 'HomeServer.spec'
+      - 'database/agent_mission_live_browser.sql'
+      - 'tests/agent_mission_live_browser_a5b2.py'
+      - 'tests/agent_browser_live_actor_a5b2.py'
+      - '.github/workflows/agent-mission-live-browser-a5b2.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_browser_live_actor.py'
+      - 'app/services/agent_mission_live_browser.py'
+      - 'database/agent_mission_live_browser.sql'
+      - '.github/workflows/agent-mission-live-browser-a5b2.yml'
+jobs:
+  persistent-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install runtime
+        run: pip install -r requirements.txt
+      - name: Syntax check
+        run: |
+          python -m py_compile app/services/agent_browser_live_actor.py app/services/agent_mission_live_browser.py app/services/agent_mission_browser.py app/agent_mission_browser_api.py tests/agent_mission_live_browser_a5b2.py
+      - name: Bounded persistent Chromium actor registry
+        run: python tests/agent_browser_live_actor_a5b2.py
+      - name: Live sessions, proposals, approval, privacy, revocation and recovery
+        run: python tests/agent_mission_live_browser_a5b2.py
+      - name: Previous browser and mission regression
+        run: |
+          python tests/agent_mission_browser_a5b.py
+          python tests/agent_mission_runtime_a1.py
+          python tests/agent_mission_control_a2.py
+          python tests/agent_mission_cloud_a3.py
+          python tests/agent_mission_cognition_a4.py
+          python tests/agent_mission_execution_a5.py

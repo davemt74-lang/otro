@@ -38,6 +38,10 @@ def inspect(source: str,mid: str,tid: str,*,image: bool=False):
         conn.execute("UPDATE agent_mission_browser_v1 SET status='closed',capture_token=NULL,"
                      "text_snapshot='',image_base64='',updated_at=CURRENT_TIMESTAMP "
                      "WHERE task_id=? AND status!='closed' AND datetime('now')>=datetime(expires_at)",(tid,))
+        from . import agent_mission_live_browser
+        expired=conn.execute("SELECT status FROM agent_mission_browser_v1 WHERE task_id=?",(tid,)).fetchone()
+        if expired and expired["status"]=="closed":
+            agent_mission_live_browser.stop_for_revoke(tid,conn)
         row=conn.execute("SELECT * FROM agent_mission_browser_v1 "
                          "WHERE task_id=? AND mission_id=? AND source_app_key=?",
                          (tid,mid,source)).fetchone()
@@ -86,6 +90,8 @@ def revoke(source: str,mid: str,tid: str):
                              (tid,mid,source))
         if not updated.rowcount:
             raise mission.MissionError("Active worker browser was not found.",409)
+        from . import agent_mission_live_browser
+        agent_mission_live_browser.stop_for_revoke(tid, conn)
         mission._event(conn,mid,"browser.revoked",tid)
     return {"task_id":tid,"status":"closed"}
 
@@ -107,6 +113,9 @@ def capture(source: str,mid: str,tid: str,url: str|None=None):
     ctx=_context(source,mid,tid)
     if ctx["mission"]["status"] not in ("planned","running"):
         raise mission.MissionError("Finished missions cannot navigate browser pages.",409)
+    from . import agent_browser_live_actor
+    if agent_browser_live_actor.active(tid):
+        raise mission.MissionError("Use the live browser controls while a session is open.",409)
     token=str(uuid.uuid4())
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")

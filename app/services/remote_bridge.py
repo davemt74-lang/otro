@@ -1129,7 +1129,7 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             if str(identity.get("app_key") or "") != "vp3":
                 raise RemoteBridgeError("Cloud missions require a paired VP3 identity.")
             action = op.removeprefix("agent.missions.")
-            if action not in {"list", "get", "create", "start", "cancel", "pause", "resume", "retry", "events", "evaluate", "decisions", "approve", "reject", "execution", "bind_provider", "browser.grant", "browser.get", "browser.capture", "browser.revoke"}:
+            if action not in {"list", "get", "create", "start", "cancel", "pause", "resume", "retry", "events", "evaluate", "decisions", "approve", "reject", "execution", "bind_provider", "browser.grant", "browser.get", "browser.capture", "browser.revoke", "browser.live.start", "browser.live.get", "browser.live.refresh", "browser.live.propose", "browser.live.approve", "browser.live.stop"}:
                 raise RemoteBridgeError("Cloud mission operation is not allowed.")
             try:
                 result = agent_mission_cloud_v1.execute(action, body)
