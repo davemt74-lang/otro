@@ -1,0 +1,44 @@
+name: Agent Mission Provider Isolation A5
+on:
+  pull_request:
+    paths:
+      - 'app/services/agent_mission_execution.py'
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/services/providers.py'
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/services/remote_bridge.py'
+      - 'app/agent_mission_execution_api.py'
+      - 'app/bridge.py'
+      - 'app/database.py'
+      - 'database/agent_mission_execution.sql'
+      - 'tests/agent_mission_execution_a5.py'
+      - '.github/workflows/agent-mission-execution-a5.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_mission_execution.py'
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/services/providers.py'
+      - 'database/agent_mission_execution.sql'
+      - '.github/workflows/agent-mission-execution-a5.yml'
+jobs:
+  provider-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Syntax validation
+        run: python -m py_compile app/services/agent_mission_execution.py app/services/agent_mission_runtime.py app/services/providers.py app/agent_mission_execution_api.py tests/agent_mission_execution_a5.py
+      - name: A1 parallel mission regression
+        run: python tests/agent_mission_runtime_a1.py
+      - name: A2 supervision regression
+        run: python tests/agent_mission_control_a2.py
+      - name: A3 paired Cloud relay regression
+        run: python tests/agent_mission_cloud_a3.py
+      - name: A4 cognitive staffing regression
+        run: python tests/agent_mission_cognition_a4.py
+      - name: A5 governed model isolation acceptance
+        run: python tests/agent_mission_execution_a5.py
