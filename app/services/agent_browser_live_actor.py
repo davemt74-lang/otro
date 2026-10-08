@@ -13,6 +13,7 @@ from concurrent.futures import Future
 from urllib.parse import urljoin, urlsplit
 from . import agent_browser_policy as policy
 from . import agent_browser_dom_policy as dom
+from . import agent_browser_search_policy as search
 from .agent_mission_runtime import MissionError
 
 MAX_SESSIONS = 2
@@ -81,12 +82,16 @@ class LiveActor:
                             self.stopped.set()
                             future.set_result({"stopped": True})
                             break
-                        if kind not in ("navigate", "snapshot", "interact"):
+                        if kind not in ("navigate", "snapshot", "interact", "search_get"):
                             raise MissionError("Unsupported browser command.", 422)
                         if kind == "interact":
                             if not isinstance(url, dict) or set(url) != {"index","fingerprint","kind","value"}:
                                 raise MissionError("Unrecognized browser action payload.", 422)
                             dom.apply(page, **url)
+                        if kind == "search_get":
+                            if not isinstance(url, dict) or set(url) != {"index", "fingerprint"}:
+                                raise MissionError("Unsafe form approval payload.", 422)
+                            search.submit_search(page, self.origin, **url)
                         if kind == "navigate":
                             validated, _, origin = policy.parse_url(url)
                             if origin != self.origin:
@@ -133,6 +138,7 @@ class LiveActor:
                             "url": page.url[:1400], "page_title": title, "text_snapshot": body,
                             "image_base64": image, "links": links,
                             "controls": dom.candidates(page),
+                            "search_forms": search.search_forms(page, self.origin),
                         })
                     except Exception as exc:
                         future.set_exception(exc)
