@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser, agent_mission_live_browser as live, agent_mission_browser_actions as actions, agent_mission_browser_takeover as takeover
+from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser, agent_mission_live_browser as live, agent_mission_browser_actions as actions, agent_mission_browser_takeover as takeover, agent_mission_browser_plans as plans
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -216,13 +216,16 @@ def execute(action: str, body: dict) -> dict:
             state = browser.inspect("app:vp3", mid, tid, image=True)
         return {"ok": True, "contract": CONTRACT, "browser": state}
     if action in {"browser.live.start", "browser.live.get", "browser.live.refresh",
-                  "browser.live.propose", "browser.live.approve", "browser.live.stop"}:
+                  "browser.live.propose", "browser.live.approve", "browser.live.stop", "browser.live.plan"}:
         current = runtime.get_mission("app:vp3", mid)
         if not _cloud_export_allowed(current):
             raise runtime.MissionError("Private live browsers must stay on HomeServer.", 403)
         tid = _bounded_string(body.get("task_id"), "Live browser worker", 80)
         source = "app:vp3"
-        if action == "browser.live.start":
+        if action == "browser.live.plan":
+            plans.run(source,mid,tid,request_id=_bounded_string(body.get("request_id"),"Plan operation ID",36),confirmed=body.get("confirmed"))
+            result=live.get(source,mid,tid)
+        elif action == "browser.live.start":
             result = live.start(source, mid, tid)
         elif action == "browser.live.get":
             result = live.get(source, mid, tid)
@@ -262,7 +265,7 @@ def execute(action: str, body: dict) -> dict:
         if action == "browser.owner.takeover":
             result = takeover.acquire(source,mid,tid)
         elif action == "browser.owner.release":
-            result = takeover.release(source,mid,tid)
+            result = takeover.release(source,mid,tid,lease_id=_bounded_string(body.get("lease_id"),"Owner lease ID",36))
         elif action == "browser.owner.control":
             if body.get("confirmed") is not True:
                 raise runtime.MissionError("Owner confirmation required.",422)
@@ -274,18 +277,18 @@ def execute(action: str, body: dict) -> dict:
             value=body.get("value")
             if type(value) not in (bool,int,str):
                 raise runtime.MissionError("Control input type is invalid.",422)
-            result=takeover.manual(source,mid,tid,index=index,fingerprint=fingerprint,kind=kind,value=value)
+            result=takeover.manual(source,mid,tid,index=index,fingerprint=fingerprint,kind=kind,value=value,request_id=_bounded_string(body.get("request_id"),"Operation ID",36),lease_id=_bounded_string(body.get("lease_id"),"Owner lease ID",36))
         elif action == "browser.owner.search.review":
             index=body.get("index")
             if type(index) is not int or index<0 or index>19:
                 raise runtime.MissionError("Search form index is invalid.",422)
             fingerprint=_bounded_string(body.get("fingerprint"),"Search fingerprint",24)
-            result=takeover.review_search(source,mid,tid,index=index,fingerprint=fingerprint)
+            result=takeover.review_search(source,mid,tid,index=index,fingerprint=fingerprint,lease_id=_bounded_string(body.get("lease_id"),"Owner lease ID",36))
         else:
             if body.get("confirmed") is not True:
                 raise runtime.MissionError("Explicit GET search submission approval required.",422)
             proposal_id=_bounded_string(body.get("proposal_id"),"Search approval ID",80)
-            result=takeover.submit_search(source,mid,tid,proposal_id=proposal_id)
+            result=takeover.submit_search(source,mid,tid,proposal_id=proposal_id,lease_id=_bounded_string(body.get("lease_id"),"Owner lease ID",36))
         return {"ok":True,"contract":CONTRACT,"live_browser":result}
     if action == "events":
         snapshot = runtime.get_mission("app:vp3", mid)

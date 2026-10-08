@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlsplit
 from . import agent_browser_policy as policy
 from . import agent_browser_dom_policy as dom
 from . import agent_browser_search_policy as search
+from . import agent_browser_runtime as browser_runtime
 from .agent_mission_runtime import MissionError
 
 MAX_SESSIONS = 2
@@ -35,6 +36,7 @@ class LiveActor:
         self.expires = self.started + SESSION_SECONDS
         self.requests: queue.Queue = queue.Queue(maxsize=2)
         self.stopped = threading.Event()
+        self.search_review = {}
         self.thread = threading.Thread(target=self._run, name="vp3-browser-" + task_id[:8], daemon=True)
         self.thread.start()
 
@@ -47,10 +49,7 @@ class LiveActor:
                         "--disable-extensions", "--no-first-run",
                         "--host-resolver-rules=MAP " +
                         str(urlsplit(self.origin).hostname) + " " + self.pinned_ip]
-                try:
-                    browser = playwright.chromium.launch(channel="chrome", headless=True, args=args)
-                except Exception:
-                    browser = playwright.chromium.launch(headless=True, args=args)
+                browser=browser_runtime.launch(playwright,args=args)
                 context = browser.new_context(
                     viewport={"width": 960, "height": 670},
                     java_script_enabled=False, service_workers="block",
@@ -63,6 +62,7 @@ class LiveActor:
                         if origin != self.origin or request.method.upper() != "GET":
                             route.abort()
                         else:
+                            policy.read_navigation(request.url)
                             route.continue_()
                     except Exception:
                         route.abort()
@@ -82,21 +82,46 @@ class LiveActor:
                             self.stopped.set()
                             future.set_result({"stopped": True})
                             break
-                        if kind not in ("navigate", "snapshot", "interact", "search_get"):
+                        if kind == 'review_search':
+                            if not isinstance(url,dict) or set(url)!={'index','fingerprint','review_id'}:
+                                raise MissionError('Invalid form review.',422)
+                            review=search.review_search(page,self.origin,index=url['index'],fingerprint=url['fingerprint'])
+                            review['id']=url['review_id']
+                            self.search_review={**review,'expires':time.monotonic()+90}
+                            future.set_result(review)
+                            continue
+                        if kind not in ("navigate", "snapshot", "interact", "search_get", "prepare_search"):
                             raise MissionError("Unsupported browser command.", 422)
                         if kind == "interact":
+                            self.search_review={}
                             if not isinstance(url, dict) or set(url) != {"index","fingerprint","kind","value"}:
                                 raise MissionError("Unrecognized browser action payload.", 422)
                             dom.apply(page, **url)
                         if kind == "search_get":
-                            if not isinstance(url, dict) or set(url) != {"index", "fingerprint"}:
+                            if not isinstance(url, dict) or set(url) != {"index", "fingerprint", "review_id", "payload_hash"}:
                                 raise MissionError("Unsafe form approval payload.", 422)
-                            search.submit_search(page, self.origin, **url)
+                            review=self.search_review
+                            self.search_review={}
+                            if review.get('id')!=url['review_id'] or review.get('payload_hash')!=url['payload_hash'] or time.monotonic()>=review.get('expires',0):
+                                raise MissionError('Form approval expired or was consumed.',409)
+                            search.submit_search(page,self.origin,index=url['index'],fingerprint=url['fingerprint'],payload_hash=url['payload_hash'])
+                        if kind == 'prepare_search':
+                            self.search_review={}
+                            if not isinstance(url,dict) or set(url)!={'index','fingerprint','query'}:
+                                raise MissionError('Invalid search preparation.',422)
+                            search.prepare_search(page,self.origin,**url)
                         if kind == "navigate":
+                            self.search_review={}
                             validated, _, origin = policy.parse_url(url)
                             if origin != self.origin:
                                 raise MissionError("Origin is not approved.", 403)
-                            response = page.goto(validated, wait_until="domcontentloaded", timeout=15000)
+                            policy.read_navigation(validated)
+                            try:
+                                response = page.goto(validated, wait_until="domcontentloaded", timeout=15000)
+                            except Exception as navigation_error:
+                                if browser.is_connected() and policy.parse_url(page.url)[2] == self.origin:
+                                    raise MissionError('Browser navigation failed.',502) from navigation_error
+                                raise
                             if response is None or response.status >= 400:
                                 raise MissionError("Browser navigation failed.", 502)
                         if not page.url.startswith("https://"):
@@ -113,6 +138,7 @@ class LiveActor:
                             target = urljoin(page.url, href)
                             try:
                                 target, _, origin = policy.parse_url(target)
+                                policy.read_navigation(target)
                             except MissionError:
                                 continue
                             if origin != self.origin or target in seen:
@@ -217,6 +243,13 @@ def active(task_id: str) -> bool:
     with _guard:
         actor = _registry.get(task_id)
     return bool(actor and not actor.stopped.is_set() and time.monotonic() < actor.expires)
+
+def review_status(task_id: str) -> dict:
+    with _guard:
+        actor=_registry.get(task_id)
+        review=dict(actor.search_review) if actor else {}
+    if not review or time.monotonic()>=review.get('expires',0): return {}
+    return {key:value for key,value in review.items() if key!='expires'}
 
 
 def close_session(task_id: str) -> None:

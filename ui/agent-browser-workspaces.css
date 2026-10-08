@@ -1,0 +1,79 @@
+/* Agent Teams A3: compact, accessible mission workspace embedded in Chat. */
+.vp3-agent-teams-a3{width:100%;border:1px solid var(--border,#394252);border-radius:12px;background:var(--surface,#181c26);color:inherit;margin:0 0 10px;box-sizing:border-box;flex-shrink:0}
+.vp3-agent-teams-a3>summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;padding:10px 13px;min-height:38px;font-weight:650;font-size:13px}
+.vp3-agent-teams-a3>summary::-webkit-details-marker{display:none}
+.vp3-agent-teams-a3>summary small{font-size:11px;font-weight:400;opacity:.68;margin-left:auto}
+.vp3-agent-teams-a3>summary:focus-visible,.vp3-agent-teams-a3 button:focus-visible,.vp3-agent-teams-a3 input:focus-visible{outline:2px solid #8fb8f2;outline-offset:2px}
+.vp3-agent-teams-a3 .vp3-teams-body{padding:0 12px 12px;max-height:min(52vh,420px);overflow-y:auto;overscroll-behavior:contain}
+.vp3-agent-teams-a3 .vp3-teams-body>p{font-size:12px;opacity:.74;margin:0 0 10px}
+.vp3-agent-teams-a3 label{display:block;font-size:12px;font-weight:600;margin-bottom:6px}
+.vp3-agent-teams-a3 .vp3-teams-entry{display:flex;gap:7px}
+.vp3-agent-teams-a3 input{flex:1;min-width:0;color:inherit;background:transparent;border:1px solid var(--border,#555e6c);border-radius:8px;padding:8px 10px;font:inherit}
+.vp3-agent-teams-a3 button{font:inherit;font-size:12px;border:1px solid var(--border,#555e6c);background:var(--surface-secondary,#252c39);color:inherit;border-radius:8px;padding:7px 10px;cursor:pointer;white-space:nowrap}
+.vp3-agent-teams-a3 button:hover{filter:brightness(1.13)}
+.vp3-agent-teams-a3 button:disabled{opacity:.55;cursor:wait}
+.vp3-agent-teams-a3 .vp3-teams-status{font-size:12px;min-height:20px;margin:9px 0;color:inherit;opacity:.82}
+.vp3-agent-teams-a3 .vp3-teams-list{display:grid;gap:5px}
+.vp3-agent-teams-a3 .vp3-teams-item{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--border,#393c4b);border-radius:8px;padding:7px 8px}
+.vp3-agent-teams-a3 .vp3-teams-item-main{min-width:0}
+.vp3-agent-teams-a3 .vp3-teams-item strong{display:block;font-size:12px;overflow-wrap:anywhere}
+.vp3-agent-teams-a3 small,.vp3-agent-teams-a3 .vp3-teams-meta{display:block;font-size:11px;opacity:.74}
+.vp3-agent-teams-a3 .vp3-teams-detail{margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#394252)}
+.vp3-agent-teams-a3 .vp3-teams-detail[hidden]{display:none}
+.vp3-agent-teams-a3 h3{font-size:13px;margin:0 0 4px;overflow-wrap:anywhere}
+.vp3-agent-teams-a3 h4{font-size:12px;margin:12px 0 6px}
+.vp3-agent-teams-a3 .vp3-teams-actions{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.vp3-agent-teams-a3 .vp3-teams-workers{padding:0 0 0 21px;margin:8px 0}
+.vp3-agent-teams-a3 .vp3-teams-workers li{margin:7px 0;padding:5px 0}
+.vp3-agent-teams-a3 .vp3-teams-workers strong{display:block;font-size:12px}
+.vp3-agent-teams-a3 .vp3-teams-error{font-size:11px;color:var(--danger,#d55e63);overflow-wrap:anywhere}
+.vp3-agent-teams-a3 .vp3-teams-result{margin-top:6px;border:1px solid var(--border,#394252);border-radius:8px;padding:7px;font-size:11px}
+.vp3-agent-teams-a3 .vp3-teams-result summary{cursor:pointer}
+.vp3-agent-teams-a3 pre{max-height:170px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,monospace;font-size:11px}
+.vp3-agent-teams-a3 .vp3-teams-events{font-size:11px;line-height:1.7;padding-left:20px}
+@media(max-width:600px){.vp3-agent-teams-a3 .vp3-teams-entry{flex-wrap:wrap}.vp3-agent-teams-a3 .vp3-teams-entry button{width:100%}.vp3-agent-teams-a3 .vp3-teams-body{max-height:40vh}}
+
+/* Reuse the canonical Agent Brain body; do not create another drawer. */
+.vp3-agent-teams-brain-a3 .vp3-teams-brain-row{padding:8px 0;border-top:1px solid var(--border,#394252)}
+.vp3-agent-teams-brain-a3 .vp3-teams-brain-row strong{display:block;font-size:12px;overflow-wrap:anywhere}
+.vp3-agent-teams-brain-a3 .vp3-teams-brain-row small{display:block;font-size:11px;opacity:.75;margin-top:3px}
+
+/* A4 uses the existing mission panel and Agent Brain drawer for supervision. */
+.vp3-agent-teams-a3 .vp3-teams-supervisor{border:1px solid var(--border,#394252);border-radius:10px;padding:9px;margin:10px 0}
+.vp3-agent-teams-a3 .vp3-teams-supervisor h4{margin-top:0}
+.vp3-agent-teams-a3 .vp3-teams-supervisor-reason{font-size:12px;overflow-wrap:anywhere}
+.vp3-agent-teams-a3 .vp3-teams-supervisor-candidates{margin:6px 0;padding-left:19px;font-size:12px}
+.vp3-agent-teams-a3 .vp3-teams-supervisor-candidates li{margin:5px 0;overflow-wrap:anywhere}
+.vp3-agent-teams-a3 .vp3-teams-supervisor button{margin:4px 6px 0 0;white-space:normal}
+
+.vp3-agent-teams-a3 .vp3-provider-label{margin:9px 0 4px}
+.vp3-agent-teams-a3 select[name=provider_key]{display:block;width:100%;max-width:320px;padding:7px 8px;color:inherit;background:var(--surface-secondary,#252c39);border:1px solid var(--border,#555e6c);border-radius:8px;font:inherit;font-size:12px}
+.vp3-agent-teams-a3 .vp3-teams-provider-note{margin:5px 0 3px;line-height:1.4;opacity:.7}
+.vp3-agent-teams-a3 select[name=provider_key]:focus-visible{outline:2px solid #8fb8f2;outline-offset:2px}
+
+.vp3-agent-teams-a3 .vp3-teams-browser-optin{display:flex;gap:8px;align-items:center;font-size:11px;font-weight:400;margin-top:8px;line-height:1.4;cursor:pointer}
+.vp3-agent-teams-a3 .vp3-teams-browser-optin input{width:16px;flex:0 0 16px;margin:0}
+.vp3-agent-teams-a3 .vp3-worker-browser{margin:8px 0;border:1px solid var(--border,#394252);border-radius:9px;padding:8px;font-size:11px;min-width:0}
+.vp3-agent-teams-a3 .vp3-worker-browser>summary{cursor:pointer;font-weight:600}
+.vp3-agent-teams-a3 .vp3-worker-browser-body{padding:7px 0;min-width:0}
+.vp3-agent-teams-a3 .vp3-worker-browser-url{box-sizing:border-box;width:100%;min-width:0;border-radius:6px}
+.vp3-agent-teams-a3 .vp3-worker-browser-preview{display:block;width:100%;max-width:960px;height:auto;max-height:280px;object-fit:contain;border:1px solid var(--border,#394252);border-radius:8px;margin:7px 0}
+.vp3-agent-teams-a3 .vp3-worker-browser-body .vp3-teams-meta{overflow-wrap:anywhere}
+
+.vp3-agent-teams-a3 .vp3-worker-live{border-top:1px solid var(--border,#394252);margin:10px 0 2px;padding-top:9px;min-width:0}
+.vp3-agent-teams-a3 .vp3-worker-live>strong{display:block;margin-bottom:6px}
+.vp3-agent-teams-a3 .vp3-worker-live-preview{display:block;width:100%;height:auto;max-width:960px;max-height:320px;object-fit:contain;border:1px solid var(--border,#394252);border-radius:8px}
+.vp3-agent-teams-a3 .vp3-worker-live .vp3-teams-meta{overflow-wrap:anywhere}
+
+.vp3-agent-teams-a3 .vp3-dom-approval{border:1px solid var(--border,#394252);border-radius:8px;padding:10px;margin:9px 0;min-width:0}
+.vp3-agent-teams-a3 .vp3-dom-approval strong{display:block;font-size:12px;margin-bottom:5px}
+.vp3-agent-teams-a3 .vp3-dom-approval-value{box-sizing:border-box;display:block;width:100%;max-width:350px;border:1px solid var(--border,#394252);border-radius:6px;padding:8px;margin:6px 0;color:inherit;background:var(--surface-secondary,#252c39)}
+.vp3-agent-teams-a3 .vp3-dom-approval-value:focus-visible{outline:2px solid #8fb8f2;outline-offset:2px}
+
+.vp3-agent-teams-a3 .vp3-owner-takeover{margin:10px 0;padding:10px;border:1px solid var(--border,#394252);border-radius:8px;min-width:0}
+.vp3-agent-teams-a3 .vp3-owner-takeover strong{display:block;margin-bottom:6px}
+.vp3-agent-teams-a3 .vp3-owner-takeover select,.vp3-agent-teams-a3 .vp3-owner-takeover input{box-sizing:border-box;display:block;width:100%;margin:6px 0;padding:7px;border-radius:6px;background:var(--surface-secondary,#252c39);color:inherit;border:1px solid var(--border,#394252)}
+.vp3-agent-teams-a3 .vp3-owner-takeover button{margin:3px 4px 3px 0}
+.vp3-agent-teams-a3 .vp3-owner-takeover .vp3-teams-meta{overflow-wrap:anywhere}
+
+.vp3-brain-worker pre{white-space:pre-wrap;overflow-wrap:anywhere}.vp3-brain-worker p{overflow-wrap:anywhere}

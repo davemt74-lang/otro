@@ -3,17 +3,20 @@ import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright
-from app.services.agent_browser_search_policy import search_forms,submit_search
+from app.services.agent_browser_search_policy import search_forms,submit_search,review_search,prepare_search
 from app.services.agent_mission_runtime import MissionError
 
 html="""<!doctype html><title>Search</title>
 <form method="get" action="/search">
-<label>Query<input name="q" type="search" value=""></label>
+<label>Query<input name="q" type="search" value="" required></label>
 <button type="submit">Find</button></form>
 <form method="post" action="/search"><input name="query"></form>
 <form method="get" action="/checkout"><input name="q"></form>
 <form method="get" action="/search"><input name="q"><input type="hidden" name="token" value="x"></form>
-<form method="get" action="https://other.example/search"><input name="q"></form>"""
+<form method="get" action="https://other.example/search"><input name="q"></form>
+<form method="get" action="/search?action=delete"><input name="q"></form>
+<form method="get" action="/publish/search"><input name="q"></form>
+<form method="get" action="/search"><textarea name="q"></textarea></form>"""
 with sync_playwright() as pw:
     browser=pw.chromium.launch(headless=True)
     try:
@@ -32,6 +35,21 @@ with sync_playwright() as pw:
         assert len(available)==1,available
         candidate=available[0]
         assert candidate["method"]=="GET"
+        before=len(requests)
+        try:
+            review_search(page,'https://example.com',index=candidate['index'],fingerprint=candidate['fingerprint'])
+            raise AssertionError('Required blank search field passed review')
+        except MissionError as exc:assert exc.status_code==422
+        prepare_search(page,'https://example.com',index=candidate['index'],fingerprint=candidate['fingerprint'],query='safe report')
+        assert len(requests)==before,'Preparing a form submitted it'
+        review=review_search(page,'https://example.com',index=candidate['index'],fingerprint=candidate['fingerprint'])
+        assert review['query']=='safe report' and review['required_fields'][0]['valid']
+        page.locator('form').first.locator('input').fill('different report')
+        try:
+            submit_search(page,'https://example.com',index=candidate['index'],fingerprint=candidate['fingerprint'],payload_hash=review['payload_hash'])
+            raise AssertionError('Changed query executed under old approval')
+        except MissionError as exc:assert exc.status_code==409
+        assert len(requests)==before,'Changed query reached network'
         page.locator('form').first.locator('input[name="q"]').fill("safe report")
         assert submit_search(page,"https://example.com",
             index=candidate["index"],fingerprint=candidate["fingerprint"]).endswith("?q=safe+report")

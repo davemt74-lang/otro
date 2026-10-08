@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from ..database import db
+from ..database import db, atomic_write
 from . import agent_mission_runtime as mission
 from . import agent_mission_live_browser as live
 from . import agent_browser_live_actor as actor
@@ -93,21 +93,26 @@ def suggest(source: str, mid: str, tid: str) -> dict:
     }
     # The provider response can take seconds. Recheck source and permission.
     _state(source, mid, tid)
-    with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        updated = conn.execute(
-            "UPDATE agent_mission_browser_controls_v3 SET pending_action_json=?,"
-            "updated_at=CURRENT_TIMESTAMP WHERE task_id=? AND mission_id=? "
-            "AND session_token=? AND action_count<? "
-            "AND EXISTS(SELECT 1 FROM agent_mission_live_browser_v2 "
-            "WHERE task_id=? AND session_token=? AND revision=? AND status='live')",
-            (json.dumps(proposal), tid, mid, session["session_token"], MAX_ACTIONS,
-             tid, session["session_token"], session["revision"]),
-        )
-        if updated.rowcount != 1:
-            raise MissionError("Browser page changed during action proposal.", 409)
-        mission._event(conn, mid, "browser.action_proposed", tid,
-                       {"kind": control["kind"], "label": control["label"][:100]})
+    @atomic_write
+    def commit_claim():
+        with db() as conn:
+            from . import agent_mission_browser_takeover as takeover
+            takeover.guard_agent(source,mid,tid)
+            live._required(source,mid,tid,executable=True)
+            updated = conn.execute(
+                "UPDATE agent_mission_browser_controls_v3 SET pending_action_json=?,"
+                "updated_at=CURRENT_TIMESTAMP WHERE task_id=? AND mission_id=? "
+                "AND session_token=? AND action_count<? "
+                "AND EXISTS(SELECT 1 FROM agent_mission_live_browser_v2 "
+                "WHERE task_id=? AND session_token=? AND revision=? AND status='live')",
+                (json.dumps(proposal), tid, mid, session["session_token"], MAX_ACTIONS,
+                 tid, session["session_token"], session["revision"]),
+            )
+            if updated.rowcount != 1:
+                raise MissionError("Browser page changed during action proposal.", 409)
+            mission._event(conn, mid, "browser.action_proposed", tid,
+                           {"kind": control["kind"], "label": control["label"][:100]})
+    commit_claim()
     return live.get(source, mid, tid)
 
 
@@ -138,34 +143,39 @@ def approve(source: str, mid: str, tid: str, proposal_id: str, *, value) -> dict
             raise MissionError("Control interaction requires explicit confirmation.", 422)
     else:
         raise MissionError("Unsupported browser action.", 403)
-    with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        existing = conn.execute(
-            "SELECT pending_action_json,action_count,session_token FROM "
-            "agent_mission_browser_controls_v3 WHERE task_id=? AND mission_id=?",
-            (tid, mid),
-        ).fetchone()
-        current = conn.execute(
-            "SELECT revision,status FROM agent_mission_live_browser_v2 "
-            "WHERE task_id=? AND session_token=?",
-            (tid, session["session_token"]),
-        ).fetchone()
-        if (not existing or not current or current["status"] != "live"
-            or current["revision"] != proposal["revision"]
-            or existing["pending_action_json"] != row["pending_action_json"]
-            or existing["action_count"] >= MAX_ACTIONS):
-            raise MissionError("Browser action was already consumed or changed.", 409)
-        conn.execute(
-            "UPDATE agent_mission_browser_controls_v3 SET pending_action_json='{}',"
-            "action_count=action_count+1,updated_at=CURRENT_TIMESTAMP WHERE task_id=?",
-            (tid,),
-        )
-        conn.execute(
-            "UPDATE agent_mission_live_browser_v2 SET status='navigating',"
-            "pending_proposal_json='{}',updated_at=CURRENT_TIMESTAMP "
-            "WHERE task_id=? AND session_token=?",
-            (tid,session["session_token"]),
-        )
+    @atomic_write
+    def commit_claim():
+        with db() as conn:
+            from . import agent_mission_browser_takeover as takeover
+            takeover.guard_agent(source,mid,tid)
+            live._required(source,mid,tid,executable=True)
+            existing = conn.execute(
+                "SELECT pending_action_json,action_count,session_token FROM "
+                "agent_mission_browser_controls_v3 WHERE task_id=? AND mission_id=?",
+                (tid, mid),
+            ).fetchone()
+            current = conn.execute(
+                "SELECT revision,status FROM agent_mission_live_browser_v2 "
+                "WHERE task_id=? AND session_token=?",
+                (tid, session["session_token"]),
+            ).fetchone()
+            if (not existing or not current or current["status"] != "live"
+                or current["revision"] != proposal["revision"]
+                or existing["pending_action_json"] != row["pending_action_json"]
+                or existing["action_count"] >= MAX_ACTIONS):
+                raise MissionError("Browser action was already consumed or changed.", 409)
+            conn.execute(
+                "UPDATE agent_mission_browser_controls_v3 SET pending_action_json='{}',"
+                "action_count=action_count+1,updated_at=CURRENT_TIMESTAMP WHERE task_id=?",
+                (tid,),
+            )
+            conn.execute(
+                "UPDATE agent_mission_live_browser_v2 SET status='navigating',"
+                "pending_proposal_json='{}',updated_at=CURRENT_TIMESTAMP "
+                "WHERE task_id=? AND session_token=?",
+                (tid,session["session_token"]),
+            )
+    commit_claim()
     # Only human-provided data crosses into the browser actor; no raw value
     # is recorded in the database or in any mission event.
     try:
@@ -173,21 +183,23 @@ def approve(source: str, mid: str, tid: str, proposal_id: str, *, value) -> dict
             "index": proposal["index"], "fingerprint": proposal["fingerprint"],
             "kind": kind, "value": value,
         })
-        live._required(source, mid, tid, executable=True)
-        with db() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            live._store_snapshot(conn, tid, mid, str(session["session_token"]),
-                                 result, status="navigating", navigation=False)
-            conn.execute(
-                "UPDATE agent_mission_live_browser_v2 SET status='live',"
-                "revision=revision+1,link_candidates_json=?,"
-                "pending_proposal_json='{}',updated_at=CURRENT_TIMESTAMP "
-                "WHERE task_id=? AND session_token=?",
-                (json.dumps(result.get("links", [])[:24]),
-                 tid, session["session_token"]),
-            )
-            mission._event(conn, mid, "browser.action_approved", tid,
-                           {"kind": kind, "label": proposal["label"][:100]})
+        @atomic_write
+        def save_action():
+            live._required(source, mid, tid, executable=True)
+            with db() as conn:
+                live._store_snapshot(conn, tid, mid, str(session["session_token"]),
+                                     result, status="navigating", navigation=False)
+                conn.execute(
+                    "UPDATE agent_mission_live_browser_v2 SET status='live',"
+                    "revision=revision+1,link_candidates_json=?,"
+                    "pending_proposal_json='{}',updated_at=CURRENT_TIMESTAMP "
+                    "WHERE task_id=? AND session_token=?",
+                    (json.dumps(result.get("links", [])[:24]),
+                     tid, session["session_token"]),
+                )
+                mission._event(conn, mid, "browser.action_approved", tid,
+                               {"kind": kind, "label": proposal["label"][:100]})
+        save_action()
     except Exception:
         actor.close_session(tid)
         with db() as conn:

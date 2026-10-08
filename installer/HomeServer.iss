@@ -29,6 +29,7 @@ Name: "startup"; Description: "Start HomeServer when I sign in to Windows"; Grou
 [Files]
 Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\tools\ffmpeg\*"; DestDir: "{app}\tools\ffmpeg"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\tools\browser\*"; DestDir: "{app}\tools\browser"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\HomeServer"; Filename: "{app}\{#MyAppExeName}"

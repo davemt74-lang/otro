@@ -54,6 +54,12 @@ jobs:
           $ffprobeHash = (Get-FileHash (Join-Path $root 'ffprobe.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($ffmpegHash -ne $manifest.ffmpeg_sha256) { throw 'ffmpeg.exe manifest hash mismatch' }
           if ($ffprobeHash -ne $manifest.ffprobe_sha256) { throw 'ffprobe.exe manifest hash mismatch' }
+      - name: Stage required managed browser for complete installer layout
+        run: |
+          pip install playwright==1.58.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/stage_browser_runtime.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compile installer layout with managed FFmpeg
         shell: pwsh
         run: |
