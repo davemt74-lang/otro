@@ -4,10 +4,12 @@ CREATE TABLE IF NOT EXISTS agent_mission_browser_v1 (
   task_id TEXT PRIMARY KEY REFERENCES agent_mission_tasks_v1(id) ON DELETE CASCADE,
   mission_id TEXT NOT NULL REFERENCES agent_missions_v1(id) ON DELETE CASCADE,
   source_app_key TEXT NOT NULL,
+  pinned_ip TEXT NOT NULL,
   approved_origin TEXT NOT NULL,
   current_url TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'approved'
-    CHECK(status IN ('approved','closed')),
+    CHECK(status IN ('approved','capturing','closed')),
+  capture_token TEXT,
   visit_count INTEGER NOT NULL DEFAULT 0 CHECK(visit_count BETWEEN 0 AND 5),
   text_snapshot TEXT NOT NULL DEFAULT '',
   image_base64 TEXT NOT NULL DEFAULT '',
