@@ -119,6 +119,7 @@ def owner_live_stop(mission_id: str, task_id: str):
 class ApproveAction(BaseModel):
     proposal_id: str = Field(min_length=36,max_length=36)
     value: str | int | bool
+    confirmed: bool
 
 
 @router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/actions/propose")
@@ -129,6 +130,8 @@ def app_action_propose(mission_id: str,task_id: str,identity: dict=Depends(autho
 @router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/actions/approve")
 def app_action_approve(mission_id: str,task_id: str,body: ApproveAction,
                        identity: dict=Depends(authorized)):
+    if body.confirmed is not True:
+        raise ValueError("An explicit owner confirmation is required.")
     return execute(dom_actions.approve,"app:"+identity["app_key"],mission_id,task_id,
                    body.proposal_id,value=body.value)
 
@@ -140,5 +143,7 @@ def owner_action_propose(mission_id: str,task_id: str):
 
 @router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/actions/approve")
 def owner_action_approve(mission_id: str,task_id: str,body: ApproveAction):
+    if body.confirmed is not True:
+        raise ValueError("An explicit owner confirmation is required.")
     return execute(dom_actions.approve,"owner",mission_id,task_id,
                    body.proposal_id,value=body.value)
