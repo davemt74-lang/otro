@@ -296,6 +296,8 @@ def propose(source: str, mid: str, tid: str) -> dict:
                 "title": selected["title"], "reason": str(raw["reason"])[:450],
                 "revision": int(row["revision"])}
     _required(source, mid, tid, executable=True)
+    from . import agent_mission_browser_takeover as takeover
+    takeover.guard_agent(source,mid,tid)
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         saved = conn.execute(
