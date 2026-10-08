@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser, agent_mission_live_browser as live
+from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser, agent_mission_live_browser as live, agent_mission_browser_actions as actions
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -235,6 +235,22 @@ def execute(action: str, body: dict) -> dict:
             result = live.approve_navigation(source, mid, tid, proposal_id)
         else:
             result = live.stop(source, mid, tid)
+        return {"ok": True, "contract": CONTRACT, "live_browser": result}
+    if action in {"browser.action.propose", "browser.action.approve"}:
+        current = runtime.get_mission("app:vp3", mid)
+        if not _cloud_export_allowed(current):
+            raise runtime.MissionError("Private interactive browsers remain on HomeServer.", 403)
+        tid = _bounded_string(body.get("task_id"), "Browser task ID", 80)
+        if action == "browser.action.propose":
+            result = actions.suggest("app:vp3", mid, tid)
+        else:
+            pid = _bounded_string(body.get("proposal_id"), "Browser action proposal ID", 80)
+            if body.get("confirmed") is not True:
+                raise runtime.MissionError("Browser action needs explicit confirmation.", 422)
+            value = body.get("value")
+            if type(value) not in (bool, int, str):
+                raise runtime.MissionError("Browser input type is invalid.", 422)
+            result = actions.approve("app:vp3", mid, tid, pid, value=value)
         return {"ok": True, "contract": CONTRACT, "live_browser": result}
     if action == "events":
         snapshot = runtime.get_mission("app:vp3", mid)
