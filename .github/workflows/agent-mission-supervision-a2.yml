@@ -1,0 +1,40 @@
+name: Agent Mission Supervision A2
+
+on:
+  pull_request:
+    paths:
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/services/agent_mission_control.py'
+      - 'app/agent_mission_control_api.py'
+      - 'app/bridge.py'
+      - 'tests/agent_mission_control_a2.py'
+      - 'tests/agent_mission_runtime_a1.py'
+      - 'docs/AGENT_MISSION_A2_ACCEPTANCE.md'
+      - '.github/workflows/agent-mission-supervision-a2.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/services/agent_mission_control.py'
+      - 'app/agent_mission_control_api.py'
+      - 'app/bridge.py'
+      - 'tests/agent_mission_control_a2.py'
+      - 'tests/agent_mission_runtime_a1.py'
+      - 'docs/AGENT_MISSION_A2_ACCEPTANCE.md'
+      - '.github/workflows/agent-mission-supervision-a2.yml'
+
+jobs:
+  mission-supervision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Syntax check for all affected code
+        run: python -m py_compile app/agent_mission_control_api.py app/services/agent_mission_control.py app/services/agent_mission_runtime.py tests/agent_mission_control_a2.py
+      - name: Preserve A1 mission acceptance
+        run: python tests/agent_mission_runtime_a1.py
+      - name: A2 supervision and recovery acceptance
+        run: python tests/agent_mission_control_a2.py
