@@ -88,6 +88,7 @@ def get(source: str, mid: str, tid: str, *, image: bool = True) -> dict | None:
     try:
         browser_grants._context(source, mid, tid)
     except mission.MissionError:
+        actor.close_session(tid)
         return {"task_id": tid, "status": "private", "session_active": False,
                 "image_base64": "", "page_text": "", "proposed_link": {}}
     with db() as conn:
@@ -105,6 +106,14 @@ def get(source: str, mid: str, tid: str, *, image: bool = True) -> dict | None:
 
 def _store_snapshot(conn, tid: str, mid: str, token: str, response: dict,
                     *, status: str, navigation: bool):
+    live_task = conn.execute(
+        "SELECT t.status AS task_status,m.status AS mission_status "
+        "FROM agent_mission_tasks_v1 t JOIN agent_missions_v1 m ON m.id=t.mission_id "
+        "WHERE t.id=? AND t.mission_id=?", (tid, mid)
+    ).fetchone()
+    if (not live_task or live_task["task_status"]!="queued"
+        or live_task["mission_status"] not in ("planned","running")):
+        raise mission.MissionError("Worker or mission changed during browser capture.",409)
     grant = conn.execute(
         "SELECT status,visit_count FROM agent_mission_browser_v1 "
         "WHERE task_id=? AND mission_id=? AND datetime('now')<datetime(expires_at)",
@@ -249,6 +258,7 @@ def propose(source: str, mid: str, tid: str) -> dict:
     proposal = {"id": str(uuid.uuid4()), "url": selected["url"],
                 "title": selected["title"], "reason": str(raw["reason"])[:450],
                 "revision": int(row["revision"])}
+    _required(source, mid, tid, executable=True)
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         saved = conn.execute(
