@@ -1,0 +1,38 @@
+name: Agent Mission Runtime A1
+
+on:
+  pull_request:
+    paths:
+      - 'app/agent_mission_api.py'
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/bridge.py'
+      - 'app/main.py'
+      - 'app/database.py'
+      - 'database/agent_mission_runtime.sql'
+      - 'tests/agent_mission_runtime_a1.py'
+      - '.github/workflows/agent-mission-runtime-a1.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/agent_mission_api.py'
+      - 'app/services/agent_mission_runtime.py'
+      - 'app/bridge.py'
+      - 'app/main.py'
+      - 'app/database.py'
+      - 'database/agent_mission_runtime.sql'
+      - 'tests/agent_mission_runtime_a1.py'
+      - '.github/workflows/agent-mission-runtime-a1.yml'
+
+jobs:
+  mission-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Verify mission and runtime Python syntax
+        run: python -m py_compile app/agent_mission_api.py app/services/agent_mission_runtime.py tests/agent_mission_runtime_a1.py
+      - name: Mission foundation regression
+        run: python tests/agent_mission_runtime_a1.py
