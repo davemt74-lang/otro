@@ -146,6 +146,11 @@ def capture(source: str,mid: str,tid: str,url: str|None=None):
 
 def evidence_for_worker(source: str,mid: str,tid: str) -> str:
     """Only a user-approved page can augment worker model evidence."""
+    with db() as conn:
+        grant=conn.execute("SELECT status FROM agent_mission_browser_v1 WHERE task_id=? "
+                           "AND mission_id=? AND source_app_key=?",(tid,mid,source)).fetchone()
+    if not grant or grant["status"]=="closed":
+        return ""
     existing=inspect(source,mid,tid)
     if not existing or existing["status"]=="closed":
         return ""
