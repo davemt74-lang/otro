@@ -28,6 +28,7 @@ with tempfile.TemporaryDirectory(prefix='vp3-browser-plans-') as tmp:
     def opened(tid,*args):running.add(tid);return frame('https://example.com/search')
     def execute(tid,kind,payload=''):
         commands.append((tid,kind,payload))
+        if kind=='review_search':return {'id':payload['review_id'],'index':0,'fingerprint':'b'*24,'action':form['action'],'method':'GET','payload_hash':'c'*64,'query':'public evidence','destination':'https://example.com/search?q=public+evidence'}
         if kind=='navigate' and payload.endswith('/failed'):raise mission.MissionError('Navigation failed',502)
         return frame(payload if kind=='navigate' else 'https://example.com/search')
     actor.open_session=opened;actor.execute=execute;actor.active=lambda tid:tid in running
@@ -54,6 +55,12 @@ with tempfile.TemporaryDirectory(prefix='vp3-browser-plans-') as tmp:
     before=len(commands)
     plans.run('owner',mid,tid,request_id=request_id,confirmed=True,background=False)
     assert len(commands)==before,'Plan retry repeated browser commands'
+    owner.acquire('owner',mid,tid)
+    review=owner.review_search('owner',mid,tid,index=0,fingerprint='b'*24)
+    owner.submit_search('owner',mid,tid,proposal_id=review['owner_takeover']['pending_form']['id'])
+    assert plans.status('owner',mid,tid)['status']=='completed','Approved submission left a stale approval state'
+    assert plans.status('owner',mid,tid)['prepared_form']=={}
+    owner.release('owner',mid,tid)
     with db() as conn:
         journal=str(conn.execute('SELECT group_concat(metadata_json) FROM agent_mission_events_v1 WHERE mission_id=?',(mid,)).fetchone()[0])
     assert 'public evidence' not in journal,'Prepared query leaked into journal'
@@ -82,6 +89,8 @@ with tempfile.TemporaryDirectory(prefix='vp3-browser-plans-') as tmp:
     assert plans.status('owner',mid3,tid3)['status']=='interrupted'
     plans.run('owner',mid3,tid3,request_id=rid,confirmed=True,background=False)
     assert len(commands)==before
+    plans._record('owner',mid3,tid3,rid,'failed',[])
+    assert plans.status('owner',mid3,tid3)['status']=='interrupted','Late worker overwrote interruption'
     for url in ('https://example.com/checkout','https://example.com/search?action=delete','https://example.com/publish/search'):
         try:policy.read_navigation(url);raise AssertionError('Consequential read target accepted')
         except mission.MissionError as exc:assert exc.status_code==403

@@ -61,6 +61,7 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         workspace_sync.stop()
+        agent_mission_browser_plans.shutdown()
         agent_mission_runtime.shutdown()
         homeserver_app_runtime.stop()
         hosting_health_recovery.stop()

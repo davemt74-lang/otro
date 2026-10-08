@@ -1,6 +1,7 @@
 """A5B4 bounded adaptive reads; prepared forms always stop for owner review."""
 from __future__ import annotations
 import json
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from ..database import db,atomic_write
@@ -8,7 +9,14 @@ from . import agent_mission_live_browser as live,agent_mission_runtime as missio
 from . import agent_mission_browser_takeover as takeover,agent_browser_live_actor as actor
 
 MAX_STEPS=3
-_pool=ThreadPoolExecutor(max_workers=2,thread_name_prefix='browser-plan')
+_pool=None
+_guard=threading.Lock()
+
+def _executor():
+    global _pool
+    with _guard:
+        if _pool is None:_pool=ThreadPoolExecutor(max_workers=2,thread_name_prefix='browser-plan')
+        return _pool
 
 def status(source,mid,tid):
     mission.get_mission(source,mid)
@@ -37,7 +45,7 @@ def run(source,mid,tid,*,request_id,confirmed,background=True):
     if confirmed is not True: raise mission.MissionError('Approve the bounded read plan first.',422)
     request_id=takeover._request_id(request_id)
     if _begin(source,mid,tid,request_id):
-        if background: _pool.submit(_execute,source,mid,tid,request_id)
+        if background: _executor().submit(_execute,source,mid,tid,request_id)
         else: _execute(source,mid,tid,request_id)
     return status(source,mid,tid)
 
@@ -89,8 +97,8 @@ def _current_plan(source,mid,tid,request_id,session):
 
 def _record(source,mid,tid,request_id,state,history):
     with db() as conn:
-        conn.execute('UPDATE agent_mission_browser_plans_v4 SET status=?,history_json=?,updated_at=CURRENT_TIMESTAMP WHERE task_id=? AND mission_id=? AND source_app_key=? AND request_id=?',(state,json.dumps(history[-MAX_STEPS:]),tid,mid,source,request_id))
-        mission._event(conn,mid,'browser.plan_'+state,tid,{'steps':len(history)})
+        updated=conn.execute("UPDATE agent_mission_browser_plans_v4 SET status=?,history_json=?,updated_at=CURRENT_TIMESTAMP WHERE task_id=? AND mission_id=? AND source_app_key=? AND request_id=? AND status='running'",(state,json.dumps(history[-MAX_STEPS:]),tid,mid,source,request_id))
+        if updated.rowcount:mission._event(conn,mid,'browser.plan_'+state,tid,{'steps':len(history)})
 
 def _execute(source,mid,tid,request_id):
     history=[];state='completed'
@@ -145,7 +153,14 @@ def _execute(source,mid,tid,request_id):
 
 def recover_interrupted():
     with db() as conn:
-        rows=conn.execute("SELECT task_id,mission_id FROM agent_mission_browser_plans_v4 WHERE status='running'").fetchall()
-        conn.execute("UPDATE agent_mission_browser_plans_v4 SET status='interrupted',updated_at=CURRENT_TIMESTAMP WHERE status='running'")
+        rows=conn.execute("SELECT task_id,mission_id FROM agent_mission_browser_plans_v4 WHERE status IN ('running','waiting_approval','waiting_owner')").fetchall()
+        conn.execute("UPDATE agent_mission_browser_plans_v4 SET status='interrupted',prepared_form_json='{}',updated_at=CURRENT_TIMESTAMP WHERE status IN ('running','waiting_approval','waiting_owner')")
         for row in rows: mission._event(conn,row['mission_id'],'browser.plan_interrupted',row['task_id'])
     return len(rows)
+
+def shutdown():
+    global _pool
+    recover_interrupted()
+    with _guard:
+        pool,_pool=_pool,None
+    if pool is not None:pool.shutdown(wait=False,cancel_futures=True)

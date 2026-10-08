@@ -170,6 +170,9 @@ def _finish(source,mid,tid,request_id,session,row,result,*,navigation):
         live._store_snapshot(conn,tid,mid,session['session_token'],result,status='navigating',navigation=navigation,reserved=navigation)
         conn.execute("UPDATE agent_mission_live_browser_v2 SET status='live',revision=revision+?,link_candidates_json=?,pending_proposal_json='{}' WHERE task_id=? AND session_token=?",(int(not navigation),json.dumps(result.get('links',[])[:24]),tid,session['session_token']))
         conn.execute("UPDATE agent_mission_browser_receipts_v4 SET status='succeeded',updated_at=CURRENT_TIMESTAMP WHERE task_id=? AND request_id=?",(tid,request_id))
+        if navigation:
+            completed=conn.execute("UPDATE agent_mission_browser_plans_v4 SET status='completed',prepared_form_json='{}',updated_at=CURRENT_TIMESTAMP WHERE task_id=? AND session_token=? AND status='waiting_approval'",(tid,session['session_token']))
+            if completed.rowcount:mission._event(conn,mid,'browser.plan_completed',tid,{'owner_submitted':True})
         mission._event(conn,mid,'browser.search_submitted' if navigation else 'browser.owner_controlled',tid,{'operation_id':request_id,'method':'GET' if navigation else 'control'})
 
 
