@@ -680,3 +680,54 @@ def generate_ollama(
     if not generated["content"]:
         raise ProviderError("Ollama returned no final response text.")
     return generated
+
+
+def generate_for_provider(
+    messages: list[dict[str, Any]],
+    provider_key: str,
+    *,
+    model_override: str | None = None,
+    cancellation_token: CancellationToken | None = None,
+) -> dict:
+    """Explicit configured-provider inference, with no model tools or fallback.
+
+    Used only by governed mission workers. Credentials stay in the existing
+    HomeServer vault; a worker never receives a key, HTTP client or tool runner.
+    """
+    key = str(provider_key or "").strip().lower()
+    if key not in _PROVIDER_ORDER:
+        raise ProviderError("Unsupported mission inference provider.")
+    status = next(
+        (p for p in list_inference_providers() if p.get("provider_key") == key), None
+    )
+    if not status or not status.get("ready"):
+        raise ProviderError("Selected mission worker provider is not ready.")
+    provider = _provider_row(key)
+    configured_model = str(provider.get("model") or "").strip()
+    chosen_model = str(model_override or configured_model).strip()
+    if not chosen_model or chosen_model != configured_model:
+        raise ProviderError("Mission workers may use only the configured provider model.")
+    if key == "ollama":
+        if cancellation_token is None:
+            generated = generate_ollama(messages, model_override=chosen_model)
+        else:
+            generated = generate_ollama(
+                messages, model_override=chosen_model,
+                cancellation_token=cancellation_token,
+            )
+    else:
+        step = (_generate_anthropic_step if key == "anthropic"
+                else _generate_openai_compatible_step)
+        if cancellation_token is None:
+            generated = step(provider, chosen_model, messages, None)
+        else:
+            generated = step(
+                provider, chosen_model, messages, None, cancellation_token
+            )
+    content = str(generated.get("content") or "").strip()
+    if not content:
+        raise ProviderError("Mission worker provider returned no response text.")
+    return {
+        "content": content, "provider": key, "model": chosen_model,
+        "usage": dict(generated.get("usage") or {}),
+    }
