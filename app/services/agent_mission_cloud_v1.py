@@ -135,6 +135,15 @@ def execute(action: str, body: dict) -> dict:
     if action == "pause":
         result = control.pause("app:vp3", mid)
         return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
+    if action == "resume":
+        if body.get("allow_reexecution") is not True:
+            raise runtime.MissionError("Explicit reexecution approval required.", 409)
+        result = control.resume("app:vp3", mid, allow_reexecution=True)
+        return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
+    if action == "retry":
+        tid = _bounded_string(body.get("task_id"), "Task ID", 80)
+        result = control.retry("app:vp3", mid, tid)
+        return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
     if action == "events":
         after, limit = body.get("after", 0), body.get("limit", 40)
         if isinstance(after, bool) or isinstance(limit, bool):
