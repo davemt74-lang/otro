@@ -37,6 +37,8 @@ async def lifespan(_: FastAPI):
     agent_mission_browser.recover_interrupted()
     from .services import agent_mission_live_browser
     agent_mission_live_browser.recover_interrupted()
+    from .services import agent_mission_browser_plans
+    agent_mission_browser_plans.recover_interrupted()
     onboarding_chat.resume_approved()
     ensure_knowledge_index()
     tracky_federated_automation.recover_incomplete_runs()

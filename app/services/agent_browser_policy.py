@@ -3,11 +3,21 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, unquote, parse_qsl
 from .agent_mission_runtime import MissionError
 
 HOST=re.compile(r"^[a-z0-9.-]{1,253}$")
 SUFFIXES=(".local",".localhost",".internal",".test",".invalid")
+
+def read_navigation(value: str) -> str:
+    url, _, _ = parse_url(value)
+    parsed = urlsplit(url)
+    path = unquote(parsed.path).lower()
+    if re.search(r"(?:checkout|payment|purchase|publish|message|send|delete|unsubscribe|logout|transfer|order|login|signin)", path):
+        raise MissionError('This destination requires a separately governed action.',403)
+    if any(key.lower() in {'action','method','delete','publish','send','confirm','token','password','auth'} for key, _ in parse_qsl(parsed.query)):
+        raise MissionError('Action-bearing query parameters are not allowed.',403)
+    return url
 
 def parse_url(value: str) -> tuple[str,str,str]:
     value=str(value or "").strip()

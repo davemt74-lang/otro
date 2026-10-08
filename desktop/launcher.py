@@ -513,6 +513,12 @@ class RuntimeController:
 
 
 def main() -> None:
+    if '--browser-self-test' in sys.argv:
+        from app.services.agent_browser_runtime import certify
+        index=sys.argv.index('--browser-self-test')
+        if index+1>=len(sys.argv): raise SystemExit(2)
+        certify(sys.argv[index+1])
+        return
     instance = SingleInstance(settings.data_dir)
     acquired = instance.acquire()
     if not acquired:

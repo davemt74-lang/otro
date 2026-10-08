@@ -1,6 +1,12 @@
 name: HomeServer CI
 
 on:
+  pull_request:
+    paths:
+      - 'app/services/agent_browser_runtime.py'
+      - 'scripts/stage_browser_runtime.py'
+      - 'installer/HomeServer.iss'
+      - '.github/workflows/ci.yml'
   push:
     branches: [main]
   workflow_dispatch:
@@ -393,6 +399,16 @@ jobs:
         run: python tests/backup_security.py
       - name: Build executable
         run: pyinstaller HomeServer.spec --clean --noconfirm
+      - name: Stage managed Chromium runtime
+        run: python scripts/stage_browser_runtime.py
+      - name: Certify packaged browser isolation and exact form approval
+        shell: pwsh
+        run: |
+          $report = Join-Path ${env:RUNNER_TEMP} 'a5b4-packaged-browser.json'
+          $process = Start-Process -FilePath (Resolve-Path 'dist/HomeServer.exe') -ArgumentList @('--browser-self-test', $report) -Wait -PassThru
+          if ($process.ExitCode -ne 0 -or -not (Test-Path $report)) { throw 'Packaged browser acceptance failed' }
+          $result = Get-Content $report -Raw | ConvertFrom-Json
+          if (-not $result.ok -or -not $result.managed_browser) { throw 'Managed browser was not certified' }
       - name: Smoke test packaged executable
         shell: pwsh
         run: |
@@ -806,6 +822,11 @@ jobs:
           }
 
           $installedExe = Join-Path $installDir 'HomeServer.exe'
+          $browserReport = Join-Path $env:RUNNER_TEMP 'a5b4-installed-browser.json'
+          $browserTest = Start-Process -FilePath $installedExe -ArgumentList @('--browser-self-test', $browserReport) -Wait -PassThru
+          if ($browserTest.ExitCode -ne 0 -or -not (Test-Path $browserReport)) { throw 'Installed managed browser failed startup' }
+          $certification = Get-Content $browserReport -Raw | ConvertFrom-Json
+          if (-not $certification.ok -or -not $certification.managed_browser) { throw 'Installed browser not certified' }
           $env:HOMESERVER_DATA_DIR = Join-Path $env:RUNNER_TEMP 'homeserver-installed-launch'
           Remove-Item -Recurse -Force $env:HOMESERVER_DATA_DIR -ErrorAction SilentlyContinue
           $installed = Start-Process -FilePath $installedExe -ArgumentList '--headless' -PassThru
@@ -877,8 +898,12 @@ jobs:
             agent_eyes_acceptance_contract = 'tracky.agent-eyes.release-acceptance.v1g5'
             agent_eyes_experience_contract = 'tracky.agent-eyes.experience.v1g4'
             native_hardware_certified = $false
+            source_commit = '${{ github.sha }}'
+            browser_section = 'A5B4'
+            managed_browser_runtime = 'tools/browser/manifest.json'
+            packaged_browser_certified = $true
             files = $hashMap
-            release_notes = 'Agent Eyes 1G5 adds installed acceptance checks and redacted reports. HomeServer runtime v2.4 with Tracky V2.81 Section 3 distributed physical action execution and Section 1F6 owner-governed visual attribution status sync. Visual attribution is not facial identity verification; installed-device camera certification remains separate.'
+            release_notes = 'A5B4 governed browser repair: atomic owner authority, retry receipts, exact GET form review, adaptive reads, per-worker Brain visibility and installer-managed Chromium. Consequential business actions remain separately restricted.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
@@ -890,5 +915,6 @@ jobs:
             dist/HomeServerSetup.exe
             dist/SHA256SUMS.txt
             dist/RELEASE.json
+            dist/tools/browser/**
           if-no-files-found: error
           retention-days: 14

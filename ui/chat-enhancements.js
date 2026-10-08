@@ -212,6 +212,8 @@
       <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">COGNITION</p><h4>Recent decision/activity summaries</h4></div></div>${renderList(events.items || [], item => `<article><div><strong>${esc(item.title || item.event_type || 'Cognitive event')}</strong><span>${eventTime(item.occurred_at || item.created_at)}</span></div><p>${esc(item.summary || '')}</p><small>${esc(item.source_app_key || 'HomeServer')}${item.event_type ? ` · ${esc(item.event_type)}` : ''}</small></article>`, 'No cognitive events yet.')}</section>
       <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">TOOLS</p><h4>Recent agent tool runs</h4></div></div>${renderList(tools.items || [], item => `<article><div><strong>${esc(item.tool_key || 'Tool')}</strong><span>${eventTime(item.created_at)}</span></div><p>${esc(item.status || 'unknown')}${item.duration_ms == null ? '' : ` · ${Number(item.duration_ms)} ms`}</p><small>${esc(item.source_app_key || 'HomeServer')}</small></article>`, 'No tool runs yet.')}</section>
       <section class="chat-brain-section"><div class="chat-brain-section-head"><div><p class="eyebrow">HISTORY</p><h4>Recent audited actions</h4></div></div>${renderList(activity.items || [], item => `<article><div><strong>${esc(item.action || 'Activity')}</strong><span>${eventTime(item.created_at)}</span></div><p>${esc([item.resource_type, item.resource_key].filter(Boolean).join(' · ') || 'HomeServer')}</p><small>${esc(item.actor_type || 'owner')}${item.actor_key ? ` · ${esc(item.actor_key)}` : ''}</small></article>`, 'No audited activity yet.')}</section>`;
+    window.VP3_AGENT_TEAMS_A3_BRAIN?.(content);
+
   }
 
   function setDrawer(open) {

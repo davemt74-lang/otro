@@ -2,6 +2,11 @@ name: Agent Mission Owner Takeover A5B4
 on:
   pull_request:
     paths:
+      - 'app/services/agent_mission_browser_plans.py'
+      - 'app/services/agent_browser_policy.py'
+      - 'app/services/agent_browser_runtime.py'
+      - 'ui/agent-browser-workspaces.js'
+      - 'tests/agent_mission_browser_plans_a5b4.py'
       - 'app/services/agent_browser_search_policy.py'
       - 'app/services/agent_mission_browser_takeover.py'
       - 'app/services/agent_browser_live_actor.py'
@@ -36,10 +41,14 @@ jobs:
         run: python -m py_compile app/services/agent_mission_browser_takeover.py app/services/agent_browser_search_policy.py app/services/agent_browser_live_actor.py app/services/agent_mission_live_browser.py app/agent_mission_browser_api.py tests/agent_mission_browser_takeover_a5b4.py
       - name: A5B4 owner exclusivity and one-time approved search
         run: python tests/agent_mission_browser_takeover_a5b4.py
+      - name: Adaptive reads, prepared forms and navigation recovery
+        run: python tests/agent_mission_browser_plans_a5b4.py
       - name: Install Chromium
         run: python -m playwright install chromium
       - name: A5B4 real browser safe-form acceptance
         run: python tests/agent_browser_search_chromium_a5b4.py
+      - name: Native Chat and Brain real browser acceptance
+        run: python tests/agent_browser_native_ui_a5b4.py
       - name: A1 through A5B3 regressions
         run: |
           python tests/agent_mission_runtime_a1.py

@@ -39,14 +39,22 @@ jobs:
           assert manifest['current_schema_version']>=69, 'Edit queue migration is missing'
           digest=hashlib.file_digest(executable.open('rb'),'sha256').hexdigest()
           assert digest==manifest['files']['HomeServer.exe'], 'Executable checksum mismatch'
-          print('Production executable checksum and schema verified')
+          import os
+          assert manifest['source_commit']==os.environ['SOURCE_COMMIT']
+          assert manifest['packaged_browser_certified'] is True
+          setup=root/'HomeServerSetup.exe'
+          assert hashlib.file_digest(setup.open('rb'),'sha256').hexdigest()==manifest['files']['HomeServerSetup.exe']
+          print('Production installer, browser certification and schema verified')
           PY
-      - name: Upload executable-only deployment archive
+      - name: Upload complete installer deployment archive
         id: executable
         uses: actions/upload-artifact@v4
         with:
           name: HomeServer-Native-Actions-Windows
-          path: distribution/HomeServer.exe
+          path: |
+            distribution/HomeServerSetup.exe
+            distribution/RELEASE.json
+            distribution/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
       - name: Write deployment checksums and provenance
@@ -61,9 +69,9 @@ jobs:
           import hashlib,json,os,pathlib,re
           root=pathlib.Path('distribution'); digest=os.environ['ZIP_SHA256']
           assert re.fullmatch('[a-f0-9]{64}',digest), 'Archive digest is missing'
-          exe=hashlib.file_digest((root/'HomeServer.exe').open('rb'),'sha256').hexdigest()
-          pathlib.Path('Native-Actions-SHA256SUMS.txt').write_text(digest+'  HomeServer-Native-Actions-Windows.zip\n'+exe+'  HomeServer.exe\n',encoding='ascii')
-          provenance={'repository':os.environ['REPOSITORY'],'source_commit':os.environ['SOURCE_COMMIT'],'build_run_id':os.environ['SOURCE_RUN'],'package_run_id':os.environ['PACKAGE_RUN'],'archive_sha256':digest,'executable_sha256':exe,'minimum_edit_queue_schema':69,'install':'Deploy the matching Cloud release first. Replace HomeServer.exe and restart using the existing data directory.'}
+          exe=hashlib.file_digest((root/'HomeServerSetup.exe').open('rb'),'sha256').hexdigest()
+          pathlib.Path('Native-Actions-SHA256SUMS.txt').write_text(digest+'  HomeServer-Native-Actions-Windows.zip\n'+exe+'  HomeServerSetup.exe\n',encoding='ascii')
+          provenance={'repository':os.environ['REPOSITORY'],'source_commit':os.environ['SOURCE_COMMIT'],'build_run_id':os.environ['SOURCE_RUN'],'package_run_id':os.environ['PACKAGE_RUN'],'archive_sha256':digest,'installer_sha256':exe,'minimum_edit_queue_schema':69,'install':'Deploy the matching Cloud release first. Run HomeServerSetup.exe to upgrade the application and managed browser; preserve the existing private data directory.'}
           pathlib.Path('NATIVE_ACTIONS_RELEASE.json').write_text(json.dumps(provenance,indent=2)+'\n',encoding='utf-8')
           PY
       - uses: actions/upload-artifact@v4
