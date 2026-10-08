@@ -19,6 +19,11 @@ def _choice(source: str, conversation: str, key: str) -> dict:
     if key not in PROVIDERS:
         raise mission.MissionError("Provider is not in the supported worker allowlist.", 422)
     selected = current_key if key == "auto" else key
+    if key == "auto":
+        return {
+            "provider_key": "auto", "effective_provider": selected,
+            "model": current_model, "environment": MODE,
+        }
     if private and selected != "ollama":
         raise mission.MissionError("Local-only workers cannot use external inference.", 403)
     if selected == "ollama" and private:
