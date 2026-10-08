@@ -302,6 +302,14 @@ def _perform(mid: str, tid: str, lease: str) -> None:
             _event(conn, mid, "task." + status, tid, {"error": error} if error else None)
             _finalize(conn, mid)
     _dispatch(mid)
+    # Model-based staffing can recommend work but never approves new workers.
+    # Import here to avoid a circular module initialization dependency.
+    try:
+        from . import agent_mission_cognition
+        agent_mission_cognition.auto_review(mid)
+    except Exception:
+        # Cognitive supervision must not invalidate an already finished task.
+        pass
 
 
 def _dispatch(mid: str) -> None:
