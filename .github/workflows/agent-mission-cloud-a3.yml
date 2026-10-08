@@ -1,0 +1,32 @@
+name: Agent Mission Cloud Relay A3
+on:
+  pull_request:
+    paths:
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/services/remote_bridge.py'
+      - 'tests/agent_mission_cloud_a3.py'
+      - '.github/workflows/agent-mission-cloud-a3.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_mission_cloud_v1.py'
+      - 'app/services/remote_bridge.py'
+      - 'tests/agent_mission_cloud_a3.py'
+      - '.github/workflows/agent-mission-cloud-a3.yml'
+jobs:
+  relay-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Validate HomeServer A3 source
+        run: python -m py_compile app/services/agent_mission_cloud_v1.py app/services/remote_bridge.py tests/agent_mission_cloud_a3.py
+      - name: Preserve A1 mission runtime
+        run: python tests/agent_mission_runtime_a1.py
+      - name: Preserve A2 mission supervision
+        run: python tests/agent_mission_control_a2.py
+      - name: Check Cloud paired mission relay
+        run: python tests/agent_mission_cloud_a3.py
