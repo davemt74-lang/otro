@@ -6,6 +6,7 @@ from .agent_mission_api import authorized, execute
 from .services import agent_mission_browser as browser
 from .services import agent_mission_live_browser as live
 from .services import agent_mission_browser_actions as dom_actions
+from .services import agent_mission_browser_takeover as takeover
 
 router = APIRouter()
 
@@ -147,3 +148,72 @@ def owner_action_approve(mission_id: str,task_id: str,body: ApproveAction):
         raise HTTPException(status_code=422, detail="Explicit confirmation required.")
     return execute(dom_actions.approve,"owner",mission_id,task_id,
                    body.proposal_id,value=body.value)
+
+
+class ManualControl(BaseModel):
+    index: int
+    fingerprint: str = Field(min_length=24,max_length=24)
+    kind: str = Field(min_length=4,max_length=12)
+    value: str | int | bool
+    confirmed: bool
+
+class SearchReview(BaseModel):
+    index: int
+    fingerprint: str = Field(min_length=24,max_length=24)
+
+class SearchApproval(BaseModel):
+    proposal_id: str = Field(min_length=36,max_length=36)
+    confirmed: bool
+
+@router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/owner/takeover")
+def app_owner_takeover(mission_id: str,task_id: str,identity: dict=Depends(authorized)):
+    return execute(takeover.acquire,"app:"+identity["app_key"],mission_id,task_id)
+
+@router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/owner/release")
+def app_owner_release(mission_id: str,task_id: str,identity: dict=Depends(authorized)):
+    return execute(takeover.release,"app:"+identity["app_key"],mission_id,task_id)
+
+@router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/owner/control")
+def app_owner_control(mission_id: str,task_id: str,body: ManualControl,
+                      identity: dict=Depends(authorized)):
+    if body.confirmed is not True: raise HTTPException(status_code=422,detail="Owner confirmation required.")
+    return execute(takeover.manual,"app:"+identity["app_key"],mission_id,task_id,
+                   index=body.index,fingerprint=body.fingerprint,kind=body.kind,value=body.value)
+
+@router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/owner/search/review")
+def app_search_review(mission_id: str,task_id: str,body: SearchReview,
+                      identity: dict=Depends(authorized)):
+    return execute(takeover.review_search,"app:"+identity["app_key"],mission_id,task_id,
+                   index=body.index,fingerprint=body.fingerprint)
+
+@router.post("/api/v1/agent-missions/{mission_id}/tasks/{task_id}/live/owner/search/submit")
+def app_search_submit(mission_id: str,task_id: str,body: SearchApproval,
+                      identity: dict=Depends(authorized)):
+    if body.confirmed is not True: raise HTTPException(status_code=422,detail="Confirm exact GET search.")
+    return execute(takeover.submit_search,"app:"+identity["app_key"],mission_id,task_id,
+                   proposal_id=body.proposal_id)
+
+@router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/owner/takeover")
+def local_owner_takeover(mission_id: str,task_id: str):
+    return execute(takeover.acquire,"owner",mission_id,task_id)
+
+@router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/owner/release")
+def local_owner_release(mission_id: str,task_id: str):
+    return execute(takeover.release,"owner",mission_id,task_id)
+
+@router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/owner/control")
+def local_owner_control(mission_id: str,task_id: str,body: ManualControl):
+    if body.confirmed is not True: raise HTTPException(status_code=422,detail="Owner confirmation required.")
+    return execute(takeover.manual,"owner",mission_id,task_id,
+                   index=body.index,fingerprint=body.fingerprint,kind=body.kind,value=body.value)
+
+@router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/owner/search/review")
+def local_search_review(mission_id: str,task_id: str,body: SearchReview):
+    return execute(takeover.review_search,"owner",mission_id,task_id,
+                   index=body.index,fingerprint=body.fingerprint)
+
+@router.post("/api/v1/control/agent-missions/{mission_id}/tasks/{task_id}/live/owner/search/submit")
+def local_search_submit(mission_id: str,task_id: str,body: SearchApproval):
+    if body.confirmed is not True: raise HTTPException(status_code=422,detail="Confirm exact GET search.")
+    return execute(takeover.submit_search,"owner",mission_id,task_id,
+                   proposal_id=body.proposal_id)
