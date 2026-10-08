@@ -10,7 +10,7 @@ from typing import Any
 
 from ..database import db
 from . import agent_mission_runtime as runtime, agent_mission_control as control
-from . import agent_routing, context_engine, app_scopes
+from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition
 
 CONTRACT = "vp3.agent-missions.cloud.v1"
 
@@ -72,10 +72,27 @@ def _cloud_export_allowed(raw: dict) -> bool:
         return False
 
 
+def _review_projection(review: dict, allowed: bool) -> dict:
+    return {
+        "id": review["id"],
+        "round": review["round"],
+        "status": review["status"],
+        "decision": review["decision"] if allowed else "",
+        "rationale": review["rationale"][:1000] if allowed else "",
+        "tasks": [
+            {"title": t["title"], "role": t["role"], "objective": t["objective"]}
+            for t in review["tasks"][:3]
+        ] if allowed else [],
+        "error": review["error"][:200] if allowed else "",
+        "created_at": review["created_at"],
+        "updated_at": review["updated_at"],
+    }
+
+
 def _projection(raw: dict, *, detailed: bool = False) -> dict:
     allowed = _cloud_export_allowed(raw)
     tasks = []
-    for task in raw.get("tasks", [])[:4]:
+    for task in raw.get("tasks", [])[:12]:
         item = {
             "id": str(task.get("id") or ""),
             "title": str(task.get("title") or "")[:160] if allowed else "Private HomeServer worker",
@@ -104,6 +121,11 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
         "contract": CONTRACT,
     }
     if detailed:
+        review = cognition.latest(str(raw.get("source_app_key") or ""), str(raw.get("id") or ""))
+        setting = cognition.settings(str(raw.get("source_app_key") or ""), str(raw.get("id") or ""))
+        if review:
+            result["cognition_review"] = _review_projection(review, allowed)
+        result["cognition_auto_review"] = bool(setting["enabled"])
         result["result"] = str(raw.get("result") or "")[:8000] if allowed else ""
         result["events"] = [
             {"id": int(e.get("id") or 0), "task_id": e.get("task_id"),
@@ -157,6 +179,28 @@ def execute(action: str, body: dict) -> dict:
         tid = _bounded_string(body.get("task_id"), "Task ID", 80)
         result = control.retry("app:vp3", mid, tid)
         return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
+    if action == "cognition.configure":
+        enabled = body.get("enabled")
+        if type(enabled) is not bool:
+            raise runtime.MissionError("Auto-review setting must be boolean.", 422)
+        settings = cognition.configure("app:vp3", mid, enabled=enabled)
+        return {"ok": True, "contract": CONTRACT, "settings": settings,
+                "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}
+    if action == "cognition.evaluate":
+        review = cognition.evaluate("app:vp3", mid)
+        allowed = _cloud_export_allowed(runtime.get_mission("app:vp3", mid))
+        return {"ok": True, "contract": CONTRACT, "review": _review_projection(review, allowed),
+                "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}
+    if action == "cognition.decide":
+        review_id = _bounded_string(body.get("review_id"), "Review ID", 80)
+        approve = body.get("approve")
+        if type(approve) is not bool:
+            raise runtime.MissionError("Review decision must be boolean.", 422)
+        outcome = cognition.decide("app:vp3", mid, review_id, approve=approve)
+        allowed = _cloud_export_allowed(runtime.get_mission("app:vp3", mid))
+        return {"ok": True, "contract": CONTRACT,
+                "review": _review_projection(outcome["review"], allowed),
+                "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}
     if action == "events":
         snapshot = runtime.get_mission("app:vp3", mid)
         if not _cloud_export_allowed(snapshot):
