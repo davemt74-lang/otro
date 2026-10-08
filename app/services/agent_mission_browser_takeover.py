@@ -127,9 +127,14 @@ def manual(source,mid,tid,*,index,fingerprint,kind,value):
     try:
         result=actor.execute(tid,"interact",{"index":index,"fingerprint":fingerprint,
                                             "kind":kind,"value":value})
-        _lease_after_action(source,mid,tid,session)
+        _lease_after_action(source,mid,tid,session,row)
         with db() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            guard=conn.execute("SELECT 1 FROM agent_mission_browser_takeover_v4 "
+                               "WHERE task_id=? AND session_token=? AND lease_id=? "
+                               "AND mode='owner' AND datetime('now')<datetime(expires_at)",
+                               (tid,session["session_token"],row["lease_id"])).fetchone()
+            if not guard: raise mission.MissionError("Owner lease ended during action.",409)
             live._store_snapshot(conn,tid,mid,session["session_token"],result,
                                  status="navigating",navigation=False)
             conn.execute("UPDATE agent_mission_live_browser_v2 SET status='live',"
@@ -145,16 +150,16 @@ def manual(source,mid,tid,*,index,fingerprint,kind,value):
         raise
     return live.get(source,mid,tid)
 
-def _lease_after_action(source,mid,tid,session):
+def _lease_after_action(source,mid,tid,session,row):
     context,_ = live._required(source,mid,tid,executable=True)
     if context["task"]["status"]!="queued":
         raise mission.MissionError("Worker started while owner was controlling browser.",409)
     with db() as conn:
         owner=conn.execute("SELECT lease_id FROM agent_mission_browser_takeover_v4 "
                            "WHERE task_id=? AND mission_id=? AND source_app_key=? "
-                           "AND session_token=? AND mode='owner' "
+                           "AND session_token=? AND lease_id=? AND mode='owner' "
                            "AND datetime('now')<datetime(expires_at)",
-                           (tid,mid,source,session["session_token"])).fetchone()
+                           (tid,mid,source,session["session_token"],row["lease_id"])).fetchone()
     if not owner:
         raise mission.MissionError("Owner relinquished control during browser action.",409)
 
@@ -201,9 +206,14 @@ def submit_search(source,mid,tid,*,proposal_id):
     try:
         result=actor.execute(tid,"search_get",{
             "index":review["index"],"fingerprint":review["fingerprint"]})
-        _lease_after_action(source,mid,tid,session)
+        _lease_after_action(source,mid,tid,session,row)
         with db() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            guard=conn.execute("SELECT 1 FROM agent_mission_browser_takeover_v4 "
+                               "WHERE task_id=? AND session_token=? AND lease_id=? "
+                               "AND mode='owner' AND datetime('now')<datetime(expires_at)",
+                               (tid,session["session_token"],row["lease_id"])).fetchone()
+            if not guard: raise mission.MissionError("Owner lease ended during action.",409)
             live._store_snapshot(conn,tid,mid,session["session_token"],result,
                                  status="navigating",navigation=True)
             mission._event(conn,mid,"browser.search_submitted",tid,
