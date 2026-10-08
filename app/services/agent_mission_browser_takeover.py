@@ -146,12 +146,15 @@ def manual(source,mid,tid,*,index,fingerprint,kind,value):
     return live.get(source,mid,tid)
 
 def _lease_after_action(source,mid,tid,session):
-    live._required(source,mid,tid,executable=True)
+    context,_ = live._required(source,mid,tid,executable=True)
+    if context["task"]["status"]!="queued":
+        raise mission.MissionError("Worker started while owner was controlling browser.",409)
     with db() as conn:
         owner=conn.execute("SELECT lease_id FROM agent_mission_browser_takeover_v4 "
-                           "WHERE task_id=? AND session_token=? AND mode='owner' "
+                           "WHERE task_id=? AND mission_id=? AND source_app_key=? "
+                           "AND session_token=? AND mode='owner' "
                            "AND datetime('now')<datetime(expires_at)",
-                           (tid,session["session_token"])).fetchone()
+                           (tid,mid,source,session["session_token"])).fetchone()
     if not owner:
         raise mission.MissionError("Owner relinquished control during browser action.",409)
 
