@@ -60,6 +60,20 @@ def get(source: str, mid: str, tid: str, *, image: bool = True) -> dict | None:
         ).fetchone()
     if not session:
         return None
+    # Revalidate the user grant on reads as well as operations. An expired
+    # grant must not keep a browser process or preserved screenshot visible.
+    try:
+        browser_state = browser_grants.inspect(source, mid, tid, image=False)
+    except mission.MissionError:
+        browser_state = None
+    if not browser_state or browser_state["status"] == "closed":
+        actor.close_session(tid)
+        with db() as conn:
+            conn.execute(
+                "UPDATE agent_mission_live_browser_v2 SET status='stopped',"
+                "pending_proposal_json='{}',updated_at=CURRENT_TIMESTAMP "
+                "WHERE task_id=? AND status!='stopped'", (tid,)
+            )
     if session["status"] != "stopped" and not actor.active(tid):
         with db() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -83,6 +97,9 @@ def get(source: str, mid: str, tid: str, *, image: bool = True) -> dict | None:
         grant = conn.execute(
             "SELECT * FROM agent_mission_browser_v1 WHERE task_id=?", (tid,)
         ).fetchone()
+    if not grant or grant["status"] != "approved":
+        return {"task_id": tid, "status": "stopped", "session_active": False,
+                "image_base64": "", "page_text": "", "proposed_link": {}}
     return _project(session, grant, image=image)
 
 
