@@ -20,7 +20,7 @@ from ..database import db
 from .remote_identity import load_or_create_remote_identity, remote_identity_metadata
 from .https_bridge_session import SESSION_LOCK, load_https_session, clear_https_session, clear_https_session_if_matches, https_session_matches, normalize_https_endpoint
 from .pairing import authenticate, revoke_paired_app, touch_paired_app
-from . import agent_voice_profiles, local_transcription_sessions, federated_data, homeserver_app_agent, homeserver_app_control, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
+from . import agent_mission_cloud_v1, agent_voice_profiles, local_transcription_sessions, federated_data, homeserver_app_agent, homeserver_app_control, homeserver_app_data_lifecycle, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_security, homeserver_app_workspace, homeserver_apps, homeserver_media_server, homeserver_video_editor, hosting_cloud_control, hosting_cloud_deployment, hosting_diagnostics, hosting_entitlements, hosting_health_recovery, hosting_operations, hosting_public, hosting_runtime, local_voice, providers, shared_agent_context, tracky_physical_context
 
 
 class RemoteBridgeError(RuntimeError):
@@ -1122,6 +1122,24 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
             except hosting_runtime.HostingError as exc:
                 return {"status":int(exc.status_code),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
+        if op.startswith("agent.missions."):
+            # Cloud command surface is reserved for the canonical paired VP3 app
+            # with a current agent.chat grant. Never route through owner endpoints.
+            identity = _direct_identity(token, {"agent.chat"})
+            if str(identity.get("app_key") or "") != "vp3":
+                raise RemoteBridgeError("Cloud missions require a paired VP3 identity.")
+            action = op.removeprefix("agent.missions.")
+            if action not in {"list", "get", "create", "start", "cancel", "pause", "events"}:
+                raise RemoteBridgeError("Cloud mission operation is not allowed.")
+            try:
+                result = agent_mission_cloud_v1.execute(action, body)
+            except agent_mission_cloud_v1.runtime.MissionError as exc:
+                return {"status": int(exc.status_code), "ok": False,
+                        "payload": {"detail": str(exc)}}
+            except agent_mission_cloud_v1.agent_routing.AgentRoutingError as exc:
+                return {"status": int(exc.status_code), "ok": False,
+                        "payload": {"detail": str(exc)}}
+            return {"status": 200, "ok": True, "payload": result}
         if op == "system.ping":
             identity = _direct_identity(token)
             remote = load_or_create_remote_identity()
