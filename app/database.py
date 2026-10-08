@@ -22,6 +22,7 @@ FEATURE_SCHEMA_PATHS = (
     ROOT_DIR / "database" / "agent_mission_execution.sql",
     ROOT_DIR / "database" / "agent_mission_browser.sql",
     ROOT_DIR / "database" / "agent_mission_live_browser.sql",
+    ROOT_DIR / "database" / "agent_mission_browser_takeover.sql",
     ROOT_DIR / "database" / "agent_mission_browser_controls.sql",
     ROOT_DIR / "database" / "agent_mission_cognition.sql",
     ROOT_DIR / "database" / "agent_workflow_supervision.sql",
