@@ -158,6 +158,9 @@ def execute(action: str, body: dict) -> dict:
         result = control.retry("app:vp3", mid, tid)
         return {"ok": True, "contract": CONTRACT, "mission": _projection(result, detailed=True)}
     if action == "events":
+        snapshot = runtime.get_mission("app:vp3", mid)
+        if not _cloud_export_allowed(snapshot):
+            return {"ok": True, "contract": CONTRACT, "items": [], "has_more": False, "private": True, "next_cursor": 0}
         after, limit = body.get("after", 0), body.get("limit", 40)
         if isinstance(after, bool) or isinstance(limit, bool):
             raise runtime.MissionError("Event cursor is invalid.")
