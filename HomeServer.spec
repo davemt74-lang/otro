@@ -25,6 +25,7 @@ a = Analysis(
         ('database/agent_mission_execution.sql', 'database'),
         ('database/agent_mission_browser.sql', 'database'),
         ('database/agent_mission_live_browser.sql', 'database'),
+        ('database/agent_mission_browser_controls.sql', 'database'),
         ('database/agent_mission_cognition.sql', 'database'),
         ('database/agent_workflow_supervision.sql', 'database'),
         ('database/agent_workflow_automation.sql', 'database'),

@@ -101,7 +101,19 @@ def get(source: str, mid: str, tid: str, *, image: bool = True) -> dict | None:
     if not grant or grant["status"] != "approved":
         return {"task_id": tid, "status": "stopped", "session_active": False,
                 "image_base64": "", "page_text": "", "proposed_link": {}}
-    return _project(session, grant, image=image)
+    projected = _project(session, grant, image=image)
+    with db() as conn:
+        controls = conn.execute(
+            "SELECT * FROM agent_mission_browser_controls_v3 "
+            "WHERE task_id=? AND mission_id=? AND session_token=?",
+            (tid,mid,session["session_token"])
+        ).fetchone()
+    if controls:
+        projected["controls"] = json.loads(controls["candidates_json"] or "[]")
+        projected["proposed_action"] = json.loads(controls["pending_action_json"] or "{}")
+        projected["actions_used"] = int(controls["action_count"])
+        projected["max_actions"] = 6
+    return projected
 
 
 def _store_snapshot(conn, tid: str, mid: str, token: str, response: dict,
@@ -135,6 +147,15 @@ def _store_snapshot(conn, tid: str, mid: str, token: str, response: dict,
         "updated_at=CURRENT_TIMESTAMP WHERE task_id=?",
         (response["url"], response["page_title"], response["text_snapshot"],
          response["image_base64"], int(navigation), tid)
+    )
+    # Capture only safe visible controls; no browser field values are stored.
+    conn.execute(
+        "INSERT INTO agent_mission_browser_controls_v3 "
+        "(task_id,mission_id,session_token,candidates_json) VALUES(?,?,?,?) "
+        "ON CONFLICT(task_id) DO UPDATE SET session_token=excluded.session_token,"
+        "candidates_json=excluded.candidates_json,"
+        "pending_action_json='{}',updated_at=CURRENT_TIMESTAMP",
+        (tid, mid, token, json.dumps(response.get("controls", [])[:32]))
     )
     if navigation:
         conn.execute(

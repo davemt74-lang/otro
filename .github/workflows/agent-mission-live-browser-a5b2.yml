@@ -15,6 +15,11 @@ on:
       - 'database/agent_mission_live_browser.sql'
       - 'tests/agent_mission_live_browser_a5b2.py'
       - 'tests/agent_browser_live_actor_a5b2.py'
+      - 'app/services/agent_browser_dom_policy.py'
+      - 'app/services/agent_mission_browser_actions.py'
+      - 'database/agent_mission_browser_controls.sql'
+      - 'tests/agent_browser_dom_a5b3.py'
+      - 'tests/agent_mission_dom_approval_a5b3.py'
       - '.github/workflows/agent-mission-live-browser-a5b2.yml'
   push:
     branches: [main]
@@ -40,6 +45,12 @@ jobs:
         run: python tests/agent_browser_live_actor_a5b2.py
       - name: Live sessions, proposals, approval, privacy, revocation and recovery
         run: python tests/agent_mission_live_browser_a5b2.py
+      - name: A5B3 safe DOM action and approval regression
+        run: python tests/agent_mission_dom_approval_a5b3.py
+      - name: A5B3 real Chromium non-submitting action acceptance
+        run: |
+          python -m playwright install chromium
+          python tests/agent_browser_dom_a5b3.py
       - name: Previous browser and mission regression
         run: |
           python tests/agent_mission_browser_a5b.py
