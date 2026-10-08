@@ -119,8 +119,15 @@ class LiveActor:
                             })
                             if len(links) >= MAX_LINKS:
                                 break
+                        # Mask sensitive typed values in the stored screenshot.
+                        # Raw user input is never captured as model evidence.
+                        secrets = page.locator(
+                            "input[type=password],input[type=text],input:not([type]),"
+                            "input[type=search],textarea"
+                        )
                         jpeg = page.screenshot(type="jpeg", quality=35, full_page=False,
-                                               animations="disabled", timeout=7000)
+                                               animations="disabled", timeout=7000,
+                                               mask=[secrets])
                         image = base64.b64encode(jpeg).decode("ascii") if len(jpeg) <= MAX_IMAGE_BYTES else ""
                         future.set_result({
                             "url": page.url[:1400], "page_title": title, "text_snapshot": body,
