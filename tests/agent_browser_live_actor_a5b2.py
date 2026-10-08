@@ -1,6 +1,7 @@
 """A5B2 concurrency budget acceptance for persistent browser actors."""
 import sys
 import time
+import threading
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from app.services import agent_browser_live_actor as actor
@@ -12,6 +13,7 @@ class FakeActor:
         self.origin=origin
         self.expires=time.monotonic()+600
         self.closed=False
+        self.stopped=threading.Event()
         self.url=url
     def submit(self, action, url=""):
         if self.closed:
@@ -19,6 +21,7 @@ class FakeActor:
         return {"url":url or self.url,"image_base64":"","text_snapshot":"","links":[]}
     def stop(self):
         self.closed=True
+        self.stopped.set()
 
 actor.LiveActor=FakeActor
 actor._registry.clear()
