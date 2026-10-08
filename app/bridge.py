@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .agent_mission_tools_api import router as agent_mission_tools_router
 from .agent_mission_api import router as agent_mission_router
 from .agent_mission_control_api import router as agent_mission_control_router
 from .agent_mission_cognition_api import router as agent_mission_cognition_router
@@ -92,6 +93,7 @@ install_local_file_action_agent_tools()
 install_local_file_action_registry()
 
 app.include_router(agent_mission_router)
+app.include_router(agent_mission_tools_router)
 app.include_router(agent_mission_control_router)
 app.include_router(agent_mission_cognition_router)
 app.include_router(agent_mission_execution_router)

@@ -1,0 +1,38 @@
+name: Agent Mission Tool Orchestration A5C
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'database/migrations/070_agent_mission_tool_contracts.sql'
+      - 'tests/*a5c*'
+      - '.github/workflows/agent-mission-tools-a5c.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/agent_mission_tool_contracts.py'
+      - 'app/agent_mission_tools_api.py'
+      - 'database/migrations/070_agent_mission_tool_contracts.sql'
+      - 'tests/*a5c*'
+      - '.github/workflows/agent-mission-tools-a5c.yml'
+concurrency:
+  group: a5c-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Specialist capability contracts
+        run: python tests/agent_mission_contracts_a5c1.py
+      - name: Existing specialist and relay regressions
+        run: |
+          set -e
+          python tests/agent_mission_runtime_a1.py
+          python tests/agent_mission_cloud_a3.py
+          python tests/agent_mission_execution_a5.py
+          python tests/agent_mission_browser_plans_a5b4.py
+          python tests/migrations.py

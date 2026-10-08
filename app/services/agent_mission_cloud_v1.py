@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 from ..database import db
+from . import agent_mission_tool_contracts as tool_contracts
 from . import agent_mission_runtime as runtime, agent_mission_control as control
 from . import agent_routing, context_engine, app_scopes, agent_mission_cognition as cognition, agent_mission_execution as execution, agent_mission_browser as browser, agent_mission_live_browser as live, agent_mission_browser_actions as actions, agent_mission_browser_takeover as takeover, agent_mission_browser_plans as plans
 
@@ -153,6 +154,13 @@ def execute(action: str, body: dict) -> dict:
     # Source-scoped lookup prevents a paired Cloud call from reading owner
     # missions or a different app's mission ID.
     runtime.get_mission("app:vp3", mid)
+    if action in {'tools.get','tools.configure'}:
+        current=runtime.get_mission('app:vp3',mid)
+        if not _cloud_export_allowed(current):
+            raise runtime.MissionError('Private capability assignments stay on HomeServer.',403)
+        if action=='tools.get': result=tool_contracts.get('app:vp3',mid)
+        else: result=tool_contracts.configure('app:vp3',mid,body.get('assignments'),request_id=body.get('request_id'),expected_revision=body.get('expected_revision'),confirmed=body.get('confirmed'))
+        return {'ok':True,'contract':CONTRACT,'tools':result}
     if action == "get":
         return {"ok": True, "contract": CONTRACT, "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}
     if action == "start":
