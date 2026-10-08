@@ -31,6 +31,8 @@ UI_DIR = ROOT_DIR / "ui"
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
+    from .services import agent_mission_runtime
+    agent_mission_runtime.recover_interrupted()
     onboarding_chat.resume_approved()
     ensure_knowledge_index()
     tracky_federated_automation.recover_incomplete_runs()
@@ -53,6 +55,7 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         workspace_sync.stop()
+        agent_mission_runtime.shutdown()
         homeserver_app_runtime.stop()
         hosting_health_recovery.stop()
         ambient_orchestration.stop()
