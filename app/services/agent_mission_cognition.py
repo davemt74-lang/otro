@@ -283,3 +283,23 @@ def decide(source: str, mid: str, review_id: str, *, approve: bool) -> dict:
     if approve:
         runtime._dispatch(mid)
     return {"review": _project(updated), "mission_id": mid}
+
+
+def recover_interrupted() -> int:
+    """On restart fail closed; never replay ambiguous supervisor inference."""
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT id,mission_id FROM agent_mission_reviews_v1 "
+            "WHERE status='evaluating'"
+        ).fetchall()
+        for row in rows:
+            conn.execute(
+                "UPDATE agent_mission_reviews_v1 SET status='failed',"
+                "error='Supervisor review interrupted by restart.',"
+                "updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='evaluating'",
+                (row["id"],),
+            )
+            runtime._event(conn, row["mission_id"],
+                           "cognition.recovery_review_required")
+    return len(rows)
