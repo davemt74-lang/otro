@@ -67,7 +67,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-owner-takeover-") as tmp:
     assert manual["owner_takeover"]["actions_used"]==1
     assert len(calls)==before+1 and calls[-1][0]=="interact"
     with db() as conn:
-        events=str(conn.execute("SELECT group_concat(detail_json) FROM agent_mission_events_v1 WHERE mission_id=?",
+        events=str(conn.execute("SELECT group_concat(metadata_json) FROM agent_mission_events_v1 WHERE mission_id=?",
                                 (mid,)).fetchone()[0] or "")
         assert "private" not in events,"Raw typed browser value leaked into event journal"
     preview=owner.review_search("owner",mid,tid,index=0,fingerprint="b"*24)
