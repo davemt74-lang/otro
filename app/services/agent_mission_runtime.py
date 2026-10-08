@@ -39,6 +39,17 @@ def _route(source: str, conversation: str) -> tuple[str, str, bool]:
     settings = context_engine.ensure_settings(conversation)
     cloud = bool(settings.get("cloud_allowed", True))
     if source != "owner":
+        if not source.startswith("app:") or not source[4:]:
+            raise MissionError("Invalid application identity.", 403)
+        # Queued work must not outlive pairing revocation or the agent.chat grant.
+        with db() as conn:
+            valid = conn.execute(
+                "SELECT 1 FROM paired_apps a JOIN app_permissions p ON p.paired_app_id=a.id "
+                "WHERE a.app_key=? AND a.status='active' AND p.permission='agent.chat' "
+                "AND p.allowed=1 LIMIT 1", (source[4:],),
+            ).fetchone()
+        if valid is None:
+            raise MissionError("Application mission permission was revoked.", 403)
         cloud = cloud and bool(app_scopes.get_scope_for_source(source).get("cloud_allowed", False))
     if not cloud:
         local = providers.get_ollama()
