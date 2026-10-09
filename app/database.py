@@ -59,6 +59,21 @@ def connect() -> sqlite3.Connection:
 _atomic_state = threading.local()
 
 
+@contextmanager
+def reuse_write_transaction():
+    """Let receipt auditing join a legacy writer without committing its work."""
+    active = getattr(_atomic_state, 'connection', None)
+    writers = [conn for conn in getattr(_atomic_state, 'independent', []) if conn.in_transaction]
+    if active is not None or not writers:
+        yield
+        return
+    _atomic_state.connection = writers[-1]
+    try:
+        yield
+    finally:
+        _atomic_state.connection = None
+
+
 def atomic_write(function):
     """Keep nested service writes, revisions and retry receipts in one SQLite commit."""
     @wraps(function)
@@ -100,6 +115,10 @@ def db() -> Iterator[sqlite3.Connection]:
             _atomic_state.depth -= 1
         return
     connection = connect()
+    stack = getattr(_atomic_state, 'independent', None)
+    if stack is None:
+        stack = _atomic_state.independent = []
+    stack.append(connection)
     try:
         yield connection
         connection.commit()
@@ -107,6 +126,7 @@ def db() -> Iterator[sqlite3.Connection]:
         connection.rollback()
         raise
     finally:
+        stack.remove(connection)
         connection.close()
 
 

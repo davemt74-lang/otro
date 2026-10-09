@@ -46,7 +46,9 @@ jobs:
         run: |
           set -e
           python tests/agent_mission_runtime_a1.py
+          python tests/agent_mission_control_a2.py
           python tests/agent_mission_cloud_a3.py
+          python tests/agent_mission_cognition_a4.py
           python tests/agent_mission_execution_a5.py
           python tests/agent_mission_browser_plans_a5b4.py
           python tests/migrations.py

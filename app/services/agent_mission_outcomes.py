@@ -8,7 +8,7 @@ import uuid
 from collections import Counter
 from datetime import datetime, timezone
 
-from ..database import atomic_write, db
+from ..database import atomic_write, reuse_write_transaction, db
 
 NATIVE = {
     'contacts': ('federated_contact_mutations', 'contact'),
@@ -113,8 +113,20 @@ def _cloud(row, args):
     return ('verified' if re.fullmatch('[a-f0-9]{64}', revision) and observed == revision else 'superseded'), revision, observed
 
 
-@atomic_write
 def assess(snapshot):
+    # Legacy controllers sometimes read a mission while holding their own
+    # transaction. Join that transaction for readback observations and audit,
+    # without opening a competing writer or committing the caller's work.
+    with reuse_write_transaction():
+        return _assess_atomic(snapshot)
+
+
+@atomic_write
+def _assess_atomic(snapshot):
+    return _assess(snapshot)
+
+
+def _assess(snapshot):
     """Called after current source visibility is established, without recursive lookups."""
     from . import agent_mission_runtime as mission
     if not snapshot.get('authority_current', True):

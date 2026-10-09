@@ -42,6 +42,11 @@ with tempfile.TemporaryDirectory(prefix='a5c4-') as tmp:
         record,change=prepare(tool,args);saved=approve(record,change)
         assert saved['outcome_state']=='verified',(tool,saved)
         assert saved['receipt_revision']==saved['observed_revision'] and saved['verified_at'] and saved['checked_at']
+        # Legacy pause/staffing controllers read under independent transactions.
+        # Such reads must never acquire a competing audit writer.
+        with db() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            assert mission.get_mission('owner',record['id'])['completion_report']['execution_verified']
         summary=report(record);assert summary['state']=='complete' and summary['verified_changes']==1 and summary['execution_verified'] and not summary['content_verified']
         with db() as conn:before=conn.execute("SELECT count(*) FROM agent_mission_events_v1 WHERE mission_id=? AND kind='worker.action_outcome'",(record['id'],)).fetchone()[0]
         report(record);report(record)
@@ -50,6 +55,13 @@ with tempfile.TemporaryDirectory(prefix='a5c4-') as tmp:
         with db() as conn:
             mutation=json.loads(conn.execute('SELECT arguments_json FROM action_requests WHERE id=?',(change['approval_id'],)).fetchone()[0])['mutation_id']
             original=json.loads(conn.execute(f'SELECT result_json FROM {table} WHERE mutation_id=?',(mutation,)).fetchone()[0])[field]
+        if kind=='contacts':
+            with db() as conn:
+                conn.execute('BEGIN IMMEDIATE')
+                conn.execute('UPDATE contacts SET display_name=? WHERE id=?',('Uncommitted change',original['id']))
+                assert mission.get_mission('owner',record['id'])['completion_report']['attention_changes']==1
+                conn.rollback()
+            assert report(record)['execution_verified'],'Readback must not commit a caller-owned transaction'
         update_args={'canonical_id':original['canonical_id'],'expected_revision':original['record_revision'],('display_name' if kind=='contacts' else 'title'):'Verified update'}
         update_record,update_change=prepare(kind+'.update',update_args)
         updated=approve(update_record,update_change)
