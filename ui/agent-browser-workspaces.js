@@ -283,7 +283,7 @@ function showMission(m){
  if(events.length){detail.appendChild(el('h4','','Recent activity'));const history=el('ol','vp3-teams-events');
   events.forEach(e=>history.appendChild(el('li','',fmt(e.created_at)+' · '+(e.kind||'event'))));
   detail.appendChild(history);}
- const workspaceActions=new Set(['get','tools.get','tools.configure','tools.start','start','pause','resume','cancel','retry']);
+ const workspaceActions=new Set(['get','actions.list','actions.review','tools.get','tools.configure','tools.start','start','pause','resume','cancel','retry']);
  detail.querySelectorAll('button[data-action]').forEach(button=>{if(!button.dataset.action.startsWith('browser.')&&!workspaceActions.has(button.dataset.action))button.remove();});
  detail.querySelectorAll('input[data-owner-value-task],select[data-owner-control-task],select[data-owner-search-task],input[data-dom-approval-task],select[data-dom-approval-task],input[data-browser-task]').forEach(node=>{const value=draftValues.get(draftKey(node));if(value!==undefined)node.value=value;});
  showList();
