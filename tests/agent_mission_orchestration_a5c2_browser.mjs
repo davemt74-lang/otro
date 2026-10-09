@@ -57,7 +57,7 @@ try{
  await page.waitForFunction(()=>mission.status==='running');
  assert.equal(await page.evaluate(()=>calls.filter(c=>c.action==='start').length),0,'Assigned missions must use the coordinated start path');
  await page.evaluate(()=>{
-  const drawer=document.createElement('aside');drawer.id='chatNotificationDrawer';drawer.innerHTML='<button data-notification-tab="brain" class="active">Brain</button><div data-notification-drawer-body></div>';document.body.appendChild(drawer);
+  const drawer=document.createElement('aside');drawer.id='chatBrainDrawer';drawer.innerHTML='<button data-notification-tab="brain" class="active">Brain</button><div data-notification-drawer-body></div>';document.body.appendChild(drawer);
   VP3_AGENT_TEAMS_A3_BRAIN(drawer.querySelector('[data-notification-drawer-body]'));
  });
  assert.match(await page.locator('[data-agent-teams-brain-a3]').textContent(),/Read research/);
