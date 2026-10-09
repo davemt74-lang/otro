@@ -377,6 +377,10 @@ def start_mission(source: str, mid: str) -> dict:
         raise MissionError("Mission is not startable.", 409)
     _route(source, str(mission["conversation_id"]))
     with db() as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        assigned = conn.execute('SELECT 1 FROM agent_mission_tool_contracts_v1 WHERE mission_id=?',(mid,)).fetchone()
+        if assigned:
+            raise MissionError('Use the coordinated mission execution path for assigned tools.',409)
         changed = conn.execute(
             "UPDATE agent_missions_v1 SET status='running',updated_at=CURRENT_TIMESTAMP "
             "WHERE id=? AND source_app_key=? AND status='planned'", (mid, source),
