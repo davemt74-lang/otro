@@ -101,7 +101,13 @@ with tempfile.TemporaryDirectory() as root:
             scene.accept(consent=True,output_observed=True,release_observed=True)  # Idempotent owner click
             worker=run();assert worker['phase']=='completed',worker
             projected=context.projection();assert projected['scene']['objects']==['chair','cup'],projected
-            clock=[datetime.fromisoformat(worker['last_observed_at'])+timedelta(seconds=59)]
+            observed_at=datetime.fromisoformat(worker['last_observed_at'])
+            with db() as connection:
+                completed_at=connection.execute('SELECT completed_at FROM tracky_active_perception_requests WHERE request_id=?',(worker['last_completed_request_id'],)).fetchone()[0]
+            # The ledger uses whole seconds and slow runners may publish the
+            # observation later. Keep both fresh at the initial check, then
+            # cross the observation deadline during the final authority call.
+            clock=[datetime.fromisoformat(completed_at).replace(tzinfo=timezone.utc)+timedelta(seconds=59)]
             authority_calls=[0];original_reason=context._session_reason
             projection_thread=threading.get_ident()
             class FinalClock(datetime):
@@ -112,7 +118,7 @@ with tempfile.TemporaryDirectory() as root:
                 # foreground clock before its final authority check.
                 if threading.get_ident()==projection_thread:
                     authority_calls[0]+=1
-                    if authority_calls[0]==3:clock[0]+=timedelta(seconds=2)
+                    if authority_calls[0]==3:clock[0]=observed_at+timedelta(seconds=61)
                 return original_reason(snapshot)
             with patch.object(context,'datetime',FinalClock), patch.object(context,'_session_reason',side_effect=slow_final_authority):
                 expired=context.projection()
