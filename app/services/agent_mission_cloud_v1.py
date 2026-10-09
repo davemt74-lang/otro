@@ -85,9 +85,13 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
             "attempt": int(task.get("attempt") or 0),
             "started_at": task.get("started_at"),
             "completed_at": task.get("completed_at"),
+            "read_calls_used": task.get("read_calls_used", 0),
         }
         if detailed:
-            item["result"] = str(task.get("result") or "")[:6000] if allowed else ""
+            # A validated structured draft must remain complete JSON. The
+            # coordinated runtime bounds each output before it is stored.
+            result_limit = 30000 if raw.get('tools_enabled') else 6000
+            item["result"] = str(task.get("result") or "")[:result_limit] if allowed else ""
             item["error"] = str(task.get("error") or "")[:500] if allowed else ""
             item["model"] = str(task.get("model") or "")[:160] if allowed else ""
         tasks.append(item)
@@ -102,6 +106,9 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
         "read_only": True,
         "verified": False,
         "private": not allowed,
+        "tools_enabled": bool(raw.get('tools_enabled')),
+        "tools_configured": bool(raw.get('tools_configured')),
+        "authority_current": bool(raw.get('authority_current', True)),
         "contract": CONTRACT,
     }
     if detailed:
@@ -154,12 +161,17 @@ def execute(action: str, body: dict) -> dict:
     # Source-scoped lookup prevents a paired Cloud call from reading owner
     # missions or a different app's mission ID.
     runtime.get_mission("app:vp3", mid)
-    if action in {'tools.get','tools.configure'}:
+    if action in {'tools.get','tools.configure','tools.start','tools.status'}:
+        from . import agent_mission_orchestration as orchestration
         current=runtime.get_mission('app:vp3',mid)
         if not _cloud_export_allowed(current):
             raise runtime.MissionError('Private capability assignments stay on HomeServer.',403)
         if action=='tools.get': result=tool_contracts.get('app:vp3',mid)
-        else: result=tool_contracts.configure('app:vp3',mid,body.get('assignments'),request_id=body.get('request_id'),expected_revision=body.get('expected_revision'),confirmed=body.get('confirmed'))
+        elif action=='tools.configure': result=tool_contracts.configure('app:vp3',mid,body.get('assignments'),request_id=body.get('request_id'),expected_revision=body.get('expected_revision'),confirmed=body.get('confirmed'))
+        elif action=='tools.start':
+            result=orchestration.start('app:vp3',mid,request_id=body.get('request_id'),expected_revision=body.get('expected_revision'),confirmed=body.get('confirmed'))
+            return {'ok':True,'contract':CONTRACT,'mission':_projection(result,detailed=True)}
+        else: return {'ok':True,'contract':CONTRACT,'orchestration':orchestration.status('app:vp3',mid)}
         return {'ok':True,'contract':CONTRACT,'tools':result}
     if action == "get":
         return {"ok": True, "contract": CONTRACT, "mission": _projection(runtime.get_mission("app:vp3", mid), detailed=True)}

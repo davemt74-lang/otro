@@ -33,6 +33,10 @@ def authority(source, snapshot):
 
 def capabilities(source, mid):
     snapshot = mission.get_mission(source, mid)
+    return capabilities_for_snapshot(source, snapshot)
+
+
+def capabilities_for_snapshot(source, snapshot):
     permissions, owner = authority(source, snapshot)
     scope = app_scopes.get_scope_for_source(source) if not owner else {}
     available = {t['key'] for t in tools.list_tools(permissions, owner=owner) if t['available'] and t['mode']=='read' and (owner or app_scopes.tool_allowed(scope,t['key']))}
@@ -89,7 +93,7 @@ def get(source, mid):
     authority(source,snapshot)
     with db() as conn:
         row=conn.execute('SELECT *,datetime(expires_at)>datetime(\'now\') AS active FROM agent_mission_tool_contracts_v1 WHERE mission_id=? AND source_app_key=?',(mid,source)).fetchone()
-    return {'contract':CONTRACT,'mission_id':mid,'configured':bool(row),'execution_enabled':False,
+    return {'contract':CONTRACT,'mission_id':mid,'configured':bool(row),'execution_enabled':bool(snapshot.get('tools_enabled')),'orchestrator_available':True,
             'capabilities':capabilities(source,mid),'max_calls_per_worker':MAX_CALLS,
             'revision':row['revision'] if row else 0,'expires_at':row['expires_at'] if row else None,
             'active':bool(row and row['active']),'assignments':json.loads(row['contract_json']) if row else {}}

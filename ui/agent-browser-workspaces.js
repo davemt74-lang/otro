@@ -19,8 +19,8 @@ root.innerHTML='<summary><span aria-hidden="true">◉</span> Agent Teams <small>
  '<option value="auto">HomeServer default</option><option value="ollama">Ollama (local)</option>'+
  '<option value="anthropic">Claude / Anthropic</option><option value="openai">OpenAI</option>'+
  '<option value="openrouter">OpenRouter</option></select>'+
- '<small class="vp3-teams-provider-note">Workers use isolated model-only contexts; read-only browser evidence requires separate approval. No model tools or write actions.</small>'+
- '<label class="vp3-teams-browser-optin"><input type="checkbox" name="prepare_only"> Prepare mission first — approve browser pages for individual workers before starting</label></form>'+
+ '<small class="vp3-teams-provider-note">Workers use isolated contexts. Prepare a mission to review read capabilities, budgets and outputs; browser pages need separate approval.</small>'+
+ '<label class="vp3-teams-browser-optin"><input type="checkbox" name="prepare_only"> Prepare mission first — review specialist tools and browser approvals</label></form>'+
  '<div class="vp3-teams-status" role="status" aria-live="polite">Open to load missions.</div>'+
  '<div class="vp3-teams-list" aria-label="Recent missions"></div>'+
  '<section class="vp3-teams-detail" aria-label="Selected mission" hidden></section></div>';
@@ -29,6 +29,7 @@ const status=root.querySelector('.vp3-teams-status'), list=root.querySelector('.
  detail=root.querySelector('.vp3-teams-detail'), create=root.querySelector('form'), input=create.querySelector('input'),
  submit=create.querySelector('button');
 let busy=false,selected='',items=[],lastRefresh=0,inflight=false;
+const toolsByMission=new Map(), toolDrafts=new Map();
 const staffingByMission=new Map();
 const browserByWorker=new Map();
 const liveByWorker=new Map();let liveLastPoll=0;
@@ -67,19 +68,23 @@ function showMission(m){
  detail.appendChild(el('h3','',m.objective||'Mission'));
  detail.appendChild(el('p','vp3-teams-meta',(m.status||'unknown')+' · '+fmt(m.updated_at||m.created_at)+' · Read-only workers'));
  const buttons=el('div','vp3-teams-actions');
- if(m.status==='planned')buttons.appendChild(btn('Start','start',selected));
+ if(m.status==='planned'){buttons.appendChild(btn('Review specialist assignments','tools.get',selected));buttons.appendChild(btn('Start',m.tools_configured||toolsByMission.get(selected)?.configured?'tools.start':'start',selected));}
  if(m.status==='running')buttons.appendChild(btn('Pause','pause',selected));
  if(m.status==='waiting_review')buttons.appendChild(btn('Resume (rerun interrupted)','resume',selected));
  if(['planned','running','waiting_review'].includes(m.status))buttons.appendChild(btn('Cancel','cancel',selected));
  buttons.appendChild(btn('Refresh','get',selected));detail.appendChild(buttons);
+ if(m.authority_current===false)detail.appendChild(el('p','vp3-teams-error','Permissions changed. Results are hidden; prepare a new reviewed mission.'));
+ renderAssignments(m);
  const workers=el('ol','vp3-teams-workers');
  (m.tasks||[]).forEach(t=>{
   const li=el('li','');li.appendChild(el('strong','',t.title||t.role||'Worker'));
   li.appendChild(el('small','',(t.role||'specialist')+' · '+(t.status||'queued')+(t.model?' · '+t.model:'')+' · '+fmt(t.completed_at||t.started_at)));
   if(t.error)li.appendChild(el('p','vp3-teams-error',t.error));
   if(['failed','partial','waiting_review'].includes(m.status)&&['failed','interrupted'].includes(t.status)&&t.error!=='Dependency failed')li.appendChild(btn('Retry worker','retry',selected,t.id));
+  li.appendChild(el('small','','Read calls used: '+(t.read_calls_used||0)+' · budgets include retries'));
   if(t.result){const exp=el('details','vp3-teams-result');exp.appendChild(el('summary','','Worker result'));
-   exp.appendChild(el('pre','',t.result));li.appendChild(exp);}
+   let text=t.result;try{const out=JSON.parse(text);if(out.kind&&out.body)text=out.title+'\n\n'+out.body+'\n\nEvidence IDs: '+(out.citations||[]).join(', ');}catch(_){}
+   exp.appendChild(el('pre','',text));li.appendChild(exp);}
   const browser=el('details','vp3-worker-browser');
   browser.dataset.browserWorker=t.id;
   browser.open=openBrowsers.has(t.id);
@@ -240,7 +245,7 @@ function showMission(m){
   area.appendChild(actions);browser.appendChild(area);li.appendChild(browser);
   workers.appendChild(li);
  });detail.appendChild(workers);
- if(['completed','partial','failed'].includes(m.status)||staffingByMission.has(selected)){
+ if(!m.tools_configured&&(['completed','partial','failed'].includes(m.status)||staffingByMission.has(selected))){
   const review=el('section','vp3-teams-supervisor');
   review.setAttribute('data-agent-teams-supervisor','');
   review.appendChild(el('h4','','Supervisor · adaptive staffing'));
@@ -277,7 +282,8 @@ function showMission(m){
  if(events.length){detail.appendChild(el('h4','','Recent activity'));const history=el('ol','vp3-teams-events');
   events.forEach(e=>history.appendChild(el('li','',fmt(e.created_at)+' · '+(e.kind||'event'))));
   detail.appendChild(history);}
- detail.querySelectorAll('button[data-action]').forEach(button=>{if(!button.dataset.action.startsWith('browser.')&&button.dataset.action!=='get')button.remove();});
+ const workspaceActions=new Set(['get','tools.get','tools.configure','tools.start','start','pause','resume','cancel','retry']);
+ detail.querySelectorAll('button[data-action]').forEach(button=>{if(!button.dataset.action.startsWith('browser.')&&!workspaceActions.has(button.dataset.action))button.remove();});
  detail.querySelectorAll('input[data-owner-value-task],select[data-owner-control-task],select[data-owner-search-task],input[data-dom-approval-task],select[data-dom-approval-task],input[data-browser-task]').forEach(node=>{const value=draftValues.get(draftKey(node));if(value!==undefined)node.value=value;});
  showList();
 }
@@ -355,9 +361,43 @@ async function load(){
    try{await loadSupervision(selected);}catch(_){/* Mission status remains available if supervision is unsupported. */}}
  }finally{inflight=false;}
 }
+function renderAssignments(m){
+ const contract=toolsByMission.get(m.id);if(!contract)return;
+ const panel=el('section','vp3-specialist-assignments');panel.setAttribute('aria-label','Specialist assignments');
+ panel.appendChild(el('h4','','Specialist assignments'));
+ panel.appendChild(el('p','','Review revision '+contract.revision+' · '+(contract.active?'expires '+fmt(contract.expires_at):'a fresh review is required')+'. Read budgets are cumulative across retries. Outputs are model generated and require your review.'));
+ if(m.status!=='planned'){detail.appendChild(panel);return;}
+ const draft=toolDrafts.get(m.id)||contract.assignments||{};
+ const field=(node,key,tid,value)=>{node.dataset.toolField=key;if(tid)node.dataset.toolTask=tid;node.value=String(value);return node;};
+ const label=(text,node)=>{const x=el('label','',text+' ');x.appendChild(node);return x;};
+ const parallel=field(el('input'),'max_parallel','',draft.max_parallel||2);parallel.type='number';parallel.min='1';parallel.max='4';
+ panel.appendChild(label('Concurrent workers (1–4)',parallel));
+ for(const task of m.tasks||[]){
+  const entry=(draft.assignments||[]).find(a=>a.task_id===task.id)||{tools:[],max_calls:0,output:'analysis',browser_url:''};
+  const group=el('fieldset');group.appendChild(el('legend','',task.title||task.role));
+  for(const capability of contract.capabilities||[]){const checkbox=field(el('input'),'tool',task.id,capability);checkbox.type='checkbox';checkbox.checked=entry.tools.includes(capability);group.appendChild(label(capability,checkbox));}
+  const calls=field(el('input'),'max_calls',task.id,entry.max_calls);calls.type='number';calls.min='0';calls.max=String(contract.max_calls_per_worker||3);group.appendChild(label('Read calls (0–3)',calls));
+  const output=el('select');for(const kind of ['analysis','sources','document']){const option=el('option','',kind);option.value=kind;output.appendChild(option);}field(output,'output',task.id,entry.output);group.appendChild(label('Output',output));
+  const url=field(el('input'),'browser_url',task.id,entry.browser_url);url.type='url';url.maxLength=1400;url.placeholder='Separately approved HTTPS URL';group.appendChild(label('Browser URL',url));panel.appendChild(group);
+ }
+ panel.appendChild(btn('Approve assignments','tools.configure',m.id));detail.appendChild(panel);
+}
+function assignmentDraft(){
+ const panel=detail.querySelector('.vp3-specialist-assignments');if(!panel)return null;
+ const value={max_parallel:Number(panel.querySelector('[data-tool-field="max_parallel"]').value),assignments:[]};
+ for(const group of panel.querySelectorAll('fieldset')){
+  const nodes=Array.from(group.querySelectorAll('[data-tool-field]'));const task=nodes[0]?.dataset.toolTask;
+  const get=key=>nodes.find(n=>n.dataset.toolField===key)?.value||'';
+  value.assignments.push({task_id:task,tools:nodes.filter(n=>n.dataset.toolField==='tool'&&n.checked).map(n=>n.value),max_calls:Number(get('max_calls')),output:get('output'),browser_url:get('browser_url')});
+ }
+ return value;
+}
+root.addEventListener('input',event=>{if(event.target.dataset.toolField){const draft=assignmentDraft();if(draft)toolDrafts.set(selected,draft);}});
 async function operation(action,id,taskId){
  if(action==='open-team-chat'){root.open=true;root.scrollIntoView({block:'nearest'});if(id)operation('get',id,taskId);return;}
  if(busy)return;
+ if(action==='tools.configure'&&!window.confirm('Approve these exact read capabilities, cumulative call budgets and output formats for 15 minutes? Browser grants are reviewed separately.'))return;
+ if(action==='tools.start'&&!window.confirm('Start the reviewed specialists? Model and approved read usage will occur within the displayed budgets.'))return;
  if(action==='resume'&&!window.confirm('Resume and rerun interrupted model work?'))return;
  if(action==='retry'&&!window.confirm('Retry this worker? The model request may use additional tokens.'))return;
  if(action==='approve'&&!window.confirm('Approve these new read-only workers? Additional model usage will occur.'))return;
@@ -374,6 +414,12 @@ async function operation(action,id,taskId){
  if(action==='browser.owner.search.submit'&&!window.confirm('Submit this one approved same-origin GET search? Its query appears in the URL.'))return;
  setBusy(true);
  try{const payload={mission_id:id};if(action==='resume')payload.allow_reexecution=true;
+  if(action==='tools.configure'||action==='tools.start'){
+   const contract=toolsByMission.get(id);if(!contract)throw new Error('Load and review specialist assignments first.');
+   payload.expected_revision=contract.revision;payload.confirmed=true;
+   if(action==='tools.configure')payload.assignments=assignmentDraft();
+   const key=action+'|'+id+'|'+JSON.stringify(payload);payload.request_id=pendingOperations.get(key)||window.crypto.randomUUID();pendingOperations.set(key,payload.request_id);
+  }
   if(action==='retry')payload.task_id=taskId;
   if(action.startsWith('browser.owner.')){
    payload.task_id=taskId;
@@ -447,6 +493,7 @@ async function operation(action,id,taskId){
   }
   if(action==='approve'||action==='reject'){payload.decision_id=taskId;payload.confirmed=true;}
   const response=await api(action,payload);
+  if(response.tools){toolsByMission.set(id,response.tools);if(action!=='tools.get')toolDrafts.delete(id);}
   if(payload.request_id)for(const [key,value] of pendingOperations)if(value===payload.request_id)pendingOperations.delete(key);
   if(response.live_browser!==undefined){
    const key=id+'|'+taskId;
@@ -499,7 +546,7 @@ create.addEventListener('submit',async ev=>{
    for(const task of workers){await api('bind_provider',{mission_id:mid,task_id:task.id,provider_key:preferred});}
   }
   if(create.querySelector('[name="prepare_only"]')?.checked){
-   say('Mission prepared. Approve each worker browser under its task, then select Start.');
+   say('Mission prepared. Review specialist assignments and approve browser pages before starting.');
    await load();
   }else{
    say('Starting workers…');
