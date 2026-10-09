@@ -166,6 +166,19 @@ with tempfile.TemporaryDirectory(prefix='a5c2-') as tmp:
     deny(lambda:relay.execute('tools.status',{'mission_id':candidate['id']}),403)
     with db() as conn:conn.execute("UPDATE conversation_context_settings SET cloud_allowed=1 WHERE conversation_id='app:vp3-orchestration'")
 
+    # Cloud must preserve a complete validated document, including its evidence IDs.
+    candidate,_=prepare(source='app:vp3')
+    def long_draft(source,cid,tid,messages):
+        raw,key,model=successful(source,cid,tid,messages)
+        if not messages[0]['content'].startswith('Choose at most one'):
+            value=json.loads(raw);value['body']='Complete bounded draft. '*350
+            raw=json.dumps(value)
+        return raw,key,model
+    inference.execute=long_draft;start(candidate,'app:vp3')
+    assert wait(candidate['id'],'app:vp3')['status']=='completed'
+    projected=relay.execute('get',{'mission_id':candidate['id']})['mission']['tasks'][0]['result']
+    assert json.loads(projected)['body']=='Complete bounded draft. '*350
+
     # Browser approval is separate; model URL arguments cannot choose navigation.
     candidate,assignment=prepare(tools=['browser.read']);assignment['assignments'][0]['browser_url']='https://example.com/'
     contracts.configure('owner',candidate['id'],assignment,request_id=uid(),expected_revision=1,confirmed=True)

@@ -88,7 +88,10 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
             "read_calls_used": task.get("read_calls_used", 0),
         }
         if detailed:
-            item["result"] = str(task.get("result") or "")[:6000] if allowed else ""
+            # A validated structured draft must remain complete JSON. The
+            # coordinated runtime bounds each output before it is stored.
+            result_limit = 30000 if raw.get('tools_enabled') else 6000
+            item["result"] = str(task.get("result") or "")[:result_limit] if allowed else ""
             item["error"] = str(task.get("error") or "")[:500] if allowed else ""
             item["model"] = str(task.get("model") or "")[:160] if allowed else ""
         tasks.append(item)
