@@ -71,6 +71,25 @@ with tempfile.TemporaryDirectory(prefix='a5c1-contracts-') as tmp:
     deny(lambda:contracts.configure('app:vp3',cloud['id'],cp,request_id=str(uuid.uuid4()),expected_revision=1,confirmed=True),403)
     with db() as conn:conn.execute("UPDATE app_permissions SET allowed=0 WHERE paired_app_id=? AND permission='agent.chat'",(app_id,))
     deny(lambda:contracts.get('app:vp3',cloud['id']),403)
+    # Concurrent legacy start and capability approval cannot both succeed.
+    mission._dispatch=lambda *_:None
+    for sequence in range(10):
+        candidate=create(100+sequence); assignment=profile(candidate)
+        barrier=threading.Barrier(3); results=[]
+        def race_start():
+            barrier.wait()
+            try:mission.start_mission('owner',candidate['id']);results.append('started')
+            except mission.MissionError as e:results.append(e.status_code)
+        def race_assign():
+            barrier.wait()
+            try:contracts.configure('owner',candidate['id'],assignment,request_id=str(uuid.uuid4()),expected_revision=0,confirmed=True);results.append('assigned')
+            except mission.MissionError as e:results.append(e.status_code)
+        contenders=[threading.Thread(target=race_start),threading.Thread(target=race_assign)]
+        for t in contenders:t.start()
+        barrier.wait()
+        for t in contenders:t.join(10);assert not t.is_alive()
+        assert 409 in results and len(results)==2,results
+        assert not ('started' in results and 'assigned' in results),results
     agent_tools.save_policy(False,3)
     deny(lambda:contracts.configure('owner',mid,p,request_id=str(uuid.uuid4()),expected_revision=3,confirmed=True),403)
     with db() as conn:
