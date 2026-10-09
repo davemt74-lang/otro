@@ -3,15 +3,19 @@ on:
   pull_request:
     paths:
       - 'app/**'
-      - 'database/migrations/070_agent_mission_tool_contracts.sql'
+      - 'database/migrations/07*_agent_mission*.sql'
+      - 'database/agent_mission_orchestration.sql'
+      - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
       - '.github/workflows/agent-mission-tools-a5c.yml'
   push:
     branches: [main]
     paths:
-      - 'app/services/agent_mission_tool_contracts.py'
+      - 'app/services/agent_mission*.py'
       - 'app/agent_mission_tools_api.py'
-      - 'database/migrations/070_agent_mission_tool_contracts.sql'
+      - 'database/migrations/07*_agent_mission*.sql'
+      - 'database/agent_mission_orchestration.sql'
+      - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
       - '.github/workflows/agent-mission-tools-a5c.yml'
 concurrency:
@@ -28,6 +32,8 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Specialist capability contracts
         run: python tests/agent_mission_contracts_a5c1.py
+      - name: Durable coordinated execution and authority fences
+        run: python tests/agent_mission_orchestration_a5c2.py
       - name: Existing specialist and relay regressions
         run: |
           set -e
@@ -36,3 +42,12 @@ jobs:
           python tests/agent_mission_execution_a5.py
           python tests/agent_mission_browser_plans_a5b4.py
           python tests/migrations.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install real browser acceptance runtime
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.62.1
+          npx playwright install --with-deps chromium
+      - name: Native workspace reviewed specialist controls
+        run: node tests/agent_mission_orchestration_a5c2_browser.mjs

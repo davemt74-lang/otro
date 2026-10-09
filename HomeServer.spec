@@ -28,6 +28,7 @@ a = Analysis(
         ('database/agent_mission_browser_takeover.sql', 'database'),
         ('database/agent_mission_browser_controls.sql', 'database'),
         ('database/agent_mission_cognition.sql', 'database'),
+        ('database/agent_mission_orchestration.sql', 'database'),
         ('database/agent_workflow_supervision.sql', 'database'),
         ('database/agent_workflow_automation.sql', 'database'),
         ('database/runtime_certification.sql', 'database'),

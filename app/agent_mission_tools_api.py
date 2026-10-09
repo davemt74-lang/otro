@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from .agent_mission_api import authorized,execute
 from .services import agent_mission_tool_contracts as contracts
+from .services import agent_mission_orchestration as orchestration
 
 router=APIRouter()
 
@@ -28,3 +29,25 @@ def owner_tools(mission_id:str):
 @router.post('/api/v1/control/agent-missions/{mission_id}/tools')
 def owner_assign(mission_id:str,body:AssignTools):
     return execute(contracts.configure,'owner',mission_id,body.assignments,request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed)
+
+class StartTools(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    request_id:str=Field(min_length=36,max_length=36)
+    expected_revision:int=Field(ge=1,strict=True)
+    confirmed:bool=Field(strict=True)
+
+@router.post('/api/v1/agent-missions/{mission_id}/tools/start')
+def app_start(mission_id:str,body:StartTools,identity:dict=Depends(authorized)):
+    return execute(orchestration.start,'app:'+identity['app_key'],mission_id,request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed)
+
+@router.post('/api/v1/control/agent-missions/{mission_id}/tools/start')
+def owner_start(mission_id:str,body:StartTools):
+    return execute(orchestration.start,'owner',mission_id,request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed)
+
+@router.get('/api/v1/agent-missions/{mission_id}/tools/status')
+def app_status(mission_id:str,identity:dict=Depends(authorized)):
+    return execute(orchestration.status,'app:'+identity['app_key'],mission_id)
+
+@router.get('/api/v1/control/agent-missions/{mission_id}/tools/status')
+def owner_status(mission_id:str):
+    return execute(orchestration.status,'owner',mission_id)

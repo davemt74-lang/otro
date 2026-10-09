@@ -131,6 +131,9 @@ def _reset_blocked(conn, mission_id: str) -> int:
 
 
 def resume(source: str, mission_id: str, *, allow_reexecution: bool = False) -> dict:
+    from . import agent_mission_orchestration as orchestration
+    if orchestration.assigned(mission_id):
+        orchestration.check(source, mission_id)
     current = mission.get_mission(source, mission_id)
     if current["status"] != "waiting_review":
         raise mission.MissionError("Only a review-waiting mission can be resumed.", 409)
@@ -157,6 +160,9 @@ def resume(source: str, mission_id: str, *, allow_reexecution: bool = False) -> 
 
 
 def retry(source: str, mission_id: str, task_id: str) -> dict:
+    from . import agent_mission_orchestration as orchestration
+    if orchestration.assigned(mission_id):
+        orchestration.check(source, mission_id)
     current = mission.get_mission(source, mission_id)
     if current["status"] not in ("failed", "partial", "waiting_review"):
         raise mission.MissionError("Only a stopped mission can be repaired.", 409)

@@ -227,6 +227,9 @@ def decide(source: str, mid: str, decision_id: str, *, approve: bool) -> dict:
     if previous["status"] != "proposed" or current["status"] not in TERMINAL:
         raise mission.MissionError("Staffing proposal is not awaiting a decision.", 409)
     if approve:
+        from . import agent_mission_orchestration as orchestration
+        if orchestration.assigned(mid):
+            raise mission.MissionError('Additional tool specialists need a new reviewed mission.', 409)
         mission._route(source, str(current["conversation_id"]))
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")

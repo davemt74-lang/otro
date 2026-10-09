@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'app/services/agent_browser_runtime.py'
+      - 'app/services/agent_mission*.py'
+      - 'app/agent_mission*.py'
+      - 'database/migrations/07*_agent_mission*.sql'
+      - 'ui/agent-browser-workspaces.js'
+      - 'tests/*a5c*'
       - 'scripts/stage_browser_runtime.py'
       - 'installer/HomeServer.iss'
       - '.github/workflows/ci.yml'
@@ -947,7 +952,7 @@ jobs:
         shell: pwsh
         run: |
           $schema = (& python -c "from app.database import migration_files; print(max([1] + [version for version, _ in migration_files()]))").Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 70) {
+          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 71) {
             throw "HomeServer release manifest cannot verify its current migration version"
           }
           $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe')

@@ -1,6 +1,6 @@
 """Owner and paired-app routes for supervised worker browser evidence."""
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt, StrictBool
 
 from .agent_mission_api import authorized, execute
 from .services import agent_mission_browser as browser
@@ -253,7 +253,10 @@ class OwnerWorkspaceOperation(BaseModel):
     lease_id: str | None = None
     proposal_id: str | None = None
     url: str | None = None
-    confirmed: bool = False
+    confirmed: StrictBool = False
+    assignments: dict | None = None
+    expected_revision: StrictInt | None = None
+    allow_reexecution: StrictBool = False
 
 
 @router.post('/api/v1/control/agent-browser-workspaces')
@@ -269,6 +272,18 @@ def owner_workspace(body: OwnerWorkspaceOperation):
     if not row: raise HTTPException(404,'Mission not found.')
     source=row['source_app_key'];mid=body.mission_id;tid=body.task_id
     if body.action=='get': return {'ok':True,'mission':execute(mission.get_mission,source,mid)}
+    from .services import agent_mission_tool_contracts as contracts, agent_mission_orchestration as orchestration
+    from .services import agent_mission_control as control
+    if body.action=='tools.get': return {'ok':True,'tools':execute(contracts.get,source,mid)}
+    if body.action=='tools.status': return {'ok':True,'orchestration':execute(orchestration.status,source,mid)}
+    if body.action=='tools.configure':
+        return {'ok':True,'tools':execute(contracts.configure,source,mid,body.assignments,request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed)}
+    if body.action=='tools.start':
+        return {'ok':True,'mission':execute(orchestration.start,source,mid,request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed)}
+    lifecycle={'start':mission.start_mission,'cancel':mission.cancel_mission,'pause':control.pause}
+    if body.action in lifecycle: return {'ok':True,'mission':execute(lifecycle[body.action],source,mid)}
+    if body.action=='resume': return {'ok':True,'mission':execute(control.resume,source,mid,allow_reexecution=body.allow_reexecution)}
+    if body.action=='retry': return {'ok':True,'mission':execute(control.retry,source,mid,tid)}
     if not tid: raise HTTPException(422,'Worker ID required.')
     mapping={'browser.get':browser.inspect,'browser.revoke':browser.revoke,
              'browser.live.get':live.get,'browser.live.start':live.start,

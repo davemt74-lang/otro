@@ -77,3 +77,10 @@
 .vp3-agent-teams-a3 .vp3-owner-takeover .vp3-teams-meta{overflow-wrap:anywhere}
 
 .vp3-brain-worker pre{white-space:pre-wrap;overflow-wrap:anywhere}.vp3-brain-worker p{overflow-wrap:anywhere}
+
+.vp3-specialist-assignments {padding:12px;border:1px solid currentColor;border-radius:8px;margin:12px 0;}
+.vp3-specialist-assignments fieldset {padding:10px;margin:10px 0;min-width:0;}
+.vp3-specialist-assignments label {display:flex;align-items:center;gap:8px;margin:8px 0;flex-wrap:wrap;}
+.vp3-specialist-assignments input[type=checkbox] {width:auto;}
+.vp3-specialist-assignments input[type=number] {width:64px;}
+.vp3-specialist-assignments input[type=url] {flex:1;min-width:140px;}
