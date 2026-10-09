@@ -21,6 +21,7 @@ MODEL_TOOL_NAMES = {
     "homeserver_memory_list": "memory.list",
     "homeserver_notifications_list": "notifications.list",
     "homeserver_tasks_list": "tasks.list",
+    "homeserver_calendar_list": "calendar.list",
     "homeserver_apps_list": "apps.list",
     "homeserver_app_get": "apps.status",
     "homeserver_app_releases": "apps.releases",

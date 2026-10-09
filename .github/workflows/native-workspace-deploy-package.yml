@@ -36,7 +36,7 @@ jobs:
           executable=root/'HomeServer.exe'
           manifest=json.loads((root/'RELEASE.json').read_text(encoding='utf-8-sig'))
           assert executable.read_bytes()[:2]==b'MZ', 'Windows executable is missing'
-          assert manifest['current_schema_version']>=71, 'Coordinated specialist execution migration is missing'
+          assert manifest['current_schema_version']>=72, 'Governed specialist action migration is missing'
           digest=hashlib.file_digest(executable.open('rb'),'sha256').hexdigest()
           assert digest==manifest['files']['HomeServer.exe'], 'Executable checksum mismatch'
           import os
@@ -71,7 +71,7 @@ jobs:
           assert re.fullmatch('[a-f0-9]{64}',digest), 'Archive digest is missing'
           exe=hashlib.file_digest((root/'HomeServerSetup.exe').open('rb'),'sha256').hexdigest()
           pathlib.Path('Native-Actions-SHA256SUMS.txt').write_text(digest+'  HomeServer-Native-Actions-Windows.zip\n'+exe+'  HomeServerSetup.exe\n',encoding='ascii')
-          provenance={'repository':os.environ['REPOSITORY'],'source_commit':os.environ['SOURCE_COMMIT'],'build_run_id':os.environ['SOURCE_RUN'],'package_run_id':os.environ['PACKAGE_RUN'],'archive_sha256':digest,'installer_sha256':exe,'minimum_edit_queue_schema':69,'minimum_orchestration_schema':71,'install':'Deploy the matching Cloud release first. Run HomeServerSetup.exe to upgrade the application and managed browser; preserve the existing private data directory.'}
+          provenance={'repository':os.environ['REPOSITORY'],'source_commit':os.environ['SOURCE_COMMIT'],'build_run_id':os.environ['SOURCE_RUN'],'package_run_id':os.environ['PACKAGE_RUN'],'archive_sha256':digest,'installer_sha256':exe,'minimum_edit_queue_schema':69,'minimum_orchestration_schema':71,'minimum_specialist_actions_schema':72,'install':'Deploy the matching Cloud release first. Run HomeServerSetup.exe to upgrade the application and managed browser; preserve the existing private data directory.'}
           pathlib.Path('NATIVE_ACTIONS_RELEASE.json').write_text(json.dumps(provenance,indent=2)+'\n',encoding='utf-8')
           PY
       - uses: actions/upload-artifact@v4

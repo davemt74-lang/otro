@@ -51,3 +51,21 @@ def app_status(mission_id:str,identity:dict=Depends(authorized)):
 @router.get('/api/v1/control/agent-missions/{mission_id}/tools/status')
 def owner_status(mission_id:str):
     return execute(orchestration.status,'owner',mission_id)
+
+class ReviewChange(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    action_id:str=Field(min_length=36,max_length=36)
+    expected_hash:str=Field(pattern='^[0-9a-f]{64}$')
+    decision:str=Field(pattern='^(approve|deny)$')
+    request_id:str=Field(min_length=36,max_length=36)
+    confirmed:bool=Field(strict=True)
+
+@router.get('/api/v1/agent-missions/{mission_id}/actions')
+def app_changes(mission_id:str,identity:dict=Depends(authorized)):
+    from .services import agent_mission_actions as changes
+    return execute(changes.list_actions,'app:'+identity['app_key'],mission_id)
+
+@router.post('/api/v1/agent-missions/{mission_id}/actions/review')
+def app_review_change(mission_id:str,body:ReviewChange,identity:dict=Depends(authorized)):
+    from .services import agent_mission_actions as changes
+    return execute(changes.review,'app:'+identity['app_key'],mission_id,body.action_id,expected_hash=body.expected_hash,decision=body.decision,request_id=body.request_id,confirmed=body.confirmed)

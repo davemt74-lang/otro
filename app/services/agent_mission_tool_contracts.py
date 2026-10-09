@@ -10,7 +10,7 @@ from . import agent_mission_runtime as mission, app_scopes, tools, agent_tools, 
 from .agent_browser_policy import read_navigation
 
 CONTRACT = 'vp3.agent-missions.tools.v1'
-READ_TOOLS = ('knowledge.search', 'contacts.search', 'tasks.list')
+READ_TOOLS = ('knowledge.search', 'contacts.search', 'tasks.list', 'calendar.list', 'workspace.search', 'workspace.get')
 CAPABILITIES = ('browser.read', *READ_TOOLS)
 OUTPUTS = ('analysis', 'sources', 'document')
 MAX_CALLS = 3
@@ -48,7 +48,7 @@ def capabilities_for_snapshot(source, snapshot):
     return result
 
 
-def validate(value, snapshot, available):
+def validate(value, snapshot, available, action_available=()):
     if not isinstance(value,dict) or set(value) != {'max_parallel','assignments'}:
         raise mission.MissionError('A tool contract requires max_parallel and assignments.',422)
     parallel = value['max_parallel']
@@ -60,7 +60,8 @@ def validate(value, snapshot, available):
         raise mission.MissionError('Assign every mission worker exactly once.',422)
     seen = set(); normalized=[]
     for entry in entries:
-        if not isinstance(entry,dict) or set(entry) != {'task_id','tools','max_calls','output','browser_url'}:
+        required = {'task_id','tools','max_calls','output','browser_url'}
+        if not isinstance(entry,dict) or not required.issubset(entry) or set(entry)-required-{'actions','max_actions'} or (('actions' in entry)!=('max_actions' in entry)):
             raise mission.MissionError('Worker tool assignment has an invalid structure.',422)
         tid = entry['task_id']
         if not isinstance(tid,str) or tid not in tasks or tid in seen:
@@ -77,24 +78,37 @@ def validate(value, snapshot, available):
             raise mission.MissionError('Assignment exceeds the owner-defined Agent tool budget.',403)
         if type(entry['output']) is not str or entry['output'] not in OUTPUTS:
             raise mission.MissionError('Unsupported worker output contract.',422)
+        action_fields = {}
+        if 'actions' in entry:
+            from . import agent_mission_actions as actions
+            selected_actions, maximum = entry['actions'], entry['max_actions']
+            if not isinstance(selected_actions,list) or any(type(k) is not str or k not in actions.ACTION_TOOLS for k in selected_actions) or len(set(selected_actions))!=len(selected_actions):
+                raise mission.MissionError('Only registered non-destructive changes may be assigned.',422)
+            if any(k not in action_available for k in selected_actions):
+                raise mission.MissionError('A selected action is disabled or outside current permissions.',403)
+            if type(maximum) is not int or not 0<=maximum<=MAX_CALLS or bool(selected_actions)!=(maximum>0) or maximum>agent_tools.get_policy()['max_calls']:
+                raise mission.MissionError('Action workers require a separate 1 to 3 proposal budget.',422)
+            action_fields={'actions':sorted(selected_actions),'max_actions':maximum}
         url = entry['browser_url']
         if type(url) is not str or ('browser.read' not in selected and url):
             raise mission.MissionError('Browser URL requires the browser.read capability.',422)
         if url:
             url = read_navigation(url)
         seen.add(tid)
-        normalized.append({'task_id':tid,'tools':sorted(selected),'max_calls':calls,'output':entry['output'],'browser_url':url})
+        normalized.append({'task_id':tid,'tools':sorted(selected),'max_calls':calls,'output':entry['output'],'browser_url':url,**action_fields})
     normalized.sort(key=lambda e:tasks[e['task_id']]['position'])
     return {'max_parallel':parallel,'assignments':normalized}
 
 
 def get(source, mid):
+    from . import agent_mission_actions as actions
     snapshot=mission.get_mission(source,mid)
     authority(source,snapshot)
     with db() as conn:
         row=conn.execute('SELECT *,datetime(expires_at)>datetime(\'now\') AS active FROM agent_mission_tool_contracts_v1 WHERE mission_id=? AND source_app_key=?',(mid,source)).fetchone()
     return {'contract':CONTRACT,'mission_id':mid,'configured':bool(row),'execution_enabled':bool(snapshot.get('tools_enabled')),'orchestrator_available':True,
             'capabilities':capabilities(source,mid),'max_calls_per_worker':MAX_CALLS,
+            'action_capabilities':actions.capabilities(source,snapshot),'max_actions_per_worker':MAX_CALLS,
             'revision':row['revision'] if row else 0,'expires_at':row['expires_at'] if row else None,
             'active':bool(row and row['active']),'assignments':json.loads(row['contract_json']) if row else {}}
 
@@ -112,7 +126,8 @@ def configure(source, mid, value, *, request_id, expected_revision, confirmed):
     snapshot=mission.get_mission(source,mid)
     if snapshot['status']!='planned' or any(t['status']!='queued' for t in snapshot['tasks']):
         raise mission.MissionError('Capabilities can only be assigned before mission execution.',409)
-    normalized=validate(value,snapshot,capabilities(source,mid))
+    from . import agent_mission_actions as actions
+    normalized=validate(value,snapshot,capabilities(source,mid),actions.capabilities(source,snapshot))
     encoded=json.dumps(normalized,sort_keys=True,separators=(',',':'))
     payload_hash=hashlib.sha256(encoded.encode()).hexdigest()
     with db() as conn:

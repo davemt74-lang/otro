@@ -9,7 +9,7 @@ const root=document.createElement('details');
 root.className='vp3-agent-teams-a3';
 root.setAttribute('data-agent-teams-a3','');
 root.innerHTML='<summary><span aria-hidden="true">◉</span> Agent Teams <small>HomeServer missions</small></summary>'+
- '<div class="vp3-teams-body"><p>Read-only research and analysis workers on your connected HomeServer.</p>'+
+ '<div class="vp3-teams-body"><p>Specialists research and prepare changes for your review on HomeServer.</p>'+
  '<form class="vp3-teams-create"><label for="vp3MissionObjective">Mission objective</label>'+
  '<div class="vp3-teams-entry"><input id="vp3MissionObjective" name="objective" maxlength="4000" required '+
  'placeholder="Give the team a research objective…" autocomplete="off">'+
@@ -29,7 +29,7 @@ const status=root.querySelector('.vp3-teams-status'), list=root.querySelector('.
  detail=root.querySelector('.vp3-teams-detail'), create=root.querySelector('form'), input=create.querySelector('input'),
  submit=create.querySelector('button');
 let busy=false,selected='',items=[],lastRefresh=0,inflight=false;
-const toolsByMission=new Map(), toolDrafts=new Map();
+const toolsByMission=new Map(), toolDrafts=new Map(), changesByMission=new Map();
 const staffingByMission=new Map();
 const browserByWorker=new Map();
 const liveByWorker=new Map();let liveLastPoll=0;
@@ -66,7 +66,7 @@ function showMission(m){
    .map(pane=>pane.dataset.browserWorker));
  selected=String(m.id||'');detail.hidden=false;detail.replaceChildren();
  detail.appendChild(el('h3','',m.objective||'Mission'));
- detail.appendChild(el('p','vp3-teams-meta',(m.status||'unknown')+' · '+fmt(m.updated_at||m.created_at)+' · Read-only workers'));
+ detail.appendChild(el('p','vp3-teams-meta',(m.status||'unknown')+' · '+fmt(m.updated_at||m.created_at)+' · Specialists prepare changes; saving requires your review'));
  const buttons=el('div','vp3-teams-actions');
  if(m.status==='planned'){buttons.appendChild(btn('Review specialist assignments','tools.get',selected));buttons.appendChild(btn('Start',m.tools_configured||toolsByMission.get(selected)?.configured?'tools.start':'start',selected));}
  if(m.status==='running')buttons.appendChild(btn('Pause','pause',selected));
@@ -75,6 +75,7 @@ function showMission(m){
  buttons.appendChild(btn('Refresh','get',selected));detail.appendChild(buttons);
  if(m.authority_current===false)detail.appendChild(el('p','vp3-teams-error','Permissions changed. Results are hidden; prepare a new reviewed mission.'));
  renderAssignments(m);
+ renderChanges(m);
  const workers=el('ol','vp3-teams-workers');
  (m.tasks||[]).forEach(t=>{
   const li=el('li','');li.appendChild(el('strong','',t.title||t.role||'Worker'));
@@ -282,7 +283,7 @@ function showMission(m){
  if(events.length){detail.appendChild(el('h4','','Recent activity'));const history=el('ol','vp3-teams-events');
   events.forEach(e=>history.appendChild(el('li','',fmt(e.created_at)+' · '+(e.kind||'event'))));
   detail.appendChild(history);}
- const workspaceActions=new Set(['get','tools.get','tools.configure','tools.start','start','pause','resume','cancel','retry']);
+ const workspaceActions=new Set(['get','actions.list','actions.review','tools.get','tools.configure','tools.start','start','pause','resume','cancel','retry']);
  detail.querySelectorAll('button[data-action]').forEach(button=>{if(!button.dataset.action.startsWith('browser.')&&!workspaceActions.has(button.dataset.action))button.remove();});
  detail.querySelectorAll('input[data-owner-value-task],select[data-owner-control-task],select[data-owner-search-task],input[data-dom-approval-task],select[data-dom-approval-task],input[data-browser-task]').forEach(node=>{const value=draftValues.get(draftKey(node));if(value!==undefined)node.value=value;});
  showList();
@@ -324,6 +325,7 @@ function renderBrain(body){
     }
     const evidence=el('details','vp3-teams-result');evidence.appendChild(el('summary','','Page evidence'));evidence.appendChild(el('pre','',view.page_text||'No page evidence.'));worker.appendChild(evidence);
    }else worker.appendChild(el('p','','No active browser evidence.'));
+   (m.action_summaries||[]).filter(c=>c.task_id===task.id).forEach(c=>worker.appendChild(el('p','vp3-teams-meta',c.action_key+' · '+c.status+' · '+fmt(c.executed_at||c.created_at))));
    (m.events||[]).filter(e=>e.task_id===task.id).slice(-10).forEach(e=>worker.appendChild(el('p','vp3-teams-meta',fmt(e.created_at)+' · '+e.kind)));
    const openWorker=btn('Open worker in Chat','open-team-chat',m.id,task.id);
    openWorker.addEventListener('click',()=>operation('open-team-chat',m.id,task.id));worker.appendChild(openWorker);
@@ -357,9 +359,33 @@ async function load(){
  try{
   const result=await api('list');items=Array.isArray(result.items)?result.items:[];lastRefresh=Date.now();showList();
   say('HomeServer connected · '+items.length+' recent mission'+(items.length===1?'':'s')+'.');
-  if(selected&&items.some(x=>x.id===selected)){const current=await api('get',{mission_id:selected});if(current.mission)showMission(current.mission);
+  if(selected&&items.some(x=>x.id===selected)){const current=await api('get',{mission_id:selected});if(current.mission){if(current.mission.tools_enabled&&!current.mission.private&&current.mission.authority_current!==false){const changes=await api('actions.list',{mission_id:selected});changesByMission.set(selected,Array.isArray(changes.actions)?changes.actions:[]);}showMission(current.mission);}
    try{await loadSupervision(selected);}catch(_){/* Mission status remains available if supervision is unsupported. */}}
  }finally{inflight=false;}
+}
+function renderChanges(m){
+ if(m.authority_current===false||m.private)return;
+ const changes=changesByMission.get(m.id)||[];
+ const panel=el('section','vp3-specialist-changes');panel.setAttribute('aria-label','Prepared specialist changes');
+ panel.appendChild(el('h4','','Prepared changes'));
+ panel.appendChild(el('p','','Research completion does not mean changes were saved. Review each exact change below.'));
+ if(!changes.length)panel.appendChild(el('p','','No prepared changes.'));
+ for(const change of changes){
+  const card=el('article','vp3-specialist-change');card.dataset.changeId=change.id;
+  const worker=(m.tasks||[]).find(x=>x.id===change.task_id);
+  card.appendChild(el('strong','',change.action_key+' · '+(worker?.title||'Specialist')));
+  card.appendChild(el('small','',change.status+' · '+change.destination+' · '+fmt(change.executed_at||change.created_at)));
+  const preview=el('details','vp3-teams-result');preview.open=true;preview.appendChild(el('summary','','Exact proposed change'));preview.appendChild(el('pre','',JSON.stringify(change.arguments,null,2)));card.appendChild(preview);
+  if(change.status==='pending'){
+   if(change.can_approve){const approve=btn('Approve this change','actions.review',m.id,change.id);approve.dataset.decision='approve';card.appendChild(approve);}
+   else card.appendChild(el('p','','This review expired or was interrupted. Prepare a new mission.'));
+   const reject=btn('Reject','actions.review',m.id,change.id);reject.dataset.decision='deny';card.appendChild(reject);
+  }
+  if(change.execution_tool_run_id)card.appendChild(el('small','','Execution receipt '+change.execution_tool_run_id));
+  panel.appendChild(card);
+ }
+ if(m.tools_enabled)panel.appendChild(btn('Refresh prepared changes','actions.list',m.id));
+ detail.appendChild(panel);
 }
 function renderAssignments(m){
  const contract=toolsByMission.get(m.id);if(!contract)return;
@@ -376,6 +402,8 @@ function renderAssignments(m){
   const entry=(draft.assignments||[]).find(a=>a.task_id===task.id)||{tools:[],max_calls:0,output:'analysis',browser_url:''};
   const group=el('fieldset');group.appendChild(el('legend','',task.title||task.role));
   for(const capability of contract.capabilities||[]){const checkbox=field(el('input'),'tool',task.id,capability);checkbox.type='checkbox';checkbox.checked=entry.tools.includes(capability);group.appendChild(label(capability,checkbox));}
+  for(const capability of contract.action_capabilities||[]){const checkbox=field(el('input'),'action',task.id,capability);checkbox.type='checkbox';checkbox.checked=(entry.actions||[]).includes(capability);group.appendChild(label('Propose '+capability,checkbox));}
+  if(contract.action_capabilities){const actionBudget=field(el('input'),'max_actions',task.id,entry.max_actions||0);actionBudget.type='number';actionBudget.min='0';actionBudget.max=String(contract.max_actions_per_worker||3);group.appendChild(label('Prepared changes (0–3; approval required)',actionBudget));}
   const calls=field(el('input'),'max_calls',task.id,entry.max_calls);calls.type='number';calls.min='0';calls.max=String(contract.max_calls_per_worker||3);group.appendChild(label('Read calls (0–3)',calls));
   const output=el('select');for(const kind of ['analysis','sources','document']){const option=el('option','',kind);option.value=kind;output.appendChild(option);}field(output,'output',task.id,entry.output);group.appendChild(label('Output',output));
   const url=field(el('input'),'browser_url',task.id,entry.browser_url);url.type='url';url.maxLength=1400;url.placeholder='Separately approved HTTPS URL';group.appendChild(label('Browser URL',url));panel.appendChild(group);
@@ -388,15 +416,20 @@ function assignmentDraft(){
  for(const group of panel.querySelectorAll('fieldset')){
   const nodes=Array.from(group.querySelectorAll('[data-tool-field]'));const task=nodes[0]?.dataset.toolTask;
   const get=key=>nodes.find(n=>n.dataset.toolField===key)?.value||'';
-  value.assignments.push({task_id:task,tools:nodes.filter(n=>n.dataset.toolField==='tool'&&n.checked).map(n=>n.value),max_calls:Number(get('max_calls')),output:get('output'),browser_url:get('browser_url')});
+  value.assignments.push({task_id:task,tools:nodes.filter(n=>n.dataset.toolField==='tool'&&n.checked).map(n=>n.value),max_calls:Number(get('max_calls')),...(nodes.some(n=>n.dataset.toolField==='max_actions')?{actions:nodes.filter(n=>n.dataset.toolField==='action'&&n.checked).map(n=>n.value),max_actions:Number(get('max_actions'))}:{}),output:get('output'),browser_url:get('browser_url')});
  }
  return value;
 }
 root.addEventListener('input',event=>{if(event.target.dataset.toolField){const draft=assignmentDraft();if(draft)toolDrafts.set(selected,draft);}});
-async function operation(action,id,taskId){
+async function operation(action,id,taskId,decision){
  if(action==='open-team-chat'){root.open=true;root.scrollIntoView({block:'nearest'});if(id)operation('get',id,taskId);return;}
  if(busy)return;
- if(action==='tools.configure'&&!window.confirm('Approve these exact read capabilities, cumulative call budgets and output formats for 15 minutes? Browser grants are reviewed separately.'))return;
+ if(action==='actions.review'){
+  const change=(changesByMission.get(id)||[]).find(x=>x.id===taskId);
+  if(!change||!['approve','deny'].includes(decision))return;
+  if(!window.confirm((decision==='approve'?'Apply this exact change?':'Reject this prepared change?')+'\n'+change.action_key+' · '+change.destination+'\n\n'+JSON.stringify(change.arguments,null,2)))return;
+ }
+ if(action==='tools.configure'&&!window.confirm('Approve these exact read capabilities, prepared-change permissions, cumulative budgets and output formats for 15 minutes? Each change requires a separate review before saving.'))return;
  if(action==='tools.start'&&!window.confirm('Start the reviewed specialists? Model and approved read usage will occur within the displayed budgets.'))return;
  if(action==='resume'&&!window.confirm('Resume and rerun interrupted model work?'))return;
  if(action==='retry'&&!window.confirm('Retry this worker? The model request may use additional tokens.'))return;
@@ -414,6 +447,12 @@ async function operation(action,id,taskId){
  if(action==='browser.owner.search.submit'&&!window.confirm('Submit this one approved same-origin GET search? Its query appears in the URL.'))return;
  setBusy(true);
  try{const payload={mission_id:id};if(action==='resume')payload.allow_reexecution=true;
+  if(action==='actions.review'){
+   const change=(changesByMission.get(id)||[]).find(x=>x.id===taskId);
+   if(!change)throw new Error('Refresh and review the current change first.');
+   payload.action_id=change.id;payload.expected_hash=change.payload_hash;payload.decision=decision;payload.confirmed=true;
+   const key=action+'|'+id+'|'+JSON.stringify(payload);payload.request_id=pendingOperations.get(key)||window.crypto.randomUUID();pendingOperations.set(key,payload.request_id);
+  }
   if(action==='tools.configure'||action==='tools.start'){
    const contract=toolsByMission.get(id);if(!contract)throw new Error('Load and review specialist assignments first.');
    payload.expected_revision=contract.revision;payload.confirmed=true;
@@ -493,6 +532,8 @@ async function operation(action,id,taskId){
   }
   if(action==='approve'||action==='reject'){payload.decision_id=taskId;payload.confirmed=true;}
   const response=await api(action,payload);
+  if(Array.isArray(response.actions))changesByMission.set(id,response.actions);
+  if(action==='get'&&response.mission?.tools_enabled&&!response.mission.private&&response.mission.authority_current!==false){const changes=await api('actions.list',{mission_id:id});changesByMission.set(id,Array.isArray(changes.actions)?changes.actions:[]);}
   if(response.tools){toolsByMission.set(id,response.tools);if(action!=='tools.get')toolDrafts.delete(id);}
   if(payload.request_id)for(const [key,value] of pendingOperations)if(value===payload.request_id)pendingOperations.delete(key);
   if(response.live_browser!==undefined){
@@ -525,7 +566,7 @@ root.addEventListener('toggle',()=>{
 });
 root.addEventListener('click',ev=>{
  const target=ev.target.closest('button[data-action]');if(!target||!root.contains(target))return;
- operation(target.dataset.action,target.dataset.id,target.dataset.taskId);
+ operation(target.dataset.action,target.dataset.id,target.dataset.taskId,target.dataset.decision);
 });
 create.addEventListener('submit',async ev=>{
  ev.preventDefault();if(busy)return;const objective=input.value.trim();if(!objective||objective.length>4000)return;

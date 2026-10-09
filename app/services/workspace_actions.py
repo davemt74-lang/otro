@@ -129,7 +129,8 @@ def enqueue(arguments: dict) -> dict:
         encoded = json.dumps(raw, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
         fingerprint = hashlib.sha256(encoded.encode()).hexdigest()
         with db() as connection:
-            connection.execute('BEGIN IMMEDIATE')
+            if not connection.in_transaction:
+                connection.execute('BEGIN IMMEDIATE')
             existing = connection.execute('SELECT * FROM workspace_sync_actions WHERE mutation_id=?', (raw['mutation_id'],)).fetchone()
             if existing:
                 if existing['peer_id'] != current['peer_id'] or existing['session_hash'] != current['session_hash'] or existing['request_hash'] != fingerprint:
