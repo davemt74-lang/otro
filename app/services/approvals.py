@@ -834,6 +834,13 @@ def _reserve_request(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def approve_request(request_id: str) -> dict[str, Any]:
+    from . import agent_mission_actions
+    if agent_mission_actions.linked(request_id):
+        return agent_mission_actions.guarded_approve(request_id)
+    return _approve_request(request_id)
+
+
+def _approve_request(request_id: str) -> dict[str, Any]:
     request = _request_for_owner(request_id)
     if request["status"] != "pending":
         raise ApprovalError(f"Action request is already {request['status']}.", 409)

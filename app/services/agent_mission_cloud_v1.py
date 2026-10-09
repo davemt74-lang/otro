@@ -109,6 +109,7 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
         "tools_enabled": bool(raw.get('tools_enabled')),
         "tools_configured": bool(raw.get('tools_configured')),
         "authority_current": bool(raw.get('authority_current', True)),
+        "action_summaries": raw.get('action_summaries',[]) if allowed else [],
         "contract": CONTRACT,
     }
     if detailed:
@@ -161,6 +162,14 @@ def execute(action: str, body: dict) -> dict:
     # Source-scoped lookup prevents a paired Cloud call from reading owner
     # missions or a different app's mission ID.
     runtime.get_mission("app:vp3", mid)
+    if action in {'actions.list','actions.review'}:
+        from . import agent_mission_actions as changes
+        current=runtime.get_mission('app:vp3',mid)
+        if not _cloud_export_allowed(current):
+            raise runtime.MissionError('Private specialist changes stay on HomeServer.',403)
+        if action=='actions.list': items=changes.list_actions('app:vp3',mid)
+        else: items=changes.review('app:vp3',mid,body.get('action_id'),expected_hash=body.get('expected_hash'),decision=body.get('decision'),request_id=body.get('request_id'),confirmed=body.get('confirmed'))
+        return {'ok':True,'contract':CONTRACT,'actions':items}
     if action in {'tools.get','tools.configure','tools.start','tools.status'}:
         from . import agent_mission_orchestration as orchestration
         current=runtime.get_mission('app:vp3',mid)

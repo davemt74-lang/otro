@@ -5,6 +5,7 @@ on:
       - 'app/**'
       - 'database/migrations/07*_agent_mission*.sql'
       - 'database/agent_mission_orchestration.sql'
+      - 'database/agent_mission_actions.sql'
       - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
       - '.github/workflows/agent-mission-tools-a5c.yml'
@@ -15,6 +16,7 @@ on:
       - 'app/agent_mission_tools_api.py'
       - 'database/migrations/07*_agent_mission*.sql'
       - 'database/agent_mission_orchestration.sql'
+      - 'database/agent_mission_actions.sql'
       - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
       - '.github/workflows/agent-mission-tools-a5c.yml'
@@ -34,6 +36,8 @@ jobs:
         run: python tests/agent_mission_contracts_a5c1.py
       - name: Durable coordinated execution and authority fences
         run: python tests/agent_mission_orchestration_a5c2.py
+      - name: Governed specialist changes and exact owner reviews
+        run: python tests/agent_mission_actions_a5c3.py
       - name: Existing specialist and relay regressions
         run: |
           set -e
@@ -51,3 +55,5 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Native workspace reviewed specialist controls
         run: node tests/agent_mission_orchestration_a5c2_browser.mjs
+      - name: Native exact specialist change review
+        run: node tests/agent_mission_actions_a5c3_browser.mjs

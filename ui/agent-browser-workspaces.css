@@ -84,3 +84,9 @@
 .vp3-specialist-assignments input[type=checkbox] {width:auto;}
 .vp3-specialist-assignments input[type=number] {width:64px;}
 .vp3-specialist-assignments input[type=url] {flex:1;min-width:140px;}
+
+.vp3-specialist-changes{margin:12px 0;padding:12px;border:1px solid var(--border,#394252);border-radius:10px;min-width:0}
+.vp3-specialist-change{padding:12px 0;border-top:1px solid var(--border,#394252);overflow-wrap:anywhere}
+.vp3-specialist-change>strong,.vp3-specialist-change>small{display:block;margin:5px 0}
+.vp3-specialist-change button{margin:4px 8px 4px 0}
+.vp3-specialist-change pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}

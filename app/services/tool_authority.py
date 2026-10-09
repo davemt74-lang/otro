@@ -73,6 +73,11 @@ def execution_authority(
     from . import tools
 
     if approval_request_id:
+        from . import agent_mission_actions, approvals
+        try:
+            agent_mission_actions.authorize(approval_request_id)
+        except approvals.ApprovalError as exc:
+            raise tools.ToolError(str(exc), exc.status_code) from exc
         with db() as connection:
             request = connection.execute("SELECT * FROM action_requests WHERE id=?", (approval_request_id,)).fetchone()
         if request is None or request["status"] != "executing" or request["source_app_key"] != source or request["action_key"] != tool_key:

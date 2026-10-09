@@ -257,6 +257,9 @@ class OwnerWorkspaceOperation(BaseModel):
     assignments: dict | None = None
     expected_revision: StrictInt | None = None
     allow_reexecution: StrictBool = False
+    action_id: str | None = None
+    expected_hash: str | None = None
+    decision: str | None = None
 
 
 @router.post('/api/v1/control/agent-browser-workspaces')
@@ -271,6 +274,9 @@ def owner_workspace(body: OwnerWorkspaceOperation):
         row=conn.execute('SELECT source_app_key FROM agent_missions_v1 WHERE id=?',(body.mission_id,)).fetchone()
     if not row: raise HTTPException(404,'Mission not found.')
     source=row['source_app_key'];mid=body.mission_id;tid=body.task_id
+    from .services import agent_mission_actions as changes
+    if body.action=='actions.list': return {'ok':True,'actions':execute(changes.list_actions,source,mid)}
+    if body.action=='actions.review': return {'ok':True,'actions':execute(changes.review,source,mid,body.action_id,expected_hash=body.expected_hash,decision=body.decision,request_id=body.request_id,confirmed=body.confirmed,local_owner=True)}
     if body.action=='get': return {'ok':True,'mission':execute(mission.get_mission,source,mid)}
     from .services import agent_mission_tool_contracts as contracts, agent_mission_orchestration as orchestration
     from .services import agent_mission_control as control

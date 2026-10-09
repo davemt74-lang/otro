@@ -1151,6 +1151,7 @@ def _contact_tool_item(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"),
         "canonical_id": row.get("canonical_id"),
+        "record_revision": row.get("record_revision"),
         "authority_source": row.get("authority_source"),
         "authority_key": row.get("authority_key"),
         "contact_class": row.get("contact_class") or "address_book",
@@ -1327,13 +1328,18 @@ def _knowledge_search(
             "privacy": result.get("privacy", {}),
             "citation_version": result.get("citation_version", "v0.37"),
         }
+        for item in safe['items']:
+            native=knowledge_service.get_federated_knowledge_item(int(item['id']))
+            if native:
+                item.update({k:native.get(k) for k in ('canonical_id','record_revision','allowed_mutations')})
         return safe, {"count": safe["count"], "citation_version": safe["citation_version"]}
 
     rows = list_knowledge(query, limit=limit)
     items: list[dict[str, Any]] = []
     for row in rows:
         excerpt = str(row.get("snippet") or row.get("content") or "").strip()[:1600]
-        items.append({"id": row["id"], "title": row.get("title"), "kind": row.get("kind"), "source_path": row.get("source_path"), "excerpt": excerpt})
+        native=knowledge_service.get_federated_knowledge_item(int(row['id'])) or {}
+        items.append({"id": row["id"], "title": row.get("title"), "kind": row.get("kind"), "source_path": row.get("source_path"), "excerpt": excerpt,**{k:native.get(k) for k in ('canonical_id','record_revision','allowed_mutations')}})
     return {"items": items, "count": len(items)}, {"count": len(items)}
 
 

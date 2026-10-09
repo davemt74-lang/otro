@@ -163,10 +163,12 @@ def get_mission(source: str, mid: str) -> dict:
         run = conn.execute('SELECT 1 FROM agent_mission_orchestration_v1 WHERE mission_id=?', (mid,)).fetchone()
         for task in snapshot['tasks']:
             task['read_calls_used'] = conn.execute('SELECT COUNT(*) FROM agent_mission_read_calls_v1 WHERE task_id=?', (task['id'],)).fetchone()[0]
+        snapshot['action_summaries']=[dict(r) for r in conn.execute('SELECT a.id,a.task_id,a.action_key,a.created_at,r.status,r.executed_at FROM agent_mission_actions_v1 a JOIN action_requests r ON r.id=a.approval_id WHERE a.mission_id=? ORDER BY a.created_at,a.id',(mid,))]
     snapshot['tools_enabled'] = bool(run)
     snapshot['tools_configured'] = orchestration.assigned(mid)
     snapshot['authority_current'] = orchestration.visible(source, snapshot)
     if not snapshot['authority_current']:
+        snapshot['action_summaries']=[]
         snapshot['result'] = ''
         for task in snapshot['tasks']:
             for field in ('result', 'error', 'provider_key', 'model'):
