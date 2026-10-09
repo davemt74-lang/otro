@@ -110,6 +110,7 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
         "tools_configured": bool(raw.get('tools_configured')),
         "authority_current": bool(raw.get('authority_current', True)),
         "action_summaries": raw.get('action_summaries',[]) if allowed else [],
+        "completion_report": raw.get('completion_report') if allowed else None,
         "contract": CONTRACT,
     }
     if detailed:

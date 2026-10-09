@@ -76,6 +76,7 @@ function showMission(m){
  if(m.authority_current===false)detail.appendChild(el('p','vp3-teams-error','Permissions changed. Results are hidden; prepare a new reviewed mission.'));
  renderAssignments(m);
  renderChanges(m);
+ renderCompletion(m,detail);
  const workers=el('ol','vp3-teams-workers');
  (m.tasks||[]).forEach(t=>{
   const li=el('li','');li.appendChild(el('strong','',t.title||t.role||'Worker'));
@@ -283,7 +284,7 @@ function showMission(m){
  if(events.length){detail.appendChild(el('h4','','Recent activity'));const history=el('ol','vp3-teams-events');
   events.forEach(e=>history.appendChild(el('li','',fmt(e.created_at)+' · '+(e.kind||'event'))));
   detail.appendChild(history);}
- const workspaceActions=new Set(['get','actions.list','actions.review','tools.get','tools.configure','tools.start','start','pause','resume','cancel','retry']);
+ const workspaceActions=new Set(['get','actions.list','actions.review','actions.recover','tools.get','tools.configure','tools.start','start','pause','resume','cancel','retry']);
  detail.querySelectorAll('button[data-action]').forEach(button=>{if(!button.dataset.action.startsWith('browser.')&&!workspaceActions.has(button.dataset.action))button.remove();});
  detail.querySelectorAll('input[data-owner-value-task],select[data-owner-control-task],select[data-owner-search-task],input[data-dom-approval-task],select[data-dom-approval-task],input[data-browser-task]').forEach(node=>{const value=draftValues.get(draftKey(node));if(value!==undefined)node.value=value;});
  showList();
@@ -308,6 +309,7 @@ function renderBrain(body){
   row.appendChild(el('small','',(m.status||'unknown')+' · '+fmt(m.updated_at||m.created_at)+' · '+(m.tasks||[]).length+' workers'+
    (owned?' · Owner controlling browser':'')+
    ((staffingByMission.get(m.id)||[]).some(p=>p.status==='proposed')?' · Staffing approval needed':'')));
+  renderCompletion(m,row);
   for(const task of m.tasks||[]){
    const view=liveByWorker.get(m.id+'|'+task.id);
    const worker=el('details','vp3-brain-worker');
@@ -325,7 +327,7 @@ function renderBrain(body){
     }
     const evidence=el('details','vp3-teams-result');evidence.appendChild(el('summary','','Page evidence'));evidence.appendChild(el('pre','',view.page_text||'No page evidence.'));worker.appendChild(evidence);
    }else worker.appendChild(el('p','','No active browser evidence.'));
-   (m.action_summaries||[]).filter(c=>c.task_id===task.id).forEach(c=>worker.appendChild(el('p','vp3-teams-meta',c.action_key+' · '+c.status+' · '+fmt(c.executed_at||c.created_at))));
+   (m.action_summaries||[]).filter(c=>c.task_id===task.id).forEach(c=>worker.appendChild(el('p','vp3-teams-meta',c.action_key+' · '+(c.outcome_state||c.status)+' · '+fmt(c.checked_at||c.executed_at||c.created_at))));
    (m.events||[]).filter(e=>e.task_id===task.id).slice(-10).forEach(e=>worker.appendChild(el('p','vp3-teams-meta',fmt(e.created_at)+' · '+e.kind)));
    const openWorker=btn('Open worker in Chat','open-team-chat',m.id,task.id);
    openWorker.addEventListener('click',()=>operation('open-team-chat',m.id,task.id));worker.appendChild(openWorker);
@@ -363,6 +365,15 @@ async function load(){
    try{await loadSupervision(selected);}catch(_){/* Mission status remains available if supervision is unsupported. */}}
  }finally{inflight=false;}
 }
+function renderCompletion(m,parent){
+ if(m.private||m.authority_current===false||!m.completion_report)return;
+ const report=m.completion_report;
+ const panel=el('section','vp3-specialist-completion');panel.setAttribute('aria-label','Lead agent completion report');
+ panel.appendChild(el('h4','','Lead agent completion report'));
+ panel.appendChild(el('p','',report.state+' · '+report.summary));
+ panel.appendChild(el('small','','Saved changes are verified separately from model-generated findings.'));
+ parent.appendChild(panel);
+}
 function renderChanges(m){
  if(m.authority_current===false||m.private)return;
  const changes=changesByMission.get(m.id)||[];
@@ -374,14 +385,17 @@ function renderChanges(m){
   const card=el('article','vp3-specialist-change');card.dataset.changeId=change.id;
   const worker=(m.tasks||[]).find(x=>x.id===change.task_id);
   card.appendChild(el('strong','',change.action_key+' · '+(worker?.title||'Specialist')));
-  card.appendChild(el('small','',change.status+' · '+change.destination+' · '+fmt(change.executed_at||change.created_at)));
+  card.appendChild(el('small','',(change.outcome_state||change.status)+' · '+change.destination+' · '+fmt(change.checked_at||change.executed_at||change.created_at)));
   const preview=el('details','vp3-teams-result');preview.open=true;preview.appendChild(el('summary','','Exact proposed change'));preview.appendChild(el('pre','',JSON.stringify(change.arguments,null,2)));card.appendChild(preview);
   if(change.status==='pending'){
    if(change.can_approve){const approve=btn('Approve this change','actions.review',m.id,change.id);approve.dataset.decision='approve';card.appendChild(approve);}
    else card.appendChild(el('p','','This review expired or was interrupted. Prepare a new mission.'));
    const reject=btn('Reject','actions.review',m.id,change.id);reject.dataset.decision='deny';card.appendChild(reject);
   }
+  if(change.outcome_message)card.appendChild(el('p','',change.outcome_message));
+  if(change.verified_at)card.appendChild(el('small','','Last verified '+fmt(change.verified_at)));
   if(change.execution_tool_run_id)card.appendChild(el('small','','Execution receipt '+change.execution_tool_run_id));
+  if(change.can_recover)card.appendChild(btn('Retry Cloud delivery','actions.recover',m.id,change.id));
   panel.appendChild(card);
  }
  if(m.tools_enabled)panel.appendChild(btn('Refresh prepared changes','actions.list',m.id));
@@ -424,6 +438,10 @@ root.addEventListener('input',event=>{if(event.target.dataset.toolField){const d
 async function operation(action,id,taskId,decision){
  if(action==='open-team-chat'){root.open=true;root.scrollIntoView({block:'nearest'});if(id)operation('get',id,taskId);return;}
  if(busy)return;
+ if(action==='actions.recover'){
+  const change=(changesByMission.get(id)||[]).find(x=>x.id===taskId);
+  if(!change?.can_recover||!window.confirm('Resume this approved queued Cloud change? The original change ID and fields will be retained.'))return;
+ }
  if(action==='actions.review'){
   const change=(changesByMission.get(id)||[]).find(x=>x.id===taskId);
   if(!change||!['approve','deny'].includes(decision))return;
@@ -447,6 +465,12 @@ async function operation(action,id,taskId,decision){
  if(action==='browser.owner.search.submit'&&!window.confirm('Submit this one approved same-origin GET search? Its query appears in the URL.'))return;
  setBusy(true);
  try{const payload={mission_id:id};if(action==='resume')payload.allow_reexecution=true;
+  if(action==='actions.recover'){
+   const change=(changesByMission.get(id)||[]).find(x=>x.id===taskId);
+   if(!change?.can_recover)throw new Error('Refresh the queued change first.');
+   payload.action_id=change.id;payload.expected_hash=change.payload_hash;payload.confirmed=true;
+   const key=action+'|'+id+'|'+JSON.stringify(payload);payload.request_id=pendingOperations.get(key)||window.crypto.randomUUID();pendingOperations.set(key,payload.request_id);
+  }
   if(action==='actions.review'){
    const change=(changesByMission.get(id)||[]).find(x=>x.id===taskId);
    if(!change)throw new Error('Refresh and review the current change first.');

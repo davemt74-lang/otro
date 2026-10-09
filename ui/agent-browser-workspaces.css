@@ -90,3 +90,7 @@
 .vp3-specialist-change>strong,.vp3-specialist-change>small{display:block;margin:5px 0}
 .vp3-specialist-change button{margin:4px 8px 4px 0}
 .vp3-specialist-change pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto}
+
+.vp3-specialist-completion{margin:12px 0;padding:12px;border:1px solid var(--border,#394252);border-radius:10px;overflow-wrap:anywhere}
+.vp3-specialist-completion h4{margin:0 0 8px}
+.vp3-specialist-completion p{margin:8px 0}

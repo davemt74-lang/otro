@@ -29,6 +29,7 @@ FEATURE_SCHEMA_PATHS = (
     ROOT_DIR / "database" / "agent_workflow_automation.sql",
     ROOT_DIR / "database" / "agent_mission_orchestration.sql",
     ROOT_DIR / "database" / "agent_mission_actions.sql",
+    ROOT_DIR / "database" / "agent_mission_outcomes.sql",
     ROOT_DIR / "database" / "runtime_certification.sql",
     ROOT_DIR / "database" / "governed_recordings.sql",
     ROOT_DIR / "database" / "local_transcription_sessions.sql",
