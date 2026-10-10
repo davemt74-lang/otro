@@ -94,3 +94,5 @@
 .vp3-specialist-completion{margin:12px 0;padding:12px;border:1px solid var(--border,#394252);border-radius:10px;overflow-wrap:anywhere}
 .vp3-specialist-completion h4{margin:0 0 8px}
 .vp3-specialist-completion p{margin:8px 0}
+
+.vp3-chat-task-mode{display:flex;align-items:center;gap:.5rem;font-size:.85rem;margin:.4rem 0;color:inherit;}.vp3-chat-task-mode input{width:auto;flex:0 0 auto;}

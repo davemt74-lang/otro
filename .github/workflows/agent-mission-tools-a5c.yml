@@ -7,6 +7,7 @@ on:
       - 'database/agent_mission_orchestration.sql'
       - 'database/agent_mission_actions.sql'
       - 'database/agent_mission_outcomes.sql'
+      - 'database/agent_mission_chat_tasks.sql'
       - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
       - '.github/workflows/agent-mission-tools-a5c.yml'
@@ -19,6 +20,7 @@ on:
       - 'database/agent_mission_orchestration.sql'
       - 'database/agent_mission_actions.sql'
       - 'database/agent_mission_outcomes.sql'
+      - 'database/agent_mission_chat_tasks.sql'
       - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
       - '.github/workflows/agent-mission-tools-a5c.yml'
@@ -42,6 +44,8 @@ jobs:
         run: python tests/agent_mission_actions_a5c3.py
       - name: Receipt readback, completion and safe delivery recovery
         run: python tests/agent_mission_outcomes_a5c4.py
+      - name: Chat-to-task preparation and verified completion
+        run: python tests/agent_mission_chat_tasks_a5c5.py
       - name: Existing specialist and relay regressions
         run: |
           set -e
@@ -65,3 +69,5 @@ jobs:
         run: node tests/agent_mission_actions_a5c3_browser.mjs
       - name: Native verified outcome and recovery presentation
         run: node tests/agent_mission_outcomes_a5c4_browser.mjs
+      - name: Native ordinary composer task mode
+        run: node tests/agent_mission_chat_tasks_a5c5_browser.mjs

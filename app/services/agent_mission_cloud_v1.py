@@ -111,6 +111,7 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
         "authority_current": bool(raw.get('authority_current', True)),
         "action_summaries": raw.get('action_summaries',[]) if allowed else [],
         "completion_report": raw.get('completion_report') if allowed else None,
+        "chat_task": raw.get('chat_task') if allowed and raw.get('authority_current', True) else None,
         "contract": CONTRACT,
     }
     if detailed:
@@ -148,16 +149,20 @@ def execute(action: str, body: dict) -> dict:
         return {"ok": True, "contract": CONTRACT, "items": [
             _projection(row) for row in runtime.list_missions("app:vp3", int(count))
         ]}
-    if action == "create":
+    if action in {"create", "task.prepare"}:
         objective = _bounded_string(body.get("objective"), "Mission objective", 4000)
         request_id = _bounded_string(body.get("request_id"), "Mission request ID", 128)
         # Important: claim model/mission authority through the source-scoped
         # runtime instead of owner routes or arbitrary Cloud conversation IDs.
         cid = _ensure_conversation(body.get("thread_id", 0), request_id, objective)
-        created = runtime.create_mission(
-            "app:vp3", conversation_id=cid, objective=objective,
-            client_request_id=request_id, owner=False,
-        )
+        if action == 'task.prepare':
+            from . import agent_mission_chat_tasks as chat_tasks
+            created = chat_tasks.prepare('app:vp3', conversation_id=cid, objective=objective, request_id=request_id)
+        else:
+            created = runtime.create_mission(
+                "app:vp3", conversation_id=cid, objective=objective,
+                client_request_id=request_id, owner=False,
+            )
         return {"ok": True, "contract": CONTRACT, "mission": _projection(created, detailed=True)}
     mid = _bounded_string(body.get("mission_id"), "Mission ID", 80)
     # Source-scoped lookup prevents a paired Cloud call from reading owner

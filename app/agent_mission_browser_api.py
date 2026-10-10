@@ -260,12 +260,19 @@ class OwnerWorkspaceOperation(BaseModel):
     action_id: str | None = None
     expected_hash: str | None = None
     decision: str | None = None
+    objective: str | None = Field(default=None, max_length=4000)
+    conversation_id: str | None = Field(default=None, max_length=160)
+    parent_agent_id: StrictInt | None = None
 
 
 @router.post('/api/v1/control/agent-browser-workspaces')
 def owner_workspace(body: OwnerWorkspaceOperation):
     # OwnerGateway protects this local route. Resolve the actual source here;
     # never elevate a paired app's permission when operating its workspace.
+    if body.action=='task.prepare':
+        from .services import agent_mission_chat_tasks as chat_tasks
+        return {'ok':True,'mission':execute(chat_tasks.owner_prepare,objective=body.objective,
+            request_id=body.request_id,conversation_id=body.conversation_id,parent_agent_id=body.parent_agent_id)}
     if body.action=='list':
         with db() as conn:
             rows=conn.execute('SELECT id,source_app_key FROM agent_missions_v1 ORDER BY created_at DESC,id DESC LIMIT 8').fetchall()

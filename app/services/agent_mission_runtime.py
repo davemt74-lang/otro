@@ -10,7 +10,7 @@ import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from ..database import db
+from ..database import db, reuse_write_transaction
 from . import agent_routing, app_scopes, context_engine, providers
 
 MAX_PARALLEL = 4
@@ -36,6 +36,11 @@ def _event(conn, mid: str, kind: str, tid: str | None = None, detail: dict | Non
 
 
 def _route(source: str, conversation: str) -> tuple[str, str, bool]:
+    with reuse_write_transaction():
+        return _route_current(source, conversation)
+
+
+def _route_current(source: str, conversation: str) -> tuple[str, str, bool]:
     settings = context_engine.ensure_settings(conversation)
     cloud = bool(settings.get("cloud_allowed", True))
     if source != "owner":
@@ -174,6 +179,19 @@ def get_mission(source: str, mid: str) -> dict:
                 task[field] = ''
     from . import agent_mission_outcomes as outcomes
     snapshot['action_summaries'], snapshot['completion_report'] = outcomes.assess(snapshot)
+    with db() as conn:
+        prepared = conn.execute('SELECT * FROM agent_mission_chat_tasks_v1 WHERE mission_id=?', (mid,)).fetchone()
+    if prepared:
+        try:
+            from . import agent_mission_tool_contracts as contracts
+            with reuse_write_transaction():
+                contracts.authority(source, snapshot)
+        except MissionError:
+            snapshot['authority_current'] = False
+    snapshot['chat_task'] = ({'draft': json.loads(prepared['draft_json']),
+                             'provider_key': prepared['provider_key'], 'model': prepared['model'],
+                             'prepared_at': prepared['created_at']}
+                            if prepared and snapshot['authority_current'] else None)
     return snapshot
 
 
@@ -187,7 +205,7 @@ def _assert_same_request(previous, objective: str, conversation_id: str, agent_i
 
 def create_mission(source: str, *, conversation_id: str, objective: str, client_request_id: str,
                    parent_agent_id: int | None = None, owner: bool = False,
-                   tasks: list[dict] | None = None) -> dict:
+                   tasks: list[dict] | None = None, preparation: dict | None = None) -> dict:
     source = str(source or "").strip() or "owner"
     conversation_id = _clean(conversation_id, "Conversation", 160)
     objective = _clean(objective, "Objective", 16000)
@@ -237,6 +255,13 @@ def create_mission(source: str, *, conversation_id: str, objective: str, client_
                     (task_ids[index], mid, wid, index, task["title"], task["objective"], json.dumps(dependencies)),
                 )
             _event(conn, mid, "mission.planned", detail={"workers": len(proposed), "read_only": True})
+            if preparation is not None:
+                draft = json.loads(json.dumps(preparation['draft']))
+                for entry in draft['assignments']:
+                    entry['task_id'] = task_ids[int(entry['task_id'])]
+                conn.execute('INSERT INTO agent_mission_chat_tasks_v1(mission_id,draft_json,provider_key,model) VALUES(?,?,?,?)',
+                             (mid, json.dumps(draft), preparation['provider_key'], preparation['model']))
+                _event(conn, mid, 'chat.task_prepared', detail={'workers': len(proposed), 'requires_assignment_review': True})
     return get_mission(source, mid)
 
 
@@ -422,7 +447,8 @@ def start_mission(source: str, mid: str) -> dict:
     with db() as conn:
         conn.execute('BEGIN IMMEDIATE')
         assigned = conn.execute('SELECT 1 FROM agent_mission_tool_contracts_v1 WHERE mission_id=?',(mid,)).fetchone()
-        if assigned:
+        prepared = conn.execute('SELECT 1 FROM agent_mission_chat_tasks_v1 WHERE mission_id=?',(mid,)).fetchone()
+        if assigned or prepared:
             raise MissionError('Use the coordinated mission execution path for assigned tools.',409)
         changed = conn.execute(
             "UPDATE agent_missions_v1 SET status='running',updated_at=CURRENT_TIMESTAMP "

@@ -41,14 +41,51 @@ function fmt(value){if(!value)return '—';const raw=String(value).trim();
  const parsed=new Date(valueUtc);return Number.isNaN(parsed.getTime())?raw:parsed.toLocaleString();}
 function setBusy(value){busy=Boolean(value);if(busy)viewGeneration++;submit.disabled=busy;root.querySelectorAll('button[data-action]').forEach(b=>b.disabled=busy);}
 function say(message){status.textContent=String(message);}
-async function api(action,extra){
- const response=await fetch(String(cfg.endpoint),{method:'POST',credentials:'same-origin',cache:'no-store',
+async function api(action,extra,signal){
+ const response=await fetch(String(cfg.endpoint),{method:'POST',credentials:'same-origin',cache:'no-store',signal,
  headers:{'Accept':'application/json','Content-Type':'application/json'},
  body:JSON.stringify(Object.assign({csrf_token:String(cfg.csrf),action:action},extra||{}))});
  let payload;try{payload=await response.json();}catch(_){throw new Error('Mission server response was invalid.');}
  if(!response.ok||!payload||!payload.ok){const error=new Error(String(payload&&(payload.detail||payload.error)||'Mission operation failed.').slice(0,240));error.status=response.status;throw error;}
  return payload;
 }
+// Explicit task mode uses the ordinary composer and preserves a lost-response intent.
+const chatInput=document.getElementById('chatInput');
+const taskMode=el('input');taskMode.type='checkbox';taskMode.id='vp3ChatTaskMode';
+const taskLabel=el('label','vp3-chat-task-mode','Use specialists · review the plan before tools run ');
+taskLabel.appendChild(taskMode);if(chatInput)shell.insertBefore(taskLabel,form);
+const taskStorageKey='vp3.chat-task.pending.a5c5.'+String(cfg.csrf);
+function taskContext(){
+return {conversation_id:window.HomeServerAgentRouting?.getActiveConversationId?.()||null,parent_agent_id:window.HomeServerAgentRouting?.getSelectedAgentId?.()||null};
+}
+async function prepareChatTask(){
+ if(busy||!chatInput)return;
+ const objective=chatInput.value.trim();if(!objective||objective.length>4000){say('Enter a task request of 1 to 4,000 characters.');return;}
+ const intent={objective,...taskContext()};let request;
+ try{const stored=JSON.parse(sessionStorage.getItem(taskStorageKey)||'null');if(stored&&JSON.stringify(stored.intent)===JSON.stringify(intent))request=stored;}catch(_){}
+ if(!request){const request_id=window.crypto?.randomUUID?.();if(!request_id){say('Secure request IDs are unavailable.');return;}request={intent,request_id};}
+ // Persist before sending. Storage failure cannot start an unrecoverable operation.
+ try{sessionStorage.setItem(taskStorageKey,JSON.stringify(request));}catch(_){say('Task recovery storage is unavailable. Enable session storage and retry.');return;}
+ const controller=new AbortController(),timer=window.setTimeout(()=>controller.abort(),120000);
+ setBusy(true);taskMode.disabled=true;chatInput.disabled=true;root.open=true;say('Lead agent is preparing specialist assignments…');
+ window.dispatchEvent(new CustomEvent('homeserver:chat-turn',{detail:{requestId:'task:'+request.request_id,status:'started',conversationId:request.intent.conversation_id}}));
+ try{
+  const response=await api('task.prepare',{...request.intent,request_id:request.request_id},controller.signal);
+  const m=response.mission;if(!m?.id||!m.chat_task?.draft)throw new Error('Task preparation was not confirmed. Retry the same request.');
+  selected=m.id;const contract=await api('tools.get',{mission_id:m.id},controller.signal);
+  toolsByMission.set(m.id,contract.tools);if(!contract.tools.configured)toolDrafts.set(m.id,m.chat_task.draft);
+  const index=items.findIndex(x=>x.id===m.id);if(index>=0)items[index]=m;else items.unshift(m);
+  showList();showMission(m);sessionStorage.removeItem(taskStorageKey);chatInput.value='';
+  say('Plan prepared. Review and approve assignments, then start specialists. Each proposed edit requires separate approval.');
+  window.dispatchEvent(new CustomEvent('homeserver:chat-turn',{detail:{requestId:'task:'+request.request_id,status:'completed',reply:status.textContent}}));
+ }catch(e){say((e.name==='AbortError'?'Task preparation timed out.':e.message||'Task preparation interrupted.')+' Your request remains available for retry.');window.dispatchEvent(new CustomEvent('homeserver:chat-turn',{detail:{requestId:'task:'+request.request_id,status:'failed',message:status.textContent}}));}
+ finally{window.clearTimeout(timer);setBusy(false);taskMode.disabled=false;chatInput.disabled=false;}
+}
+form.addEventListener('submit',event=>{
+ if(!taskMode.checked)return;
+ event.preventDefault();event.stopImmediatePropagation();void prepareChatTask();
+},true);
+
 function showList(){
  list.replaceChildren();
  if(!items.length){list.appendChild(el('p','vp3-teams-empty','No missions yet.'));return;}
@@ -68,12 +105,14 @@ function showMission(m){
  detail.appendChild(el('h3','',m.objective||'Mission'));
  detail.appendChild(el('p','vp3-teams-meta',(m.status||'unknown')+' · '+fmt(m.updated_at||m.created_at)+' · Specialists prepare changes; saving requires your review'));
  const buttons=el('div','vp3-teams-actions');
- if(m.status==='planned'){buttons.appendChild(btn('Review specialist assignments','tools.get',selected));buttons.appendChild(btn('Start',m.tools_configured||toolsByMission.get(selected)?.configured?'tools.start':'start',selected));}
+ if(m.status==='planned'){buttons.appendChild(btn('Review specialist assignments','tools.get',selected));if(!m.chat_task||m.tools_configured)buttons.appendChild(btn('Start',m.tools_configured||toolsByMission.get(selected)?.configured?'tools.start':'start',selected));}
  if(m.status==='running')buttons.appendChild(btn('Pause','pause',selected));
  if(m.status==='waiting_review')buttons.appendChild(btn('Resume (rerun interrupted)','resume',selected));
  if(['planned','running','waiting_review'].includes(m.status))buttons.appendChild(btn('Cancel','cancel',selected));
  buttons.appendChild(btn('Refresh','get',selected));detail.appendChild(buttons);
  if(m.authority_current===false)detail.appendChild(el('p','vp3-teams-error','Permissions changed. Results are hidden; prepare a new reviewed mission.'));
+ if(m.chat_task&&m.status==='planned'&&!m.tools_configured&&!toolDrafts.has(m.id))toolDrafts.set(m.id,m.chat_task.draft);
+ if(m.chat_task&&!m.private&&m.authority_current!==false)detail.appendChild(el('p','vp3-teams-meta','Plan prepared '+fmt(m.chat_task.prepared_at)+' · '+m.chat_task.provider_key+' · '+m.chat_task.model+' · assignment review required before tools run'));
  renderAssignments(m);
  renderChanges(m);
  renderCompletion(m,detail);
@@ -361,7 +400,7 @@ async function load(){
  try{
   const result=await api('list');items=Array.isArray(result.items)?result.items:[];lastRefresh=Date.now();showList();
   say('HomeServer connected · '+items.length+' recent mission'+(items.length===1?'':'s')+'.');
-  if(selected&&items.some(x=>x.id===selected)){const current=await api('get',{mission_id:selected});if(current.mission){if(current.mission.tools_enabled&&!current.mission.private&&current.mission.authority_current!==false){const changes=await api('actions.list',{mission_id:selected});changesByMission.set(selected,Array.isArray(changes.actions)?changes.actions:[]);}showMission(current.mission);}
+  if(selected&&items.some(x=>x.id===selected)){const current=await api('get',{mission_id:selected});if(current.mission){if(current.mission.chat_task&&current.mission.status==='planned'&&!current.mission.private&&current.mission.authority_current!==false){const tools=await api('tools.get',{mission_id:selected});toolsByMission.set(selected,tools.tools);}if(current.mission.tools_enabled&&!current.mission.private&&current.mission.authority_current!==false){const changes=await api('actions.list',{mission_id:selected});changesByMission.set(selected,Array.isArray(changes.actions)?changes.actions:[]);}showMission(current.mission);}
    try{await loadSupervision(selected);}catch(_){/* Mission status remains available if supervision is unsupported. */}}
  }finally{inflight=false;}
 }
@@ -557,6 +596,7 @@ async function operation(action,id,taskId,decision){
   if(action==='approve'||action==='reject'){payload.decision_id=taskId;payload.confirmed=true;}
   const response=await api(action,payload);
   if(Array.isArray(response.actions))changesByMission.set(id,response.actions);
+  if(action==='get'&&response.mission?.chat_task&&response.mission.status==='planned'&&!response.mission.private&&response.mission.authority_current!==false){const tools=await api('tools.get',{mission_id:id});toolsByMission.set(id,tools.tools);}
   if(action==='get'&&response.mission?.tools_enabled&&!response.mission.private&&response.mission.authority_current!==false){const changes=await api('actions.list',{mission_id:id});changesByMission.set(id,Array.isArray(changes.actions)?changes.actions:[]);}
   if(response.tools){toolsByMission.set(id,response.tools);if(action!=='tools.get')toolDrafts.delete(id);}
   if(payload.request_id)for(const [key,value] of pendingOperations)if(value===payload.request_id)pendingOperations.delete(key);
