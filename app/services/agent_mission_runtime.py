@@ -6,6 +6,7 @@ recursive delegation or external side effects are enabled in this section.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +17,8 @@ from . import agent_routing, app_scopes, context_engine, providers
 MAX_PARALLEL = 4
 _pool: ThreadPoolExecutor | None = None
 _guard = threading.RLock()
+_log = logging.getLogger(__name__)
+_worker_futures = set()
 
 
 class MissionError(RuntimeError):
@@ -381,7 +384,66 @@ def _commit_model_only(mid, tid, lease, task, status, output, error, key, model)
             _finalize(conn, mid)
 
 
+def interrupt_for_review(mid: str, reason: str, *, task_id=None, lease=None) -> bool:
+    """Fence uncertain work now; stale futures cannot interrupt a resumed lease."""
+    reasons = {
+        'dispatch_failed': 'Worker dispatch failed. Review the run before resuming.',
+        'worker_failed': 'Worker execution was interrupted. Review the run before resuming.',
+    }
+    if reason not in reasons:
+        raise ValueError('Unknown interruption reason')
+    with db() as conn:
+        conn.execute('BEGIN IMMEDIATE')
+        if task_id is not None and not conn.execute(
+            "SELECT 1 FROM agent_mission_tasks_v1 WHERE id=? AND mission_id=? AND lease_id=? AND status='running'",
+            (task_id, mid, lease),
+        ).fetchone():
+            return False
+        changed = conn.execute(
+            "UPDATE agent_missions_v1 SET status='waiting_review',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='running'", (mid,),
+        )
+        if not changed.rowcount:
+            return False
+        conn.execute(
+            "UPDATE agent_mission_tasks_v1 SET status='interrupted',lease_id=NULL,error=?,updated_at=CURRENT_TIMESTAMP WHERE mission_id=? AND status='running'",
+            (reasons[reason], mid),
+        )
+        conn.execute("UPDATE agent_mission_workers_v1 SET status='interrupted' WHERE mission_id=? AND status='running'", (mid,))
+        _event(conn, mid, 'mission.runtime_review_required', task_id, {'reason': reason, 'automatic_replay': False})
+    # Leases are already revoked even if browser cleanup itself is unavailable.
+    try:
+        from . import agent_mission_live_browser
+        agent_mission_live_browser.stop_for_mission(mid)
+    except Exception:
+        _log.error('Runtime browser cleanup failed after lease revocation')
+    return True
+
+
+def _observe_worker(future, mid, tid, lease):
+    try:
+        failed = future.cancelled() or future.exception() is not None
+        if failed:
+            try:
+                interrupt_for_review(mid, 'worker_failed', task_id=tid, lease=lease)
+            except Exception:
+                _log.error('Worker recovery persistence unavailable; restart review required')
+    finally:
+        with _guard:
+            _worker_futures.discard(future)
+
+
 def _dispatch(mid: str) -> None:
+    try:
+        _dispatch_current(mid)
+    except Exception:
+        try:
+            interrupt_for_review(mid, 'dispatch_failed')
+        except Exception:
+            _log.error('Dispatch recovery persistence unavailable; restart review required')
+        raise
+
+
+def _dispatch_current(mid: str) -> None:
     global _pool
     with _guard:
         with db() as conn:
@@ -436,7 +498,9 @@ def _dispatch(mid: str) -> None:
             if _pool is None:
                 _pool = ThreadPoolExecutor(max_workers=MAX_PARALLEL, thread_name_prefix="vp3-mission")
             for tid, lease in claimed:
-                _pool.submit(_perform, mid, tid, lease)
+                future = _pool.submit(_perform, mid, tid, lease)
+                _worker_futures.add(future)
+                future.add_done_callback(lambda done, tid=tid, lease=lease: _observe_worker(done, mid, tid, lease))
 
 
 def start_mission(source: str, mid: str) -> dict:
@@ -490,6 +554,7 @@ def cancel_mission(source: str, mid: str) -> dict:
 def recover_interrupted() -> int:
     """Fail closed on process restart; no replay of ambiguous model calls."""
     with db() as conn:
+        conn.execute('BEGIN IMMEDIATE')
         rows = conn.execute("SELECT id FROM agent_missions_v1 WHERE status='running'").fetchall()
         for row in rows:
             mid = str(row["id"])
@@ -502,7 +567,7 @@ def recover_interrupted() -> int:
                 "WHERE mission_id=? AND status='running'", (mid,),
             )
             conn.execute(
-                "UPDATE agent_missions_v1 SET status='waiting_review' WHERE id=?", (mid,),
+                "UPDATE agent_missions_v1 SET status='waiting_review',updated_at=CURRENT_TIMESTAMP WHERE id=?", (mid,),
             )
             _event(conn, mid, "mission.recovery_review_required")
     return len(rows)

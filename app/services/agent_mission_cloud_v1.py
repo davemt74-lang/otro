@@ -151,7 +151,7 @@ def execute(action: str, body: dict) -> dict:
         elif action in ('schedule.pause','schedule.resume','schedule.cancel'):
             result = schedules.change(source, body.get('schedule_id'), action.split('.')[1], request_id=body.get('request_id'), expected_revision=body.get('expected_revision'), confirmed=body.get('confirmed'))
         else: raise runtime.MissionError('Unsupported schedule operation.',422)
-        return {'ok':True,'contract':CONTRACT,'schedules':result if isinstance(result,list) else [result]}
+        return {'ok':True,'contract':CONTRACT,'schedules':result if isinstance(result,list) else [result], 'scheduler_health':schedules.health()}
     if action == "list":
         count = body.get("limit", 6)
         if isinstance(count, bool) or not str(count).isdigit() or not 1 <= int(count) <= 8:

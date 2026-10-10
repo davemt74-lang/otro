@@ -132,5 +132,90 @@ with tempfile.TemporaryDirectory(prefix='a5c6-') as data:
  mission.recover_interrupted();assert mission.get_mission('owner',recovery_mid)['status']=='waiting_review'
  with patch.object(mission,'_dispatch') as dispatch:schedules.tick();assert dispatch.call_count==0
  schedules.change('owner',recovery['id'],'cancel',request_id=uid(),expected_revision=1,confirmed=True);mission.cancel_mission('owner',recovery_mid)
- schedules.start();schedules.start();schedules.stop();mission.shutdown()
+ # Committed launch / failed dispatch must be visible immediately, without a restart.
+ secret='provider-secret-never-exported'
+ broken=make(prepared());clock=datetime.fromisoformat(broken['next_run_at'].replace('Z','+00:00'))
+ with patch.object(mission,'_dispatch',side_effect=RuntimeError(secret)):schedules.tick()
+ blocked=schedules.get('owner',broken['id']);broken_mid=blocked['runs'][0]['mission_id']
+ assert blocked['status']=='blocked' and blocked['runs'][0]['needs_review']
+ assert blocked['runs'][0]['status']=='blocked' and mission.get_mission('owner',broken_mid)['status']=='waiting_review'
+ assert secret not in json.dumps(blocked) and 'dispatch failed' in blocked['last_error']
+ deny(lambda:schedules.change('owner',broken['id'],'pause',request_id=uid(),expected_revision=blocked['revision'],confirmed=True),409)
+ with patch.object(mission,'_dispatch') as dispatch:schedules.tick();assert not dispatch.called
+ initialize_database();mission.recover_interrupted()
+ assert schedules.get('owner',broken['id'])['runs'][0]['mission_id']==broken_mid
+ # Executor submission failure after durable leases must revoke them atomically.
+ from concurrent.futures import Future
+ from types import SimpleNamespace
+ submitted=[]
+ def rejected(fn,*args):submitted.append(args);raise RuntimeError(secret)
+ executor_failure=make(prepared());clock=datetime.fromisoformat(executor_failure['next_run_at'].replace('Z','+00:00'))
+ with patch.object(mission,'_pool',SimpleNamespace(submit=rejected)):schedules.tick()
+ failed_mid=schedules.get('owner',executor_failure['id'])['runs'][0]['mission_id']
+ stopped=mission.get_mission('owner',failed_mid);assert stopped['status']=='waiting_review'
+ assert stopped['tasks'][0]['status']=='interrupted'
+ with db() as conn:assert conn.execute('SELECT lease_id FROM agent_mission_tasks_v1 WHERE id=?',(stopped['tasks'][0]['id'],)).fetchone()[0] is None
+ old_mid,old_tid,old_lease=submitted[0]
+ # Explicit resume creates a new lease; an old future cannot interrupt it.
+ with patch.object(mission,'_dispatch'):control.resume('owner',failed_mid,allow_reexecution=True)
+ pending=Future()
+ with patch.object(mission,'_pool',SimpleNamespace(submit=lambda *args:pending)):mission._dispatch(failed_mid)
+ with db() as conn:assert conn.execute('SELECT lease_id FROM agent_mission_tasks_v1 WHERE id=?',(old_tid,)).fetchone()[0]!=old_lease
+ late=Future();late.set_exception(RuntimeError(secret));mission._observe_worker(late,old_mid,old_tid,old_lease)
+ assert mission.get_mission('owner',failed_mid)['status']=='running'
+ mission.cancel_mission('owner',failed_mid);pending.cancel()
+ assert mission.get_mission('owner',failed_mid)['status']=='cancelled'
+ # Unexpected failure while committing a real worker is observed by its future.
+ commit_failure=make(prepared());clock=datetime.fromisoformat(commit_failure['next_run_at'].replace('Z','+00:00'))
+ with patch.object(run,'commit',side_effect=RuntimeError(secret)):
+  schedules.tick();failure_mid=schedules.get('owner',commit_failure['id'])['runs'][0]['mission_id'];observed=wait(failure_mid)
+  assert observed['status']=='waiting_review' and observed['tasks'][0]['status']=='interrupted'
+ assert not actions.list_actions('owner',failure_mid)
+ assert secret not in json.dumps(schedules.get('owner',commit_failure['id']))
+ # Long inference is surfaced as slow, never automatically replayed or approved.
+ slow_run=make(prepared());clock=datetime.fromisoformat(slow_run['next_run_at'].replace('Z','+00:00'))
+ gate=threading.Event();entered.clear();schedules.tick();assert entered.wait(5)
+ slow_mid=schedules.get('owner',slow_run['id'])['runs'][0]['mission_id']
+ with db() as conn:conn.execute("UPDATE agent_mission_tasks_v1 SET started_at=datetime('now','-6 minutes') WHERE mission_id=? AND status='running'",(slow_mid,))
+ assert schedules.get('owner',slow_run['id'])['runs'][0]['long_running_workers']==1
+ mission.cancel_mission('owner',slow_mid);gate.set()
+ deadline=time.monotonic()+15
+ while mission._worker_futures and time.monotonic()<deadline:time.sleep(.02)
+ assert not mission._worker_futures, 'Cancelled worker must finish cleanup before test data is removed'
+ assert not actions.list_actions('owner',slow_mid)
+ # SQLite outages leave a pre-dispatch slot due and report a safe heartbeat failure.
+ import sqlite3
+ db_failure=make(prepared());clock=datetime.fromisoformat(db_failure['next_run_at'].replace('Z','+00:00'))
+ original_next=db_failure['next_run_at']
+ with patch.object(schedules,'_launch',side_effect=sqlite3.OperationalError(secret)):schedules.tick()
+ assert schedules.get('owner',db_failure['id'])['status']=='active'
+ assert schedules.get('owner',db_failure['id'])['next_run_at']==original_next
+ assert not schedules.get('owner',db_failure['id'])['runs']
+ with patch.object(schedules,'_thread',SimpleNamespace(is_alive=lambda:True)),patch.object(schedules,'_stop',SimpleNamespace(is_set=lambda:False)):
+  assert schedules.health()['state']=='degraded' and secret not in json.dumps(schedules.health())
+  with patch.object(schedules,'_tick_due',return_value=True):schedules.tick()
+  assert schedules.health()['state']=='healthy' and schedules.health()['consecutive_failures']==0
+  with patch.object(schedules.time,'monotonic',return_value=schedules._health['last_success_monotonic']+91):assert schedules.health()['state']=='stalled'
+  with patch.object(schedules,'db',side_effect=sqlite3.OperationalError(secret)):
+   try:schedules.tick()
+   except sqlite3.OperationalError:pass
+   else:raise AssertionError('Database outage must propagate to runtime health')
+  assert schedules.health()['last_error_code']=='database_unavailable'
+ schedules.change('owner',db_failure['id'],'cancel',request_id=uid(),expected_revision=1,confirmed=True)
+ # Projection keeps private run failures on HomeServer and enforces current pairing.
+ with db() as conn:
+  conn.execute("UPDATE conversation_context_settings SET cloud_allowed=0 WHERE conversation_id=?",(cm['conversation_id'],))
+ private=schedules.get('app:vp3',cid);assert private['private'] and not private['runs'] and not private['last_error']
+ with db() as conn:conn.execute("UPDATE paired_apps SET status='revoked' WHERE id=?",(appid,))
+ deny(lambda:cloud.execute('schedule.list',{}),403)
+ # Stop all fixture schedules before checking the service lifecycle. Otherwise
+ # a cancelled slow mission may legitimately launch its next due run during cleanup.
+ with db() as conn:remaining=[dict(r) for r in conn.execute("SELECT id,source_app_key,revision FROM agent_mission_schedules_v1 WHERE status!='cancelled'")]
+ for row in remaining:schedules.change(row['source_app_key'],row['id'],'cancel',request_id=uid(),expected_revision=row['revision'],confirmed=True,local_owner=True)
+ schedules.start();schedules.start();schedules.stop()
+ deadline=time.monotonic()+15
+ while mission._worker_futures and time.monotonic()<deadline:time.sleep(.02)
+ assert not mission._worker_futures, 'All worker callbacks must finish before fixture cleanup'
+ mission.shutdown()
+ assert schedules.health()['state']=='stopped'
  print('A5C6 PASS: timezone/DST, real scheduled reads and edit approval/readback, concurrency, overlap, retry receipts, pause/resume/cancel, current Cloud permissions, atomic failure and restart fences')
