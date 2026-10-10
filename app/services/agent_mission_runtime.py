@@ -228,7 +228,9 @@ def create_mission(source: str, *, conversation_id: str, objective: str, client_
     mid = _id()
     task_ids = [_id() for _ in proposed]
     with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        # Scheduled preparation joins the caller-owned atomic run transaction.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
             "SELECT id,objective,conversation_id,parent_agent_id FROM agent_missions_v1 WHERE source_app_key=? AND client_request_id=?",
             (source, key),

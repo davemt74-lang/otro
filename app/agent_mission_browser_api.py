@@ -263,12 +263,29 @@ class OwnerWorkspaceOperation(BaseModel):
     objective: str | None = Field(default=None, max_length=4000)
     conversation_id: str | None = Field(default=None, max_length=160)
     parent_agent_id: StrictInt | None = None
+    schedule_id: str | None = None
+    timing: dict | None = None
 
 
 @router.post('/api/v1/control/agent-browser-workspaces')
 def owner_workspace(body: OwnerWorkspaceOperation):
     # OwnerGateway protects this local route. Resolve the actual source here;
     # never elevate a paired app's permission when operating its workspace.
+    if body.action.startswith('schedule.'):
+        from .services import agent_mission_schedules as schedules
+        if body.action == 'schedule.list': return {'ok':True,'schedules':execute(schedules.owner_list)}
+        if body.action == 'schedule.create':
+            with db() as conn:
+                row=conn.execute('SELECT source_app_key FROM agent_missions_v1 WHERE id=?',(body.mission_id,)).fetchone()
+            if not row: raise HTTPException(404,'Mission not found.')
+            result=execute(schedules.create,row['source_app_key'],body.mission_id,body.timing,request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed)
+        elif body.action in ('schedule.pause','schedule.resume','schedule.cancel'):
+            with db() as conn:
+                row=conn.execute('SELECT source_app_key FROM agent_mission_schedules_v1 WHERE id=?',(body.schedule_id,)).fetchone()
+            if not row: raise HTTPException(404,'Schedule not found.')
+            result=execute(schedules.change,row['source_app_key'],body.schedule_id,body.action.split('.')[1],request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed,local_owner=True)
+        else: raise HTTPException(422,'Unsupported schedule operation.')
+        return {'ok':True,'schedules':[result]}
     if body.action=='task.prepare':
         from .services import agent_mission_chat_tasks as chat_tasks
         return {'ok':True,'mission':execute(chat_tasks.owner_prepare,objective=body.objective,

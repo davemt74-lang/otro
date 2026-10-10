@@ -142,6 +142,16 @@ def _supervisor_projection(raw: dict, mission_snapshot: dict) -> dict:
 
 
 def execute(action: str, body: dict) -> dict:
+    if action.startswith('schedule.'):
+        from . import agent_mission_schedules as schedules
+        source = 'app:vp3'
+        if action == 'schedule.list': result = schedules.list_schedules(source)
+        elif action == 'schedule.create':
+            result = schedules.create(source, body.get('mission_id'), body.get('timing'), request_id=body.get('request_id'), expected_revision=body.get('expected_revision'), confirmed=body.get('confirmed'))
+        elif action in ('schedule.pause','schedule.resume','schedule.cancel'):
+            result = schedules.change(source, body.get('schedule_id'), action.split('.')[1], request_id=body.get('request_id'), expected_revision=body.get('expected_revision'), confirmed=body.get('confirmed'))
+        else: raise runtime.MissionError('Unsupported schedule operation.',422)
+        return {'ok':True,'contract':CONTRACT,'schedules':result if isinstance(result,list) else [result]}
     if action == "list":
         count = body.get("limit", 6)
         if isinstance(count, bool) or not str(count).isdigit() or not 1 <= int(count) <= 8:
