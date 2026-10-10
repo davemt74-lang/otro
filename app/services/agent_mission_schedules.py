@@ -208,8 +208,8 @@ def change(source, sid, action, *, request_id, expected_revision, confirmed, loc
             if prior['schedule_id'] != sid or prior['payload_hash'] != digest: raise mission.MissionError('Operation request belongs to another schedule.',409)
             return get(source,sid,local_owner=local_owner)
         if row['revision'] != expected_revision: raise mission.MissionError('Schedule changed; refresh and review it.',409)
-        if row['status'] == 'cancelled' or (action == 'resume' and row['status'] != 'paused'):
-            raise mission.MissionError('Schedule cannot be resumed; prepare a new reviewed plan.',409)
+        if row['status'] == 'cancelled' or (action == 'resume' and row['status'] != 'paused') or (action == 'pause' and row['status'] != 'active'):
+            raise mission.MissionError('Schedule operation is unavailable in its current state; prepare a new reviewed plan.',409)
         if action == 'resume':
             snapshot = mission.get_mission(source,row['template_mission_id'])
             if orchestration.authority_hash(source,snapshot) != row['authority_hash'] or not _visible(source,snapshot):

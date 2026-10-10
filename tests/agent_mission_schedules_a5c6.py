@@ -140,6 +140,7 @@ with tempfile.TemporaryDirectory(prefix='a5c6-') as data:
  assert blocked['status']=='blocked' and blocked['runs'][0]['needs_review']
  assert blocked['runs'][0]['status']=='blocked' and mission.get_mission('owner',broken_mid)['status']=='waiting_review'
  assert secret not in json.dumps(blocked) and 'dispatch failed' in blocked['last_error']
+ deny(lambda:schedules.change('owner',broken['id'],'pause',request_id=uid(),expected_revision=blocked['revision'],confirmed=True),409)
  with patch.object(mission,'_dispatch') as dispatch:schedules.tick();assert not dispatch.called
  initialize_database();mission.recover_interrupted()
  assert schedules.get('owner',broken['id'])['runs'][0]['mission_id']==broken_mid
@@ -207,6 +208,14 @@ with tempfile.TemporaryDirectory(prefix='a5c6-') as data:
  private=schedules.get('app:vp3',cid);assert private['private'] and not private['runs'] and not private['last_error']
  with db() as conn:conn.execute("UPDATE paired_apps SET status='revoked' WHERE id=?",(appid,))
  deny(lambda:cloud.execute('schedule.list',{}),403)
- schedules.start();schedules.start();schedules.stop();mission.shutdown()
+ # Stop all fixture schedules before checking the service lifecycle. Otherwise
+ # a cancelled slow mission may legitimately launch its next due run during cleanup.
+ with db() as conn:remaining=[dict(r) for r in conn.execute("SELECT id,source_app_key,revision FROM agent_mission_schedules_v1 WHERE status!='cancelled'")]
+ for row in remaining:schedules.change(row['source_app_key'],row['id'],'cancel',request_id=uid(),expected_revision=row['revision'],confirmed=True,local_owner=True)
+ schedules.start();schedules.start();schedules.stop()
+ deadline=time.monotonic()+15
+ while mission._worker_futures and time.monotonic()<deadline:time.sleep(.02)
+ assert not mission._worker_futures, 'All worker callbacks must finish before fixture cleanup'
+ mission.shutdown()
  assert schedules.health()['state']=='stopped'
  print('A5C6 PASS: timezone/DST, real scheduled reads and edit approval/readback, concurrency, overlap, retry receipts, pause/resume/cancel, current Cloud permissions, atomic failure and restart fences')
