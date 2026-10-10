@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files
 
 livekit_datas, livekit_binaries, livekit_hiddenimports = collect_all('livekit')
 sounddevice_datas, sounddevice_binaries, sounddevice_hiddenimports = collect_all('sounddevice')
 cv2_datas, cv2_binaries, cv2_hiddenimports = collect_all('cv2')
 playwright_datas, playwright_binaries, playwright_hiddenimports = collect_all('playwright')
-hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + sounddevice_hiddenimports + livekit_hiddenimports + cv2_hiddenimports + playwright_hiddenimports + [
+hiddenimports = collect_submodules('uvicorn') + collect_submodules('serial') + collect_submodules('tzdata') + sounddevice_hiddenimports + livekit_hiddenimports + cv2_hiddenimports + playwright_hiddenimports + [
     'app.services.meeting_intelligence',
     'app.services.meeting_intelligence_remote',
 ]
@@ -34,9 +34,10 @@ a = Analysis(
         ('database/runtime_certification.sql', 'database'),
         ('database/governed_recordings.sql', 'database'),
         ('database/local_transcription_sessions.sql', 'database'),
+        ('database/agent_mission_schedules.sql', 'database'),
         ('database/migrations', 'database/migrations'),
         ('ui', 'ui'),
-    ] + livekit_datas + sounddevice_datas + cv2_datas + playwright_datas,
+    ] + livekit_datas + sounddevice_datas + cv2_datas + playwright_datas + collect_data_files('tzdata'),
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

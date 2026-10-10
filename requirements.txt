@@ -16,3 +16,6 @@ sounddevice==0.5.6
 # Local opt-in native Tracky detector and its bundled model.
 numpy==1.26.4
 opencv-python-headless==4.10.0.84
+
+# IANA timezones for scheduled tasks on Windows.
+tzdata==2025.2

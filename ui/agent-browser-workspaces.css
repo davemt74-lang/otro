@@ -96,3 +96,5 @@
 .vp3-specialist-completion p{margin:8px 0}
 
 .vp3-chat-task-mode{display:flex;align-items:center;gap:.5rem;font-size:.85rem;margin:.4rem 0;color:inherit;}.vp3-chat-task-mode input{width:auto;flex:0 0 auto;}
+
+.vp3-specialist-schedules,.vp3-schedule-create{padding:12px;margin-top:12px;border:1px solid var(--border,#414552);border-radius:10px}.vp3-schedule-create{display:flex;gap:8px;flex-wrap:wrap}.vp3-schedule-create h4{flex-basis:100%}.vp3-schedule-create input,.vp3-schedule-create select{min-width:100px;max-width:100%;padding:8px;border-radius:6px}.vp3-schedule-row{padding:10px 0;border-bottom:1px solid var(--border,#414552);overflow-wrap:anywhere}.vp3-schedule-row button{margin:4px}.vp3-specialist-schedules small{display:block;margin-top:8px}

@@ -86,6 +86,64 @@ form.addEventListener('submit',event=>{
  event.preventDefault();event.stopImmediatePropagation();void prepareChatTask();
 },true);
 
+
+const schedulesPanel=el('section','vp3-specialist-schedules');schedulesPanel.setAttribute('aria-label','Scheduled specialist tasks');root.querySelector('.vp3-teams-body').appendChild(schedulesPanel);
+let schedules=[];
+function renderScheduleList(parent=schedulesPanel){
+ parent.replaceChildren();parent.appendChild(el('h4','','Scheduled specialist tasks'));
+ if(!schedules.length)parent.appendChild(el('p','','No schedules yet. Prepare a task and approve its assignments to schedule it.'));
+ for(const schedule of schedules){
+  const row=el('article','vp3-schedule-row');row.appendChild(el('strong','',schedule.objective));
+  const day=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][schedule.weekday];
+  row.appendChild(el('p','vp3-teams-meta',schedule.status+' · '+(schedule.frequency==='weekly'?day:'Daily')+' '+String(schedule.hour).padStart(2,'0')+':'+String(schedule.minute).padStart(2,'0')+' '+schedule.timezone+' · Next '+fmt(schedule.next_run_at)));
+  row.appendChild(el('p','vp3-teams-meta','Last run '+fmt(schedule.last_run_at)+' · Updated '+fmt(schedule.updated_at)));
+  if(schedule.last_error)row.appendChild(el('p','vp3-teams-error',schedule.last_error));
+  if(schedule.status==='active')row.appendChild(btn('Pause schedule','schedule.pause',schedule.id));
+  if(schedule.status==='paused')row.appendChild(btn('Resume schedule','schedule.resume',schedule.id));
+  if(schedule.status!=='cancelled')row.appendChild(btn('Cancel future runs','schedule.cancel',schedule.id));
+  for(const run of schedule.runs||[]){
+   const line=el('div','vp3-teams-meta',fmt(run.due_at)+' · '+run.status+' · '+(run.mission_status||run.reason||'')+' · '+fmt(run.completed_at||run.mission_updated_at||run.created_at));
+   if(run.mission_id)line.appendChild(btn('View run','get',run.mission_id));row.appendChild(line);
+  }
+  parent.appendChild(row);
+ }
+ parent.appendChild(el('small','','Schedules reuse the reviewed plan. Every edit needs separate approval. Missed slots coalesce; unfinished runs or changes prevent overlap. Pausing or cancelling a schedule stops future runs; use the run controls to stop current work.'));
+}
+function renderScheduleForm(m){
+ const contract=toolsByMission.get(m.id);if(m.status!=='planned'||!m.chat_task||!contract?.configured||!contract.active||m.private||m.authority_current===false)return;
+ const panel=el('section','vp3-schedule-create');panel.setAttribute('aria-label','Schedule reviewed task');panel.appendChild(el('h4','','Schedule this reviewed task'));
+ const frequency=el('select');frequency.dataset.scheduleField='frequency';frequency.setAttribute('aria-label','Schedule frequency');
+ for(const [value,label] of [['weekly','Weekly'],['daily','Daily']]){const option=el('option','',label);option.value=value;frequency.appendChild(option);}panel.appendChild(frequency);
+ const weekday=el('select');weekday.dataset.scheduleField='weekday';weekday.setAttribute('aria-label','Schedule weekday');
+ ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].forEach((label,index)=>{const option=el('option','',label);option.value=String(index);weekday.appendChild(option);});panel.appendChild(weekday);
+ const time=el('input');time.type='time';time.value='09:00';time.dataset.scheduleField='time';time.setAttribute('aria-label','Schedule local time');panel.appendChild(time);
+ const zone=el('input');zone.value=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';zone.maxLength=80;zone.dataset.scheduleField='timezone';zone.setAttribute('aria-label','Schedule timezone');panel.appendChild(zone);
+ panel.appendChild(btn('Create schedule','schedule.create',m.id));detail.appendChild(panel);
+}
+async function loadSchedules(){const result=await api('schedule.list');schedules=Array.isArray(result.schedules)?result.schedules:[];renderScheduleList();}
+async function scheduleOperation(action,id){
+ if(busy)return;let payload;
+ if(action==='schedule.create'){
+  const panel=detail.querySelector('.vp3-schedule-create'),contract=toolsByMission.get(id);if(!panel||!contract?.active)return;
+  const field=k=>panel.querySelector('[data-schedule-field="'+k+'"]').value;const time=field('time').split(':');
+  payload={mission_id:id,expected_revision:contract.revision,confirmed:true,timing:{frequency:field('frequency'),weekday:Number(field('weekday')),hour:Number(time[0]),minute:Number(time[1]),timezone:field('timezone').trim()}};
+  if(!window.confirm('Run this exact reviewed specialist plan on this schedule? Each run may use the configured model and tools within the reviewed budgets. Every proposed edit still requires separate approval.'))return;
+ }else{
+  const schedule=schedules.find(s=>s.id===id);if(!schedule)return;
+  payload={schedule_id:id,expected_revision:schedule.revision,confirmed:true};
+  if(!window.confirm(action==='schedule.resume'?'Resume future runs of the reviewed plan under current permissions?':'Stop future scheduled runs? Current work and prepared changes remain available in the run controls.'))return;
+ }
+ const storage='vp3.schedule.pending.a5c6.'+String(cfg.csrf)+'.'+action+'.'+id+'.'+JSON.stringify(payload.timing||{});
+ try{
+  const pending=JSON.parse(sessionStorage.getItem(storage)||'null');if(pending)payload=pending;
+  else{payload.request_id=window.crypto.randomUUID();sessionStorage.setItem(storage,JSON.stringify(payload));}
+ }catch(_){say('Schedule recovery storage is unavailable. Retry after enabling session storage.');return;}
+ setBusy(true);say('Updating specialist schedule…');
+ try{await api(action,payload);sessionStorage.removeItem(storage);await loadSchedules();say('Schedule updated. Each proposed edit still requires your approval.');const brain=document.querySelector('[data-agent-teams-brain-a3]');if(brain?.parentNode)renderBrain(brain.parentNode);}
+ catch(e){say((e.message||'Schedule response interrupted.')+' Refresh or retry the same operation.');}
+ finally{setBusy(false);}
+}
+
 function showList(){
  list.replaceChildren();
  if(!items.length){list.appendChild(el('p','vp3-teams-empty','No missions yet.'));return;}
@@ -114,6 +172,7 @@ function showMission(m){
  if(m.chat_task&&m.status==='planned'&&!m.tools_configured&&!toolDrafts.has(m.id))toolDrafts.set(m.id,m.chat_task.draft);
  if(m.chat_task&&!m.private&&m.authority_current!==false)detail.appendChild(el('p','vp3-teams-meta','Plan prepared '+fmt(m.chat_task.prepared_at)+' · '+m.chat_task.provider_key+' · '+m.chat_task.model+' · assignment review required before tools run'));
  renderAssignments(m);
+ renderScheduleForm(m);
  renderChanges(m);
  renderCompletion(m,detail);
  const workers=el('ol','vp3-teams-workers');
@@ -324,7 +383,7 @@ function showMission(m){
   events.forEach(e=>history.appendChild(el('li','',fmt(e.created_at)+' · '+(e.kind||'event'))));
   detail.appendChild(history);}
  const workspaceActions=new Set(['get','actions.list','actions.review','actions.recover','tools.get','tools.configure','tools.start','start','pause','resume','cancel','retry']);
- detail.querySelectorAll('button[data-action]').forEach(button=>{if(!button.dataset.action.startsWith('browser.')&&!workspaceActions.has(button.dataset.action))button.remove();});
+ detail.querySelectorAll('button[data-action]').forEach(button=>{if(!button.dataset.action.startsWith('browser.')&&!button.dataset.action.startsWith('schedule.')&&!workspaceActions.has(button.dataset.action))button.remove();});
  detail.querySelectorAll('input[data-owner-value-task],select[data-owner-control-task],select[data-owner-search-task],input[data-dom-approval-task],select[data-dom-approval-task],input[data-browser-task]').forEach(node=>{const value=draftValues.get(draftKey(node));if(value!==undefined)node.value=value;});
  showList();
 }
@@ -333,6 +392,7 @@ function renderBrain(body){
  const old=body.querySelector('[data-agent-teams-brain-a3]');if(old)old.remove();
  const section=el('section','chat-activity-section vp3-agent-teams-brain-a3');
  section.setAttribute('data-agent-teams-brain-a3','');
+ const scheduled=el('section','vp3-schedules-brain');renderScheduleList(scheduled);section.appendChild(scheduled);
  const header=el('div','chat-activity-section-head');
  const name=el('div','');name.appendChild(el('strong','','HomeServer Agent Teams'));
  name.appendChild(el('span','','Mission execution · '+(lastRefresh?fmt(new Date(lastRefresh).toISOString()):'not yet synchronized')));
@@ -398,7 +458,7 @@ async function load(){
  if(inflight)return;
  inflight=true;
  try{
-  const result=await api('list');items=Array.isArray(result.items)?result.items:[];lastRefresh=Date.now();showList();
+  const result=await api('list');items=Array.isArray(result.items)?result.items:[];lastRefresh=Date.now();showList();await loadSchedules();
   say('HomeServer connected · '+items.length+' recent mission'+(items.length===1?'':'s')+'.');
   if(selected&&items.some(x=>x.id===selected)){const current=await api('get',{mission_id:selected});if(current.mission){if(current.mission.chat_task&&current.mission.status==='planned'&&!current.mission.private&&current.mission.authority_current!==false){const tools=await api('tools.get',{mission_id:selected});toolsByMission.set(selected,tools.tools);}if(current.mission.tools_enabled&&!current.mission.private&&current.mission.authority_current!==false){const changes=await api('actions.list',{mission_id:selected});changesByMission.set(selected,Array.isArray(changes.actions)?changes.actions:[]);}showMission(current.mission);}
    try{await loadSupervision(selected);}catch(_){/* Mission status remains available if supervision is unsupported. */}}
@@ -475,6 +535,7 @@ function assignmentDraft(){
 }
 root.addEventListener('input',event=>{if(event.target.dataset.toolField){const draft=assignmentDraft();if(draft)toolDrafts.set(selected,draft);}});
 async function operation(action,id,taskId,decision){
+ if(action.startsWith('schedule.'))return scheduleOperation(action,id);
  if(action==='open-team-chat'){root.open=true;root.scrollIntoView({block:'nearest'});if(id)operation('get',id,taskId);return;}
  if(busy)return;
  if(action==='actions.recover'){
