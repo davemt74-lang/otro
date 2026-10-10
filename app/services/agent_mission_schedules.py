@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -14,7 +17,49 @@ from . import agent_mission_orchestration as orchestration, app_scopes, context_
 _stop = threading.Event()
 _thread = None
 _guard = threading.Lock()
+_tick_guard = threading.Lock()
+_health_guard = threading.Lock()
+_log = logging.getLogger(__name__)
+_health = {'started_at': None, 'last_tick_at': None, 'last_success_at': None,
+           'last_failure_at': None, 'last_error_code': '', 'consecutive_failures': 0,
+           'tick_started': None, 'last_success_monotonic': None}
 MAX_ACTIVE = 20
+FAILURES = {
+    'database_unavailable': 'Scheduler database is unavailable. No uncertain work is replayed.',
+    'authority_changed': 'Permissions or privacy changed. Prepare a new reviewed schedule.',
+    'plan_changed': 'The reviewed plan is no longer available. Prepare a new schedule.',
+    'preparation_failed': 'Run preparation failed before dispatch. Review and prepare a new schedule.',
+    'dispatch_failed': 'Run dispatch failed. Open the run and review before resuming.',
+    'scheduler_failed': 'Scheduler tick failed. Inspect HomeServer health and restart if it remains stopped.',
+}
+
+
+def _failure(code):
+    # Never expose provider responses, credentials or raw exception text.
+    with _health_guard:
+        _health.update(last_failure_at=_stamp(_now()), last_error_code=code)
+        _health['consecutive_failures'] += 1
+    _log.warning('Specialist scheduler failure: %s', code)
+
+
+def health():
+    """Process heartbeat only; no cross-source objectives or errors are exported."""
+    now = time.monotonic()
+    with _health_guard:
+        value = dict(_health)
+    live = bool(_thread and _thread.is_alive())
+    age = now - value['last_success_monotonic'] if value['last_success_monotonic'] is not None else None
+    tick_age = now - value['tick_started'] if value['tick_started'] is not None else None
+    if not live: state = 'stopped'
+    elif _stop.is_set(): state = 'stopping'
+    elif (tick_age is not None and tick_age >= 90) or (age is not None and age >= 90): state = 'stalled'
+    elif value['consecutive_failures']: state = 'degraded'
+    elif value['last_success_at'] is None: state = 'starting'
+    else: state = 'healthy'
+    return {key:value[key] for key in ('started_at','last_tick_at','last_success_at','last_failure_at','last_error_code','consecutive_failures')} | {
+        'state':state, 'checked_at':_stamp(_now()), 'tick_interval_seconds':30,
+        'tick_in_progress':value['tick_started'] is not None,
+        'last_error':FAILURES.get(value['last_error_code'], ''), 'automatic_replay':False}
 
 
 def _uuid(value):
@@ -90,6 +135,12 @@ def get(source, sid, *, local_owner=False):
     visible = local_owner or _visible(source, template)
     with db() as conn:
         runs = [dict(r) for r in conn.execute('SELECT r.*,m.status AS mission_status,m.updated_at AS mission_updated_at,m.completed_at FROM agent_mission_schedule_runs_v1 r LEFT JOIN agent_missions_v1 m ON m.id=r.mission_id WHERE r.schedule_id=? ORDER BY r.due_at DESC LIMIT 10', (sid,))]
+        slow = {r['mission_id']:r['total'] for r in conn.execute("SELECT t.mission_id,COUNT(*) AS total FROM agent_mission_tasks_v1 t JOIN agent_mission_schedule_runs_v1 r ON r.mission_id=t.mission_id WHERE r.schedule_id=? AND t.status='running' AND datetime(t.started_at)<=datetime('now','-5 minutes') GROUP BY t.mission_id", (sid,))}
+    for run in runs:
+        run['needs_review'] = run['mission_status'] == 'waiting_review' or run['status'] == 'blocked'
+        run['long_running_workers'] = slow.get(run['mission_id'], 0)
+        if run['mission_status'] == 'waiting_review' and not run['reason']:
+            run['reason'] = 'Run interrupted or paused. Open the run to review before resuming.'
     return {k:row[k] for k in ('id','template_mission_id','timezone','frequency','weekday','hour','minute','status','revision','next_run_at','last_run_at','created_at','updated_at')} | {
         'objective':template['objective'] if visible else 'Private HomeServer schedule',
         'last_error':row['last_error'] if visible else '', 'private':not visible,
@@ -203,23 +254,65 @@ def _launch(sid, now):
         return mid
 
 
-def tick():
+@atomic_write
+def _block_slot(sid, now, code, mid=None):
+    """Persist the failure against the exact slot, including committed dispatch gaps."""
+    with db() as conn:
+        row = conn.execute("SELECT next_run_at FROM agent_mission_schedules_v1 WHERE id=? AND status='active'", (sid,)).fetchone()
+        if not row: return
+        if mid:
+            changed = conn.execute("UPDATE agent_mission_schedule_runs_v1 SET status='blocked',reason=? WHERE schedule_id=? AND mission_id=? AND status='started'", (FAILURES[code],sid,mid))
+            if not changed.rowcount: return
+        elif row['next_run_at'] <= _stamp(now):
+            rid = str(uuid.uuid5(uuid.NAMESPACE_URL,'schedule:'+sid+':'+row['next_run_at']))
+            conn.execute("INSERT OR IGNORE INTO agent_mission_schedule_runs_v1(id,schedule_id,due_at,status,reason) VALUES(?,?,?,'blocked',?)", (rid,sid,row['next_run_at'],FAILURES[code]))
+        else: return
+        conn.execute("UPDATE agent_mission_schedules_v1 SET status='blocked',revision=revision+1,last_error=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active'", (FAILURES[code],sid))
+
+
+def _tick_due():
     now = _now()
+    failed = False
     with db() as conn:
         ids = [r[0] for r in conn.execute("SELECT id FROM agent_mission_schedules_v1 WHERE status='active' AND next_run_at<=? ORDER BY next_run_at LIMIT 20", (_stamp(now),))]
     for sid in ids:
+        mid = None
         try:
             mid = _launch(sid,now)
             if mid: mission._dispatch(mid)
-        except Exception:
-            # Never retry inference or worker writes automatically after an interruption.
-            with db() as conn:
-                conn.execute('BEGIN IMMEDIATE')
-                row=conn.execute("SELECT next_run_at FROM agent_mission_schedules_v1 WHERE id=? AND status='active' AND next_run_at<=?",(sid,_stamp(now))).fetchone()
-                if row:
-                    rid=str(uuid.uuid5(uuid.NAMESPACE_URL,'schedule:'+sid+':'+row['next_run_at']))
-                    conn.execute("INSERT OR IGNORE INTO agent_mission_schedule_runs_v1(id,schedule_id,due_at,status,reason) VALUES(?,?,?,'blocked','Current authority or preparation requires review')",(rid,sid,row['next_run_at']))
-                    conn.execute("UPDATE agent_mission_schedules_v1 SET status='blocked',revision=revision+1,last_error='Current authority or run preparation needs review. Prepare a new schedule.',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='active'", (sid,))
+        except Exception as exc:
+            if mid:
+                # The transaction committed already. Revoke leases and never dispatch it again automatically.
+                mission.interrupt_for_review(mid, 'dispatch_failed')
+                code = 'dispatch_failed'
+            elif isinstance(exc, sqlite3.OperationalError):
+                # Preparation rolled back before dispatch; leave this durable slot due.
+                _failure('database_unavailable'); failed = True; continue
+            elif isinstance(exc, mission.MissionError) and exc.status_code == 403: code = 'authority_changed'
+            elif isinstance(exc, mission.MissionError) and exc.status_code in (404,409): code = 'plan_changed'
+            else: code = 'preparation_failed'
+            _block_slot(sid,now,code,mid)
+            if code in ('dispatch_failed','preparation_failed'):
+                _failure(code); failed = True
+    return not failed
+
+
+def tick():
+    if not _tick_guard.acquire(blocking=False): return
+    try:
+        with _health_guard:
+            _health.update(last_tick_at=_stamp(_now()), tick_started=time.monotonic())
+        try:
+            successful = _tick_due()
+        except Exception as exc:
+            _failure('database_unavailable' if isinstance(exc, sqlite3.OperationalError) else 'scheduler_failed')
+            raise
+        if successful:
+            with _health_guard:
+                _health.update(last_success_at=_stamp(_now()), last_success_monotonic=time.monotonic(), consecutive_failures=0)
+    finally:
+        with _health_guard: _health['tick_started'] = None
+        _tick_guard.release()
 
 
 def start():
@@ -227,10 +320,16 @@ def start():
     with _guard:
         if _thread and _thread.is_alive(): return
         _stop.clear()
+        with _health_guard:
+            _health.update(started_at=_stamp(_now()), last_tick_at=None, last_success_at=None,
+                           last_failure_at=None, last_error_code='', consecutive_failures=0,
+                           tick_started=None, last_success_monotonic=None)
         def run():
             while not _stop.is_set():
                 try: tick()
-                except Exception: pass  # A transient database failure leaves the durable slot intact.
+                except Exception:
+                    # tick recorded a safe failure code; a transient DB failure leaves the slot intact.
+                    _log.warning('Specialist scheduler tick requires attention')
                 _stop.wait(30)
         _thread = threading.Thread(target=run,name='specialist-schedules',daemon=True); _thread.start()
 

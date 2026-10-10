@@ -5,24 +5,27 @@ const native=true;
 const source=await fs.readFile(new URL('../ui/agent-browser-workspaces.js',import.meta.url),'utf8');
 const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
 const page=await browser.newPage();const errors=[],calls=[];page.on('pageerror',e=>errors.push(e.message));
+await page.clock.install();
 let failOnce=false,contract={revision:1,configured:true,active:true,capabilities:['contacts.search'],action_capabilities:['contacts.update'],max_calls_per_worker:3,max_actions_per_worker:3,assignments:{}};
 const tid='22222222-2222-4222-8222-222222222222',mid='11111111-1111-4111-8111-111111111111';
 const draft={max_parallel:1,assignments:[{task_id:tid,tools:['contacts.search'],max_calls:1,actions:['contacts.update'],max_actions:1,output:'analysis',browser_url:''}]};
 let change={id:'33333333-3333-4333-8333-333333333333',task_id:tid,action_key:'contacts.update',arguments:{organization:'Example Studios'},payload_hash:'a'.repeat(64),status:'pending',can_approve:true,outcome_state:'awaiting_review',destination:'HomeServer',created_at:'2030-01-01 00:00:00'};
 let mission={id:mid,objective:'Review my contacts <img src=x onerror=alert(1)>',status:'planned',tools_enabled:false,tools_configured:true,authority_current:true,tasks:[{id:tid,title:'Contact specialist',role:'editor',status:'queued'}],chat_task:{draft,provider_key:'openai',model:'configured-model',prepared_at:'2030-01-01 00:00:00'}};
 let schedules=[],lostSchedule=true,firstScheduleRequest;
+let disconnected=false,schedulerHealth={state:'healthy',checked_at:'2030-01-01T16:00:10Z',last_tick_at:'2030-01-01T16:00:09Z',last_success_at:'2030-01-01T16:00:09Z',consecutive_failures:0};
 const html='<div id="chatComposerShell"><form id="chatForm"><textarea id="chatInput"></textarea><button type="submit">Send</button></form></div>';
 await page.route('http://a5c5.test/',r=>r.fulfill({contentType:'text/html',body:html}));
 await page.route('**/api/**',async route=>{
  const body=route.request().postDataJSON();calls.push(body);assert.equal(body.csrf_token,native?'owner':'fixture');
  const ok=value=>route.fulfill({json:{ok:true,...value}});
+ if(disconnected&&body.action==='list')return route.fulfill({status:503,json:{ok:false,error:'HomeServer unavailable'}});
  if(body.action==='task.prepare'){
   assert.equal(body.objective,mission.objective);assert.ok(body.request_id);
   if(native){assert.equal(body.conversation_id,'active-conversation');assert.equal(body.parent_agent_id,7);}else assert.equal(body.thread_id,77);
   if(failOnce){failOnce=false;return route.fulfill({status:503,json:{ok:false,error:'Lost preparation response'}});}
   return ok({mission});
  }
- if(body.action==='schedule.list')return ok({schedules});
+ if(body.action==='schedule.list')return ok({schedules,scheduler_health:schedulerHealth});
  if(body.action==='schedule.create'){
   assert.equal(body.confirmed,true);assert.equal(body.expected_revision,1);assert.equal(body.mission_id,mid);
   assert.deepEqual(body.timing,{frequency:'weekly',weekday:0,hour:9,minute:0,timezone:'America/Phoenix'});
@@ -76,5 +79,23 @@ try{
  assert.equal(await page.getByRole('button',{name:'Pause schedule',exact:true}).count(),0);
  await page.evaluate(()=>{const panel=document.createElement('div');document.body.appendChild(panel);VP3_AGENT_TEAMS_A3_BRAIN(panel);});
  assert.match(await page.locator('.vp3-schedules-brain').textContent(),/cancelled/);assert.match(await page.locator('.vp3-schedules-brain').textContent(),/Last run/);assert.match(await page.locator('.vp3-schedules-brain').textContent(),/completed/);
- assert.deepEqual(errors,[]);console.log('A5C6 browser PASS: '+(native?'HomeServer':'Cloud')+' reviewed schedule, confirmation, local timezone, persistent retry, pause/resume/cancel and timestamped Chat/Brain history');
+ assert.equal(await page.locator('.vp3-specialist-schedules [data-scheduler-state="healthy"]').count(),1);
+ assert.match(await page.locator('.vp3-schedules-brain').textContent(),/Last successful tick/);
+ // Interrupted missions, failed heartbeat and long inference are visible as text in both surfaces.
+ schedules[0].runs[0]={...schedules[0].runs[0],status:'blocked',mission_status:'waiting_review',needs_review:true,reason:'Dispatch failed <img src=x onerror=alert(1)>',long_running_workers:1};
+ schedulerHealth={...schedulerHealth,state:'degraded',consecutive_failures:1,last_error:'Database unavailable <img src=x onerror=alert(1)>',last_failure_at:'2030-01-01T16:00:11Z'};
+ await boot();await page.locator('[data-agent-teams-a3]').evaluate(node=>node.open=true);await page.waitForFunction(()=>document.querySelector('[data-scheduler-state="degraded"]'));
+ assert.match(await page.locator('.vp3-specialist-schedules').textContent(),/Needs review/);assert.match(await page.locator('.vp3-specialist-schedules').textContent(),/longer than five minutes/);
+ assert.equal(await page.locator('.vp3-specialist-schedules img').count(),0);
+ await page.evaluate(()=>{const panel=document.createElement('div');document.body.appendChild(panel);VP3_AGENT_TEAMS_A3_BRAIN(panel);});
+ assert.match(await page.locator('.vp3-schedules-brain').textContent(),/Scheduler needs attention/);
+ // Lost connection must never leave a cached green heartbeat on screen.
+ disconnected=true;await page.clock.fastForward(16000);
+ await page.waitForFunction(()=>document.querySelector('.vp3-specialist-schedules [data-scheduler-state="unavailable"]'));
+ assert.equal(await page.locator('.vp3-schedules-brain [data-scheduler-state="unavailable"]').count(),1);
+ disconnected=false;schedulerHealth={...schedulerHealth,state:'healthy',consecutive_failures:0};await page.clock.fastForward(16000);
+ await page.waitForFunction(()=>document.querySelector('.vp3-specialist-schedules [data-scheduler-state="healthy"]'));
+ schedulerHealth=null;await page.clock.fastForward(16000);
+ await page.waitForFunction(()=>document.querySelector('.vp3-specialist-schedules [data-scheduler-state="unavailable"]'));
+ assert.deepEqual(errors,[]);console.log('A5C6 browser PASS: '+(native?'HomeServer':'Cloud')+' reviewed schedules, durable retry, heartbeat, interruption review, slow workers, privacy-safe text and disconnect/reconnect');
 }finally{await browser.close();}
