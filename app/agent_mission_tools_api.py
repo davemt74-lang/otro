@@ -69,3 +69,15 @@ def app_changes(mission_id:str,identity:dict=Depends(authorized)):
 def app_review_change(mission_id:str,body:ReviewChange,identity:dict=Depends(authorized)):
     from .services import agent_mission_actions as changes
     return execute(changes.review,'app:'+identity['app_key'],mission_id,body.action_id,expected_hash=body.expected_hash,decision=body.decision,request_id=body.request_id,confirmed=body.confirmed)
+
+class RecoverChange(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    action_id:str=Field(min_length=36,max_length=36)
+    expected_hash:str=Field(pattern='^[0-9a-f]{64}$')
+    request_id:str=Field(min_length=36,max_length=36)
+    confirmed:bool=Field(strict=True)
+
+@router.post('/api/v1/control/agent-missions/{mission_id}/actions/recover')
+def owner_recover_change(mission_id:str,body:RecoverChange):
+    from .services import agent_mission_outcomes as outcomes
+    return execute(outcomes.recover,'owner',mission_id,body.action_id,expected_hash=body.expected_hash,request_id=body.request_id,confirmed=body.confirmed,local_owner=True)

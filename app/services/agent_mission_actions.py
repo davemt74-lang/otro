@@ -137,6 +137,7 @@ def list_actions(source, mid):
     approvals._expire_pending()
     with db() as conn:
         rows = conn.execute('SELECT a.*,r.status,r.arguments_json,r.expires_at,r.decided_at,r.executed_at,r.execution_tool_run_id FROM agent_mission_actions_v1 a JOIN action_requests r ON r.id=a.approval_id WHERE a.mission_id=? AND a.source_app_key=? ORDER BY a.created_at,a.task_id,a.ordinal', (mid, source)).fetchall()
+    outcome_map = {item['id']: item for item in snapshot.get('action_summaries', [])}
     output = []
     for row in rows:
         actionable = row['status'] == 'pending'
@@ -148,7 +149,7 @@ def list_actions(source, mid):
         output.append({key: row[key] for key in ('id', 'task_id', 'action_key', 'approval_id', 'payload_hash', 'status', 'created_at', 'expires_at', 'decided_at', 'executed_at', 'execution_tool_run_id')} |
                       {'arguments': {k: v for k, v in json.loads(row['arguments_json']).items() if not k.startswith('_')},
                        'can_approve': actionable, 'destination': 'VP3 Cloud (queued for sync)' if row['action_key'] == 'workspace.update' else 'HomeServer',
-                       'owner_review_required': True})
+                       'owner_review_required': True, **{k: v for k, v in outcome_map.get(row['id'], {}).items() if k not in ('id', 'task_id', 'action_key', 'status')}})
     return output
 
 
