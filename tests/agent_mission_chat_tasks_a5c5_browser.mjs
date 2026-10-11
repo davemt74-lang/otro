@@ -44,12 +44,12 @@ async function boot(){
 }
 try{
  await boot();
- await page.locator('#chatInput').fill('Ordinary message');await page.getByRole('button',{name:'Send',exact:true}).click();assert.equal(await page.evaluate(()=>ordinary),1);assert.equal(calls.length,0);
- await page.locator('#vp3ChatTaskMode').check();await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
+ await page.locator('#vp3ChatTaskMode').selectOption('chat');await page.locator('#chatInput').fill('Ordinary message');await page.getByRole('button',{name:'Send',exact:true}).click();assert.equal(await page.evaluate(()=>ordinary),1);assert.equal(calls.length,0);
+ await page.locator('#vp3ChatTaskMode').selectOption('specialists');await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.vp3-teams-status').textContent.includes('Lost preparation response'));
  const first=calls.find(c=>c.action==='task.prepare');assert.ok(first);assert.equal(await page.evaluate(()=>ordinary),1);
  assert.equal(await page.locator('#chatInput').inputValue(),mission.objective);
- await boot();await page.locator('#vp3ChatTaskMode').check();await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
+ await boot();await page.locator('#vp3ChatTaskMode').selectOption('specialists');await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.vp3-teams-status').textContent.startsWith('Plan prepared.'));
  const prepared=calls.filter(c=>c.action==='task.prepare');assert.equal(prepared.length,2);assert.equal(prepared[0].request_id,prepared[1].request_id,'Reload retains the exact task intent');
  assert.equal(await page.locator('.vp3-teams-detail img').count(),0);

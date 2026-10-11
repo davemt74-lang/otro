@@ -184,6 +184,7 @@ def get_mission(source: str, mid: str) -> dict:
     snapshot['action_summaries'], snapshot['completion_report'] = outcomes.assess(snapshot)
     with db() as conn:
         prepared = conn.execute('SELECT * FROM agent_mission_chat_tasks_v1 WHERE mission_id=?', (mid,)).fetchone()
+        routed = conn.execute('SELECT reason,created_at FROM agent_mission_chat_routes_v1 WHERE mission_id=?', (mid,)).fetchone()
     if prepared:
         try:
             from . import agent_mission_tool_contracts as contracts
@@ -193,7 +194,9 @@ def get_mission(source: str, mid: str) -> dict:
             snapshot['authority_current'] = False
     snapshot['chat_task'] = ({'draft': json.loads(prepared['draft_json']),
                              'provider_key': prepared['provider_key'], 'model': prepared['model'],
-                             'prepared_at': prepared['created_at']}
+                             'prepared_at': prepared['created_at'],
+                             'automatic_reason': routed['reason'] if routed else None,
+                             'decided_at': routed['created_at'] if routed else None}
                             if prepared and snapshot['authority_current'] else None)
     return snapshot
 
@@ -219,6 +222,9 @@ def create_mission(source: str, *, conversation_id: str, objective: str, client_
     except agent_routing.AgentRoutingError as exc:
         raise MissionError(str(exc), exc.status_code) from exc
     with db() as conn:
+        routed = conn.execute("SELECT 1 FROM agent_mission_chat_routes_v1 WHERE source_app_key=? AND request_id=?", (source, key)).fetchone()
+        if routed and not (preparation and preparation.get("automatic")):
+            raise MissionError("Request already belongs to automatic routing.", 409)
         existing = conn.execute(
             "SELECT id,objective,conversation_id,parent_agent_id FROM agent_missions_v1 WHERE source_app_key=? AND client_request_id=?",
             (source, key),
@@ -234,6 +240,9 @@ def create_mission(source: str, *, conversation_id: str, objective: str, client_
         # Scheduled preparation joins the caller-owned atomic run transaction.
         if not conn.in_transaction:
             conn.execute("BEGIN IMMEDIATE")
+        routed = conn.execute("SELECT 1 FROM agent_mission_chat_routes_v1 WHERE source_app_key=? AND request_id=?", (source, key)).fetchone()
+        if routed and not (preparation and preparation.get("automatic")):
+            raise MissionError("Request already belongs to automatic routing.", 409)
         existing = conn.execute(
             "SELECT id,objective,conversation_id,parent_agent_id FROM agent_missions_v1 WHERE source_app_key=? AND client_request_id=?",
             (source, key),
