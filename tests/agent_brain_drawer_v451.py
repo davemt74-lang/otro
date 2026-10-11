@@ -1,10 +1,11 @@
 """Section 31A Agent Brain drawer contract; no new repair execution endpoint."""
 from pathlib import Path
+import re
 ROOT=Path(__file__).resolve().parents[1]
 page=(ROOT/"ui/index.html").read_text(encoding="utf-8")
 script=(ROOT/"ui/agent-brain-drawer.js").read_text(encoding="utf-8")
 style=(ROOT/"ui/agent-brain-drawer.css").read_text(encoding="utf-8")
-assert '<script src="/assets/agent-brain-drawer.js" defer></script>' in page
+assert re.search(r'<script src="/assets/agent-brain-drawer\.js(?:\?v=[^\"]+)?" defer></script>', page)
 assert page.index('/assets/brain.js') < page.index('/assets/agent-brain-drawer.js')
 for expected in (
     '/api/v1/control/health',
@@ -27,7 +28,7 @@ assert 'max-width:100vw' in style
 assert 'translateX(105%)' in style
 for page in ("tasks.html","system.html","remote.html"):
     text=(ROOT/"ui"/page).read_text(encoding="utf-8")
-    assert '<script src="/assets/agent-brain-drawer.js" defer></script>' in text,page
+    assert re.search(r'<script src="/assets/agent-brain-drawer\.js(?:\?v=[^\"]+)?" defer></script>', text),page
     assert text.index('/assets/universal-shell-v220.js') < text.index('/assets/agent-brain-drawer.js'),page
 assert '/assets/agent-brain-drawer.js' not in (ROOT/"ui"/"member.html").read_text(encoding="utf-8")
 assert 'CHAT_DRAFT_KEY' in script
