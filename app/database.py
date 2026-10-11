@@ -33,6 +33,7 @@ FEATURE_SCHEMA_PATHS = (
     ROOT_DIR / "database" / "agent_mission_chat_tasks.sql",
     ROOT_DIR / "database" / "agent_mission_chat_routes.sql",
     ROOT_DIR / "database" / "agent_mission_schedules.sql",
+    ROOT_DIR / "database" / "agent_mission_progress.sql",
     ROOT_DIR / "database" / "runtime_certification.sql",
     ROOT_DIR / "database" / "governed_recordings.sql",
     ROOT_DIR / "database" / "local_transcription_sessions.sql",

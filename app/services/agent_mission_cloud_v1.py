@@ -86,6 +86,7 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
             "started_at": task.get("started_at"),
             "completed_at": task.get("completed_at"),
             "read_calls_used": task.get("read_calls_used", 0),
+            "activity": task.get("activity") if allowed else None,
         }
         if detailed:
             # A validated structured draft must remain complete JSON. The
@@ -111,6 +112,7 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
         "authority_current": bool(raw.get('authority_current', True)),
         "action_summaries": raw.get('action_summaries',[]) if allowed else [],
         "completion_report": raw.get('completion_report') if allowed else None,
+        "progress": raw.get("progress") if allowed else None,
         "chat_task": raw.get('chat_task') if allowed and raw.get('authority_current', True) else None,
         "contract": CONTRACT,
     }
@@ -142,6 +144,14 @@ def _supervisor_projection(raw: dict, mission_snapshot: dict) -> dict:
 
 
 def execute(action: str, body: dict) -> dict:
+    if action in ('progress.feed','notifications.list','notifications.read'):
+        from . import agent_mission_progress as progress
+        if action == 'progress.feed':
+            result = progress.feed('app:vp3')
+            result['items'] = [_projection(item, detailed=True) for item in result['items']]
+        elif action == 'notifications.list': result = {'notifications':progress.notifications('app:vp3')}
+        else: result = {'notifications':progress.mark_read('app:vp3',body.get('notice_id'))}
+        return {'ok':True,'contract':CONTRACT,**result}
     if action.startswith('schedule.'):
         from . import agent_mission_schedules as schedules
         source = 'app:vp3'

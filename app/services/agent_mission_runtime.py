@@ -32,10 +32,13 @@ def _id() -> str:
 
 
 def _event(conn, mid: str, kind: str, tid: str | None = None, detail: dict | None = None) -> None:
-    conn.execute(
+    cursor = conn.execute(
         "INSERT INTO agent_mission_events_v1(mission_id,task_id,kind,metadata_json) VALUES(?,?,?,?)",
         (mid, tid, kind, json.dumps(detail or {}, separators=(",", ":"))),
     )
+
+    from . import agent_mission_progress
+    agent_mission_progress.record(conn, cursor.lastrowid, mid, kind, tid, detail or {})
 
 
 def _route(source: str, conversation: str) -> tuple[str, str, bool]:
@@ -198,7 +201,8 @@ def get_mission(source: str, mid: str) -> dict:
                              'automatic_reason': routed['reason'] if routed else None,
                              'decided_at': routed['created_at'] if routed else None}
                             if prepared and snapshot['authority_current'] else None)
-    return snapshot
+    from . import agent_mission_progress
+    return agent_mission_progress.attach(snapshot)
 
 
 def _assert_same_request(previous, objective: str, conversation_id: str, agent_id: int) -> None:
@@ -333,6 +337,8 @@ def _perform(mid: str, tid: str, lease: str) -> None:
         if coordinated:
             output, key, model = orchestration.execute(str(mission['source_app_key']), mid, tid, lease, previous)
         else:
+            from . import agent_mission_progress
+            agent_mission_progress.touch(mid, tid, lease, 'composing')
             output, key, model = _model_only(mid, mission, task, tid, previous)
         output = output[:30000]
     except Exception as exc:
@@ -393,9 +399,10 @@ def _commit_model_only(mid, tid, lease, task, status, output, error, key, model)
             _finalize(conn, mid)
 
 
-def interrupt_for_review(mid: str, reason: str, *, task_id=None, lease=None) -> bool:
+def interrupt_for_review(mid: str, reason: str, *, task_id=None, lease=None, stale_before=None) -> bool:
     """Fence uncertain work now; stale futures cannot interrupt a resumed lease."""
     reasons = {
+        'worker_stalled': 'No specialist progress was observed within five minutes. Review before resuming.',
         'dispatch_failed': 'Worker dispatch failed. Review the run before resuming.',
         'worker_failed': 'Worker execution was interrupted. Review the run before resuming.',
     }
@@ -406,6 +413,11 @@ def interrupt_for_review(mid: str, reason: str, *, task_id=None, lease=None) -> 
         if task_id is not None and not conn.execute(
             "SELECT 1 FROM agent_mission_tasks_v1 WHERE id=? AND mission_id=? AND lease_id=? AND status='running'",
             (task_id, mid, lease),
+        ).fetchone():
+            return False
+        if stale_before is not None and not conn.execute(
+            "SELECT 1 FROM agent_mission_tasks_v1 t LEFT JOIN agent_mission_progress_v1 p ON p.task_id=t.id AND p.lease_id=t.lease_id WHERE t.id=? AND t.mission_id=? AND t.lease_id=? AND t.status='running' AND COALESCE(p.updated_at,t.started_at,t.created_at)<=?",
+            (task_id, mid, lease, stale_before),
         ).fetchone():
             return False
         changed = conn.execute(
@@ -541,11 +553,14 @@ def cancel_mission(source: str, mid: str) -> dict:
     if mission["status"] in ("completed", "partial", "failed", "cancelled"):
         return mission
     with db() as conn:
-        conn.execute(
+        conn.execute('BEGIN IMMEDIATE')
+        changed = conn.execute(
             "UPDATE agent_missions_v1 SET status='cancelled',completed_at=CURRENT_TIMESTAMP "
             "WHERE id=? AND source_app_key=? AND status IN ('planned','running','waiting_review')",
             (mid, source),
         )
+        if not changed.rowcount:
+            return get_mission(source, mid)
         conn.execute(
             "UPDATE agent_mission_tasks_v1 SET status='cancelled',lease_id=NULL "
             "WHERE mission_id=? AND status IN ('queued','running')", (mid,),

@@ -39,7 +39,7 @@ function btn(name,action,id,taskId){const x=el('button','',name);x.type='button'
 function fmt(value){if(!value)return '—';const raw=String(value).trim();
  const valueUtc=/(Z|[+-]\d\d:\d\d)$/.test(raw)?raw:raw.replace(' ','T')+'Z';
  const parsed=new Date(valueUtc);return Number.isNaN(parsed.getTime())?raw:parsed.toLocaleString();}
-function setBusy(value){busy=Boolean(value);if(busy)viewGeneration++;submit.disabled=busy;root.querySelectorAll('button[data-action]').forEach(b=>b.disabled=busy);}
+function setBusy(value){busy=Boolean(value);if(busy)viewGeneration++;submit.disabled=busy;root.querySelectorAll('button[data-action]').forEach(b=>b.disabled=busy);document.querySelectorAll('.vp3-mission-notice button,.vp3-mission-live-card button').forEach(b=>b.disabled=busy);}
 function say(message){status.textContent=String(message);}
 async function api(action,extra,signal){
  const response=await fetch(String(cfg.endpoint),{method:'POST',credentials:'same-origin',cache:'no-store',signal,
@@ -175,13 +175,89 @@ async function scheduleOperation(action,id){
  finally{setBusy(false);}
 }
 
+
+// A5C8: one durable feed updates Chat, Brain and notification surfaces.
+let missionNotices={items:[],unread:0},progressInflight=false,progressConnected=false,progressReceived=0;
+const noticeHost=el('section','vp3-mission-notifications');noticeHost.setAttribute('aria-label','Mission notifications');
+root.querySelector('.vp3-teams-body').insertBefore(noticeHost,list);
+const liveSummary=el('section','vp3-mission-live-summary');liveSummary.setAttribute('aria-label','Live mission progress');liveSummary.setAttribute('aria-live','polite');
+shell.insertBefore(liveSummary,root);
+function progressState(m){
+ if(!progressConnected||Date.now()-progressReceived>30000)return 'disconnected';
+ return m.progress?.state||m.status||'unknown';
+}
+const progressLabels={running:'Working',awaiting_review:'Awaiting assignment review',awaiting_approval:'Awaiting edit approval',waiting_review:'Review required',stalled:'Stalled · review required',interrupted:'Interrupted · review required',blocked:'Permissions need review',completed:'Research completed',partial:'Partially completed',failed:'Failed',cancelled:'Cancelled',planned:'Awaiting review',disconnected:'Disconnected · last known status'};
+function missionProgress(m){return progressLabels[progressState(m)]||progressState(m);}
+function workerProgress(t){
+ const a=t.activity;
+ return (a?.stage||t.status||'queued')+' · Last activity '+fmt(a?.last_activity_at||t.completed_at||t.started_at);
+}
+function renderLiveSummary(){
+ liveSummary.replaceChildren();
+ const active=items.filter(m=>['running','waiting_review','planned'].includes(m.status)||m.progress?.state==='awaiting_approval');
+ liveSummary.hidden=!active.length;
+ for(const m of active.slice(0,4)){
+  const card=el('article','vp3-mission-live-card');card.dataset.missionId=m.id;card.dataset.progressState=progressState(m);
+  card.appendChild(el('strong','',missionProgress(m)+' · '+(m.objective||'Mission')));
+  card.appendChild(el('small','',String(m.progress?.completed_workers??(m.tasks||[]).filter(t=>t.status==='completed').length)+' / '+(m.tasks||[]).length+' specialists completed · '+fmt(m.progress?.checked_at||m.updated_at)));
+  for(const t of m.tasks||[])card.appendChild(el('p','vp3-teams-meta',(t.title||t.role||'Specialist')+' · '+workerProgress(t)));
+  const open=btn('Open mission','open-team-chat',m.id);open.addEventListener('click',e=>{e.stopPropagation();operation('open-team-chat',m.id);});card.appendChild(open);liveSummary.appendChild(card);
+ }
+}
+function renderNotices(host){
+ if(!host)return;
+ host.replaceChildren();host.appendChild(el('h4','','Mission notifications'));
+ const state=el('p','vp3-teams-meta',(progressConnected&&Date.now()-progressReceived<=30000?'Live updates':'Updates disconnected · showing last received notifications')+' · '+Number(missionNotices.unread||0)+(missionNotices.count_is_lower_bound?'+':'')+' unread');state.setAttribute('role','status');host.appendChild(state);
+ for(const n of (missionNotices.items||[]).slice(0,20)){
+  const row=el('article','vp3-mission-notice');row.dataset.noticeId=String(n.id);row.dataset.read=String(Boolean(n.read_at||n.resolved_at));
+  row.appendChild(el('strong','',n.title||'Mission update'));row.appendChild(el('small','',fmt(n.created_at)+(n.resolved_at?' · resolved':'')));
+  const open=btn('Open mission','open-team-chat',n.mission_id);open.addEventListener('click',e=>{e.stopPropagation();operation('open-team-chat',n.mission_id);});row.appendChild(open);
+  if(!n.read_at&&!n.resolved_at){const read=btn('Mark read','notifications.read',n.mission_id);read.addEventListener('click',e=>{e.stopPropagation();void markMissionNotice(n.id);});row.appendChild(read);}
+  host.appendChild(row);
+ }
+ if(!missionNotices.items?.length)host.appendChild(el('p','vp3-teams-empty','No mission notifications yet.'));
+}
+function publishProgress(){
+ renderNotices(noticeHost);renderLiveSummary();
+ window.dispatchEvent(new CustomEvent('vp3:mission-notifications',{detail:{unread:Number(missionNotices.unread||0),connected:progressConnected}}));
+ const nativeHost=document.getElementById('agentBrainMissionNotifications');if(nativeHost)renderNotices(nativeHost);
+ const brain=document.querySelector('[data-agent-teams-brain-a3]');if(brain?.parentNode)renderBrain(brain.parentNode);
+}
+window.VP3_AGENT_MISSION_NOTIFICATIONS=renderNotices;
+async function markMissionNotice(id){
+ if(busy)return;
+ setBusy(true);
+ try{const result=await api('notifications.read',{notice_id:id});missionNotices=result.notifications||missionNotices;publishProgress();}
+ catch(e){say(e.message||'Notification remains unread. Retry after reconnecting.');}
+ finally{setBusy(false);}
+}
+async function pollProgress(){
+ if(progressInflight||busy||document.hidden)return;
+ progressInflight=true;const generation=viewGeneration,context=JSON.stringify(taskContext());
+ const controller=new AbortController(),timer=window.setTimeout(()=>controller.abort(),26000);
+ try{
+  const response=await api('progress.feed',{},controller.signal);
+  if(busy||generation!==viewGeneration||context!==JSON.stringify(taskContext()))return;
+  if(!Array.isArray(response.items)||!response.notifications||!Array.isArray(response.notifications.items))throw new Error('Update HomeServer to enable live mission progress.');
+  items=response.items;missionNotices=response.notifications;progressReceived=Date.now();progressConnected=true;lastRefresh=Date.now();
+  for(const m of items){if(m.private||m.authority_current===false){toolsByMission.delete(m.id);toolDrafts.delete(m.id);changesByMission.delete(m.id);for(const key of liveByWorker.keys()){if(key.startsWith(m.id+'|')){liveByWorker.delete(key);browserByWorker.delete(key);}}}}
+  showList();const current=items.find(m=>m.id===selected);if(current&&(current.private||current.authority_current===false||!detail.contains(document.activeElement)))showMission(current);publishProgress();
+ }catch(e){
+  if(!busy&&generation===viewGeneration){progressConnected=false;if([401,403,419].includes(e.status)){items=[];missionNotices={items:[],unread:0};selected='';detail.replaceChildren();detail.hidden=true;toolsByMission.clear();toolDrafts.clear();changesByMission.clear();liveByWorker.clear();browserByWorker.clear();showList();}publishProgress();say('Mission updates disconnected. Last received status is shown; no work is replayed.');}
+ }finally{window.clearTimeout(timer);progressInflight=false;}
+}
+window.setInterval(pollProgress,5000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void pollProgress();});
+window.addEventListener('online',()=>void pollProgress());
+void pollProgress();
+
 function showList(){
  list.replaceChildren();
  if(!items.length){list.appendChild(el('p','vp3-teams-empty','No missions yet.'));return;}
  for(const item of items){
   const row=el('div','vp3-teams-item'),main=el('div','vp3-teams-item-main');
   main.appendChild(el('strong','',item.objective||'Mission'));
-  main.appendChild(el('small','',(item.status||'unknown')+' · '+fmt(item.updated_at||item.created_at)+' · '+(item.tasks||[]).length+' workers'));
+  main.appendChild(el('small','',missionProgress(item)+' · '+fmt(item.updated_at||item.created_at)+' · '+(item.tasks||[]).length+' workers'));
   row.appendChild(main);row.appendChild(btn(selected===item.id?'Viewing':'View','get',item.id));list.appendChild(row);
  }
 }
@@ -192,7 +268,7 @@ function showMission(m){
    .map(pane=>pane.dataset.browserWorker));
  selected=String(m.id||'');detail.hidden=false;detail.replaceChildren();
  detail.appendChild(el('h3','',m.objective||'Mission'));
- detail.appendChild(el('p','vp3-teams-meta',(m.status||'unknown')+' · '+fmt(m.updated_at||m.created_at)+' · Specialists prepare changes; saving requires your review'));
+ detail.appendChild(el('p','vp3-teams-meta',missionProgress(m)+' · '+fmt(m.updated_at||m.created_at)+' · Specialists prepare changes; saving requires your review'));
  const buttons=el('div','vp3-teams-actions');
  if(m.status==='planned'){buttons.appendChild(btn('Review specialist assignments','tools.get',selected));if(!m.chat_task||m.tools_configured)buttons.appendChild(btn('Start',m.tools_configured||toolsByMission.get(selected)?.configured?'tools.start':'start',selected));}
  if(m.status==='running')buttons.appendChild(btn('Pause','pause',selected));
@@ -210,7 +286,7 @@ function showMission(m){
  const workers=el('ol','vp3-teams-workers');
  (m.tasks||[]).forEach(t=>{
   const li=el('li','');li.appendChild(el('strong','',t.title||t.role||'Worker'));
-  li.appendChild(el('small','',(t.role||'specialist')+' · '+(t.status||'queued')+(t.model?' · '+t.model:'')+' · '+fmt(t.completed_at||t.started_at)));
+  li.appendChild(el('small','',(t.role||'specialist')+' · '+workerProgress(t)+(t.model?' · '+t.model:'')));
   if(t.error)li.appendChild(el('p','vp3-teams-error',t.error));
   if(['failed','partial','waiting_review'].includes(m.status)&&['failed','interrupted'].includes(t.status)&&t.error!=='Dependency failed')li.appendChild(btn('Retry worker','retry',selected,t.id));
   li.appendChild(el('small','','Read calls used: '+(t.read_calls_used||0)+' · budgets include retries'));
@@ -438,7 +514,7 @@ function renderBrain(body){
   row.appendChild(el('strong','',m.objective||'Mission'));
   const owned=[...liveByWorker.entries()].some(([k,v])=>k.startsWith(m.id+'|')&&v?.owner_takeover?.mode==='owner');
   if(m.chat_task?.automatic_reason&&!m.private&&m.authority_current!==false)row.appendChild(el('p','vp3-teams-meta','Lead chose specialists: '+m.chat_task.automatic_reason+' · '+fmt(m.chat_task.decided_at)));
-  row.appendChild(el('small','',(m.status||'unknown')+' · '+fmt(m.updated_at||m.created_at)+' · '+(m.tasks||[]).length+' workers'+
+  row.appendChild(el('small','',missionProgress(m)+' · '+fmt(m.updated_at||m.created_at)+' · '+(m.tasks||[]).length+' workers'+
    (owned?' · Owner controlling browser':'')+
    ((staffingByMission.get(m.id)||[]).some(p=>p.status==='proposed')?' · Staffing approval needed':'')));
   renderCompletion(m,row);
@@ -446,7 +522,7 @@ function renderBrain(body){
    const view=liveByWorker.get(m.id+'|'+task.id);
    const worker=el('details','vp3-brain-worker');
    worker.appendChild(el('summary','',task.title||task.role||'Worker'));
-   worker.appendChild(el('p','vp3-teams-meta',(task.status||'queued')+' · '+fmt(view?.updated_at||task.started_at)));
+   worker.appendChild(el('p','vp3-teams-meta',workerProgress(task)));
    if(view){
     worker.appendChild(el('p','','Viewing: '+(view.page_title||'Untitled')+' · '+(view.current_url||'')));
     worker.appendChild(el('p','','Control: '+(view.owner_takeover?.mode||'agent')+' · Approval: '+(view.owner_takeover?.pending_form?.id?'form awaiting confirmation':view.proposed_action?.id||view.proposed_link?.id?'action awaiting approval':view.plan?.status==='running'?'approved read plan':'none pending')));
@@ -491,7 +567,7 @@ async function load(){
  if(inflight)return;
  inflight=true;
  try{
-  const result=await api('list');items=Array.isArray(result.items)?result.items:[];lastRefresh=Date.now();showList();await loadSchedules();
+  const result=await api('list');items=Array.isArray(result.items)?result.items:[];lastRefresh=Date.now();showList();renderLiveSummary();await loadSchedules();
   say('HomeServer connected · '+items.length+' recent mission'+(items.length===1?'':'s')+'.');
   if(selected&&items.some(x=>x.id===selected)){const current=await api('get',{mission_id:selected});if(current.mission){if(current.mission.chat_task&&current.mission.status==='planned'&&!current.mission.private&&current.mission.authority_current!==false){const tools=await api('tools.get',{mission_id:selected});toolsByMission.set(selected,tools.tools);}if(current.mission.tools_enabled&&!current.mission.private&&current.mission.authority_current!==false){const changes=await api('actions.list',{mission_id:selected});changesByMission.set(selected,Array.isArray(changes.actions)?changes.actions:[]);}showMission(current.mission);}
    try{await loadSupervision(selected);}catch(_){/* Mission status remains available if supervision is unsupported. */}}
@@ -780,8 +856,5 @@ async function pollBrowserStatus(){
  }catch(_){/* Preserve drafts on transient relay failures. */}finally{statusInflight=false;}
 }
 window.setInterval(pollBrowserStatus,9000);
-window.setInterval(()=>{
- if(document.hidden||!root.open||busy||Date.now()-lastRefresh<15000)return;
- load().catch(e=>say(e.message||'HomeServer unavailable.'));
-},15000);
+
 })();
