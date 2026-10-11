@@ -17,7 +17,7 @@ Scores cover implemented behavior and local acceptance checks. GitHub CI and Win
 
 ## Behavior and limits
 
-The foreground feed refreshes every five seconds and labels disconnected data as stale. It reports stages and elapsed activity, without fabricated percentage completion. Notifications are bounded and unread-first; large unread counts are marked as a lower bound. Local notices also appear in HomeServer Activity Center.
+The foreground feed refreshes every five seconds and labels disconnected data as stale. It reports stages and elapsed activity, without fabricated percentage completion. Notifications are bounded and unread-first; large unread counts are marked as a lower bound. Local notices also appear in HomeServer Activity Center. Cancelled or failed missions retire obsolete approval prompts while preserving their history.
 
 Recovery never automatically replays interrupted work. Owners review and authorize reexecution through existing controls. Cloud views remain subject to paired-app authority and conversation export settings.
 

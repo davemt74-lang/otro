@@ -75,6 +75,18 @@ with tempfile.TemporaryDirectory(prefix='a5c8-') as data:
  assert next(n for n in progress.notifications('owner')['items'] if n['mission_id']==interrupted['id'])['kind']=='mission.recovery_review_required'
  cancelled=make();mission.cancel_mission('owner',cancelled['id']);mission.cancel_mission('owner',cancelled['id'])
  assert sum(n['mission_id']==cancelled['id'] and n['kind']=='mission.cancelled' for n in progress.notifications('owner')['items'])==1
+ # Terminal interruption retires obsolete approval prompts, preserving their history.
+ for ending in ('cancelled','failed'):
+  stale=make();stid,slease=start_fake(stale)
+  with db() as conn:mission._event(conn,stale['id'],'worker.action_proposed',stid,{'action_id':uid()})
+  if ending=='cancelled':mission.cancel_mission('owner',stale['id'])
+  else:
+   with db() as conn:
+    conn.execute("UPDATE agent_missions_v1 SET status='failed' WHERE id=?",(stale['id'],))
+    mission._event(conn,stale['id'],'mission.failed')
+  history=[n for n in progress.notifications('owner')['items'] if n['mission_id']==stale['id']]
+  assert next(n for n in history if n['kind']=='worker.action_proposed')['resolved_at']
+  assert next(n for n in history if n['kind']=='mission.'+ending)['resolved_at'] is None
  # Source/privacy/permission fences apply to feed, notifications and read actions.
  cm=make('app:vp3');other=make('app:other')
  notices=cloud.execute('notifications.list',{})['notifications'];assert notices['items'] and all(n['mission_id']==cm['id'] for n in notices['items'])

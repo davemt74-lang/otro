@@ -59,6 +59,8 @@ def record(conn, event_id, mid, kind, tid, detail):
         conn.execute("UPDATE agent_mission_notices_v1 SET resolved_at=CURRENT_TIMESTAMP WHERE mission_id=? AND resolved_at IS NULL AND kind IN ('mission.planned','mission.paused','mission.recovery_review_required','mission.runtime_review_required','orchestration.authority_blocked')", (mid,))
     if kind in ('worker.action_approved','worker.action_denied','worker.action_failed','worker.action_outcome') and detail.get('action_id'):
         conn.execute("UPDATE agent_mission_notices_v1 SET resolved_at=CURRENT_TIMESTAMP WHERE mission_id=? AND kind='worker.action_proposed' AND resolved_at IS NULL AND event_id IN (SELECT id FROM agent_mission_events_v1 WHERE mission_id=? AND json_extract(metadata_json,'$.action_id')=?)", (mid,mid,detail['action_id']))
+    if kind in ('mission.cancelled', 'mission.failed'):
+        conn.execute("UPDATE agent_mission_notices_v1 SET resolved_at=CURRENT_TIMESTAMP WHERE mission_id=? AND kind='worker.action_proposed' AND resolved_at IS NULL", (mid,))
     conn.execute('UPDATE notifications SET dismissed_at=COALESCE(dismissed_at,CURRENT_TIMESTAMP) WHERE id IN (SELECT notification_id FROM agent_mission_notices_v1 WHERE mission_id=? AND resolved_at IS NOT NULL)', (mid,))
     if kind == 'worker.action_outcome' and detail.get('state') == 'verified':
         title, level = 'Specialist change saved and verified', 'success'
