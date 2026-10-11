@@ -20,7 +20,10 @@
     conversationRevision+=1;cancelChatTurn();
     window.HomeServerConversationVoice?.stop?.();
   }
-  window.HomeServerChatTurn=Object.freeze({isBusy:()=>Boolean(pendingChatTurn),cancel:cancelChatTurn});
+  window.HomeServerChatTurn=Object.freeze({isBusy:()=>Boolean(pendingChatTurn),cancel:cancelChatTurn,usePreparedConversation:id=>{
+    if(pendingChatTurn||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return false;
+    activeConversationId=id;setChatTitle();void loadConversations(false).catch(()=>{});return true;
+  }});
   window.addEventListener('pagehide',()=>cancelChatTurn());
   const byId = id => document.getElementById(id);
   const escapeHtml = (value = '') => String(value).replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));

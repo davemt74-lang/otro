@@ -49,43 +49,56 @@ async function api(action,extra,signal){
  if(!response.ok||!payload||!payload.ok){const error=new Error(String(payload&&(payload.detail||payload.error)||'Mission operation failed.').slice(0,240));error.status=response.status;throw error;}
  return payload;
 }
-// Explicit task mode uses the ordinary composer and preserves a lost-response intent.
-const chatInput=document.getElementById('chatInput');
-const taskMode=el('input');taskMode.type='checkbox';taskMode.id='vp3ChatTaskMode';
-const taskLabel=el('label','vp3-chat-task-mode','Use specialists · review the plan before tools run ');
-taskLabel.appendChild(taskMode);if(chatInput)shell.insertBefore(taskLabel,form);
-const taskStorageKey='vp3.chat-task.pending.a5c5.'+String(cfg.csrf);
+// Automatic routing preserves a lost-response intent before any dispatch.
+const chatInput=document.getElementById('chatInput'),chatSubmit=form.querySelector('button[type="submit"]');
+const taskMode=el('select');taskMode.id='vp3ChatTaskMode';taskMode.setAttribute('aria-label','Work mode');
+for(const [value,label] of [['automatic','Automatic'],['chat','Chat only'],['specialists','Specialist plan']]){const option=el('option','',label);option.value=value;taskMode.appendChild(option);}
+const taskLabel=el('label','vp3-chat-task-mode','Work mode ');taskLabel.appendChild(taskMode);if(chatInput)shell.insertBefore(taskLabel,form);
 function taskContext(){
 return {conversation_id:window.HomeServerAgentRouting?.getActiveConversationId?.()||null,parent_agent_id:window.HomeServerAgentRouting?.getSelectedAgentId?.()||null};
 }
+let directChatBypass=false;
 async function prepareChatTask(){
- if(busy||!chatInput)return;
- const objective=chatInput.value.trim();if(!objective||objective.length>4000){say('Enter a task request of 1 to 4,000 characters.');return;}
- const intent={objective,...taskContext()};let request;
+ if(busy||!chatInput||window.HomeServerChatTurn?.isBusy?.())return;
+ const objective=chatInput.value.trim();if(!objective||objective.length>4000){root.open=true;say('Enter a task request of 1 to 4,000 characters.');return;}
+ const mode=taskMode.value,intent={objective,...taskContext()},context=JSON.stringify(taskContext());
+ const taskStorageKey='vp3.chat-task.pending.a5c7.'+String(cfg.csrf)+'.'+mode+'.'+context;
+ let request;
  try{const stored=JSON.parse(sessionStorage.getItem(taskStorageKey)||'null');if(stored&&JSON.stringify(stored.intent)===JSON.stringify(intent))request=stored;}catch(_){}
- if(!request){const request_id=window.crypto?.randomUUID?.();if(!request_id){say('Secure request IDs are unavailable.');return;}request={intent,request_id};}
- // Persist before sending. Storage failure cannot start an unrecoverable operation.
- try{sessionStorage.setItem(taskStorageKey,JSON.stringify(request));}catch(_){say('Task recovery storage is unavailable. Enable session storage and retry.');return;}
- const controller=new AbortController(),timer=window.setTimeout(()=>controller.abort(),120000);
- setBusy(true);taskMode.disabled=true;chatInput.disabled=true;root.open=true;say('Lead agent is preparing specialist assignments…');
- window.dispatchEvent(new CustomEvent('homeserver:chat-turn',{detail:{requestId:'task:'+request.request_id,status:'started',conversationId:request.intent.conversation_id}}));
+ if(!request){const request_id=window.crypto?.randomUUID?.();if(!request_id){root.open=true;say('Secure request IDs are unavailable.');return;}request={intent,request_id};}
+ try{sessionStorage.setItem(taskStorageKey,JSON.stringify(request));}catch(_){root.open=true;say('Task recovery storage is unavailable. Enable session storage and retry.');return;}
+ const controller=new AbortController(),timer=window.setTimeout(()=>controller.abort(),120000),wasOpen=root.open;
+ let continueChat=false,turnStarted=false;
+ function turn(status,extra={}){window.dispatchEvent(new CustomEvent('homeserver:chat-turn',{detail:{requestId:'task:'+request.request_id,status,...extra}}));}
+ function startTurn(){if(!turnStarted){turnStarted=true;turn('started',{conversationId:request.intent.conversation_id});}}
+ function current(){if(context!==JSON.stringify(taskContext()))throw new Error('Conversation or lead changed. Return to the original conversation to retry.');}
+ setBusy(true);taskMode.disabled=true;chatInput.disabled=true;if(chatSubmit)chatSubmit.disabled=true;root.open=true;say(mode==='automatic'?'Lead agent is choosing how to help…':'Lead agent is preparing specialist assignments…');
+ if(mode==='specialists')startTurn();
  try{
-  const response=await api('task.prepare',{...request.intent,request_id:request.request_id},controller.signal);
-  const m=response.mission;if(!m?.id||!m.chat_task?.draft)throw new Error('Task preparation was not confirmed. Retry the same request.');
-  selected=m.id;const contract=await api('tools.get',{mission_id:m.id},controller.signal);
-  toolsByMission.set(m.id,contract.tools);if(!contract.tools.configured)toolDrafts.set(m.id,m.chat_task.draft);
-  const index=items.findIndex(x=>x.id===m.id);if(index>=0)items[index]=m;else items.unshift(m);
-  showList();showMission(m);sessionStorage.removeItem(taskStorageKey);chatInput.value='';
-  say('Plan prepared. Review and approve assignments, then start specialists. Each proposed edit requires separate approval.');
-  window.dispatchEvent(new CustomEvent('homeserver:chat-turn',{detail:{requestId:'task:'+request.request_id,status:'completed',reply:status.textContent}}));
- }catch(e){say((e.name==='AbortError'?'Task preparation timed out.':e.message||'Task preparation interrupted.')+' Your request remains available for retry.');window.dispatchEvent(new CustomEvent('homeserver:chat-turn',{detail:{requestId:'task:'+request.request_id,status:'failed',message:status.textContent}}));}
- finally{window.clearTimeout(timer);setBusy(false);taskMode.disabled=false;chatInput.disabled=false;}
+  const response=await api(mode==='automatic'?'task.route':'task.prepare',{...request.intent,request_id:request.request_id},controller.signal);
+  current();
+  if(mode==='automatic'&&response.route==='chat'){
+   if(response.conversation_id&&window.HomeServerChatTurn?.usePreparedConversation&&!window.HomeServerChatTurn.usePreparedConversation(response.conversation_id))throw new Error('Prepared conversation could not be selected. Retry the same request.');
+   sessionStorage.removeItem(taskStorageKey);continueChat=true;root.open=wasOpen;
+  }else{
+   if(mode==='automatic'&&response.route!=='specialists')throw new Error('Routing decision was not confirmed. Retry the same request.');
+   const m=response.mission;if(!m?.id||!m.chat_task?.draft)throw new Error('Task preparation was not confirmed. Retry the same request.');
+   const contract=await api('tools.get',{mission_id:m.id},controller.signal);current();
+   if(response.conversation_id&&window.HomeServerChatTurn?.usePreparedConversation&&!window.HomeServerChatTurn.usePreparedConversation(response.conversation_id))throw new Error('Prepared conversation could not be selected. Retry the same request.');
+   selected=m.id;toolsByMission.set(m.id,contract.tools);if(!contract.tools.configured)toolDrafts.set(m.id,m.chat_task.draft);
+   const index=items.findIndex(x=>x.id===m.id);if(index>=0)items[index]=m;else items.unshift(m);
+   showList();showMission(m);sessionStorage.removeItem(taskStorageKey);chatInput.value='';
+   say('Plan prepared. Review and approve assignments, then start specialists. Each proposed edit requires separate approval.');
+   startTurn();turn('completed',{reply:status.textContent});
+  }
+ }catch(e){root.open=true;say((e.name==='AbortError'?'Task preparation timed out.':e.message||'Task preparation interrupted.')+' Your request remains available for retry.');startTurn();turn('failed',{message:status.textContent});}
+ finally{window.clearTimeout(timer);setBusy(false);taskMode.disabled=false;chatInput.disabled=false;if(chatSubmit)chatSubmit.disabled=false;}
+ if(continueChat){directChatBypass=true;try{form.requestSubmit();}finally{directChatBypass=false;}}
 }
 form.addEventListener('submit',event=>{
- if(!taskMode.checked)return;
+ if(directChatBypass||taskMode.value==='chat'||(taskMode.value==='automatic'&&chatInput.value.trim().length>4000))return;
  event.preventDefault();event.stopImmediatePropagation();void prepareChatTask();
 },true);
-
 
 const schedulesPanel=el('section','vp3-specialist-schedules');schedulesPanel.setAttribute('aria-label','Scheduled specialist tasks');root.querySelector('.vp3-teams-body').appendChild(schedulesPanel);
 let schedules=[];
@@ -188,6 +201,7 @@ function showMission(m){
  buttons.appendChild(btn('Refresh','get',selected));detail.appendChild(buttons);
  if(m.authority_current===false)detail.appendChild(el('p','vp3-teams-error','Permissions changed. Results are hidden; prepare a new reviewed mission.'));
  if(m.chat_task&&m.status==='planned'&&!m.tools_configured&&!toolDrafts.has(m.id))toolDrafts.set(m.id,m.chat_task.draft);
+ if(m.chat_task?.automatic_reason&&!m.private&&m.authority_current!==false)detail.appendChild(el('p','vp3-teams-meta','Lead chose specialists: '+m.chat_task.automatic_reason+' · '+fmt(m.chat_task.decided_at)));
  if(m.chat_task&&!m.private&&m.authority_current!==false)detail.appendChild(el('p','vp3-teams-meta','Plan prepared '+fmt(m.chat_task.prepared_at)+' · '+m.chat_task.provider_key+' · '+m.chat_task.model+' · assignment review required before tools run'));
  renderAssignments(m);
  renderScheduleForm(m);
@@ -423,6 +437,7 @@ function renderBrain(body){
   const row=el('div','vp3-teams-brain-row');
   row.appendChild(el('strong','',m.objective||'Mission'));
   const owned=[...liveByWorker.entries()].some(([k,v])=>k.startsWith(m.id+'|')&&v?.owner_takeover?.mode==='owner');
+  if(m.chat_task?.automatic_reason&&!m.private&&m.authority_current!==false)row.appendChild(el('p','vp3-teams-meta','Lead chose specialists: '+m.chat_task.automatic_reason+' · '+fmt(m.chat_task.decided_at)));
   row.appendChild(el('small','',(m.status||'unknown')+' · '+fmt(m.updated_at||m.created_at)+' · '+(m.tasks||[]).length+' workers'+
    (owned?' · Owner controlling browser':'')+
    ((staffingByMission.get(m.id)||[]).some(p=>p.status==='proposed')?' · Staffing approval needed':'')));

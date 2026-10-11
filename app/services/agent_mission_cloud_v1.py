@@ -159,12 +159,21 @@ def execute(action: str, body: dict) -> dict:
         return {"ok": True, "contract": CONTRACT, "items": [
             _projection(row) for row in runtime.list_missions("app:vp3", int(count))
         ]}
-    if action in {"create", "task.prepare"}:
+    if action in {"create", "task.prepare", "task.route"}:
         objective = _bounded_string(body.get("objective"), "Mission objective", 4000)
         request_id = _bounded_string(body.get("request_id"), "Mission request ID", 128)
         # Important: claim model/mission authority through the source-scoped
         # runtime instead of owner routes or arbitrary Cloud conversation IDs.
         cid = _ensure_conversation(body.get("thread_id", 0), request_id, objective)
+        if action == 'task.route':
+            from . import agent_mission_chat_routes as chat_routes
+            if not _cloud_export_allowed({'conversation_id':cid}):
+                raise runtime.MissionError('Private routing decisions stay on HomeServer.',403)
+            result = chat_routes.route('app:vp3', conversation_id=cid, objective=objective, request_id=request_id)
+            if not _cloud_export_allowed({'conversation_id':cid}):
+                raise runtime.MissionError('Private routing decisions stay on HomeServer.',403)
+            if result.get('mission'): result['mission'] = _projection(result['mission'], detailed=True)
+            return {'ok':True,'contract':CONTRACT,**result}
         if action == 'task.prepare':
             from . import agent_mission_chat_tasks as chat_tasks
             created = chat_tasks.prepare('app:vp3', conversation_id=cid, objective=objective, request_id=request_id)

@@ -59,14 +59,14 @@ async function boot(){
  await page.evaluate(()=>{window.ordinary=0;document.querySelector('#chatForm').addEventListener('submit',e=>{e.preventDefault();window.ordinary++;});});
 }
 try{
- await boot();await page.locator('#vp3ChatTaskMode').check();await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
+ await boot();await page.locator('#vp3ChatTaskMode').selectOption('specialists');await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
  await page.getByRole('button',{name:'Create schedule',exact:true}).waitFor();
  assert.equal(calls.filter(c=>c.action==='schedule.create').length,0);
  await page.getByLabel('Schedule timezone',{exact:true}).fill('America/Phoenix');
  await page.getByRole('button',{name:'Create schedule',exact:true}).click();assert.equal(calls.filter(c=>c.action==='schedule.create').length,0);
  await page.evaluate(()=>window.confirm=()=>true);await page.getByRole('button',{name:'Create schedule',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.vp3-teams-status').textContent.includes('Lost schedule response'));
- await boot();await page.locator('#vp3ChatTaskMode').check();await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
+ await boot();await page.locator('#vp3ChatTaskMode').selectOption('specialists');await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
  await page.getByRole('button',{name:'Create schedule',exact:true}).waitFor();await page.getByLabel('Schedule timezone',{exact:true}).fill('America/Phoenix');await page.evaluate(()=>window.confirm=()=>true);await page.getByRole('button',{name:'Create schedule',exact:true}).click();
  await page.getByRole('button',{name:'Pause schedule',exact:true}).waitFor();
  assert.equal(calls.filter(c=>c.action==='schedule.create').length,2);assert.equal(schedules.length,1);

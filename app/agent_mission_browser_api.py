@@ -286,6 +286,10 @@ def owner_workspace(body: OwnerWorkspaceOperation):
             result=execute(schedules.change,row['source_app_key'],body.schedule_id,body.action.split('.')[1],request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed,local_owner=True)
         else: raise HTTPException(422,'Unsupported schedule operation.')
         return {'ok':True,'schedules':[result],'scheduler_health':schedules.health()}
+    if body.action=='task.route':
+        from .services import agent_mission_chat_routes as chat_routes
+        return {'ok':True,**execute(chat_routes.owner_route,objective=body.objective,
+            request_id=body.request_id,conversation_id=body.conversation_id,parent_agent_id=body.parent_agent_id)}
     if body.action=='task.prepare':
         from .services import agent_mission_chat_tasks as chat_tasks
         return {'ok':True,'mission':execute(chat_tasks.owner_prepare,objective=body.objective,

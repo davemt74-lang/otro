@@ -8,6 +8,7 @@ on:
       - 'database/agent_mission_actions.sql'
       - 'database/agent_mission_outcomes.sql'
       - 'database/agent_mission_chat_tasks.sql'
+      - 'database/agent_mission_chat_routes.sql'
       - 'database/agent_mission_schedules.sql'
       - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
@@ -22,6 +23,7 @@ on:
       - 'database/agent_mission_actions.sql'
       - 'database/agent_mission_outcomes.sql'
       - 'database/agent_mission_chat_tasks.sql'
+      - 'database/agent_mission_chat_routes.sql'
       - 'database/agent_mission_schedules.sql'
       - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
@@ -48,6 +50,8 @@ jobs:
         run: python tests/agent_mission_outcomes_a5c4.py
       - name: Chat-to-task preparation and verified completion
         run: python tests/agent_mission_chat_tasks_a5c5.py
+      - name: Automatic routing, authority and interrupted preparation recovery
+        run: python tests/agent_mission_chat_routes_a5c7.py
       - name: Reviewed scheduled tasks, duplicate prevention and recovery
         run: python tests/agent_mission_schedules_a5c6.py
       - name: Existing specialist and relay regressions
@@ -77,3 +81,5 @@ jobs:
         run: node tests/agent_mission_chat_tasks_a5c5_browser.mjs
       - name: Native scheduled specialist controls
         run: node tests/agent_mission_schedules_a5c6_browser.mjs
+      - name: Native automatic delegation browser acceptance
+        run: node tests/agent_mission_chat_routes_a5c7_browser.mjs
