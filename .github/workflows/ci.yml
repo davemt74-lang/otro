@@ -193,6 +193,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: A5C5 real Chat-to-task preparation and approved completion
         run: python tests/agent_mission_chat_tasks_a5c5.py
+      - name: Live mission progress, durable notices and stall recovery
+        run: python tests/agent_mission_progress_a5c8.py
       - name: Automatic lead routing and reviewed specialist preparation
         run: python tests/agent_mission_chat_routes_a5c7.py
       - name: Scheduled specialist tasks and recovery
@@ -959,7 +961,7 @@ jobs:
         shell: pwsh
         run: |
           $schema = (& python -c "from app.database import migration_files; print(max([1] + [version for version, _ in migration_files()]))").Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 76) {
+          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 77) {
             throw "HomeServer release manifest cannot verify its current migration version"
           }
           $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe')

@@ -243,6 +243,7 @@ def owner_browser_plan(mission_id: str,task_id: str,body: BrowserPlan):
 
 class OwnerWorkspaceOperation(BaseModel):
     action: str
+    notice_id: StrictInt | None = None
     mission_id: str | None = None
     task_id: str | None = None
     index: int | None = None
@@ -294,6 +295,11 @@ def owner_workspace(body: OwnerWorkspaceOperation):
         from .services import agent_mission_chat_tasks as chat_tasks
         return {'ok':True,'mission':execute(chat_tasks.owner_prepare,objective=body.objective,
             request_id=body.request_id,conversation_id=body.conversation_id,parent_agent_id=body.parent_agent_id)}
+    if body.action in ('progress.feed','notifications.list','notifications.read'):
+        from .services import agent_mission_progress as progress
+        if body.action == 'progress.feed': return {'ok':True,**execute(progress.feed,'owner',owner=True)}
+        if body.action == 'notifications.list': return {'ok':True,'notifications':execute(progress.notifications,'owner',owner=True)}
+        return {'ok':True,'notifications':execute(progress.mark_read,'owner',body.notice_id,owner=True)}
     if body.action=='list':
         with db() as conn:
             rows=conn.execute('SELECT id,source_app_key FROM agent_missions_v1 ORDER BY created_at DESC,id DESC LIMIT 8').fetchall()

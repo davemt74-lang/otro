@@ -44,7 +44,7 @@ async function boot(){
 }
 try{
  await boot();
- await page.locator('#vp3ChatTaskMode').selectOption('chat');await page.locator('#chatInput').fill('Ordinary message');await page.getByRole('button',{name:'Send',exact:true}).click();assert.equal(await page.evaluate(()=>ordinary),1);assert.equal(calls.length,0);
+ await page.locator('#vp3ChatTaskMode').selectOption('chat');await page.locator('#chatInput').fill('Ordinary message');await page.getByRole('button',{name:'Send',exact:true}).click();assert.equal(await page.evaluate(()=>ordinary),1);assert.equal(calls.filter(c=>c.action!=='progress.feed').length,0,'Chat only performs no task operation; the read-only live feed remains active');
  await page.locator('#vp3ChatTaskMode').selectOption('specialists');await page.locator('#chatInput').fill(mission.objective);await page.getByRole('button',{name:'Send',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.vp3-teams-status').textContent.includes('Lost preparation response'));
  const first=calls.find(c=>c.action==='task.prepare');assert.ok(first);assert.equal(await page.evaluate(()=>ordinary),1);

@@ -27,7 +27,7 @@
     toggle.setAttribute('aria-controls', 'agentBrainDrawer');
     toggle.setAttribute('aria-expanded', 'false');
     toggle.setAttribute('aria-label', 'Open Agent Brain');
-    toggle.innerHTML = '<span aria-hidden="true">✦</span><span class="agent-brain-toggle-label">Agent Brain</span><span id="agentBrainDrawerCount" aria-live="polite"></span>';
+    toggle.innerHTML = '<span aria-hidden="true">✦</span><span class="agent-brain-toggle-label">Agent Brain</span><span id="agentBrainDrawerCount" aria-live="polite"></span><span id="agentBrainMissionCount" aria-live="polite"></span>';
     const top = document.querySelector('.topbar .top-actions') || document.querySelector('.hs-v220-topbar .hs-v220-topbar-actions') || document.querySelector('.topbar');
     if (!top) return;
     top.prepend(toggle);
@@ -47,9 +47,12 @@
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Needs attention</h3><button id="agentBrainRefresh" type="button">Refresh</button></div><div id="agentBrainIssues" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Proactive maintenance</h3><button id="agentBrainActivity" type="button">Activity</button></div><div id="agentBrainAlerts" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
         <div class="agent-brain-drawer-section"><div class="agent-brain-section-head"><h3>Cloud synchronization</h3><button id="agentBrainCloudData" type="button">Cloud data</button></div><div id="agentBrainSync" class="agent-brain-issues" aria-live="polite">Loading…</div></div>
+        <section id="agentBrainMissionNotifications" class="agent-brain-drawer-section" aria-label="Mission notifications"></section>
         <div class="agent-brain-drawer-actions"><button id="agentBrainAsk" type="button" class="button primary">Discuss in Agent Chat</button><button id="agentBrainHealth" type="button" class="button secondary">Health workspace</button></div>
       </div>`;
     document.body.appendChild(drawer);
+    if(window.VP3_AGENT_MISSION_NOTIFICATIONS)window.VP3_AGENT_MISSION_NOTIFICATIONS($('agentBrainMissionNotifications'));
+    window.addEventListener('vp3:mission-notifications',event=>{const count=Math.max(0,Number(event.detail?.unread)||0);$('agentBrainMissionCount').textContent=count?String(count)+' mission updates':'';if(window.VP3_AGENT_MISSION_NOTIFICATIONS)window.VP3_AGENT_MISSION_NOTIFICATIONS($('agentBrainMissionNotifications'));});
     toggle.addEventListener('click', () => setOpen(!open));
     drawer.querySelector('.agent-brain-close').addEventListener('click', () => setOpen(false));
     $('agentBrainRefresh').addEventListener('click', () => explicitRefresh());

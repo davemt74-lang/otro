@@ -383,21 +383,27 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('#view-contacts').evaluate(node => node.classList.contains('active')), true, 'Startup preserves deep links');
   await page.locator('.primary-sidebar-nav [data-view="chat"]').click();
   await page.waitForFunction(() => document.querySelector('#view-chat.active'));
-  await page.evaluate(() => window.HOMESERVER_UNIVERSAL_SHELL_V220.refreshCloud());
+  // Isolate the shell poller from the full page's independent Cloud status poller.
+  // Keep the exact one-request assertion without counting unrelated timer traffic.
+  const cloudPage = await browser.newPage();
   let cloudRequests = 0;
-  await page.route('**/api/v1/control/cloud-connection', async route => {
+  await cloudPage.route(base + '/shell-poll-fixture', route => route.fulfill({contentType:'text/html',body:'<!doctype html><div id="hsV220CloudPill"></div>'}));
+  await cloudPage.route('**/api/v1/control/cloud-connection', async route => {
     cloudRequests++; await delay(150);
     await route.fulfill({json: {cloud: {state: 'offline'}, service: {version: '2.4'}}});
   });
-  await page.evaluate(() => Promise.all(Array.from({length: 20}, () => window.HOMESERVER_UNIVERSAL_SHELL_V220.refreshCloud())));
+  await cloudPage.goto(base + '/shell-poll-fixture');
+  await cloudPage.addScriptTag({content:await fs.readFile(path.join(root,'ui/universal-shell-v220.js'),'utf8')});
+  await cloudPage.waitForFunction(() => document.querySelector('#hsV220CloudPill').dataset.state === 'offline');
+  cloudRequests = 0;
+  await cloudPage.evaluate(() => Promise.all(Array.from({length: 20}, () => window.HOMESERVER_UNIVERSAL_SHELL_V220.refreshCloud())));
   assert.equal(cloudRequests, 1, 'Repeated cloud refreshes cannot overlap');
-  await page.evaluate(() => {
+  await cloudPage.evaluate(() => {
     Object.defineProperty(document, 'hidden', {configurable: true, value: true});
     return window.HOMESERVER_UNIVERSAL_SHELL_V220.refreshCloud();
   });
   assert.equal(cloudRequests, 1, 'Hidden-page refresh does no background work');
-  await page.evaluate(() => {delete document.hidden;});
-  await page.unroute('**/api/v1/control/cloud-connection');
+  await cloudPage.close();
   await page.evaluate(() => {
     const messages = document.getElementById('chatMessages');
     messages.style.scrollBehavior = 'auto';
