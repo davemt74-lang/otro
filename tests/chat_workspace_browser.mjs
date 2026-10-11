@@ -108,8 +108,12 @@ try {
 from app.runtime import app
 from app.security import OWNER_CONTROL_TOKEN
 from app.services import providers
-import uvicorn
-providers.generate_ollama = lambda messages, model_override=None: {'provider':'ollama', 'model':model_override or 'test-model', 'content':'Browser acceptance reply.'}
+import uvicorn, json
+def fixture_generate(messages, model_override=None):
+    routing = messages[0]['content'].startswith('You are the lead agent routing')
+    content = json.dumps({'route':'chat','reason':'The fixture can answer directly','plan':None}) if routing else 'Browser acceptance reply.'
+    return {'provider':'ollama', 'model':model_override or 'test-model', 'content':content}
+providers.generate_ollama = fixture_generate
 print('BROWSER_BOOTSTRAP ' + OWNER_CONTROL_TOKEN, flush=True)
 uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
 `], {cwd: root, env: {...process.env, HOMESERVER_DATA_DIR: dataDir, NO_PROXY: 'localhost,127.0.0.1'}});
@@ -174,6 +178,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#chatOptionsButton').evaluate(node => node === document.activeElement), true);
 
+  assert.equal(await page.locator('#vp3ChatTaskMode').inputValue(), 'automatic');
   await page.locator('#chatInput').fill('Browser acceptance message');
   await page.locator('#chatForm [type="submit"]').click();
   await page.waitForFunction(() => document.querySelector('#chatMessages')?.textContent.includes('Browser acceptance reply.'));

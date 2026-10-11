@@ -9,6 +9,7 @@ on:
       - 'database/migrations/07*_agent_mission*.sql'
       - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
+      - 'tests/chat_workspace_browser.mjs'
       - 'scripts/stage_browser_runtime.py'
       - 'installer/HomeServer.iss'
       - '.github/workflows/ci.yml'
