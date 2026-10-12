@@ -40,7 +40,7 @@ function btn(name,action,id,taskId){const x=el('button','',name);x.type='button'
 function fmt(value){if(!value)return '—';const raw=String(value).trim();
  const valueUtc=/(Z|[+-]\d\d:\d\d)$/.test(raw)?raw:raw.replace(' ','T')+'Z';
  const parsed=new Date(valueUtc);return Number.isNaN(parsed.getTime())?raw:parsed.toLocaleString();}
-function setBusy(value){busy=Boolean(value);if(busy)viewGeneration++;submit.disabled=busy;root.querySelectorAll('button[data-action]').forEach(b=>b.disabled=busy);document.querySelectorAll('.vp3-mission-notice button,.vp3-mission-live-card button').forEach(b=>b.disabled=busy);}
+function setBusy(value){busy=Boolean(value);if(busy)viewGeneration++;submit.disabled=busy;root.querySelectorAll('button[data-action]').forEach(b=>b.disabled=busy||b.dataset.browserBlocked==='true');document.querySelectorAll('.vp3-mission-notice button,.vp3-mission-live-card button').forEach(b=>b.disabled=busy);}
 function say(message){status.textContent=String(message);}
 async function api(action,extra,signal){
  const authorityAtRequest=authorityGeneration;
@@ -211,6 +211,7 @@ function renderScheduleList(parent=schedulesPanel){
 }
 function renderScheduleForm(m){
  const contract=toolsByMission.get(m.id);if(m.status!=='planned'||!m.chat_task||!contract?.configured||!contract.active||m.private||m.authority_current===false)return;
+ if((contract.browser_requirements||[]).length)return;
  const panel=el('section','vp3-schedule-create');panel.setAttribute('aria-label','Schedule reviewed task');panel.appendChild(el('h4','','Schedule this reviewed task'));
  const frequency=el('select');frequency.dataset.scheduleField='frequency';frequency.setAttribute('aria-label','Schedule frequency');
  for(const [value,label] of [['weekly','Weekly'],['daily','Daily']]){const option=el('option','',label);option.value=value;frequency.appendChild(option);}panel.appendChild(frequency);
@@ -299,7 +300,7 @@ window.VP3_AGENT_MISSION_NOTIFICATIONS=renderNotices;
 function clearPrivateMissionState(){
  authorityGeneration++;viewGeneration++;
  items=[];missionNotices={items:[],unread:0};selected='';progressConnected=false;
- detail.replaceChildren();detail.hidden=true;
+ detail.replaceChildren();detail.hidden=true;const diagnostic=root.querySelector('.vp3-integration-diagnostic');if(diagnostic){diagnostic.replaceChildren();diagnostic.hidden=true;}
  for(const cache of [toolsByMission,toolDrafts,changesByMission,staffingByMission,liveByWorker,browserByWorker,pendingOperations])cache.clear();
  followupReview=null;followupRetry=null;followupHost.replaceChildren();followupHost.hidden=true;storeFollowup();
  schedules=[];schedulerHealth=null;healthReceivedAt=0;renderScheduleList();
@@ -353,7 +354,7 @@ function showMission(m){
  detail.appendChild(el('h3','',m.objective||'Mission'));
  detail.appendChild(el('p','vp3-teams-meta',missionProgress(m)+' · '+fmt(m.updated_at||m.created_at)+' · Specialists prepare changes; saving requires your review'));
  const buttons=el('div','vp3-teams-actions');
- if(m.status==='planned'){buttons.appendChild(btn('Review specialist assignments','tools.get',selected));if(!m.chat_task||m.tools_configured)buttons.appendChild(btn('Start',m.tools_configured||toolsByMission.get(selected)?.configured?'tools.start':'start',selected));}
+ if(m.status==='planned'){buttons.appendChild(btn('Review specialist assignments','tools.get',selected));if(!m.chat_task||m.tools_configured){const start=btn('Start',m.tools_configured||toolsByMission.get(selected)?.configured?'tools.start':'start',selected);const needs=toolsByMission.get(selected)?.browser_requirements||[];start.disabled=needs.some(r=>!r.ready||!r.expires_at||Date.parse(r.expires_at.replace(' ','T')+'Z')<=Date.now());start.dataset.browserBlocked=String(start.disabled);buttons.appendChild(start);}}
  if(m.status==='running')buttons.appendChild(btn('Pause','pause',selected));
  if(m.status==='waiting_review')buttons.appendChild(btn('Resume (rerun interrupted)','resume',selected));
  if(['planned','running','waiting_review'].includes(m.status))buttons.appendChild(btn('Cancel','cancel',selected));
@@ -378,6 +379,7 @@ function showMission(m){
   if(t.result){const exp=el('details','vp3-teams-result');exp.appendChild(el('summary','','Worker result'));
    let text=t.result;try{const out=JSON.parse(text);if(out.kind&&out.body)text=out.title+'\n\n'+out.body+'\n\nEvidence IDs: '+(out.citations||[]).join(', ');}catch(_){}
    exp.appendChild(el('pre','',text));li.appendChild(exp);}
+  for(const source of t.browser_sources||[]){try{const url=new URL(source.url);if(url.protocol!=='https:'||url.username||url.password)continue;const evidence=el('p','vp3-browser-source');const link=el('a','',source.title||url.hostname);link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';evidence.appendChild(link);evidence.appendChild(el('small','',' · '+source.citation_id+' · '+fmt(source.captured_at)));li.appendChild(evidence);}catch(_){}}
   const browser=el('details','vp3-worker-browser');
   browser.dataset.browserWorker=t.id;
   browser.open=openBrowsers.has(t.id);
@@ -408,6 +410,8 @@ function showMission(m){
   entry.setAttribute('aria-label','Approved HTTPS page for '+(t.title||'worker'));
   entry.dataset.browserTask=t.id;
   entry.maxLength=1400;
+  const assignment=((toolsByMission.get(m.id)?.configured?toolsByMission.get(m.id)?.assignments:toolDrafts.get(m.id)||m.chat_task?.draft)?.assignments||[]).find(a=>a.task_id===t.id);
+  if(assignment?.browser_url){entry.value=assignment.browser_url;area.appendChild(el('p','vp3-teams-meta','Proposed research website: '+assignment.browser_url+' · separate origin approval required.'));}
   if(state&&state.current_url)entry.value=state.current_url;
   area.appendChild(entry);
   const actions=el('div','vp3-teams-actions');
@@ -701,6 +705,7 @@ function renderAssignments(m){
  panel.appendChild(el('h4','','Specialist assignments'));
  panel.appendChild(el('p','','Review revision '+contract.revision+' · '+(contract.active?'expires '+fmt(contract.expires_at):'a fresh review is required')+'. Read budgets are cumulative across retries. Outputs are model generated and require your review.'));
  if(m.status!=='planned'){detail.appendChild(panel);return;}
+ for(const r of contract.browser_requirements||[]){const row=el('p','vp3-browser-requirement',r.origin+' · '+(r.ready?'Website approved until '+fmt(r.expires_at):'Website approval required before Start'));row.dataset.browserRequirement=r.task_id;panel.appendChild(row);}
  const draft=toolDrafts.get(m.id)||contract.assignments||{};
  const field=(node,key,tid,value)=>{node.dataset.toolField=key;if(tid)node.dataset.toolTask=tid;node.value=String(value);return node;};
  const label=(text,node)=>{const x=el('label','',text+' ');x.appendChild(node);return x;};
@@ -729,7 +734,14 @@ function assignmentDraft(){
  return value;
 }
 root.addEventListener('input',event=>{if(event.target.dataset.toolField){const draft=assignmentDraft();if(draft)toolDrafts.set(selected,draft);}});
+function renderDiagnostic(report){
+ const area=root.querySelector('.vp3-integration-diagnostic');area.replaceChildren();area.hidden=false;area.appendChild(el('h4','','Installed integration diagnostic'));area.appendChild(el('p','',report.ready?'Checks are ready.':'Some installed checks need review.'));
+ for(const c of [...(report.checks||[]),...(report.homeserver?.checks||[])]){const row=el('p','',c.key+' · '+c.status+' · '+c.detail+(c.next_action?' '+c.next_action:''));area.appendChild(row);}
+ area.appendChild(el('small','','Checked '+fmt(report.checked_at)+' · read-only · no model tokens or repairs.'));
+}
+const diagnosticHost=el('section','vp3-integration-diagnostic');diagnosticHost.hidden=true;root.querySelector('.vp3-teams-body').appendChild(btn('Check integration','diagnostics.get'));root.querySelector('.vp3-teams-body').appendChild(diagnosticHost);
 async function operation(action,id,taskId,decision){
+ if(action==='diagnostics.get'){if(busy)return;setBusy(true);say('Checking installed integration…');try{const r=await api(action);renderDiagnostic(r.diagnostics);say('Integration diagnostic complete.');}catch(e){diagnosticHost.replaceChildren();diagnosticHost.hidden=true;say(e.message);}finally{setBusy(false);}return;}
  if(action.startsWith('schedule.'))return scheduleOperation(action,id);
  if(action==='open-team-chat'){root.open=true;root.scrollIntoView({block:'nearest'});if(id)operation('get',id,taskId);return;}
  if(busy)return;

@@ -195,6 +195,11 @@ def get_mission(source: str, mid: str) -> dict:
                 task[field] = ''
     from . import agent_mission_outcomes as outcomes
     snapshot['action_summaries'], snapshot['completion_report'] = outcomes.assess(snapshot)
+    with db() as conn:
+        for task in snapshot['tasks']:
+            task['browser_sources'] = [dict(r) for r in conn.execute(
+                'SELECT call_id AS citation_id,url,title,captured_at FROM agent_mission_browser_sources_v11 WHERE mission_id=? AND task_id=? ORDER BY captured_at,call_id LIMIT 3',
+                (mid, task['id']))] if snapshot['authority_current'] else []
     snapshot['chat_task'] = ({'draft': json.loads(prepared['draft_json']),
                              'provider_key': prepared['provider_key'], 'model': prepared['model'],
                              'prepared_at': prepared['created_at'],

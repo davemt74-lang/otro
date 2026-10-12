@@ -56,15 +56,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 928283d47c8a279d55459f1c9f060e5fca331471
+          ref: 34fa46c6ad0bb8d75a28bd60998a85ee601bf222
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
           extensions: pdo_sqlite
           coverage: none
+      - name: Verify complete source capability outline
+        run: |
+          python scripts/build_agent_capability_outline.py --cloud-root _certification/cloud --output _certification/outline
+          diff docs/Agent-Skills-and-Tools-A5C11.json _certification/outline/Agent-Skills-and-Tools-A5C11.json
+          diff docs/Agent-Skills-and-Tools-A5C11.md _certification/outline/Agent-Skills-and-Tools-A5C11.md
       - name: Cross-system mission lifecycle and production receipt recovery
         run: python tests/agent_mission_lifecycle_a5c10.py --cloud-root _certification/cloud
+      - name: Reviewed Chat browser research and paired integration diagnostics
+        run: python tests/agent_mission_browser_chat_a5c11.py --cloud-root _certification/cloud
       - name: Live mission progress, durable notices and stall recovery
         run: python tests/agent_mission_progress_a5c8.py
       - name: Automatic routing, authority and interrupted preparation recovery
@@ -107,3 +114,6 @@ jobs:
 
       - name: Native lifecycle completion and all-surface revocation
         run: node tests/agent_mission_lifecycle_a5c10_browser.mjs
+
+      - name: Native browser research grants, citations and diagnostics
+        run: node tests/agent_mission_browser_chat_a5c11_browser.mjs

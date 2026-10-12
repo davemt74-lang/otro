@@ -270,6 +270,9 @@ class OwnerWorkspaceOperation(BaseModel):
 
 @router.post('/api/v1/control/agent-browser-workspaces')
 def owner_workspace(body: OwnerWorkspaceOperation):
+    if body.action == 'diagnostics.get':
+        from .services import agent_integration_diagnostics as diagnostics
+        return {'ok':True, 'diagnostics':execute(diagnostics.inspect, 'owner')}
     # OwnerGateway protects this local route. Resolve the actual source here;
     # never elevate a paired app's permission when operating its workspace.
     if body.action.startswith('schedule.'):

@@ -13,6 +13,12 @@ from .tasks import TaskError, create_task, list_notifications, list_tasks
 TOOL_EXECUTE_PERMISSION = "tools.execute"
 
 TOOL_DEFINITIONS: dict[str, dict[str, Any]] = {
+    'integration.diagnostics': {
+        'key':'integration.diagnostics','name':'Inspect Cloud and HomeServer Integration',
+        'description':'Read installed schema, browser readiness, pairing/sync status, and available tools/skills without model usage, private record reads or repairs.',
+        'mode':'read','owner_only':True,'required_permissions':[],
+        'input_schema':{'type':'object','properties':{},'additionalProperties':False},
+    },
     "workspace.get": {
         "key":"workspace.get", "name":"Read Synced Record for Editing",
         "description":"Owner-only read of a synced Cloud contact, personal knowledge item or calendar event. Returns exact source key, revision and supported fields before proposing a change.",
@@ -951,7 +957,7 @@ SKILL_DEFINITIONS: tuple[dict[str, Any], ...] = (
         "key": "homeserver.health",
         "name": "HomeServer Health & Repair",
         "description": "Diagnose HomeServer health and map issues only to existing governed repair actions.",
-        "tools": ["health.status", "health.repair-plan", "storage.status", "backups.status", "apps.status"],
+        "tools": ["health.status", "health.repair-plan", "storage.status", "backups.status", "apps.status", "integration.diagnostics"],
     },
 )
 
@@ -1645,6 +1651,14 @@ def _runtime_diagnostics(arguments: dict[str, Any]) -> tuple[dict[str, Any], dic
         raise ToolError("runtime.diagnostics accepts no arguments.")
     state=runtime_diagnostics.inventory(probe=False)
     return state,{"check_count":len(state["checks"]),"summary":state["summary"],"certified":False}
+
+
+def _integration_diagnostics(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    if arguments:
+        raise ToolError('integration.diagnostics accepts no arguments.')
+    from . import agent_integration_diagnostics
+    state=agent_integration_diagnostics.inspect('owner')
+    return state,{'check_count':len(state['checks']),'ready':state['ready'],'read_only':True}
 
 
 def _health_issue(arguments: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -2350,6 +2364,8 @@ def execute_tool(source_app_key: str, tool_key: str, arguments: dict[str, Any] |
             result, result_meta = _health_status(payload)
         elif tool["key"] == "runtime.diagnostics":
             result, result_meta = _runtime_diagnostics(payload)
+        elif tool['key'] == 'integration.diagnostics':
+            result, result_meta = _integration_diagnostics(payload)
         elif tool["key"] == "health.issue":
             result, result_meta = _health_issue(payload)
         elif tool["key"] == "health.repair-plan":
