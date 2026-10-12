@@ -52,6 +52,19 @@ jobs:
         run: python tests/agent_mission_chat_tasks_a5c5.py
       - name: Chat follow-up commands, exact reviews and mission continuity
         run: python tests/agent_mission_followups_a5c9.py
+      - name: Check out the certified Cloud counterpart
+        uses: actions/checkout@v4
+        with:
+          repository: davemt74-lang/software
+          ref: 928283d47c8a279d55459f1c9f060e5fca331471
+          path: _certification/cloud
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite
+          coverage: none
+      - name: Cross-system mission lifecycle and production receipt recovery
+        run: python tests/agent_mission_lifecycle_a5c10.py --cloud-root _certification/cloud
       - name: Live mission progress, durable notices and stall recovery
         run: python tests/agent_mission_progress_a5c8.py
       - name: Automatic routing, authority and interrupted preparation recovery
@@ -91,3 +104,6 @@ jobs:
         run: node tests/agent_mission_progress_a5c8_browser.mjs
       - name: Native chat follow-up review and continuity
         run: node tests/agent_mission_followups_a5c9_browser.mjs
+
+      - name: Native lifecycle completion and all-surface revocation
+        run: node tests/agent_mission_lifecycle_a5c10_browser.mjs

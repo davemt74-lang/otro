@@ -174,11 +174,26 @@ def _assess(snapshot):
     waiting, attention = sum(counts[k] for k in WAITING), sum(counts[k] for k in ATTENTION)
     workers_pending = any(t['status'] in ('queued', 'running', 'paused') for t in snapshot['tasks'])
     workers_failed = sum(t['status'] in ('failed', 'blocked') for t in snapshot['tasks'])
+    workers_interrupted = sum(t['status'] == 'interrupted' for t in snapshot['tasks'])
     state = 'in_progress' if workers_pending else 'awaiting_review' if counts['awaiting_review'] else 'awaiting_delivery' if waiting else 'attention' if attention or workers_failed else 'complete'
     if snapshot['status'] in ('cancelled', 'paused'):
         state = snapshot['status']
+    elif snapshot['status'] == 'waiting_review' or workers_interrupted:
+        state = 'interrupted'
+    elif snapshot['status'] == 'failed':
+        state = 'attention'
+    next_action = ('Review specialist assignments before starting.' if snapshot['status'] == 'planned' else
+                   {'interrupted': 'Review interrupted work before authorizing reexecution.',
+                    'paused': 'Review the mission before resuming.',
+                    'awaiting_review': 'Review each exact proposed change.',
+                    'awaiting_delivery': 'Wait for delivery and refresh its receipt; review any blocked delivery.',
+                    'attention': 'Review failed work or changes that could not be verified.',
+                    'in_progress': 'Wait for specialists to finish.',
+                    'cancelled': 'No further work will run. Previously saved changes remain saved.',
+                    'complete': 'No owner action is required.'}[state])
     report = {'state': state, 'total_changes': len(output), 'verified_changes': counts['verified'], 'waiting_changes': waiting,
               'attention_changes': attention, 'rejected_changes': counts['rejected'], 'cancelled_changes': counts['cancelled'], 'failed_workers': workers_failed,
+              'interrupted_workers': workers_interrupted, 'next_action': next_action,
               'execution_verified': bool(output) and counts['verified'] == len(output),
               'summary': f"{counts['verified']} of {len(output)} changes verified; {waiting} waiting; {attention} need attention; {counts['rejected']} rejected; {counts['cancelled']} cancelled. {workers_failed} workers failed.",
               'actions': [{'action_id': r['id'], 'task_id': r['task_id'], 'state': r['outcome_state'], 'checked_at': r['checked_at']} for r in output],
