@@ -61,7 +61,8 @@ def record(conn, event_id, mid, kind, tid, detail):
         conn.execute("UPDATE agent_mission_notices_v1 SET resolved_at=CURRENT_TIMESTAMP WHERE mission_id=? AND resolved_at IS NULL AND kind IN ('mission.planned','chat.scope_prepared','mission.paused','mission.recovery_review_required','mission.runtime_review_required','orchestration.authority_blocked')", (mid,))
     if kind in ('chat.command_applied','chat.command_dismissed') and detail.get('request_id'):
         conn.execute("UPDATE agent_mission_notices_v1 SET resolved_at=CURRENT_TIMESTAMP WHERE mission_id=? AND kind='chat.command_proposed' AND resolved_at IS NULL AND event_id IN (SELECT id FROM agent_mission_events_v1 WHERE mission_id=? AND json_extract(metadata_json,'$.request_id')=?)",(mid,mid,detail['request_id']))
-    if kind in ('worker.action_approved','worker.action_denied','worker.action_failed','worker.action_outcome') and detail.get('action_id'):
+    if (kind in ('worker.action_approved','worker.action_denied','worker.action_failed','worker.action_outcome')
+            and detail.get('action_id') and not (kind == 'worker.action_outcome' and detail.get('state') == 'awaiting_review')):
         conn.execute("UPDATE agent_mission_notices_v1 SET resolved_at=CURRENT_TIMESTAMP WHERE mission_id=? AND kind='worker.action_proposed' AND resolved_at IS NULL AND event_id IN (SELECT id FROM agent_mission_events_v1 WHERE mission_id=? AND json_extract(metadata_json,'$.action_id')=?)", (mid,mid,detail['action_id']))
     if kind == 'worker.action_outcome' and detail.get('action_id'):
         conn.execute("UPDATE agent_mission_notices_v1 SET resolved_at=CURRENT_TIMESTAMP WHERE mission_id=? AND kind='worker.action_outcome' AND resolved_at IS NULL AND event_id IN (SELECT id FROM agent_mission_events_v1 WHERE mission_id=? AND json_extract(metadata_json,'$.action_id')=?)", (mid,mid,detail['action_id']))

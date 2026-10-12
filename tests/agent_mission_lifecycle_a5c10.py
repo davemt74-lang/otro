@@ -187,6 +187,8 @@ function homeserver_https_v1300_queue($user,$op,$payload){
         request('tools.start', mission_id=mid, request_id=uid(), expected_revision=1, confirmed=True)
         assert entered.wait(20), 'Second worker did not start'
         change = request('actions.list', mission_id=mid)['actions'][0]
+        pending_notices = request('notifications.list')['notifications']['items']
+        assert any(n['mission_id'] == mid and n['kind'] == 'worker.action_proposed' and not n['resolved_at'] for n in pending_notices), 'An unapproved edit must keep its approval notice active'
         exact = {'mission_id': mid, 'action_id': change['id'], 'expected_hash': change['payload_hash'], 'decision': 'approve', 'request_id': uid(), 'confirmed': True}
         request('actions.review', **exact)
         assert contacts.get_contact(contact['id'])['organization'] == 'Example Studios'
