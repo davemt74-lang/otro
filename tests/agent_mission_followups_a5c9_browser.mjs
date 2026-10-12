@@ -32,13 +32,17 @@ await page.route('**/api/**',async r=>{
  if(b.action==='list'||b.action==='decisions')return ok({items:[]});
  return ok({items:[]});
 });
-async function boot(){
- await page.goto('http://a5c9.test/');await page.evaluate(()=>{
+async function boot(requestIds=true){
+ await page.goto('http://a5c9.test/');await page.evaluate(requestIds=>{
+  Object.defineProperty(window.crypto,'randomUUID',{configurable:true,value:requestIds?()=> '55555555-5555-4555-8555-'+String(Math.floor(Math.random()*1e12)).padStart(12,'0'):undefined});
   window.VP3_AGENT_TEAMS_A3={endpoint:'/api/missions',csrf:'fixture'};window.STONEFELLOW_CHAT_CONTINUITY={conversationId:()=>window.fixtureThread||77};window.HomeServerAgentRouting={getActiveConversationId:()=>window.fixtureCid||'a'.repeat(32),getSelectedAgentId:()=>window.fixtureLead||7};window.HomeServerChatTurn={isBusy:()=>false,usePreparedConversation:()=>true};window.confirm=()=>false;
- });await page.addStyleTag({content:css});await page.addScriptTag({content:script});
+ },requestIds);await page.addStyleTag({content:css});await page.addScriptTag({content:script});
 }
 async function submit(text){await page.locator('#chatInput').fill(text);await page.locator('#chatForm button[type=submit]').click();await page.locator('.vp3-mission-followup').waitFor({state:'visible'});}
 try{
+ await boot(false);await page.locator('#chatInput').fill('Cancel contact cleanup');await page.locator('#chatForm button[type=submit]').click();
+ await page.waitForFunction(()=>document.querySelector('.vp3-teams-status').textContent.includes('Secure request IDs are unavailable'));
+ assert.equal(calls.filter(c=>c.action==='task.route'||c.action==='task.followup.decide').length,0,'Missing secure IDs must never issue commands');
  await boot();await submit('Cancel contact cleanup');
  assert.match(await page.locator('.vp3-mission-followup').textContent(),/Choose the mission/);
  assert.equal(calls.filter(c=>c.action==='task.followup.decide').length,0);
