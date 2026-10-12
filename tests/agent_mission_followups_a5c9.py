@@ -188,5 +188,17 @@ with tempfile.TemporaryDirectory(prefix='a5c9-') as data:
    reject(lambda:routes.owner_route(objective='Bad command',request_id=uid(),conversation_id='chat-two'),502)
  initialize_database()
  assert follow._row('owner',scoped['request_id'])['state']=='applied'
+ # Revised scope must plan within the current owner-defined tool budget.
+ agent_tools.save_policy(True,1,True)
+ budgeted=prepare('Budgeted contact review',cid='chat-two')
+ budget_review=command('scope',target='Budgeted contact review',objective='Only review missing email',cid='chat-two')
+ assert budget_review['status']=='proposed' and budget_review['plan']['tasks'][0]['max_calls']==1
+ assert 'Max separate calls/proposals per worker: 1.' in observed[-1][0]['content'],'Scope planner advertised a budget exceeding the owner policy'
+ original_calls=scope_plan['tasks'][0]['max_calls'];scope_plan['tasks'][0]['max_calls']=2
+ try:
+  reject(lambda:command('scope',target='Budgeted contact review',objective='Review remaining records',cid='chat-two'),403)
+ finally:scope_plan['tasks'][0]['max_calls']=original_calls
+ assert mission.get_mission('owner',budgeted['id'])['status']=='planned'
+ agent_tools.save_policy(True,3,True)
  if mission._pool:mission._pool.shutdown(wait=True)
  print('A5C9 PASS: actual save, late-result fencing, transactional commands and notices, exact review retries, interrupted reexecution, retained results, scope successor, duplicate-edit protection, ambiguous selection, cross-conversation/source/privacy fences, expiry and restart persistence')

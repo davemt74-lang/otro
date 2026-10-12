@@ -31,3 +31,5 @@ The A5C8 transport corrections were independently reviewed, tested through the r
 | Release integrity | Authentic schema-77 upgrade, all A5C1–A5C9 regressions, fresh browser suites, certified Windows installer/upgrade, green merges and source/provenance/checksum verification. |
 
 Scores are assigned only against the completed evidence. Backend and HTTP gates run locally; browser and Windows gates run in CI because this local environment blocks Chromium startup sockets. No release is considered 10/10 while a required gate is pending or failing.
+
+Scope planning advertises the current owner-defined call/proposal budget. Acceptance reproduces the prior hard-coded limit mismatch, validates a one-call scope plan, and rejects an over-budget generated plan without changing the original mission.
