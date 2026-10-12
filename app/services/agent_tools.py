@@ -9,6 +9,7 @@ from ..database import db
 from . import action_policy, approvals, app_scopes, maintenance_conversation, plugins, tools
 
 MODEL_TOOL_NAMES = {
+    'homeserver_integration_diagnostics': 'integration.diagnostics',
     "homeserver_workspace_get": "workspace.get",
     "homeserver_workspace_search": "workspace.search",
     "homeserver_health_status": "health.status",

@@ -19,7 +19,7 @@ on:
 
 concurrency:
   group: homeserver-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -82,7 +82,7 @@ jobs:
           current_tree=tree(os.environ['SOURCE_COMMIT'])
           assert tree(manifest['source_commit'])==current_tree,'Compiled tree differs from merged tree'
           assert manifest['packaged_browser_certified'] is True and manifest['browser_section']=='A5B4'
-          assert manifest['mission_lifecycle_section']=='A5C10'
+          assert manifest['mission_lifecycle_section']=='A5C11'
           for name in ('HomeServer.exe','HomeServerSetup.exe'):
               with (root/name).open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==manifest['files'][name],name+' hash mismatch'
           browser_root=root/'tools'/'browser'
@@ -200,7 +200,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 928283d47c8a279d55459f1c9f060e5fca331471
+          ref: 34fa46c6ad0bb8d75a28bd60998a85ee601bf222
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -209,6 +209,8 @@ jobs:
           coverage: none
       - name: Cross-system mission lifecycle and production receipt recovery
         run: python tests/agent_mission_lifecycle_a5c10.py --cloud-root _certification/cloud
+      - name: Reviewed Chat browser research and paired integration diagnostics
+        run: python tests/agent_mission_browser_chat_a5c11.py --cloud-root _certification/cloud
       - name: Live mission progress, durable notices and stall recovery
         run: python tests/agent_mission_progress_a5c8.py
       - name: Automatic lead routing and reviewed specialist preparation
@@ -977,7 +979,7 @@ jobs:
         shell: pwsh
         run: |
           $schema = (& python -c "from app.database import migration_files; print(max([1] + [version for version, _ in migration_files()]))").Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 78) {
+          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 79) {
             throw "HomeServer release manifest cannot verify its current migration version"
           }
           $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe')
@@ -996,7 +998,7 @@ jobs:
           $manifest = [ordered]@{
             format = 'vp3-os-release-v1'
             version = '2.4'
-            mission_lifecycle_section = 'A5C10'
+            mission_lifecycle_section = 'A5C11'
             channel = 'stable'
             minimum_schema_version = 38
             current_schema_version = [int]$schema
@@ -1020,7 +1022,7 @@ jobs:
             managed_browser_runtime = 'tools/browser/manifest.json'
             packaged_browser_certified = $true
             files = $hashMap
-            release_notes = 'A5C10 mission lifecycle hardening: accurate interrupted-work and delivery outcomes, explicit owner next actions, privacy cache clearing, stale-response fences and certified cross-system recovery.'
+            release_notes = 'A5C11 reviewed Chat browser research, durable source citations, read-only Cloud/HomeServer/Chrome integration diagnostics and certified recovery.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution

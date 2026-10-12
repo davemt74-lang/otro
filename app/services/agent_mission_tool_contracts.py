@@ -100,13 +100,34 @@ def validate(value, snapshot, available, action_available=()):
     return {'max_parallel':parallel,'assignments':normalized}
 
 
+def browser_requirements(source, snapshot, assignments):
+    from .agent_browser_policy import parse_url
+    requirements = []
+    with db() as conn:
+        for entry in assignments.get('assignments', []):
+            if 'browser.read' not in entry.get('tools', []):
+                continue
+            url = entry.get('browser_url', '')
+            origin = parse_url(url)[2] if url else ''
+            row = conn.execute("SELECT approved_origin,status,expires_at,datetime(expires_at)>datetime('now') AS active FROM agent_mission_browser_v1 WHERE mission_id=? AND task_id=? AND source_app_key=?",
+                               (snapshot['id'], entry['task_id'], source)).fetchone()
+            ready = bool(row and row['active'] and row['status'] in ('approved', 'capturing') and origin and row['approved_origin'] == origin)
+            requirements.append({'task_id': entry['task_id'], 'url': url, 'origin': origin,
+                                 'ready': ready, 'status': row['status'] if row else 'approval_required',
+                                 'expires_at': row['expires_at'] if row else None})
+    return requirements
+
+
 def get(source, mid):
     from . import agent_mission_actions as actions
     snapshot=mission.get_mission(source,mid)
     authority(source,snapshot)
     with db() as conn:
         row=conn.execute('SELECT *,datetime(expires_at)>datetime(\'now\') AS active FROM agent_mission_tool_contracts_v1 WHERE mission_id=? AND source_app_key=?',(mid,source)).fetchone()
+    assignments = json.loads(row['contract_json']) if row else (snapshot.get('chat_task') or {}).get('draft', {})
+    requirements = browser_requirements(source, snapshot, assignments)
     return {'contract':CONTRACT,'mission_id':mid,'configured':bool(row),'execution_enabled':bool(snapshot.get('tools_enabled')),'orchestrator_available':True,
+            'browser_requirements':requirements,'browser_ready':all(r['ready'] for r in requirements),
             'capabilities':capabilities(source,mid),'max_calls_per_worker':MAX_CALLS,
             'action_capabilities':actions.capabilities(source,snapshot),'max_actions_per_worker':MAX_CALLS,
             'revision':row['revision'] if row else 0,'expires_at':row['expires_at'] if row else None,

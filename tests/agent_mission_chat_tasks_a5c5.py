@@ -79,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix='a5c5-') as data:
  actions.review('owner',record['id'],change['id'],expected_hash=change['payload_hash'],decision='approve',request_id=approved_id,confirmed=True)
  with db() as conn:assert conn.execute('SELECT count(*) FROM federated_contact_mutations').fetchone()[0]==1
  assert mission.get_mission('owner',record['id'])['completion_report']['execution_verified']
- for mutation,code in [(lambda p:p['tasks'][1].update(actions=['contacts.delete']),422),(lambda p:p['tasks'][1].update(tools=[],max_calls=0),502),(lambda p:p['tasks'][0].update(tools=['browser.read']),403),(lambda p:p.update(max_parallel=5),422),(lambda p:p['tasks'][1].update(depends_on=[1]),422),(lambda p:p['tasks'][0].update(secret='unsupported'),502)]:
+ for mutation,code in [(lambda p:p['tasks'][1].update(actions=['contacts.delete']),422),(lambda p:p['tasks'][1].update(tools=[],max_calls=0),502),(lambda p:p['tasks'][0].update(tools=['browser.read']),502),(lambda p:p.update(max_parallel=5),422),(lambda p:p['tasks'][1].update(depends_on=[1]),422),(lambda p:p['tasks'][0].update(secret='unsupported'),502)]:
   override=copy.deepcopy(template);mutation(override);deny(lambda:chat.owner_prepare(objective=objective,request_id=uid()),code)
  override=None
  deny(lambda:chat.owner_prepare(objective=objective,request_id='not-a-uuid'),422)

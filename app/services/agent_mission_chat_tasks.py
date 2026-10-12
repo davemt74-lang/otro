@@ -16,7 +16,7 @@ def validate_plan(source, conversation_id, value):
     entries = value['tasks']
     tasks = mission.validate_plan(entries)
     required = {'role', 'title', 'objective', 'instructions', 'depends_on', 'tools', 'max_calls', 'actions', 'max_actions', 'output'}
-    if any(set(e) != required for e in entries):
+    if any(not required.issubset(e) or set(e) - required - {'browser_url'} for e in entries):
         raise mission.MissionError('Task plan contains unsupported fields.', 502)
     read_for_update = {'contacts.update': 'contacts.search', 'knowledge.update': 'knowledge.search',
                        'tasks.update': 'tasks.list', 'calendar.update': 'calendar.list',
@@ -27,13 +27,15 @@ def validate_plan(source, conversation_id, value):
         if any(read_for_update.get(key) not in entry['tools'] for key in entry['actions']
                if type(key) is str and key in read_for_update):
             raise mission.MissionError('Record updates require an assigned investigation read.', 502)
+        if 'browser.read' in entry['tools'] and not entry.get('browser_url'):
+            raise mission.MissionError('Browser research needs a proposed public HTTPS URL for separate owner review.', 502)
     draft = {'max_parallel': value['max_parallel'], 'assignments': [
         {'task_id': str(i), 'tools': e['tools'], 'max_calls': e['max_calls'], 'actions': e['actions'],
-         'max_actions': e['max_actions'], 'output': e['output'], 'browser_url': ''}
+         'max_actions': e['max_actions'], 'output': e['output'], 'browser_url': e.get('browser_url', '')}
         for i, e in enumerate(entries)]}
     snapshot['tasks'] = [{'id': str(i), 'position': i} for i in range(len(tasks))]
     # Recheck permissions after inference; no proposed assignment is approved here.
-    reads = [k for k in contracts.capabilities_for_snapshot(source, snapshot) if k != 'browser.read']
+    reads = contracts.capabilities_for_snapshot(source, snapshot)
     writes = actions.capabilities(source, snapshot)
     draft = contracts.validate(draft, snapshot, reads, writes)
     return tasks, draft
@@ -67,7 +69,7 @@ def prepare(source, *, conversation_id, objective, request_id, parent_agent_id=N
             raise mission.MissionError('Request belongs to a different or inaccessible task.', 409)
         return result
     snapshot = {'conversation_id': conversation_id, 'tasks': []}
-    reads = [k for k in contracts.capabilities_for_snapshot(source, snapshot) if k != 'browser.read']
+    reads = contracts.capabilities_for_snapshot(source, snapshot)
     writes = actions.capabilities(source, snapshot)
     budget = min(contracts.MAX_CALLS, agent_tools.get_policy()['max_calls'])
     prompt = (
@@ -75,7 +77,11 @@ def prepare(source, *, conversation_id, objective, request_id, parent_agent_id=N
         'Split the request into 1 to 4 specialists with dependencies on earlier zero-based indices. '
         'Assign only the listed capabilities. Reads investigate actual records; actions prepare exact '
         'changes for separate human approval. Never invent missing contact details. Include a read '
-        'capability for any record-edit investigation. No browser, messages, deletes or payments. '
+        'capability for any record-edit investigation. Browser research uses browser.read and an additional '
+        'browser_url containing one proposed public HTTPS read URL. A website is only a proposal; separate '
+        'owner origin approval is required before any page opens. Do not invent URLs or facts. If no website '
+        'is supplied or supported by current evidence, prepare record investigation first. Never place '
+        'private record content in URLs. No messages, deletes, payments, login or form submission. '
         'Stay within the request; use empty capabilities when none are needed. '
         f'Available reads: {json.dumps(reads)}. Available proposals: {json.dumps(writes)}. '
         f'Maximum separate read and proposal budgets: {budget}. '

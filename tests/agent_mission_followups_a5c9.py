@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix='a5c9-') as data:
  with db() as conn:
   assert conn.execute('SELECT mission_id,reason FROM agent_mission_chat_routes_v1 WHERE request_id=?',(legacy_request,)).fetchone()['mission_id']==legacy_id
   assert conn.execute('SELECT objective FROM agent_missions_v1 WHERE id=?',(legacy_id,)).fetchone()[0]=='Preserve work'
-  assert conn.execute('SELECT max(version) FROM schema_migrations').fetchone()[0]==78
+  assert conn.execute('SELECT max(version) FROM schema_migrations').fetchone()[0]==79
  agent_tools.save_policy(True,3,True)
  def uid():return str(uuid.uuid4())
  def reject(fn,code):

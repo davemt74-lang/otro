@@ -87,6 +87,7 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
             "completed_at": task.get("completed_at"),
             "read_calls_used": task.get("read_calls_used", 0),
             "activity": task.get("activity") if allowed else None,
+            "browser_sources": task.get("browser_sources", []) if allowed else [],
         }
         if detailed:
             # A validated structured draft must remain complete JSON. The
@@ -145,6 +146,9 @@ def _supervisor_projection(raw: dict, mission_snapshot: dict) -> dict:
 
 
 def execute(action: str, body: dict) -> dict:
+    if action == 'diagnostics.get':
+        from . import agent_integration_diagnostics as diagnostics
+        return {'ok':True, 'contract':CONTRACT, 'diagnostics':diagnostics.inspect('app:vp3')}
     if action in ('task.followup.get','task.followup.select','task.followup.decide'):
         from . import agent_mission_followups as followups
         if action=='task.followup.get': result=followups._view('app:vp3',followups._row('app:vp3',body.get('request_id')))

@@ -164,6 +164,8 @@ def capabilities() -> dict:
     return {
         "service": settings.app_name,
         "version": settings.version,
+        "agent_mission_browser_tasks": {"section":"A5C11", "minimum_schema_version":79,
+                                        "separate_origin_approval":True, "source_citations":True},
         "pairing_protocol": "claim-v1",
         "local_bridge": True,
         "capability_registry": {"version": "v0.33", "operation": "capability.registry", "authenticated": True},
