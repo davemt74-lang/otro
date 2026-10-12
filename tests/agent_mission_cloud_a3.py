@@ -45,11 +45,8 @@ with tempfile.TemporaryDirectory(prefix="vp3-missions-cloud-a3-") as data:
     def call(action,body=None,bearer=token):
         return remote_bridge.dispatch_remote_request("agent.missions."+action,body or {},bearer)
 
-    try:
-        call("list",{},other_token)
-        raise AssertionError("Non-VP3 app unexpectedly accessed missions.")
-    except remote_bridge.RemoteBridgeError:
-        pass
+    rejected=call("list",{},other_token)
+    assert rejected['status']==403 and rejected['ok'] is False,rejected
 
     first=call("create",{"thread_id":731,"objective":"Compare providers","request_id":"a3-request-00000001"})
     assert first["ok"],first
@@ -107,10 +104,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-missions-cloud-a3-") as data:
 
     with db() as conn:
         conn.execute("UPDATE app_permissions SET allowed=0 WHERE paired_app_id=? AND permission='agent.chat'",(ids["vp3"],))
-    try:
-        call("list")
-        raise AssertionError("Revocation did not block relay.")
-    except remote_bridge.RemoteBridgeError:
-        pass
+    rejected=call("list")
+    assert rejected['status']==403 and rejected['ok'] is False,rejected
     runtime.shutdown()
     print("MISSION_CLOUD_A3 PASS: canonical paired-app authorization, conversation mapping, idempotency, projection, execution, events, revocation")

@@ -514,7 +514,12 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
     body = payload if isinstance(payload, dict) else {}
     if _payload_size(body) > settings.max_remote_bridge_message_bytes:
         raise RemoteBridgeError("Remote request payload is too large.")
-    token = _require_token(op, bearer_token)
+    try:
+        token = _require_token(op, bearer_token)
+    except RemoteBridgeError as exc:
+        if op.startswith('agent.missions.'):
+            return {"status": 403, "ok": False, "payload": {"detail": str(exc)}}
+        raise
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     base_url = f"http://{settings.host}:{settings.port}"
 
@@ -1125,11 +1130,16 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
         if op.startswith("agent.missions."):
             # Cloud command surface is reserved for the canonical paired VP3 app
             # with a current agent.chat grant. Never route through owner endpoints.
-            identity = _direct_identity(token, {"agent.chat"})
-            if str(identity.get("app_key") or "") != "vp3":
-                raise RemoteBridgeError("Cloud missions require a paired VP3 identity.")
+            try:
+                identity = _direct_identity(token, {"agent.chat"})
+                if str(identity.get("app_key") or "") != "vp3":
+                    raise RemoteBridgeError("Cloud missions require a paired VP3 identity.")
+            except RemoteBridgeError as exc:
+                # Preserve authority rejection through HTTPS so Cloud clears
+                # private cached mission state instead of treating it as offline.
+                return {"status": 403, "ok": False, "payload": {"detail": str(exc)}}
             action = op.removeprefix("agent.missions.")
-            if action not in {"list", "get", "create", "task.prepare", "task.route", "schedule.list", "schedule.create", "schedule.pause", "schedule.resume", "schedule.cancel", "start", "cancel", "pause", "resume", "retry", "events", "evaluate", "decisions", "approve", "reject", "execution", "bind_provider", "tools.get", "tools.configure", "tools.start", "tools.status", "actions.list", "actions.review", "browser.grant", "browser.get", "browser.capture", "browser.revoke", "browser.live.start", "browser.live.get", "browser.live.refresh", "browser.live.propose", "browser.live.approve", "browser.live.stop", "browser.live.plan", "browser.action.propose", "browser.action.approve", "browser.owner.takeover", "browser.owner.release", "browser.owner.control", "browser.owner.search.review", "browser.owner.search.submit"}:
+            if action not in {"progress.feed", "notifications.list", "notifications.read", "list", "get", "create", "task.prepare", "task.route", "schedule.list", "schedule.create", "schedule.pause", "schedule.resume", "schedule.cancel", "start", "cancel", "pause", "resume", "retry", "events", "evaluate", "decisions", "approve", "reject", "execution", "bind_provider", "tools.get", "tools.configure", "tools.start", "tools.status", "actions.list", "actions.review", "browser.grant", "browser.get", "browser.capture", "browser.revoke", "browser.live.start", "browser.live.get", "browser.live.refresh", "browser.live.propose", "browser.live.approve", "browser.live.stop", "browser.live.plan", "browser.action.propose", "browser.action.approve", "browser.owner.takeover", "browser.owner.release", "browser.owner.control", "browser.owner.search.review", "browser.owner.search.submit"}:
                 raise RemoteBridgeError("Cloud mission operation is not allowed.")
             try:
                 result = agent_mission_cloud_v1.execute(action, body)

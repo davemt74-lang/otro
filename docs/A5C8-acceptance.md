@@ -26,3 +26,18 @@ Recovery never automatically replays interrupted work. Owners review and authori
 Real SQLite lifecycle, transaction rollback, read persistence, cancellation/restart idempotency, stale lease fencing, current lease protection, late-result rejection, source isolation, privacy revocation and watchdog lifecycle passed. Real Chromium tests passed for both deployed scripts and existing drawers; PHP HTTP relay tests passed for authentication, CSRF, exact notice IDs and disconnected responses.
 
 Release requires current-head CI, Windows executable/browser/bridge/recovery/restore/media/installer acceptance, green post-merge checks, and source/provenance/checksum verification of both deployment ZIPs.
+
+## Independent A5C8 transport review — 2026-10-12
+
+The original release passed its service and browser suites, but omitted `progress.feed`, `notifications.list`, and `notifications.read` from the authenticated remote dispatcher. This prevented Cloud live updates. The original transport acceptance score was unsupported by a production dispatcher test.
+
+The correction registers all three operations under the existing canonical paired VP3 identity and current `agent.chat` grant. Mission authorization failures return HTTP 403. Cloud receipt readback preserves upstream rejection codes, allowing existing browser permission handling to clear cached mission data rather than label revoked authority as a temporary disconnect. Exact missing notice IDs retain HTTP 404.
+
+| Area | Acceptance evidence | Local score |
+| --- | --- | --- |
+| Authenticated live relay | The new SQLite test reproduced the omitted allowlist failure before the fix; all three production dispatcher operations now pass. | 10/10 |
+| Source and privacy isolation | Forged owner payloads, other-app/missing/invalid tokens, private conversation projection and revoked permissions are covered through the actual dispatcher. | 10/10 |
+| Durable read identity | Exact notice read, foreign/missing IDs and malformed IDs are tested through the dispatcher. | 10/10 |
+| Cloud response status | Real PHP HTTP endpoint and production receipt readback preserve 401, 403, 404, 409, 422 and 503. | 10/10 |
+
+Release acceptance still requires fresh current-head CI, Windows installer certification, green merge checks and verified replacement deployment ZIPs. Local Chromium startup is blocked by environment socket restrictions; browser acceptance is verified by GitHub CI.
