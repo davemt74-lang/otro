@@ -19,7 +19,7 @@ on:
 
 concurrency:
   group: homeserver-ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
