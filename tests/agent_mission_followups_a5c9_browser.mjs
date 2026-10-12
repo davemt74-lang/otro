@@ -38,7 +38,14 @@ async function boot(requestIds=true){
   window.VP3_AGENT_TEAMS_A3={endpoint:'/api/missions',csrf:'fixture'};window.STONEFELLOW_CHAT_CONTINUITY={conversationId:()=>window.fixtureThread||77};window.HomeServerAgentRouting={getActiveConversationId:()=>window.fixtureCid||'a'.repeat(32),getSelectedAgentId:()=>window.fixtureLead||7};window.HomeServerChatTurn={isBusy:()=>false,usePreparedConversation:()=>true};window.confirm=()=>false;
  },requestIds);await page.addStyleTag({content:css});await page.addScriptTag({content:script});
 }
-async function submit(text){await page.locator('#chatInput').fill(text);await page.locator('#chatForm button[type=submit]').click();await page.locator('.vp3-mission-followup').waitFor({state:'visible'});}
+async function submit(text){
+ const before=calls.filter(c=>c.action==='task.route').length;
+ await page.locator('#chatInput').fill(text);await page.locator('#chatForm button[type=submit]').click();
+ // A previous review can already be visible. Wait for this composer turn to finish.
+ await page.waitForFunction(()=>!document.querySelector('#chatInput').disabled&&document.querySelector('#chatInput').value===''&&document.querySelector('.vp3-teams-status').textContent==='Review the command on the chat canvas. No work changes until you confirm.');
+ assert.equal(calls.filter(c=>c.action==='task.route').length,before+1,'This command must be routed exactly once');
+ await page.locator('.vp3-mission-followup').waitFor({state:'visible'});
+}
 try{
  await boot(false);await page.locator('#chatInput').fill('Cancel contact cleanup');await page.locator('#chatForm button[type=submit]').click();
  await page.waitForFunction(()=>document.querySelector('.vp3-teams-status').textContent.includes('Secure request IDs are unavailable'));
