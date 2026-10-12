@@ -222,7 +222,9 @@ print('Separate-process upgrade/readback: receipts and saved record retained')
         request('task.followup.decide', expected=409, **resume)
         request('task.followup.decide', allow_reexecution=True, **resume)
         deadline = time.monotonic() + 20
-        while snapshot(mid)['status'] == 'running':
+        # Running workers can advance between two independent projection reads.
+        # Compare surfaces at the terminal checkpoint below, not between live transitions.
+        while request('get', mission_id=mid)['mission']['status'] == 'running':
             assert time.monotonic() < deadline, 'Resumed mission did not finish'
             time.sleep(.02)
         completed = snapshot(mid)
