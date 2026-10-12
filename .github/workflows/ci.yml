@@ -200,7 +200,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 34fa46c6ad0bb8d75a28bd60998a85ee601bf222
+          ref: ed94fc6fc6c1b1f64fbe088e4579e95262e83f5e
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -211,6 +211,10 @@ jobs:
         run: python tests/agent_mission_lifecycle_a5c10.py --cloud-root _certification/cloud
       - name: Reviewed Chat browser research and paired integration diagnostics
         run: python tests/agent_mission_browser_chat_a5c11.py --cloud-root _certification/cloud
+      - name: Native Chrome research owner and privacy boundaries
+        run: python tests/chat_browser_research.py
+      - name: Reviewed Cloud research request lifecycle
+        run: php _certification/cloud/tests/chat-browser-research-v1.php
       - name: Live mission progress, durable notices and stall recovery
         run: python tests/agent_mission_progress_a5c8.py
       - name: Automatic lead routing and reviewed specialist preparation
@@ -999,6 +1003,7 @@ jobs:
             format = 'vp3-os-release-v1'
             version = '2.4'
             mission_lifecycle_section = 'A5C11'
+            research_section = 'R1'
             channel = 'stable'
             minimum_schema_version = 38
             current_schema_version = [int]$schema
