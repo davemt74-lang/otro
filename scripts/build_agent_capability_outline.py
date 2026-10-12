@@ -53,11 +53,14 @@ def php_catalog(path,function):
     return json.loads(result.stdout)
 plugins=php_catalog('includes/plugin-registry-v320.php','vp3_plugin_catalog_v320')
 domains=php_catalog('includes/cognitive-domain-registry-v2600.php','vp3_cognitive_domain_registry_v2600')
-result={'section':'A5C11','scope':'source definitions; installed user settings, custom plugins and live connectivity are not inferred',
+result={'section':'A5C11','research_section':'R1','scope':'source definitions; installed user settings, custom plugins and live connectivity are not inferred',
         'homeserver_tools':sorted(tool_catalog.values(),key=lambda t:t['key']), 'homeserver_skills':sorted(skills,key=lambda s:s['key']),
         'generic_model_read_bindings':agent_tools['MODEL_TOOL_NAMES'],
         'specialist_reads':list(contracts['CAPABILITIES']),'specialist_proposals':list(actions['ACTION_TOOLS']),
-        'cloud_chat_handlers':handler_catalog,'chrome_commands':commands,'cloud_plugins':plugins,'cognitive_registry':domains}
+        'cloud_chat_handlers':handler_catalog,'chrome_commands':commands,'cloud_plugins':plugins,'cognitive_registry':domains,
+        'chat_chrome_research':{'endpoint':'api/chat-browser-research-v1.php','owner_operations':['list','prepare','get','start','cancel','save'],
+           'chrome_worker_operations':['worker.list','worker.claim','worker.step'],'source_urls':5,'evidence_ledger':'browser_research_v2230',
+           'native_proxy':'app/services/chat_browser_research.py','separate_website_and_exact_plan_approvals':True}}
 args.output.mkdir(parents=True,exist_ok=True)
 (args.output/'Agent-Skills-and-Tools-A5C11.json').write_text(json.dumps(result,indent=2,ensure_ascii=False)+'\n')
 def cell(value):return str(value).replace('|','\\|').replace('\n',' ')
@@ -69,6 +72,7 @@ lines=['# Agent skills and tools — A5C11','',
        '| HomeServer Local Research | `local.research`: knowledge search and durable memory reads. Local File Reader and Relationship Context provide additional evidence. | HomeServer permissions and private context scopes; these are existing skills. |',
        '| HomeServer browser specialists | `browser.read`: one reviewed public HTTPS URL per worker; separate origin grant, isolated capture, read budgets, citations and owner controls. | A5C11 connects this existing reader to Chat preparation. No website opens during planning. |',
        '| Chrome Browser Research Agent v22.30 | Approved domain envelope, multi-site source plans, bounded pages/claims, freshness, deduplication, corroboration, conflicts, memo, report and governed handoffs. | Existing Browser Companion delegation and research runtime remains active. |',
+       '| Chat Chrome Research R1 | Cloud and native Chat review up to five explicit source URLs, queue existing Chrome research, display one evidence-based brief and save a reviewed report draft. | Current Chrome runtime grants, exact plan approval, exclusive expiring reader lease, native Cloud/privacy checks, receipt reuse and separate write review. No new generic model tool or parallel evidence ledger. |',
        '| Cloud Research Projects v20.60 | Projects, memberships, source versions, annotations, findings, evidence links and reports. | Cloud project membership and publishing controls. Existing Chrome research saves/handoffs use this system. |',
        '| Cloud Booking Agent discovery | Legacy public DuckDuckGo HTML search for venue/market leads. | This discovery helper is separate from HomeServer browser authority; no new parallel search engine was added. |',
        '| Proactive Agent and Brain | Context-aware suggestions, commitments, rescore/objectives, activity awareness, scheduled missions and workflow events. | Suggestions and schedules retain current permissions and review gates; scheduled browser grants are not reused automatically. |','',

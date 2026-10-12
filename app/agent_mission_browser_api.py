@@ -13,6 +13,12 @@ from .services import agent_mission_runtime as mission
 
 router = APIRouter()
 
+@router.post('/api/v1/control/chat-browser-research')
+def owner_chat_research(body: dict):
+    from .services import chat_browser_research
+    try:return chat_browser_research.request(body)
+    except chat_browser_research.ResearchError as exc:raise HTTPException(exc.status_code,str(exc)) from exc
+
 class GrantRequest(BaseModel):
     url: str = Field(min_length=9, max_length=1400)
 

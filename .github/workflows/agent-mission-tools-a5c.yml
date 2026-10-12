@@ -50,13 +50,15 @@ jobs:
         run: python tests/agent_mission_outcomes_a5c4.py
       - name: Chat-to-task preparation and verified completion
         run: python tests/agent_mission_chat_tasks_a5c5.py
+      - name: Native Chrome research owner and privacy boundaries
+        run: python tests/chat_browser_research.py
       - name: Chat follow-up commands, exact reviews and mission continuity
         run: python tests/agent_mission_followups_a5c9.py
       - name: Check out the certified Cloud counterpart
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 34fa46c6ad0bb8d75a28bd60998a85ee601bf222
+          ref: ed94fc6fc6c1b1f64fbe088e4579e95262e83f5e
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -117,3 +119,5 @@ jobs:
 
       - name: Native browser research grants, citations and diagnostics
         run: node tests/agent_mission_browser_chat_a5c11_browser.mjs
+      - name: Chrome multi-source research on the native Chat canvas
+        run: node tests/chat_browser_research_ui_browser.mjs

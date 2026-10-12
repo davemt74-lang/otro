@@ -1,5 +1,6 @@
 {
   "section": "A5C11",
+  "research_section": "R1",
   "scope": "source definitions; installed user settings, custom plugins and live connectivity are not inferred",
   "homeserver_tools": [
     {
@@ -2898,6 +2899,8 @@
     "agent_workspace",
     "capture",
     "capture_region",
+    "chat_research_action",
+    "chat_research_run",
     "clear_pending_capture",
     "cognitive_action",
     "cognitive_now",
@@ -2932,6 +2935,7 @@
     "research_action",
     "research_analyze_current",
     "research_context",
+    "research_runtime_action",
     "reset_local_connection",
     "runtime_action",
     "runtime_close_tabs",
@@ -5058,5 +5062,25 @@
         "workflow_tools_approvals"
       ]
     }
+  },
+  "chat_chrome_research": {
+    "endpoint": "api/chat-browser-research-v1.php",
+    "owner_operations": [
+      "list",
+      "prepare",
+      "get",
+      "start",
+      "cancel",
+      "save"
+    ],
+    "chrome_worker_operations": [
+      "worker.list",
+      "worker.claim",
+      "worker.step"
+    ],
+    "source_urls": 5,
+    "evidence_ledger": "browser_research_v2230",
+    "native_proxy": "app/services/chat_browser_research.py",
+    "separate_website_and_exact_plan_approvals": true
   }
 }

@@ -168,7 +168,7 @@ async function prepareChatTask(){
  if(continueChat){directChatBypass=true;try{form.requestSubmit();}finally{directChatBypass=false;}}
 }
 form.addEventListener('submit',event=>{
- if(directChatBypass||taskMode.value==='chat'||(taskMode.value==='automatic'&&chatInput.value.trim().length>4000))return;
+ if(directChatBypass||taskMode.value==='chat'||taskMode.value==='chrome'||(taskMode.value==='automatic'&&chatInput.value.trim().length>4000))return;
  event.preventDefault();event.stopImmediatePropagation();void prepareChatTask();
 },true);
 

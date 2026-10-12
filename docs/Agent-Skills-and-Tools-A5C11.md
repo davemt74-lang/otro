@@ -1,6 +1,6 @@
 # Agent skills and tools — A5C11
 
-The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **74 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
+The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **77 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
 
 This is a source audit of the matching build. User-enabled policies, installed custom plugins, active models, approved websites, and the currently deployed connection are checked by the live diagnostic, not inferred from repository code.
 
@@ -11,6 +11,7 @@ This is a source audit of the matching build. User-enabled policies, installed c
 | HomeServer Local Research | `local.research`: knowledge search and durable memory reads. Local File Reader and Relationship Context provide additional evidence. | HomeServer permissions and private context scopes; these are existing skills. |
 | HomeServer browser specialists | `browser.read`: one reviewed public HTTPS URL per worker; separate origin grant, isolated capture, read budgets, citations and owner controls. | A5C11 connects this existing reader to Chat preparation. No website opens during planning. |
 | Chrome Browser Research Agent v22.30 | Approved domain envelope, multi-site source plans, bounded pages/claims, freshness, deduplication, corroboration, conflicts, memo, report and governed handoffs. | Existing Browser Companion delegation and research runtime remains active. |
+| Chat Chrome Research R1 | Cloud and native Chat review up to five explicit source URLs, queue existing Chrome research, display one evidence-based brief and save a reviewed report draft. | Current Chrome runtime grants, exact plan approval, exclusive expiring reader lease, native Cloud/privacy checks, receipt reuse and separate write review. No new generic model tool or parallel evidence ledger. |
 | Cloud Research Projects v20.60 | Projects, memberships, source versions, annotations, findings, evidence links and reports. | Cloud project membership and publishing controls. Existing Chrome research saves/handoffs use this system. |
 | Cloud Booking Agent discovery | Legacy public DuckDuckGo HTML search for venue/market leads. | This discovery helper is separate from HomeServer browser authority; no new parallel search engine was added. |
 | Proactive Agent and Brain | Context-aware suggestions, commitments, rescore/objectives, activity awareness, scheduled missions and workflow events. | Suggestions and schedules retain current permissions and review gates; scheduled browser grants are not reused automatically. |
@@ -160,6 +161,7 @@ Commands are extension message handlers, not permission grants. Every protected 
 |---|---|
 | agent | `agent_workspace` |
 | capture | `capture`, `capture_region` |
+| chat | `chat_research_action`, `chat_research_run` |
 | clear | `clear_pending_capture` |
 | cognitive | `cognitive_action`, `cognitive_now` |
 | connect | `connect` |
@@ -179,7 +181,7 @@ Commands are extension message handlers, not permission grants. Every protected 
 | open | `open_url` |
 | poll | `poll_connect` |
 | quick | `quick_action_consume`, `quick_action_run` |
-| research | `research_action`, `research_analyze_current`, `research_context` |
+| research | `research_action`, `research_analyze_current`, `research_context`, `research_runtime_action` |
 | reset | `reset_local_connection` |
 | runtime | `runtime_action`, `runtime_close_tabs`, `runtime_navigate` |
 | search | `search_action`, `search_discover`, `search_query`, `search_recent`, `search_saved` |
