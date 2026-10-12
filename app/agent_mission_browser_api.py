@@ -287,6 +287,13 @@ def owner_workspace(body: OwnerWorkspaceOperation):
             result=execute(schedules.change,row['source_app_key'],body.schedule_id,body.action.split('.')[1],request_id=body.request_id,expected_revision=body.expected_revision,confirmed=body.confirmed,local_owner=True)
         else: raise HTTPException(422,'Unsupported schedule operation.')
         return {'ok':True,'schedules':[result],'scheduler_health':schedules.health()}
+    if body.action in ('task.followup.get','task.followup.select','task.followup.decide'):
+        from .services import agent_mission_followups as followups
+        # Follow-up identity is source-bound. Local owner commands never resolve a paired-app review as owner.
+        if body.action=='task.followup.get': result=execute(lambda:followups._view('owner',followups._row('owner',body.request_id)))
+        elif body.action=='task.followup.select': result=execute(followups.select,'owner',body.request_id,body.mission_id)
+        else: result=execute(followups.decide,'owner',body.request_id,expected_hash=body.expected_hash,decision=body.decision,confirmed=body.confirmed,allow_reexecution=body.allow_reexecution)
+        return {'ok':True,'followup':result}
     if body.action=='task.route':
         from .services import agent_mission_chat_routes as chat_routes
         return {'ok':True,**execute(chat_routes.owner_route,objective=body.objective,

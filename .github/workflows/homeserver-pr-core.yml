@@ -68,6 +68,8 @@ jobs:
           node tests/agent_brain_drawer_behavior_v452.cjs
           node --check ui/workspace-sync.js
           node --check ui/ambient-agent.js
+      - name: Chat follow-up commands and mission continuity
+        run: python tests/agent_mission_followups_a5c9.py
       - name: Compile core Python
         run: python -m compileall app tests
       - name: Interactive capture ownership and Stop acceptance

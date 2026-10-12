@@ -38,7 +38,7 @@ def events(source: str, mission_id: str, *, after: int = 0, limit: int = 50) -> 
 def pause(source: str, mission_id: str) -> dict:
     mission.get_mission(source, mission_id)
     with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        if not conn.in_transaction: conn.execute("BEGIN IMMEDIATE")
         status = conn.execute(
             "SELECT status FROM agent_missions_v1 WHERE id=? AND source_app_key=?",
             (mission_id, source),
@@ -130,7 +130,9 @@ def _reset_blocked(conn, mission_id: str) -> int:
     return count
 
 
-def resume(source: str, mission_id: str, *, allow_reexecution: bool = False) -> dict:
+def resume(source: str, mission_id: str, *, allow_reexecution: bool = False, dispatch: bool = True) -> dict:
+    from . import agent_mission_followups
+    agent_mission_followups.ensure_current(mission_id)
     from . import agent_mission_orchestration as orchestration
     if orchestration.assigned(mission_id):
         orchestration.check(source, mission_id)
@@ -144,7 +146,7 @@ def resume(source: str, mission_id: str, *, allow_reexecution: bool = False) -> 
         )
     mission._route(source, str(current["conversation_id"]))
     with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        if not conn.in_transaction: conn.execute("BEGIN IMMEDIATE")
         changed = conn.execute(
             "UPDATE agent_missions_v1 SET status='running',updated_at=CURRENT_TIMESTAMP "
             "WHERE id=? AND source_app_key=? AND status='waiting_review'",
@@ -155,11 +157,13 @@ def resume(source: str, mission_id: str, *, allow_reexecution: bool = False) -> 
         count = _reset(conn, mission_id, {"interrupted"})
         count += _reset_blocked(conn, mission_id)
         mission._event(conn, mission_id, "mission.resumed", detail={"requeued": count})
-    mission._dispatch(mission_id)
+    if dispatch: mission._dispatch(mission_id)
     return mission.get_mission(source, mission_id)
 
 
 def retry(source: str, mission_id: str, task_id: str) -> dict:
+    from . import agent_mission_followups
+    agent_mission_followups.ensure_current(mission_id)
     from . import agent_mission_orchestration as orchestration
     if orchestration.assigned(mission_id):
         orchestration.check(source, mission_id)
@@ -177,7 +181,7 @@ def retry(source: str, mission_id: str, task_id: str) -> dict:
         raise mission.MissionError("Task retry limit reached.", 409)
     mission._route(source, str(current["conversation_id"]))
     with db() as conn:
-        conn.execute("BEGIN IMMEDIATE")
+        if not conn.in_transaction: conn.execute("BEGIN IMMEDIATE")
         status = conn.execute(
             "SELECT status FROM agent_missions_v1 WHERE id=? AND source_app_key=?",
             (mission_id, source),

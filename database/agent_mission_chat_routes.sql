@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS agent_mission_chat_routes_v1 (
     conversation_id TEXT NOT NULL REFERENCES conversations(id),
     parent_agent_id INTEGER NOT NULL REFERENCES agents(id),
     objective TEXT NOT NULL,
-    route TEXT NOT NULL CHECK(route IN ('chat','specialists')),
+    route TEXT NOT NULL CHECK(route IN ('chat','specialists','followup')),
     reason TEXT NOT NULL,
     plan_json TEXT NOT NULL,
     provider_key TEXT NOT NULL,
