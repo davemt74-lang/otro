@@ -115,7 +115,7 @@ print('Restart preserved source receipts and saved contact')"""
         with db() as c:c.execute("UPDATE app_permissions SET allowed=0 WHERE paired_app_id=? AND permission='agent.chat'",(appid,))
         assert remote_bridge.dispatch_remote_request('agent.missions.diagnostics.get',{},token)['status']==403
         diagnostic_after_revoke=remote('diagnostics.get');assert not diagnostic_after_revoke['payload']['diagnostics']['ready']
-        print('PASS: Chat → paired specialist plan → independent website grant → bounded browser read → cited dependent proposal → exact saved change; duplicate prevention, URL fences, revoke/privacy and read-only installed diagnostic.')
+        print('PASS: Chat -> paired specialist plan -> independent website grant -> bounded browser read -> cited dependent proposal -> exact saved change; duplicate prevention, URL fences, revoke/privacy and read-only installed diagnostic.')
     finally:
         relay.__exit__()
         if mission._pool:mission._pool.shutdown(wait=True)
