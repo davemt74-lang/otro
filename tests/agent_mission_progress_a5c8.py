@@ -8,16 +8,17 @@ with tempfile.TemporaryDirectory(prefix='a5c8-') as data:
  from app.database import db,initialize_database
  from app.services import agent_mission_runtime as mission,agent_mission_progress as progress
  from app.services import agent_mission_control as control,agent_mission_cloud_v1 as cloud
- from app.services import providers,context_engine,agent_tools,activity_center
+ from app.services import providers,context_engine,agent_tools,activity_center,remote_bridge
  initialize_database();agent_tools.save_policy(True,3,True)
  providers.inference_status=lambda:{'available':True,'selected_provider':'openai','model':'fixture'}
  def uid():return str(uuid.uuid4())
+ tokens={key:uid() for key in ('vp3','other')}
  with db() as conn:
   agent=conn.execute('SELECT id FROM agents WHERE is_primary=1').fetchone()[0]
   for source in ('owner','app:vp3','app:other'):
    conn.execute('INSERT INTO conversations(id,agent_id,source_app_key,title) VALUES(?,?,?,?)',(source,agent,source,source))
   for key in ('vp3','other'):
-   appid=conn.execute('INSERT INTO paired_apps(app_key,name,token_hash) VALUES(?,?,?)',(key,key,hashlib.sha256(uid().encode()).hexdigest())).lastrowid
+   appid=conn.execute('INSERT INTO paired_apps(app_key,name,token_hash) VALUES(?,?,?)',(key,key,hashlib.sha256(tokens[key].encode()).hexdigest())).lastrowid
    conn.execute('INSERT INTO app_permissions(paired_app_id,permission,allowed) VALUES(?,?,1)',(appid,'agent.chat'))
  def make(source='owner'):
   return mission.create_mission(source,conversation_id=source,objective='Read recorded notes',client_request_id=uid(),parent_agent_id=agent,owner=source=='owner',tasks=[{'role':'reviewer','title':'Notes reviewer','objective':'Read notes','instructions':'No writes','depends_on':[]}])
@@ -91,13 +92,36 @@ with tempfile.TemporaryDirectory(prefix='a5c8-') as data:
  cm=make('app:vp3');other=make('app:other')
  notices=cloud.execute('notifications.list',{})['notifications'];assert notices['items'] and all(n['mission_id']==cm['id'] for n in notices['items'])
  cid=notices['items'][0]['id'];deny(lambda:progress.mark_read('app:other',cid),404)
+ # The production authenticated dispatcher must carry every live operation.
+ # Direct service and mocked PHP queue tests cannot detect an omitted allowlist entry.
+ def relay(action,body=None,token=None):
+  return remote_bridge.dispatch_remote_request('agent.missions.'+action,body or {},tokens['vp3'] if token is None else token)
+ for action in ('progress.feed','notifications.list'):
+  result=relay(action,{'source_app_key':'owner'})
+  assert result['status']==200 and result['ok'],result
+  assert result['payload']['contract']==cloud.CONTRACT
+  visible=result['payload']['items'] if action=='progress.feed' else result['payload']['notifications']['items']
+  assert visible and all((r['id'] if action=='progress.feed' else r['mission_id'])==cm['id'] for r in visible)
+ result=relay('notifications.read',{'notice_id':cid,'source_app_key':'owner'})
+ assert result['status']==200 and next(n for n in result['payload']['notifications']['items'] if n['id']==cid)['read_at']
+ assert relay('notifications.read',{'notice_id':n['id']})['status']==404
+ for invalid in (0,-1,str(cid),True,None): assert relay('notifications.read',{'notice_id':invalid})['status']==422
+ for action in ('progress.feed','notifications.list','notifications.read'):
+  for invalid_token in (tokens['other'],'unrecognized-bearer-with-valid-length-0000',''):
+   rejected=relay(action,{'notice_id':cid},invalid_token)
+   assert rejected['status']==403 and rejected['ok'] is False,rejected
  assert all(r['id']==cm['id'] for r in cloud.execute('progress.feed',{})['items'])
  with db() as conn:conn.execute("UPDATE conversation_context_settings SET cloud_allowed=0 WHERE conversation_id='app:vp3'")
  assert not cloud.execute('notifications.list',{})['notifications']['items']
  assert cloud.execute('progress.feed',{})['items'][0]['private'] and cloud.execute('progress.feed',{})['items'][0]['progress'] is None
  deny(lambda:cloud.execute('notifications.read',{'notice_id':cid}),403)
+ assert not relay('notifications.list')['payload']['notifications']['items']
+ assert relay('progress.feed')['payload']['items'][0]['private']
+ assert relay('notifications.read',{'notice_id':cid})['status']==403
  with db() as conn:conn.execute("UPDATE app_permissions SET allowed=0 WHERE permission='agent.chat' AND paired_app_id=(SELECT id FROM paired_apps WHERE app_key='vp3')")
  deny(lambda:cloud.execute('progress.feed',{}),403);deny(lambda:cloud.execute('notifications.list',{}),403)
+ for action in ('progress.feed','notifications.list','notifications.read'):
+  rejected=relay(action,{'notice_id':cid});assert rejected['status']==403 and rejected['ok'] is False,rejected
  # Newer finished missions cannot push still-running work out of the live feed.
  live=make();start_fake(live)
  for _ in range(10):x=make();mission.cancel_mission('owner',x['id'])
