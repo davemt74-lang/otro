@@ -122,6 +122,8 @@ def _existing(conn, source: str, mid: str, request_id: str):
 
 
 def propose(source: str, mid: str, request_id: str) -> dict:
+    from . import agent_mission_followups
+    agent_mission_followups.ensure_current(mid)
     rid = mission._clean(request_id, "Staffing request ID", 128)
     original = mission.get_mission(source, mid)
     with db() as conn:
@@ -185,6 +187,7 @@ def propose(source: str, mid: str, request_id: str) -> dict:
     proposal = _validate(output, {s["task_id"] for s in summaries}, remaining)
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        agent_mission_followups.ensure_current(mid)
         latest = _existing(conn, source, mid, rid)
         if latest:
             return _decision(latest)
@@ -227,12 +230,16 @@ def decide(source: str, mid: str, decision_id: str, *, approve: bool) -> dict:
     if previous["status"] != "proposed" or current["status"] not in TERMINAL:
         raise mission.MissionError("Staffing proposal is not awaiting a decision.", 409)
     if approve:
+        from . import agent_mission_followups
+        agent_mission_followups.ensure_current(mid)
         from . import agent_mission_orchestration as orchestration
         if orchestration.assigned(mid):
             raise mission.MissionError('Additional tool specialists need a new reviewed mission.', 409)
         mission._route(source, str(current["conversation_id"]))
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        if approve:
+            agent_mission_followups.ensure_current(mid)
         row = conn.execute(
             "SELECT * FROM agent_mission_decisions_v1 WHERE id=? AND mission_id=? AND source_app_key=?",
             (decision_id, mid, source),

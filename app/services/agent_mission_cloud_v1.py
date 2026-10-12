@@ -113,6 +113,7 @@ def _projection(raw: dict, *, detailed: bool = False) -> dict:
         "action_summaries": raw.get('action_summaries',[]) if allowed else [],
         "completion_report": raw.get('completion_report') if allowed else None,
         "progress": raw.get("progress") if allowed else None,
+        "continuity": raw.get("continuity") if allowed else None,
         "chat_task": raw.get('chat_task') if allowed and raw.get('authority_current', True) else None,
         "contract": CONTRACT,
     }
@@ -144,6 +145,13 @@ def _supervisor_projection(raw: dict, mission_snapshot: dict) -> dict:
 
 
 def execute(action: str, body: dict) -> dict:
+    if action in ('task.followup.get','task.followup.select','task.followup.decide'):
+        from . import agent_mission_followups as followups
+        if action=='task.followup.get': result=followups._view('app:vp3',followups._row('app:vp3',body.get('request_id')))
+        elif action=='task.followup.select': result=followups.select('app:vp3',body.get('request_id'),body.get('mission_id'))
+        else: result=followups.decide('app:vp3',body.get('request_id'),expected_hash=body.get('expected_hash'),decision=body.get('decision'),confirmed=body.get('confirmed'),allow_reexecution=body.get('allow_reexecution',False))
+        if result.get('mission'):result['mission']=_projection(result['mission'],detailed=True)
+        return {'ok':True,'contract':CONTRACT,'followup':result}
     if action in ('progress.feed','notifications.list','notifications.read'):
         from . import agent_mission_progress as progress
         if action == 'progress.feed':

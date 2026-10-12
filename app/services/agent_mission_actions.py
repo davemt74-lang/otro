@@ -88,6 +88,8 @@ def stage(source, mid, tid, lease, entries):
             if key not in capabilities(source, snapshot):
                 raise mission.MissionError('Specialist action permission changed.', 403)
             args = dict(entry['arguments'])
+            from . import agent_mission_followups
+            agent_mission_followups.reject_replayed(mid, key, args)
             args['mutation_id'] = str(uuid.uuid5(uuid.NAMESPACE_URL, 'mission-action:' + tid + ':' + str(ordinal)))
             if not owner:
                 tool_authority.require_current_app(source, key, args, permissions, approval=True)

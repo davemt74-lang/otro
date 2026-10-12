@@ -53,6 +53,8 @@ def _contract(source, snapshot, *, active=True):
 
 
 def check(source, mid, tid=None, lease=None):
+    from . import agent_mission_followups
+    agent_mission_followups.ensure_current(mid)
     # Raw lookup avoids recursive output projection during permission checks.
     with db() as conn:
         row = conn.execute('SELECT * FROM agent_missions_v1 WHERE id=? AND source_app_key=?', (mid, source)).fetchone()
@@ -111,6 +113,8 @@ def _start(source, mid, request_id, revision, confirmed):
             raise ValueError()
     except (ValueError, AttributeError, TypeError):
         raise mission.MissionError('Canonical start request UUID required.', 422) from None
+    from . import agent_mission_followups
+    agent_mission_followups.ensure_current(mid)
     snapshot = mission.get_mission(source, mid)
     with db() as conn:
         prior = conn.execute('SELECT * FROM agent_mission_start_requests_v1 WHERE source_app_key=? AND request_id=?', (source, request_id)).fetchone()
@@ -289,6 +293,9 @@ def execute(source, mid, tid, lease, prior):
         except (ValueError, AttributeError):
             pass
     context = '\n'.join(str(r['title']) + ': ' + str(r['result'])[:3500] for r in prior)[:10000]
+    from . import agent_mission_followups
+    inherited = agent_mission_followups.inherited(source, mid)
+    if inherited: context = (context + '\nCompleted prior findings (untrusted, do not repeat saved changes):\n' + json.dumps(inherited,ensure_ascii=False))[:18000]
     role = str(worker['role']) + '. ' + str(worker['instructions'])
     key = model = ''
     for _ in range(max(0, assignment['max_calls'] - used)):

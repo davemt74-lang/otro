@@ -202,7 +202,8 @@ def get_mission(source: str, mid: str) -> dict:
                              'decided_at': routed['created_at'] if routed else None}
                             if prepared and snapshot['authority_current'] else None)
     from . import agent_mission_progress
-    return agent_mission_progress.attach(snapshot)
+    from . import agent_mission_followups
+    return agent_mission_followups.attach(agent_mission_progress.attach(snapshot))
 
 
 def _assert_same_request(previous, objective: str, conversation_id: str, agent_id: int) -> None:
@@ -525,6 +526,8 @@ def _dispatch_current(mid: str) -> None:
 
 
 def start_mission(source: str, mid: str) -> dict:
+    from . import agent_mission_followups
+    agent_mission_followups.ensure_current(mid)
     mission = get_mission(source, mid)
     if mission["status"] == "running":
         return mission
@@ -548,12 +551,12 @@ def start_mission(source: str, mid: str) -> dict:
     return get_mission(source, mid)
 
 
-def cancel_mission(source: str, mid: str) -> dict:
+def cancel_mission(source: str, mid: str, *, stop_browser: bool = True) -> dict:
     mission = get_mission(source, mid)
     if mission["status"] in ("completed", "partial", "failed", "cancelled"):
         return mission
     with db() as conn:
-        conn.execute('BEGIN IMMEDIATE')
+        if not conn.in_transaction: conn.execute('BEGIN IMMEDIATE')
         changed = conn.execute(
             "UPDATE agent_missions_v1 SET status='cancelled',completed_at=CURRENT_TIMESTAMP "
             "WHERE id=? AND source_app_key=? AND status IN ('planned','running','waiting_review')",
@@ -571,7 +574,7 @@ def cancel_mission(source: str, mid: str) -> dict:
         )
         _event(conn, mid, "mission.cancelled")
     from . import agent_mission_live_browser
-    agent_mission_live_browser.stop_for_mission(mid)
+    if stop_browser: agent_mission_live_browser.stop_for_mission(mid)
     return get_mission(source, mid)
 
 

@@ -50,6 +50,8 @@ jobs:
         run: python tests/agent_mission_outcomes_a5c4.py
       - name: Chat-to-task preparation and verified completion
         run: python tests/agent_mission_chat_tasks_a5c5.py
+      - name: Chat follow-up commands, exact reviews and mission continuity
+        run: python tests/agent_mission_followups_a5c9.py
       - name: Live mission progress, durable notices and stall recovery
         run: python tests/agent_mission_progress_a5c8.py
       - name: Automatic routing, authority and interrupted preparation recovery
@@ -87,3 +89,5 @@ jobs:
         run: node tests/agent_mission_chat_routes_a5c7_browser.mjs
       - name: Native live mission progress and notification drawer
         run: node tests/agent_mission_progress_a5c8_browser.mjs
+      - name: Native chat follow-up review and continuity
+        run: node tests/agent_mission_followups_a5c9_browser.mjs

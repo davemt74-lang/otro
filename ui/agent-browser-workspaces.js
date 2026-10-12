@@ -57,6 +57,70 @@ const taskLabel=el('label','vp3-chat-task-mode','Work mode ');taskLabel.appendCh
 function taskContext(){
 return {conversation_id:window.HomeServerAgentRouting?.getActiveConversationId?.()||null,parent_agent_id:window.HomeServerAgentRouting?.getSelectedAgentId?.()||null};
 }
+let followupContext='',followupReview=null,followupRetry=null;
+const followupHost=el('section','vp3-mission-followup');followupHost.setAttribute('aria-label','Review mission command');followupHost.setAttribute('aria-live','polite');followupHost.hidden=true;shell.insertBefore(followupHost,form);
+const followupStorageKey='vp3.chat-followup.a5c9.'+String(cfg.csrf);
+function storeFollowup(){try{if(followupReview)sessionStorage.setItem(followupStorageKey,JSON.stringify({context:followupContext,request_id:followupReview.request_id}));else sessionStorage.removeItem(followupStorageKey);}catch(_){} }
+function renderFollowup(value,context=JSON.stringify(taskContext())){
+ if(context!==JSON.stringify(taskContext()))return;
+ if(!value||!['pause','cancel','resume','scope'].includes(value.operation)||!value.request_id)throw new Error('Mission command review was invalid.');
+ followupReview=value;followupContext=context;followupHost.replaceChildren();followupHost.hidden=false;storeFollowup();
+ const labels={pause:'Pause mission',cancel:'Cancel mission',resume:'Resume mission',scope:'Change remaining scope'};
+ followupHost.appendChild(el('h4','',labels[value.operation]));
+ if(value.status==='choosing'){
+  followupHost.appendChild(el('p','','Choose the mission you mean. No work has changed.'));
+  for(const m of value.choices||[]){const button=el('button','',m.objective+' · '+m.status);button.type='button';button.dataset.followupAction='select';button.dataset.missionId=m.id;button.addEventListener('click',()=>void followupOperation('select',m.id));followupHost.appendChild(button);}
+  if(!value.choices?.length)followupHost.appendChild(el('p','','No eligible mission is available in this conversation. Open the original conversation and retry.'));
+ }else{
+  followupHost.appendChild(el('strong','',value.mission_objective||'Selected mission'));
+  followupHost.appendChild(el('p','',Number(value.completed_workers||0)+' completed specialist results remain in history.'));
+  if(value.operation==='scope'){
+   followupHost.appendChild(el('p','','Revised scope: '+value.objective));
+   followupHost.appendChild(el('p','','Confirming stops prior work and retires outstanding change proposals. The linked plan needs fresh assignment review before starting; saved changes remain saved.'));
+   for(const t of value.plan?.tasks||[]){followupHost.appendChild(el('p','',t.title+' · '+t.objective+' · Reads: '+(t.tools||[]).join(', ')+' · Proposed changes: '+(t.actions||[]).join(', ')));}
+  }
+  if(value.status==='proposed'&&!value.expired&&!value.stale&&!(value.authority_current===false&&['resume','scope'].includes(value.operation))){
+   if(value.operation==='resume'&&Number(value.interrupted_workers)>0){const label=el('label','');const checkbox=el('input');checkbox.type='checkbox';checkbox.dataset.followupReplay='';label.append(checkbox,document.createTextNode(' I reviewed the interrupted work and authorize its reexecution. Completed work will not run again.'));followupHost.appendChild(label);}
+   for(const [decision,label] of [['apply','Confirm '+labels[value.operation].toLowerCase()],['dismiss','Dismiss']]){const button=el('button','',label);button.type='button';button.dataset.followupAction=decision;button.addEventListener('click',()=>void followupOperation(decision));followupHost.appendChild(button);}
+   followupHost.appendChild(el('small','','Review expires '+fmt(value.expires_at)+'. Any changed mission state requires a fresh review.'));
+  }else followupHost.appendChild(el('p','',value.stale?'Mission state changed. Send the command again.':value.authority_current===false&&['resume','scope'].includes(value.operation)?'Permissions changed. Prepare a new reviewed task.':value.expired&&value.status==='proposed'?'Review expired. Send the command again.':value.status==='applied'?'Command applied.':value.status==='dismissed'?'Command dismissed.':'Review unavailable.'));
+ }
+ const close=el('button','','Close review');close.type='button';close.addEventListener('click',()=>{followupReview=null;followupRetry=null;followupHost.hidden=true;storeFollowup();});followupHost.appendChild(close);
+}
+async function followupOperation(decision,mid){
+ if(busy||!followupReview)return;
+ const review=followupReview,context=followupContext;
+ if(context!==JSON.stringify(taskContext())){followupHost.hidden=true;say('Return to the original conversation and lead before reviewing this command.');return;}
+ let payload={request_id:review.request_id};
+ if(decision==='select')payload.mission_id=mid;
+ else{
+  const replay=Boolean(followupHost.querySelector('[data-followup-replay]')?.checked);
+  if(decision==='apply'&&review.operation==='resume'&&Number(review.interrupted_workers)>0&&!replay){say('Review and authorize interrupted work before resuming.');return;}
+  payload={...payload,expected_hash:review.expected_hash,decision,confirmed:true,allow_reexecution:replay};
+ }
+ const intent=JSON.stringify({decision,payload});
+ // An uncertain operation can only retry the exact same decision, never choose another target.
+ if(followupRetry&&followupRetry!==intent){say('The prior response is uncertain. Retry the same command decision or refresh its status.');return;}
+ followupRetry=intent;setBusy(true);followupHost.querySelectorAll('button,input').forEach(b=>b.disabled=true);
+ try{
+  const response=await api(decision==='select'?'task.followup.select':'task.followup.decide',payload);
+  if(context!==JSON.stringify(taskContext())){followupHost.hidden=true;return;}
+  if(!response.followup)throw new Error('Command status was not returned. Retry the same decision.');
+  followupRetry=null;renderFollowup(response.followup,context);
+  const m=response.followup.mission;
+  if(m){selected=m.id;const index=items.findIndex(x=>x.id===m.id);if(index>=0)items[index]=m;else items.unshift(m);if(m.chat_task&&m.status==='planned'){const contract=await api('tools.get',{mission_id:m.id});if(context!==JSON.stringify(taskContext()))return;toolsByMission.set(m.id,contract.tools);toolDrafts.set(m.id,m.chat_task.draft);root.open=true;}showList();showMission(m);publishProgress();}
+  say(response.followup.status==='applied'?(review.operation==='scope'?'Revised plan prepared. Review assignments before starting specialists.':'Mission command applied.'):response.followup.status==='dismissed'?'Mission command dismissed.':'Review the exact mission command.');
+ }catch(e){if([401,403,419].includes(e.status)){followupReview=null;followupHost.hidden=true;storeFollowup();}if(e.status&&e.status<500)followupRetry=null;say((e.message||'Command response interrupted.')+' No automatic retry will run.');}
+ finally{setBusy(false);followupHost.querySelectorAll('button,input').forEach(b=>b.disabled=false);}
+}
+async function restoreFollowup(){
+ if(busy)return;
+ let saved;try{saved=JSON.parse(sessionStorage.getItem(followupStorageKey)||'null');}catch(_){}
+ if(!saved?.request_id||saved.context!==JSON.stringify(taskContext())){if(followupContext&&followupContext!==JSON.stringify(taskContext()))followupHost.hidden=true;return;}
+ try{const response=await api('task.followup.get',{request_id:saved.request_id});if(saved.context===JSON.stringify(taskContext())&&!busy)renderFollowup(response.followup,saved.context);}catch(e){if([401,403,404,419].includes(e.status)){followupReview=null;followupHost.hidden=true;storeFollowup();}}
+}
+window.setInterval(()=>{if(followupContext&&followupContext!==JSON.stringify(taskContext()))followupHost.hidden=true;else if(followupHost.hidden&&!busy)void restoreFollowup();},5000);
+void restoreFollowup();
 let directChatBypass=false;
 async function prepareChatTask(){
  if(busy||!chatInput||window.HomeServerChatTurn?.isBusy?.())return;
@@ -80,6 +144,11 @@ async function prepareChatTask(){
   if(mode==='automatic'&&response.route==='chat'){
    if(response.conversation_id&&window.HomeServerChatTurn?.usePreparedConversation&&!window.HomeServerChatTurn.usePreparedConversation(response.conversation_id))throw new Error('Prepared conversation could not be selected. Retry the same request.');
    sessionStorage.removeItem(taskStorageKey);continueChat=true;root.open=wasOpen;
+  }else if(mode==='automatic'&&response.route==='followup'){
+   if(!response.followup)throw new Error('Mission command was not confirmed. Retry the same request.');
+   if(response.conversation_id&&window.HomeServerChatTurn?.usePreparedConversation&&!window.HomeServerChatTurn.usePreparedConversation(response.conversation_id))throw new Error('Original conversation could not be selected.');
+   renderFollowup(response.followup,JSON.stringify(taskContext()));sessionStorage.removeItem(taskStorageKey);chatInput.value='';root.open=wasOpen;
+   say('Review the command on the chat canvas. No work changes until you confirm.');startTurn();turn('completed',{reply:status.textContent});
   }else{
    if(mode==='automatic'&&response.route!=='specialists')throw new Error('Routing decision was not confirmed. Retry the same request.');
    const m=response.mission;if(!m?.id||!m.chat_task?.draft)throw new Error('Task preparation was not confirmed. Retry the same request.');
@@ -275,6 +344,8 @@ function showMission(m){
  if(m.status==='waiting_review')buttons.appendChild(btn('Resume (rerun interrupted)','resume',selected));
  if(['planned','running','waiting_review'].includes(m.status))buttons.appendChild(btn('Cancel','cancel',selected));
  buttons.appendChild(btn('Refresh','get',selected));detail.appendChild(buttons);
+ if(m.continuity?.successor_id){detail.appendChild(el('p','vp3-teams-meta','Superseded by a reviewed scope change. Completed findings and saved changes remain in history.'));detail.appendChild(btn('Open revised mission','get',m.continuity.successor_id));}
+ if(m.continuity?.predecessor_id){detail.appendChild(el('p','vp3-teams-meta','Continues a prior mission. Completed findings are reused under current permissions.'));detail.appendChild(btn('Open prior mission','get',m.continuity.predecessor_id));}
  if(m.authority_current===false)detail.appendChild(el('p','vp3-teams-error','Permissions changed. Results are hidden; prepare a new reviewed mission.'));
  if(m.chat_task&&m.status==='planned'&&!m.tools_configured&&!toolDrafts.has(m.id))toolDrafts.set(m.id,m.chat_task.draft);
  if(m.chat_task?.automatic_reason&&!m.private&&m.authority_current!==false)detail.appendChild(el('p','vp3-teams-meta','Lead chose specialists: '+m.chat_task.automatic_reason+' · '+fmt(m.chat_task.decided_at)));

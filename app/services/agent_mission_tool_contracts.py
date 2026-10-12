@@ -123,6 +123,8 @@ def configure(source, mid, value, *, request_id, expected_revision, confirmed):
         raise mission.MissionError('A canonical request UUID is required.',422) from None
     if type(expected_revision) is not int or expected_revision<0:
         raise mission.MissionError('Expected contract revision is required.',422)
+    from . import agent_mission_followups
+    agent_mission_followups.ensure_current(mid)
     snapshot=mission.get_mission(source,mid)
     if snapshot['status']!='planned' or any(t['status']!='queued' for t in snapshot['tasks']):
         raise mission.MissionError('Capabilities can only be assigned before mission execution.',409)
