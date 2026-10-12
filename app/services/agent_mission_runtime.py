@@ -177,14 +177,6 @@ def get_mission(source: str, mid: str) -> dict:
     snapshot['tools_enabled'] = bool(run)
     snapshot['tools_configured'] = orchestration.assigned(mid)
     snapshot['authority_current'] = orchestration.visible(source, snapshot)
-    if not snapshot['authority_current']:
-        snapshot['action_summaries']=[]
-        snapshot['result'] = ''
-        for task in snapshot['tasks']:
-            for field in ('result', 'error', 'provider_key', 'model'):
-                task[field] = ''
-    from . import agent_mission_outcomes as outcomes
-    snapshot['action_summaries'], snapshot['completion_report'] = outcomes.assess(snapshot)
     with db() as conn:
         prepared = conn.execute('SELECT * FROM agent_mission_chat_tasks_v1 WHERE mission_id=?', (mid,)).fetchone()
         routed = conn.execute('SELECT reason,created_at FROM agent_mission_chat_routes_v1 WHERE mission_id=?', (mid,)).fetchone()
@@ -195,6 +187,14 @@ def get_mission(source: str, mid: str) -> dict:
                 contracts.authority(source, snapshot)
         except MissionError:
             snapshot['authority_current'] = False
+    if not snapshot['authority_current']:
+        snapshot['action_summaries']=[]
+        snapshot['result'] = ''
+        for task in snapshot['tasks']:
+            for field in ('result', 'error', 'provider_key', 'model'):
+                task[field] = ''
+    from . import agent_mission_outcomes as outcomes
+    snapshot['action_summaries'], snapshot['completion_report'] = outcomes.assess(snapshot)
     snapshot['chat_task'] = ({'draft': json.loads(prepared['draft_json']),
                              'provider_key': prepared['provider_key'], 'model': prepared['model'],
                              'prepared_at': prepared['created_at'],

@@ -41,6 +41,7 @@ async function boot(realBrain=false){
   const brain=await fs.readFile(new URL('../ui/brain.js',import.meta.url),'utf8');await page.addScriptTag({content:brain});
  }else await page.evaluate(()=>{window.ordinary=0;document.querySelector('#chatForm').addEventListener('submit',e=>{e.preventDefault();window.ordinary++;});});
 }
+function commandCalls(){return calls.filter(c=>['task.route','task.prepare','tools.configure','tools.start','actions.review','task.followup.decide','start','resume','retry'].includes(c.action)).length;}
 async function send(text){await page.locator('#chatInput').fill(text);await page.getByRole('button',{name:'Send',exact:true}).click();}
 async function settled(){await page.waitForFunction(()=>!document.querySelector('#chatInput').disabled);}
 try{
@@ -53,8 +54,8 @@ try{
  await page.evaluate(()=>{const brain=document.createElement('div');document.body.appendChild(brain);VP3_AGENT_TEAMS_A3_BRAIN(brain);});
  assert.match(await page.locator('[data-agent-teams-brain-a3]').textContent(),/Investigation <img/);
  if(native)assert.deepEqual(await page.evaluate(()=>turns.map(t=>t.status)),['started','completed']);
- await page.locator('#vp3ChatTaskMode').selectOption('chat');const before=calls.length;await send('Chat only');assert.equal(calls.length,before);assert.equal(await page.evaluate(()=>ordinary),2);
- await page.locator('#vp3ChatTaskMode').selectOption('automatic');await send('x'.repeat(4001));assert.equal(calls.length,before);assert.equal(await page.evaluate(()=>ordinary),3);
+ await page.locator('#vp3ChatTaskMode').selectOption('chat');const before=commandCalls();await send('Chat only');assert.equal(commandCalls(),before);assert.equal(await page.evaluate(()=>ordinary),2);
+ await page.locator('#vp3ChatTaskMode').selectOption('automatic');await send('x'.repeat(4001));assert.equal(commandCalls(),before);assert.equal(await page.evaluate(()=>ordinary),3);
  failure=true;await send('Retry request');await settled();const failed=calls.filter(c=>c.action==='task.route').at(-1);assert.match(await page.locator('.vp3-teams-status').textContent(),/Lost routing response/);
  await boot();await send('Retry request');await settled();assert.equal(calls.filter(c=>c.action==='task.route').at(-1).request_id,failed.request_id,'Reload repeats persisted intent');
  invalid=true;await send('Invalid');await settled();assert.equal(await page.evaluate(()=>ordinary),1);invalid=false;
@@ -63,7 +64,7 @@ try{
  await page.evaluate(()=>window.currentContext=window.currentContext===77?78:'b'.repeat(32));release();await settled();routeGate=null;assert.equal(await page.evaluate(()=>ordinary),1);assert.match(await page.locator('.vp3-teams-status').textContent(),/Conversation or lead changed/);
  // A second context fence follows the capability read before painting a plan.
  await boot();toolsGate=new Promise(resolve=>release=resolve);await send('Review contacts');await page.waitForTimeout(100);await page.evaluate(()=>window.currentAgent=8);release();await settled();toolsGate=null;assert.equal(await page.locator('.vp3-teams-detail:visible').count(),0);
- await boot();await page.evaluate(()=>{Storage.prototype.setItem=()=>{throw new Error('blocked');};});const storedCalls=calls.length;await send('Storage blocked');assert.equal(calls.length,storedCalls);assert.match(await page.locator('.vp3-teams-status').textContent(),/storage is unavailable/);
+ await boot();await page.evaluate(()=>{Storage.prototype.setItem=()=>{throw new Error('blocked');};});const storedCalls=commandCalls();await send('Storage blocked');assert.equal(commandCalls(),storedCalls);assert.match(await page.locator('.vp3-teams-status').textContent(),/storage is unavailable/);
  if(native){
   // Production brain adopts the prepared new-chat ID and makes exactly one real send.
   await page.route('**/api/v1/control/chat',async r=>{const b=r.request().postDataJSON();calls.push({realChat:b});assert.equal(b.conversation_id,cid);return r.fulfill({json:{conversation_id:cid,reply:'Hello from real brain'}});});

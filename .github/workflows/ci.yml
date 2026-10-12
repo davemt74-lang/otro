@@ -82,6 +82,7 @@ jobs:
           current_tree=tree(os.environ['SOURCE_COMMIT'])
           assert tree(manifest['source_commit'])==current_tree,'Compiled tree differs from merged tree'
           assert manifest['packaged_browser_certified'] is True and manifest['browser_section']=='A5B4'
+          assert manifest['mission_lifecycle_section']=='A5C10'
           for name in ('HomeServer.exe','HomeServerSetup.exe'):
               with (root/name).open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==manifest['files'][name],name+' hash mismatch'
           browser_root=root/'tools'/'browser'
@@ -195,6 +196,19 @@ jobs:
         run: python tests/agent_mission_chat_tasks_a5c5.py
       - name: Chat follow-up commands, exact reviews and mission continuity
         run: python tests/agent_mission_followups_a5c9.py
+      - name: Check out the certified Cloud counterpart
+        uses: actions/checkout@v4
+        with:
+          repository: davemt74-lang/software
+          ref: 928283d47c8a279d55459f1c9f060e5fca331471
+          path: _certification/cloud
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite
+          coverage: none
+      - name: Cross-system mission lifecycle and production receipt recovery
+        run: python tests/agent_mission_lifecycle_a5c10.py --cloud-root _certification/cloud
       - name: Live mission progress, durable notices and stall recovery
         run: python tests/agent_mission_progress_a5c8.py
       - name: Automatic lead routing and reviewed specialist preparation
@@ -982,6 +996,7 @@ jobs:
           $manifest = [ordered]@{
             format = 'vp3-os-release-v1'
             version = '2.4'
+            mission_lifecycle_section = 'A5C10'
             channel = 'stable'
             minimum_schema_version = 38
             current_schema_version = [int]$schema
@@ -1005,7 +1020,7 @@ jobs:
             managed_browser_runtime = 'tools/browser/manifest.json'
             packaged_browser_certified = $true
             files = $hashMap
-            release_notes = 'A5B4 governed browser repair: atomic owner authority, retry receipts, exact GET form review, adaptive reads, per-worker Brain visibility and installer-managed Chromium. Consequential business actions remain separately restricted.'
+            release_notes = 'A5C10 mission lifecycle hardening: accurate interrupted-work and delivery outcomes, explicit owner next actions, privacy cache clearing, stale-response fences and certified cross-system recovery.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution

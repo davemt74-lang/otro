@@ -28,6 +28,7 @@ shell.insertBefore(root,form);root.querySelector('form').hidden=true;
 const status=root.querySelector('.vp3-teams-status'), list=root.querySelector('.vp3-teams-list'),
  detail=root.querySelector('.vp3-teams-detail'), create=root.querySelector('form'), input=create.querySelector('input'),
  submit=create.querySelector('button');
+let authorityGeneration=0;
 let busy=false,selected='',items=[],lastRefresh=0,inflight=false;
 const toolsByMission=new Map(), toolDrafts=new Map(), changesByMission=new Map();
 const staffingByMission=new Map();
@@ -42,11 +43,13 @@ function fmt(value){if(!value)return '—';const raw=String(value).trim();
 function setBusy(value){busy=Boolean(value);if(busy)viewGeneration++;submit.disabled=busy;root.querySelectorAll('button[data-action]').forEach(b=>b.disabled=busy);document.querySelectorAll('.vp3-mission-notice button,.vp3-mission-live-card button').forEach(b=>b.disabled=busy);}
 function say(message){status.textContent=String(message);}
 async function api(action,extra,signal){
+ const authorityAtRequest=authorityGeneration;
  const response=await fetch(String(cfg.endpoint),{method:'POST',credentials:'same-origin',cache:'no-store',signal,
  headers:{'Accept':'application/json','Content-Type':'application/json'},
  body:JSON.stringify(Object.assign({csrf_token:String(cfg.csrf),action:action},extra||{}))});
  let payload;try{payload=await response.json();}catch(_){throw new Error('Mission server response was invalid.');}
- if(!response.ok||!payload||!payload.ok){const error=new Error(String(payload&&(payload.detail||payload.error)||'Mission operation failed.').slice(0,240));error.status=response.status;throw error;}
+ if(!response.ok||!payload||!payload.ok){const error=new Error(String(payload&&(payload.detail||payload.error)||'Mission operation failed.').slice(0,240));error.status=response.status;if([401,403,419].includes(error.status))clearPrivateMissionState();throw error;}
+ if(authorityAtRequest!==authorityGeneration){const error=new Error('Mission access changed while loading. Refresh authorized status.');error.status=403;throw error;}
  return payload;
 }
 // Automatic routing preserves a lost-response intent before any dispatch.
@@ -255,7 +258,7 @@ function progressState(m){
  if(!progressConnected||Date.now()-progressReceived>30000)return 'disconnected';
  return m.progress?.state||m.status||'unknown';
 }
-const progressLabels={running:'Working',awaiting_review:'Awaiting assignment review',awaiting_approval:'Awaiting edit approval',waiting_review:'Review required',stalled:'Stalled · review required',interrupted:'Interrupted · review required',blocked:'Permissions need review',completed:'Research completed',partial:'Partially completed',failed:'Failed',cancelled:'Cancelled',planned:'Awaiting review',disconnected:'Disconnected · last known status'};
+const progressLabels={running:'Working',awaiting_review:'Awaiting assignment review',awaiting_approval:'Awaiting edit approval',awaiting_delivery:'Awaiting saved-change delivery',attention:'Results need attention',waiting_review:'Review required',stalled:'Stalled · review required',interrupted:'Interrupted · review required',blocked:'Permissions need review',completed:'Research completed',partial:'Partially completed',failed:'Failed',cancelled:'Cancelled',planned:'Awaiting review',disconnected:'Disconnected · last known status'};
 function missionProgress(m){return progressLabels[progressState(m)]||progressState(m);}
 function workerProgress(t){
  const a=t.activity;
@@ -263,7 +266,7 @@ function workerProgress(t){
 }
 function renderLiveSummary(){
  liveSummary.replaceChildren();
- const active=items.filter(m=>['running','waiting_review','planned'].includes(m.status)||m.progress?.state==='awaiting_approval');
+ const active=items.filter(m=>['running','waiting_review','planned'].includes(m.status)||['awaiting_approval','awaiting_delivery','attention'].includes(m.progress?.state));
  liveSummary.hidden=!active.length;
  for(const m of active.slice(0,4)){
   const card=el('article','vp3-mission-live-card');card.dataset.missionId=m.id;card.dataset.progressState=progressState(m);
@@ -293,6 +296,17 @@ function publishProgress(){
  const brain=document.querySelector('[data-agent-teams-brain-a3]');if(brain?.parentNode)renderBrain(brain.parentNode);
 }
 window.VP3_AGENT_MISSION_NOTIFICATIONS=renderNotices;
+function clearPrivateMissionState(){
+ authorityGeneration++;viewGeneration++;
+ items=[];missionNotices={items:[],unread:0};selected='';progressConnected=false;
+ detail.replaceChildren();detail.hidden=true;
+ for(const cache of [toolsByMission,toolDrafts,changesByMission,staffingByMission,liveByWorker,browserByWorker,pendingOperations])cache.clear();
+ followupReview=null;followupRetry=null;followupHost.replaceChildren();followupHost.hidden=true;storeFollowup();
+ schedules=[];schedulerHealth=null;healthReceivedAt=0;renderScheduleList();
+ // Pending route/schedule intents contain private objectives and must not survive revocation.
+ try{for(const key of Object.keys(sessionStorage)){if(key.startsWith('vp3.chat-task.pending.a5c7.'+String(cfg.csrf))||key.startsWith('vp3.schedule.pending.a5c6.'+String(cfg.csrf)))sessionStorage.removeItem(key);}}catch(_){}
+ showList();publishProgress();
+}
 async function markMissionNotice(id){
  if(busy)return;
  setBusy(true);
@@ -312,7 +326,7 @@ async function pollProgress(){
   for(const m of items){if(m.private||m.authority_current===false){toolsByMission.delete(m.id);toolDrafts.delete(m.id);changesByMission.delete(m.id);for(const key of liveByWorker.keys()){if(key.startsWith(m.id+'|')){liveByWorker.delete(key);browserByWorker.delete(key);}}}}
   showList();const current=items.find(m=>m.id===selected);if(current&&(current.private||current.authority_current===false||!detail.contains(document.activeElement)))showMission(current);publishProgress();
  }catch(e){
-  if(!busy&&generation===viewGeneration){progressConnected=false;if([401,403,419].includes(e.status)){items=[];missionNotices={items:[],unread:0};selected='';detail.replaceChildren();detail.hidden=true;toolsByMission.clear();toolDrafts.clear();changesByMission.clear();liveByWorker.clear();browserByWorker.clear();showList();}publishProgress();say('Mission updates disconnected. Last received status is shown; no work is replayed.');}
+  if(!busy&&generation===viewGeneration){progressConnected=false;if([401,403,419].includes(e.status))clearPrivateMissionState();publishProgress();say('Mission updates disconnected. Last received status is shown; no work is replayed.');}
  }finally{window.clearTimeout(timer);progressInflight=false;}
 }
 window.setInterval(pollProgress,5000);
@@ -650,6 +664,7 @@ function renderCompletion(m,parent){
  const panel=el('section','vp3-specialist-completion');panel.setAttribute('aria-label','Lead agent completion report');
  panel.appendChild(el('h4','','Lead agent completion report'));
  panel.appendChild(el('p','',report.state+' · '+report.summary));
+ if(report.next_action)panel.appendChild(el('p','vp3-completion-next-action',report.next_action));
  panel.appendChild(el('small','','Saved changes are verified separately from model-generated findings.'));
  parent.appendChild(panel);
 }
