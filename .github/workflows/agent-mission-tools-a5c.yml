@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 153d7c04b52523578d5330d900c3938c562c29d1
+          ref: 02511322e728e1ae2545d110be2dd9250e5977e6
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:

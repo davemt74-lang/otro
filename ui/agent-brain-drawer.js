@@ -173,6 +173,7 @@
   }
 
   function render(data) {
+    window.VP3ProjectKnowledgeR7?.renderBrain(document.querySelector('#agentBrainDrawer .agent-brain-drawer-body'));
     const issues = Array.isArray(data.issues) ? data.issues : [];
     const overall = String(data.overall || 'unknown');
     $('agentBrainHealthState').textContent = overall.charAt(0).toUpperCase() + overall.slice(1);

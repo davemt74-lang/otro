@@ -1,4 +1,4 @@
-name: Project Knowledge and Capture Continuity R6
+name: Reviewed Knowledge Refresh R7
 on:
   pull_request:
   push:
@@ -20,6 +20,7 @@ jobs:
         ports: ['3306:3306']
         options: --health-cmd="mysqladmin ping -h 127.0.0.1 -pfixture" --health-interval=5s --health-timeout=5s --health-retries=20
     env:
+      VP3_KNOWLEDGE_R7_EXPORT: ${{ github.workspace }}/_certification/project-knowledge-r7-export.json
       VP3_KNOWLEDGE_R6_EXPORT: ${{ github.workspace }}/_certification/project-knowledge-r6-export.json
       VP3_CAPTURE_R5_EXPORT: ${{ github.workspace }}/_certification/project-knowledge-r5-export.json
       VP3_CAPTURE_R5_RECEIPTS: ${{ github.workspace }}/_certification/project-knowledge-r5-receipts.json
@@ -32,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 153d7c04b52523578d5330d900c3938c562c29d1
+          ref: 02511322e728e1ae2545d110be2dd9250e5977e6
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -48,11 +49,13 @@ jobs:
         run: |
           php _certification/cloud/tests/project-knowledge-r5-mysql.php
           php _certification/cloud/tests/project-knowledge-r6-mysql.php
+          php _certification/cloud/tests/project-knowledge-r7-mysql.php
       - name: Same captures and Knowledge in native Chat and Brain
         run: |
           python tests/browser_captures_r4.py
           python tests/project_knowledge_r5.py
           python tests/project_knowledge_r6.py
+          python tests/project_knowledge_r7.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -65,4 +68,4 @@ jobs:
           node tests/browser_captures_r4_ui.mjs
           node _certification/cloud/tests/project-knowledge-r5-ui.mjs
           node _certification/cloud/tests/project-knowledge-r6-ui.mjs
-
+          node _certification/cloud/tests/project-knowledge-r7-ui.mjs

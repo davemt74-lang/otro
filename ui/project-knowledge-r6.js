@@ -65,7 +65,7 @@
   choose.onclick=async()=>{
     if(!state||busy)return;lock(true);
     const value=scope.value;const requested={mode:value.split(':')[0],project_id:value.startsWith('project:')?value.slice(8):'',folder_id:value.startsWith('folder:')?Number(value.slice(7)):0};
-    try{await api('set_context',{scope:requested,expected_revision:state.revision});attachments.clear();renderAttachments();lock(false);await load();}
+    try{await api('set_context',{scope:requested,expected_revision:state.revision});attachments.clear();renderAttachments();window.dispatchEvent(new CustomEvent('vp3:project-knowledge-r6-context-changed'));lock(false);await load();}
     catch(e){status.textContent=e.message;lock(false);}
   };
   function brainRecord(packet,target=document.querySelector('#agentBrainDrawer .agent-brain-drawer-body')||(document.querySelector('#chatNotificationDrawer [data-notification-tab=brain].active')?document.querySelector('#chatNotificationDrawer [data-notification-drawer-body]'):null)){

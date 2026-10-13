@@ -2,7 +2,7 @@
   "section": "A5C11",
   "research_section": "R3",
   "capture_routing_section": "R4",
-  "project_knowledge_section": "R6",
+  "project_knowledge_section": "R7",
   "scope": "source definitions; installed user settings, custom plugins and live connectivity are not inferred",
   "homeserver_tools": [
     {
@@ -2935,6 +2935,7 @@
     "poll_connect",
     "project_knowledge_r5",
     "project_knowledge_r6",
+    "project_knowledge_r7",
     "quick_action_consume",
     "quick_action_run",
     "research_action",
@@ -5067,6 +5068,23 @@
         "workflow_tools_approvals"
       ]
     }
+  },
+  "chat_reviewed_knowledge_refresh": {
+    "endpoint": "api/project-knowledge-r7.php",
+    "native_proxy": "app/services/project_knowledge_r7.py",
+    "operations": [
+      "list",
+      "prepare",
+      "get",
+      "start",
+      "apply",
+      "cancel"
+    ],
+    "evidence_ledger": "existing_captures_and_browser_research",
+    "write_review": "exact_cited_preview",
+    "original_evidence_preserved": true,
+    "pre_capture_source_scope_recheck": true,
+    "delivery_receipts": "existing_workspace_chat_snapshot"
   },
   "chat_conversation_knowledge": {
     "endpoint": "api/project-knowledge-r6.php",
