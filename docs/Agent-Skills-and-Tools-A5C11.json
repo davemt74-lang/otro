@@ -1,6 +1,6 @@
 {
   "section": "A5C11",
-  "research_section": "R2",
+  "research_section": "R3",
   "scope": "source definitions; installed user settings, custom plugins and live connectivity are not inferred",
   "homeserver_tools": [
     {
@@ -5071,7 +5071,9 @@
       "get",
       "start",
       "cancel",
-      "save"
+      "save",
+      "recall",
+      "compare"
     ],
     "chrome_worker_operations": [
       "worker.list",
@@ -5080,6 +5082,13 @@
     ],
     "source_urls": 5,
     "evidence_ledger": "browser_research_v2230",
+    "saved_continuity": {
+      "current_project_and_site_grants": true,
+      "owner_and_cloud_lead_scope": true,
+      "receipt_citations": true,
+      "observation_comparison_only": true,
+      "native_model_answer_recheck": true
+    },
     "source_discovery": {
       "provider": "existing DuckDuckGo public-search helper",
       "canvas_query_consent": true,
