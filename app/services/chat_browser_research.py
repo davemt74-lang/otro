@@ -1,7 +1,8 @@
 """Owner Chat proxy to canonical Cloud Chrome research; no local evidence copies."""
 from __future__ import annotations
 import json
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
+from uuid import UUID
 import httpx
 from ..database import db
 from . import agent_routing, app_scopes, context_engine
@@ -14,7 +15,7 @@ class ResearchError(RuntimeError):
 
 def request(body: dict) -> dict:
     action=body.get('action')
-    if action not in {'list','prepare','get','start','cancel','save'}:
+    if action not in {'list','prepare','get','start','cancel','save','recall','compare'}:
         raise ResearchError('Unsupported Chat research operation.')
     conversation=body.get('local_conversation')
     if not isinstance(conversation,str) or not conversation or len(conversation)>100:
@@ -36,7 +37,7 @@ def request(body: dict) -> dict:
     parsed=urlparse(session['endpoint']);suffix='/api/homeserver-https-poll-v1300.php'
     if not parsed.path.endswith(suffix):raise ResearchError('The paired Cloud endpoint is unsupported.',409)
     base=session['endpoint'][:-len(suffix)]
-    allowed={'action','local_conversation','id','question','runtime_id','request_id','expected_hash','confirmed','project_id','discovery_confirmed','discovery_domains'}
+    allowed={'action','local_conversation','id','question','runtime_id','request_id','expected_hash','confirmed','project_id','discovery_confirmed','discovery_domains','before_id','after_id'}
     payload={key:value for key,value in body.items() if key in allowed}
     if len(json.dumps(payload).encode())>12000:raise ResearchError('Research request is too large.')
     token=session['session_token'];device=load_or_create_remote_identity()['device_id']
@@ -59,3 +60,29 @@ def request(body: dict) -> dict:
         raise ResearchError(str(result.get('error','Cloud research failed.'))[:300] if isinstance(result,dict) else 'Cloud research failed.',response.status_code if response.status_code in {401,403,404,409,422} else 502)
     if result.get('contract')!='vp3.chat-browser-research.v1':raise ResearchError('Update the matching Cloud research release.',409)
     return {**result,'cloud_base':base}
+
+
+def saved_report_links(metadata_json: str | None) -> list[dict]:
+    """Historical citation links; opening a report uses current Cloud authorization."""
+    try:
+        metadata = json.loads(metadata_json or '{}')
+        raw = metadata.get('research_reports', []) if isinstance(metadata, dict) else []
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    result = []
+    for item in raw[:5]:
+        if not isinstance(item, dict):
+            continue
+        identifier = str(item.get('id') or '')
+        try:
+            if str(UUID(identifier)) != identifier:
+                continue
+            parsed = urlparse(str(item.get('url') or ''))
+            if parsed.scheme not in ('http', 'https') or not parsed.netloc or parsed.username or parsed.password or parsed.fragment or not parsed.path.endswith('/research-report.php') or parse_qs(parsed.query) != {'report': [identifier]}:
+                continue
+        except ValueError:
+            continue
+        result.append({'id': identifier, 'label': 'R' + str(len(result) + 1), 'url': parsed.geturl(), 'title': str(item.get('title') or 'Saved research')[:300]})
+    return result

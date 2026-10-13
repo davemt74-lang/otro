@@ -6,17 +6,18 @@ const cfg=window.VP3_CHAT_RESEARCH;if(!form||!input||!mode||!cfg?.endpoint)retur
 const node=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);return e;};
 const option=node('option','Chrome research');option.value='chrome';mode.append(option);
 const panel=node('section');panel.className='vp3-chat-research';panel.setAttribute('aria-label','Chrome research');panel.hidden=true;form.before(panel);
-const status=node('p'),runtime=node('select'),project=node('select'),content=node('div');
+const status=node('p'),runtime=node('select'),project=node('select'),content=node('div'),savedContent=node('div');
+const recall=node('button','Recall saved research');recall.type='button';let savedReports=[],savedQuery=null;
 runtime.setAttribute('aria-label','Approved Chrome research runtime');project.setAttribute('aria-label','Research project');
 const refresh=node('button','Refresh research');refresh.type='button';
-panel.append(node('strong','Research the web'),node('p','Include one to five public HTTPS source URLs. Ask a question to review source discovery, or include one to five public HTTPS source URLs. Chrome reads only the approved plan in your existing runtime.'),runtime,refresh,status,content);
+panel.append(node('strong','Research the web'),node('p','Ask a question to review source discovery, or include one to five public HTTPS source URLs. Chrome reads only the approved plan in your existing runtime.'),runtime,refresh,recall,status,content,savedContent);
 let busy=false,generation=0,selected=null;const runtimeScopes=new Map();
 const context=()=>cfg.native?{local_conversation:window.HomeServerAgentRouting?.getActiveConversationId?.()||'',parent_agent_id:window.HomeServerAgentRouting?.getSelectedAgentId?.()||null}:
  {conversation_id:Number(window.STONEFELLOW_CHAT_CONTINUITY?.conversationId?.()??window.STONEFELLOW_CHAT?.initialConversationId??0),agent_id:Number(window.STONEFELLOW_AGENT_IDENTITY_V236?.agentId??0)};
 const key=()=>JSON.stringify(context());
 const pendingKey='vp3.chat-research.pending.'+String(cfg.csrf||'owner');
-function lock(value){busy=value;mode.disabled=value;input.disabled=value;runtime.disabled=value;project.disabled=value;panel.querySelectorAll('button').forEach(x=>x.disabled=value);}
-function clear(){generation++;selected=null;content.replaceChildren();status.textContent='';panel.hidden=mode.value!=='chrome';}
+function lock(value){busy=value;mode.disabled=value;input.disabled=value;runtime.disabled=value;project.disabled=value;panel.querySelectorAll('button,select').forEach(x=>x.disabled=value);}
+function clear(){generation++;selected=null;content.replaceChildren();savedContent.replaceChildren();savedReports=[];savedQuery=null;status.textContent='';panel.hidden=mode.value!=='chrome';}
 async function api(action,args={}){
  const origin=key(),g=generation;
  const response=await fetch(cfg.endpoint,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,csrf_token:cfg.csrf||'owner',...context(),...args})});
@@ -41,7 +42,8 @@ function render(r){
  const m=r.mission;
  if(m){
   content.append(node('p',`${m.progress.pages} pages read · ${m.progress.corroborated} corroborated · ${m.progress.conflicted} conflicting claims`));
-  const memo=node('pre',m.memo_preview||'No supported findings yet.');content.append(memo);
+  const memo=node('pre',m.answer?.text||m.memo_preview||'No supported findings yet.');content.append(memo);
+  if(m.answer){if(m.answer.partial)content.append(node('p','Partial answer: source reading is still incomplete.'));renderCitations(m.answer,content);}
   for(const c of m.claims||[]){const box=node('details');box.append(node('summary',`${c.state}: ${c.statement||c.value}`));
    for(const e of c.evidence||[])box.append(node('p',`${e.domain} · ${e.excerpt||''}`));content.append(box);}
   for(const p of m.pages||[])content.append(node('small',`${p.domain} · source receipt ${p.fingerprint} · ${p.source_version_id?'pinned source version '+p.source_version_id:'fingerprint-only evidence'}`));
@@ -51,6 +53,31 @@ function render(r){
   if(m.report){const a=node('a','Open report draft');const u=String(m.report.url||'');if(u.startsWith('/')&&!u.startsWith('//')){a.href=cfg.cloud_base?cfg.cloud_base+u:u;content.append(a);}}
  }
  if(!['cancelled','complete'].includes(r.status))content.append(button('Stop research','cancel'));
+}
+function renderCitations(answer,target){
+ for(const c of answer.citations||[]){const box=node('details');box.append(node('summary',`[${c.label}] ${c.domain} · ${c.as_of||'date unknown'}`),node('p','Source receipt '+c.fingerprint),node('p',c.source_version_id?'Pinned source version '+c.source_version_id:'Fingerprint-only evidence'));
+  try{const u=new URL(c.url);if(u.protocol==='https:'&&!u.username&&!u.password){const a=node('a','Open captured source URL');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';box.append(a);}}catch(_){}target.append(box);
+ }
+}
+function renderSaved(reports){
+ reports=[...reports].sort((a,b)=>String(b.saved_at).localeCompare(String(a.saved_at)));savedReports=reports;savedContent.replaceChildren();savedContent.append(node('h4','Saved research findings'));
+ if(!reports.length){savedContent.append(node('p','No matching saved research is available under current permissions.'));return;}
+ for(const r of reports){const box=node('details');box.append(node('summary',r.question+' · saved '+r.saved_at),node('p','Captured findings from an explicitly saved report draft. No live source was refreshed.'),node('pre',r.answer.text));renderCitations(r.answer,box);
+  const u=String(r.report?.url||'');if(u.startsWith('/')&&!u.startsWith('//')){const a=node('a','Open saved report');a.href=cfg.cloud_base?cfg.cloud_base+u:u;box.append(a);}savedContent.append(box);}
+ if(reports.length<2)return;
+ const before=node('select'),after=node('select');before.setAttribute('aria-label','Earlier saved research');after.setAttribute('aria-label','Later saved research');
+ for(const r of reports)for(const s of [before,after]){const o=node('option',r.question+' · '+r.saved_at);o.value=r.id;s.append(o);}before.value=reports[1].id;after.value=reports[0].id;
+ const compare=node('button','Compare saved research');compare.type='button';const changes=node('div');
+ compare.addEventListener('click',()=>void(async()=>{if(busy)return;lock(true);try{
+  if(before.value===after.value)throw new Error('Choose two different saved research runs.');
+  const result=await api('compare',{before_id:before.value,after_id:after.value});changes.replaceChildren(node('p',result.comparison.notice));
+  for(const c of result.comparison.changes||[]){const d=node('details');d.append(node('summary',c.key+' · '+c.state.replace(/_/g,' ')));
+   for(const side of ['before','after'])for(const v of c[side]||[])d.append(node('p',side+': '+v.value+' · '+v.kind+' ['+(v.citations||[]).join(', ')+']'));changes.append(d);}
+  for(const side of ['before','after']){changes.append(node('strong',side+': '+result.comparison[side].question));renderCitations(result.comparison[side],changes);}
+ }catch(e){savedContent.replaceChildren();status.textContent=e.message;}finally{lock(false);}})());savedContent.append(before,after,compare,changes);
+}
+async function recallSaved(){
+ if(busy)return;lock(true);try{savedQuery=input.value.trim().slice(0,1000);renderSaved((await api('recall',{question:savedQuery})).reports||[]);status.textContent='Saved findings retrieved. No search, page read or save was started.';}catch(e){savedContent.replaceChildren();status.textContent=e.message;}finally{lock(false);}
 }
 async function load(){
  if(busy)return;lock(true);
@@ -63,6 +90,7 @@ async function load(){
   content.replaceChildren();
   for(const r of result.requests||[]){const b=node('button',r.question+' · '+r.status.replace(/_/g,' '));b.type='button';b.addEventListener('click',()=>render(r));content.append(b);}
   if(selected){const r=result.requests.find(x=>x.id===selected.id);if(r)render(r);else selected=null;}
+  if(savedQuery!==null)renderSaved((await api('recall',{question:savedQuery})).reports||[]);
   status.textContent=result.runtimes.length?'Choose a runtime and send your research request.':'Approve Browser Research and the website scope in Chrome’s existing delegation workspace first.';
  }catch(e){status.textContent=e.message;}finally{lock(false);}
 }
@@ -103,6 +131,7 @@ form.addEventListener('submit',event=>{
   sessionStorage.removeItem(pendingKey);status.textContent='Review the source plan. No page has opened.';
  }catch(e){status.textContent=e.message;}finally{lock(false);}})();
 },true);
+recall.addEventListener('click',()=>void recallSaved());
 mode.addEventListener('change',()=>{panel.hidden=mode.value!=='chrome';if(mode.value==='chrome')void load();});refresh.addEventListener('click',()=>void load());
 let previous=key();setInterval(()=>{if(key()!==previous){previous=key();clear();if(mode.value==='chrome')void load();}else if(mode.value==='chrome'&&selected&&['running','waiting_chrome'].includes(selected.status))void load();},5000);
 })();

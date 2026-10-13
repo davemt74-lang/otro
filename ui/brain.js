@@ -98,6 +98,16 @@
     </article>`;
   }
 
+  function researchReportLinks(message) {
+    return (Array.isArray(message.research_reports) ? message.research_reports.slice(0,5) : []).map((report,index) => {
+      try {
+        const source = new URL(String(report.url || ''));
+        if (!['https:','http:'].includes(source.protocol) || source.username || source.password) return '';
+        return `<a class="hs-chat-research-source" style="display:inline-block;max-width:100%;overflow-wrap:anywhere" href="${escapeHtml(source.href)}" target="_blank" rel="noopener noreferrer">[R${index+1}] ${escapeHtml(report.title || 'Saved research report')}</a>`;
+      } catch (_) { return ''; }
+    }).join(' · ');
+  }
+
   function chatMessageMarkup(message = {}) {
     const role = String(message.role || 'assistant') === 'user' ? 'user' : 'assistant';
     const assistantName = String(byId('sidebarAgentName')?.textContent || 'HomeServer Agent').trim() || 'HomeServer Agent';
@@ -110,6 +120,7 @@
         <div class="hs-chat-role">${escapeHtml(label)}</div>
         <div class="hs-chat-copy">${escapeHtml(message.content || '')}</div>
         ${model}
+        ${role === 'assistant' ? researchReportLinks(message) : ''}
       </div>
     </div>`;
   }

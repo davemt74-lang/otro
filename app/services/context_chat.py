@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any
 
@@ -167,6 +168,15 @@ def chat(
     # subsequent turns cannot export prior observations through model tools.
     read_only = bool(read_only or settings.get("agent_eyes_local_only"))
 
+    research_intent = bool(source_app_key == 'owner' and owner_tools and include_memory and include_knowledge
+        and settings.get('include_memory') and settings.get('include_knowledge') and settings.get('cloud_allowed') and not read_only
+        and re.search(r'\b(recall|remember|saved|previous|prior|earlier)\b', text, re.I)
+        and re.search(r'\b(research|reports?|findings)\b', text, re.I))
+    research_reserve = min(4000, max(0, int(settings['max_context_chars']) - 1000)) if research_intent else 0
+    research_request = None
+    research_result = None
+    research_text = ''
+
     canonical = canonical_context.build_authorized_context(
         agent_id=int(agent["id"]),
         query=text,
@@ -177,12 +187,36 @@ def chat(
         include_knowledge=include_knowledge,
         include_contacts=include_contacts,
         settings=settings,
-        max_context_chars=int(settings["max_context_chars"]),
+        max_context_chars=int(settings["max_context_chars"]) - research_reserve,
         cloud_allowed=bool(settings["cloud_allowed"]),
         surface_context=None,
         include_collaboration=True,
     )
     bundle = canonical.bundle
+
+    if research_intent and canonical.cloud_allowed and research_reserve >= 800:
+        from . import chat_browser_research
+        research_request = {'action': 'recall', 'local_conversation': conversation_id,
+            'parent_agent_id': int(agent['id']), 'question': text[:1000]}
+        try:
+            research_result = chat_browser_research.request(research_request)
+            candidate = str(research_result.get('context_text') or '')
+            if len(candidate) <= research_reserve:
+                research_text = candidate
+        except chat_browser_research.ResearchError:
+            research_request = None
+        if not research_text:
+            research_request = None
+
+    if research_text:
+        canonical.budget['research_limit_chars'] = research_reserve
+        canonical.budget['research_used_chars'] = len(research_text)
+        canonical.budget['used_chars'] = canonical.total_context_chars + len(research_text)
+        canonical.budget['max_context_chars'] = int(settings['max_context_chars'])
+        canonical.effective_settings['max_context_chars'] = int(settings['max_context_chars'])
+        for report in research_result.get('reports', []):
+            canonical.source_refs.append({'kind': 'saved_research', 'id': report['report']['id'], 'title': report['question']})
+        canonical.provenance.append({'kind': 'saved_research', 'source': 'paired_cloud', 'snapshot_recheck': True})
 
     inference = providers.inference_status()
     provider_key = str(inference.get("selected_provider") or "unavailable")
@@ -215,6 +249,8 @@ def chat(
         {"role": "system", "content": canonical_context.system_prompt(agent, canonical)},
         *history,
     ]
+    if research_text:
+        messages[0]['content'] += '\n\n' + research_text
     if read_only:
         messages[0]["content"] += (
             "\n\nThis chat turn is server-enforced read-only. Do not invoke, propose, or claim any tool, task, memory write, external action, approval request, or side effect. Respond using only the conversation and authorized context supplied to you."
@@ -368,6 +404,16 @@ def chat(
         reason = cancellation_token.reason
         cancel_turn(reason)
         raise brain.BrainError("Agent turn cancelled.", 409)
+    if research_request:
+        try:
+            fresh = chat_browser_research.request(research_request)
+            prior_refs = [(r.get('id'), r.get('hash')) for r in research_result.get('reports', [])]
+            fresh_refs = [(r.get('id'), r.get('hash')) for r in fresh.get('reports', [])]
+            if prior_refs != fresh_refs or not context_engine.get_settings(conversation_id).get('include_knowledge') or not context_engine.get_settings(conversation_id).get('include_memory'):
+                raise chat_browser_research.ResearchError('Saved research changed during the answer. Review current findings.', 409)
+        except chat_browser_research.ResearchError as exc:
+            cancel_turn('research_authority_changed')
+            raise brain.BrainError(str(exc), exc.status_code) from exc
     duration_ms = int((time.perf_counter() - started) * 1000)
     reply = str(generated.get("content") or "").strip()
     if not reply:
@@ -392,6 +438,8 @@ def chat(
         "agent": agent_summary,
         "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
     }
+    if research_text:
+        metadata['research_reports'] = [{'id': r['report']['id'], 'url': research_result['cloud_base'] + r['report']['url'], 'title': r['question']} for r in research_result.get('reports', [])]
     run_metadata = _safe_run_metadata(tool_state, canonical, agent=agent, context_event_id=context_event_id)
     run_metadata["scope_enforced"] = not owner_tools
     run_metadata["read_only"] = bool(read_only)
@@ -535,6 +583,7 @@ def chat(
             "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
             "settings": effective_settings,
         },
+        "research_reports": metadata.get("research_reports", []),
         "collaboration": {
             "version": canonical.collaboration.get("version"),
             "active": bool(canonical.collaboration_sources),

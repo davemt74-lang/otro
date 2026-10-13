@@ -114,6 +114,17 @@ def fixture_generate(messages, model_override=None):
     content = json.dumps({'route':'chat','reason':'The fixture can answer directly','plan':None}) if routing else 'Browser acceptance reply.'
     return {'provider':'ollama', 'model':model_override or 'test-model', 'content':content}
 providers.generate_ollama = fixture_generate
+from app.services import brain
+original_conversation = brain.get_conversation
+def fixture_conversation(*args, **kwargs):
+    result = original_conversation(*args, **kwargs)
+    for message in result['messages']:
+        if message['role'] == 'assistant':
+            message['research_reports'] = [
+                {'id':'11111111-1111-4111-8111-111111111111','title':'Captured studio findings <img src=unsafe> ' + 'LongTitle' * 25,'url':'https://one.example/research-report.php?report=11111111-1111-4111-8111-111111111111'},
+                {'id':'invalid','title':'Unsafe reference','url':'javascript:alert(1)'}]
+    return result
+brain.get_conversation = fixture_conversation
 print('BROWSER_BOOTSTRAP ' + OWNER_CONTROL_TOKEN, flush=True)
 uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
 `], {cwd: root, env: {...process.env, HOMESERVER_DATA_DIR: dataDir, NO_PROXY: 'localhost,127.0.0.1'}});
@@ -184,6 +195,10 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.waitForFunction(() => document.querySelector('#chatMessages')?.textContent.includes('Browser acceptance reply.'));
   await page.waitForFunction(() => !document.querySelector('#chatForm [type="submit"]').disabled);
   assert.equal(await page.locator('#chatForm [type="submit"]').isEnabled(), true);
+  await page.locator('.hs-chat-research-source').first().waitFor();
+  assert.equal(await page.locator('a.hs-chat-research-source[href^="javascript:"]').count(),0);
+  assert.equal(await page.locator('img[src=unsafe]').count(),0);
+  assert.match(await page.locator('.hs-chat-research-source').first().innerText(),/Captured studio findings/);
   await page.locator('#chatOptionsButton').click();
   await page.waitForFunction(() => !document.querySelector('#contextUseMemory').disabled);
   assert.equal(await page.locator('#contextUseMemory').isEnabled(), true);

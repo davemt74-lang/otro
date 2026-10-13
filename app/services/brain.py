@@ -559,6 +559,10 @@ def get_conversation(source_app_key: str, conversation_id: str) -> dict:
     for row in messages:
         item = dict(row)
         metadata_json = item.pop("metadata_json", None)
+        from . import chat_browser_research
+        references = chat_browser_research.saved_report_links(metadata_json)
+        if references:
+            item['research_reports'] = references
         card = _safe_message_card(metadata_json)
         if card is not None:
             item["card"] = card
