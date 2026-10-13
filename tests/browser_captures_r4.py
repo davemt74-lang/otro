@@ -67,4 +67,4 @@ with tempfile.TemporaryDirectory(prefix='capture-r4-') as data:
         if row['table']=='browser_shares_v2010':row['data']['sender_user_id']=8
     raw=json.dumps(bad).encode();sync.apply_snapshot(peer,'chats',raw,hashlib.sha256(raw).hexdigest())
     assert captures.captures('capture-chat',agent['id'])['items']==[]
-    print('PASS: '+('real Cloud export → ' if export else '')+'production replica → native capture/Knowledge reads, canonical references/folders/tags, no duplicate native items/jobs, Chat privacy, pairing replacement, revoked grants and owner isolation.')
+    print('PASS: '+('real Cloud export -> ' if export else '')+'production replica -> native capture/Knowledge reads, canonical references/folders/tags, no duplicate native items/jobs, Chat privacy, pairing replacement, revoked grants and owner isolation.')
