@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 99654283ed7e85f57d74675821ad6e873514aa52
+          ref: 6bd2af1c15296840d8039409415e67f22011aaef
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
