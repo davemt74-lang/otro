@@ -179,6 +179,7 @@ def _generate_with_agent_tools(
     provider_key: str | None = None,
     cancellation_token: CancellationToken | None = None,
     workspace_datasets: tuple[str, ...] | None = None,
+    scoped_knowledge: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     policy = agent_tools.get_policy()
     schemas = (
@@ -191,6 +192,8 @@ def _generate_with_agent_tools(
         if policy["enabled"]
         else []
     )
+    def context_tool(name):return name=='homeserver_knowledge_search' or name.startswith('homeserver_workspace_')
+    if scoped_knowledge:schemas=[s for s in schemas if not context_tool(s['function']['name'])]
     tool_state = state if state is not None else {}
     if workspace_datasets is not None and not workspace_datasets:
         schemas=[item for item in schemas if not item['function']['name'].startswith('homeserver_workspace_')]
@@ -292,6 +295,8 @@ def _generate_with_agent_tools(
             try:
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled()
+                if scoped_knowledge and context_tool(model_name):
+                    raise agent_tools.AgentToolError('Use the selected Project Knowledge sources for this answer.')
                 from . import workspace_actions
                 context_token=workspace_actions.agent_datasets.set(workspace_datasets)
                 try:
@@ -562,6 +567,8 @@ def get_conversation(source_app_key: str, conversation_id: str) -> dict:
         from . import chat_browser_research
         from . import project_knowledge_r5
         item['annotation_citations']=project_knowledge_r5.citation_links(metadata_json)
+        try:item['project_knowledge_r6']=json.loads(metadata_json or '{}').get('project_knowledge_r6')
+        except (ValueError,TypeError):item['project_knowledge_r6']=None
         references = chat_browser_research.saved_report_links(metadata_json)
         if references:
             item['research_reports'] = references

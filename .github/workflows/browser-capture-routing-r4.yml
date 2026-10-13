@@ -1,4 +1,4 @@
-name: Project Knowledge and Capture Continuity R5
+name: Project Knowledge and Capture Continuity R6
 on:
   pull_request:
   push:
@@ -20,6 +20,7 @@ jobs:
         ports: ['3306:3306']
         options: --health-cmd="mysqladmin ping -h 127.0.0.1 -pfixture" --health-interval=5s --health-timeout=5s --health-retries=20
     env:
+      VP3_KNOWLEDGE_R6_EXPORT: ${{ github.workspace }}/_certification/project-knowledge-r6-export.json
       VP3_CAPTURE_R5_EXPORT: ${{ github.workspace }}/_certification/project-knowledge-r5-export.json
       VP3_CAPTURE_R5_RECEIPTS: ${{ github.workspace }}/_certification/project-knowledge-r5-receipts.json
       VP3_CAPTURE_R5_NATIVE_COMMAND: python tests/project_knowledge_r5.py
@@ -31,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 9cd0af4d1c7fea2cf0fa8f028ed7c5e18755058f
+          ref: a4b11f5a14d354fd76274e5df8c5ccd64bddc0e0
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -44,11 +45,14 @@ jobs:
       - name: Install native acceptance dependencies
         run: pip install -r requirements.txt
       - name: Canonical Cloud writes and production workspace export
-        run: php _certification/cloud/tests/project-knowledge-r5-mysql.php
+        run: |
+          php _certification/cloud/tests/project-knowledge-r5-mysql.php
+          php _certification/cloud/tests/project-knowledge-r6-mysql.php
       - name: Same captures and Knowledge in native Chat and Brain
         run: |
           python tests/browser_captures_r4.py
           python tests/project_knowledge_r5.py
+          python tests/project_knowledge_r6.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -60,3 +64,4 @@ jobs:
         run: |
           node tests/browser_captures_r4_ui.mjs
           node _certification/cloud/tests/project-knowledge-r5-ui.mjs
+          node _certification/cloud/tests/project-knowledge-r6-ui.mjs

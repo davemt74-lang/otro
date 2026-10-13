@@ -83,6 +83,7 @@ jobs:
           assert tree(manifest['source_commit'])==current_tree,'Compiled tree differs from merged tree'
           assert manifest['packaged_browser_certified'] is True and manifest['browser_section']=='A5B4'
           assert manifest['mission_lifecycle_section']=='A5C11'
+          assert manifest['project_knowledge_section']=='R6'
           for name in ('HomeServer.exe','HomeServerSetup.exe'):
               with (root/name).open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==manifest['files'][name],name+' hash mismatch'
           browser_root=root/'tools'/'browser'
@@ -200,7 +201,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 9cd0af4d1c7fea2cf0fa8f028ed7c5e18755058f
+          ref: a4b11f5a14d354fd76274e5df8c5ccd64bddc0e0
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -220,6 +221,8 @@ jobs:
           python tests/browser_captures_r4.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/project_knowledge_r5.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/project_knowledge_r6.py
       - name: Reviewed Cloud research request lifecycle
         run: |
           php _certification/cloud/tests/chat-browser-research-v1.php
@@ -1019,7 +1022,7 @@ jobs:
             mission_lifecycle_section = 'A5C11'
             research_section = 'R3'
             capture_routing_section = 'R4'
-            project_knowledge_section = 'R5'
+            project_knowledge_section = 'R6'
             channel = 'stable'
             minimum_schema_version = 38
             current_schema_version = [int]$schema
@@ -1043,7 +1046,7 @@ jobs:
             managed_browser_runtime = 'tools/browser/manifest.json'
             packaged_browser_certified = $true
             files = $hashMap
-            release_notes = 'R5 searchable annotations, reviewed organization, original source citations and exact shared Knowledge delivery receipts; retains R4 capture routing, R3 research and A5C11 integration diagnostics.'
+            release_notes = 'R6 conversation project/folder context, multiple source attachments and canonical scoped Knowledge in native answers; retains R5 citations and receipts, R4 capture routing, R3 research and A5C11 diagnostics.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution

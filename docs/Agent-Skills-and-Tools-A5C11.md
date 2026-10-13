@@ -257,3 +257,7 @@ A blocked or not-verified check stays visible with a next action. Source code av
 ## Certification scope
 
 Automated acceptance exercises production PHP mission endpoints and readback, paired dispatcher, real SQLite contacts and approvals, source receipt persistence, duplicate retries, current permissions, Chromium Chat UI, extension connection logic, existing Browser Companion research, and Windows packaging/upgrade gates. Authentication, model responses, and web-navigation content are deterministic test fixtures. The installed-user diagnostic must run on the installed systems to establish their current health.
+
+## R6 conversation Knowledge
+
+Cloud, HomeServer and Chrome expose conversation project/folder scopes and up to six annotation or saved-report attachments. The `project_knowledge_r6` Chrome command and paired native proxy use the canonical Cloud context endpoint. Sources are reauthorized and revisions rechecked before and after inference. Native local collection grants remain separate; Cloud folder IDs are resolved canonically. Scope changes store preferences only and do not execute a model turn. Existing captures, Knowledge and Research ledgers retain evidence identity.
