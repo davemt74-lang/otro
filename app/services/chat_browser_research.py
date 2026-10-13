@@ -36,7 +36,7 @@ def request(body: dict) -> dict:
     parsed=urlparse(session['endpoint']);suffix='/api/homeserver-https-poll-v1300.php'
     if not parsed.path.endswith(suffix):raise ResearchError('The paired Cloud endpoint is unsupported.',409)
     base=session['endpoint'][:-len(suffix)]
-    allowed={'action','local_conversation','id','question','runtime_id','request_id','expected_hash','confirmed','project_id'}
+    allowed={'action','local_conversation','id','question','runtime_id','request_id','expected_hash','confirmed','project_id','discovery_confirmed','discovery_domains'}
     payload={key:value for key,value in body.items() if key in allowed}
     if len(json.dumps(payload).encode())>12000:raise ResearchError('Research request is too large.')
     token=session['session_token'];device=load_or_create_remote_identity()['device_id']

@@ -29,11 +29,12 @@ with tempfile.TemporaryDirectory(prefix='chat-research-') as data:
         return httpx.Response(200,json={'ok':True,'contract':'vp3.chat-browser-research.v1','request':{'id':'canonical-reference'}})
     original=httpx.Client
     def client(**kwargs):return original(transport=httpx.MockTransport(cloud),**kwargs)
-    body={'action':'prepare','local_conversation':'research-chat','parent_agent_id':parent['id'],'question':'Compare https://one.example/about','runtime_id':'runtime','request_id':'request','private_context':'must not export'}
+    body={'action':'prepare','local_conversation':'research-chat','parent_agent_id':parent['id'],'question':'Compare https://one.example/about','runtime_id':'runtime','request_id':'request','private_context':'must not export','discovery_confirmed':True,'discovery_domains':['one.example']}
     with patch.object(research.httpx,'Client',client):
         response=research.request(body);assert response['request']['id']=='canonical-reference'
         assert response['cloud_base']=='http://127.0.0.1:49000/installed/vp3'
         assert len(calls)==1
+        assert calls[0]['discovery_confirmed'] is True and calls[0]['discovery_domains']==['one.example']
         with db() as c:c.execute("UPDATE conversation_context_settings SET cloud_allowed=0 WHERE conversation_id='research-chat'")
         try:research.request(body);raise AssertionError('private conversation exported')
         except research.ResearchError as e:assert e.status_code==403
