@@ -1,0 +1,55 @@
+name: Browser Capture Knowledge Continuity R4
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: capture-r4-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: fixture
+        ports: ['3306:3306']
+        options: --health-cmd="mysqladmin ping -h 127.0.0.1 -pfixture" --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      VP3_CAPTURE_R4_EXPORT: ${{ github.workspace }}/_certification/capture-r4-export.json
+      VP3_SECTION7_MYSQL_DSN: mysql:host=127.0.0.1;port=3306
+      VP3_SECTION7_MYSQL_PASSWORD: fixture
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: davemt74-lang/software
+          ref: ae3e1d89cc01120ce6366c80a56878c89186138b
+          path: _certification/cloud
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring
+          coverage: none
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install native acceptance dependencies
+        run: pip install -r requirements.txt
+      - name: Canonical Cloud writes and production workspace export
+        run: php _certification/cloud/tests/browser-capture-routing-r4-mysql.php
+      - name: Same captures and Knowledge in native Chat and Brain
+        run: python tests/browser_captures_r4.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install real browser acceptance runtime
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.62.1
+          npx playwright install --with-deps chromium
+      - name: Native mobile capture and fresh-authority acceptance
+        run: node tests/browser_captures_r4_ui.mjs

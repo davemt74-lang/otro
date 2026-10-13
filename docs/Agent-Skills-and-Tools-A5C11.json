@@ -1,6 +1,7 @@
 {
   "section": "A5C11",
   "research_section": "R3",
+  "capture_routing_section": "R4",
   "scope": "source definitions; installed user settings, custom plugins and live connectivity are not inferred",
   "homeserver_tools": [
     {
@@ -2898,6 +2899,7 @@
   "chrome_commands": [
     "agent_workspace",
     "capture",
+    "capture_r4",
     "capture_region",
     "chat_research_action",
     "chat_research_run",

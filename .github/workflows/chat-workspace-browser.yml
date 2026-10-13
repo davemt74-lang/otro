@@ -28,4 +28,6 @@ jobs:
           npm install --no-save --ignore-scripts playwright@1.51.1
           npx playwright install --with-deps chromium
       - name: Complete owner chat browser acceptance
-        run: node tests/chat_workspace_browser.mjs
+        run: |
+          node tests/chat_workspace_browser.mjs
+          node tests/browser_captures_r4_ui.mjs
