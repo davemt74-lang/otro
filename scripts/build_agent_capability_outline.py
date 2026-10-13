@@ -53,7 +53,7 @@ def php_catalog(path,function):
     return json.loads(result.stdout)
 plugins=php_catalog('includes/plugin-registry-v320.php','vp3_plugin_catalog_v320')
 domains=php_catalog('includes/cognitive-domain-registry-v2600.php','vp3_cognitive_domain_registry_v2600')
-result={'section':'A5C11','research_section':'R3','scope':'source definitions; installed user settings, custom plugins and live connectivity are not inferred',
+result={'section':'A5C11','research_section':'R3','capture_routing_section':'R4','scope':'source definitions; installed user settings, custom plugins and live connectivity are not inferred',
         'homeserver_tools':sorted(tool_catalog.values(),key=lambda t:t['key']), 'homeserver_skills':sorted(skills,key=lambda s:s['key']),
         'generic_model_read_bindings':agent_tools['MODEL_TOOL_NAMES'],
         'specialist_reads':list(contracts['CAPABILITIES']),'specialist_proposals':list(actions['ACTION_TOOLS']),
@@ -76,6 +76,7 @@ lines=['# Agent skills and tools — A5C11','',
        '| Chrome Browser Research Agent v22.30 | Approved domain envelope, multi-site source plans, bounded pages/claims, freshness, deduplication, corroboration, conflicts, memo, report and governed handoffs. | Existing Browser Companion delegation and research runtime remains active. |',
        '| Chat Chrome Research R3 | Cloud and native Chat review an explicit external source search within approved websites or up to five supplied URLs, then review the frozen source plan and queue existing Chrome research, display cited observed/inferred/conflicting claims, save a reviewed report draft, retrieve saved evidence under current project/site grants and compare captured observations without rereading. | Current Chrome runtime grants, exact plan approval, exclusive expiring reader lease, native Cloud/privacy checks, receipt reuse and separate write review. No new generic model tool or parallel evidence ledger. |',
        '| Cloud Research Projects v20.60 | Projects, memberships, source versions, annotations, findings, evidence links and reports. | Cloud project membership and publishing controls. Existing Chrome research saves/handoffs use this system. |',
+       '| Chrome annotations R4 | Highlighted quotes and notes delivered to existing Agent Chat, with optional Research project and Knowledge folder/tags. | Canonical captures and exact atomic writes; Knowledge and capture references use existing account-bound workspace replicas; native Chat and Brain retain privacy and pairing fences. |',
        '| Cloud Booking Agent discovery | Legacy public DuckDuckGo HTML search for venue/market leads. | This discovery helper is separate from HomeServer browser authority; no new parallel search engine was added. |',
        '| Proactive Agent and Brain | Context-aware suggestions, commitments, rescore/objectives, activity awareness, scheduled missions and workflow events. | Suggestions and schedules retain current permissions and review gates; scheduled browser grants are not reused automatically. |','',
        '## Execution boundaries','',

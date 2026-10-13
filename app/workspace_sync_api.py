@@ -1,10 +1,19 @@
 from __future__ import annotations
 from fastapi.responses import FileResponse, RedirectResponse
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 from .services import workspace_sync, native_workspaces, workspace_actions
+from .services import browser_captures_r4
 
 router=APIRouter(prefix='/api/v1/control/workspace-sync',tags=['workspace-sync'])
+
+@router.get('/browser-captures')
+def browser_captures(response:Response,local_conversation:str=Query(default='',max_length=100),agent_id:int=Query(default=0,ge=0))->dict:
+    response.headers['Cache-Control']='no-store'
+    try:
+        return browser_captures_r4.captures(local_conversation,agent_id)
+    except workspace_sync.WorkspaceSyncError as exc:
+        raise HTTPException(exc.status_code,detail=str(exc)) from exc
 
 class SyncSettings(BaseModel):
     model_config=ConfigDict(extra='forbid')

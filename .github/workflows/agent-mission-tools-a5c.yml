@@ -52,13 +52,15 @@ jobs:
         run: python tests/agent_mission_chat_tasks_a5c5.py
       - name: Native Chrome research owner and privacy boundaries
         run: python tests/chat_browser_research.py
+      - name: Synchronized browser annotation privacy and native Brain retrieval
+        run: python tests/browser_captures_r4.py
       - name: Chat follow-up commands, exact reviews and mission continuity
         run: python tests/agent_mission_followups_a5c9.py
       - name: Check out the certified Cloud counterpart
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 617494b86b31c0fbccc0d7703064748448b20f12
+          ref: 60b9ebaea3fa66d259e0005600c802830ec3f4d7
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:

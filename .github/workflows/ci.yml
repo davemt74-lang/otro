@@ -200,7 +200,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 617494b86b31c0fbccc0d7703064748448b20f12
+          ref: 60b9ebaea3fa66d259e0005600c802830ec3f4d7
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -216,6 +216,8 @@ jobs:
           python tests/chat_browser_research.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/chat_research_continuity_r3.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/browser_captures_r4.py
       - name: Reviewed Cloud research request lifecycle
         run: |
           php _certification/cloud/tests/chat-browser-research-v1.php
@@ -1014,6 +1016,7 @@ jobs:
             version = '2.4'
             mission_lifecycle_section = 'A5C11'
             research_section = 'R3'
+            capture_routing_section = 'R4'
             channel = 'stable'
             minimum_schema_version = 38
             current_schema_version = [int]$schema
