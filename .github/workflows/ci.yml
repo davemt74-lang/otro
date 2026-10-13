@@ -201,7 +201,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 5c9086d0d78de2b69b2f1c18f08b9e5bb6dfb24e
+          ref: 153d7c04b52523578d5330d900c3938c562c29d1
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -1061,3 +1061,4 @@ jobs:
             dist/tools/browser/**
           if-no-files-found: error
           retention-days: 14
+

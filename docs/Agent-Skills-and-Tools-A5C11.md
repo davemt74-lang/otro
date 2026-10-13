@@ -1,6 +1,6 @@
 # Agent skills and tools — A5C11
 
-The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **79 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
+The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **80 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
 
 This is a source audit of the matching build. User-enabled policies, installed custom plugins, active models, approved websites, and the currently deployed connection are checked by the live diagnostic, not inferred from repository code.
 
@@ -261,3 +261,4 @@ Automated acceptance exercises production PHP mission endpoints and readback, pa
 ## R6 conversation Knowledge
 
 Cloud, HomeServer and Chrome expose conversation project/folder scopes and up to six annotation or saved-report attachments. The `project_knowledge_r6` Chrome command and paired native proxy use the canonical Cloud context endpoint. Sources are reauthorized and revisions rechecked before and after inference. Native local collection grants remain separate; Cloud folder IDs are resolved canonically. Scope changes store preferences only and do not execute a model turn. Existing captures, Knowledge and Research ledgers retain evidence identity.
+
