@@ -560,6 +560,8 @@ def get_conversation(source_app_key: str, conversation_id: str) -> dict:
         item = dict(row)
         metadata_json = item.pop("metadata_json", None)
         from . import chat_browser_research
+        from . import project_knowledge_r5
+        item['annotation_citations']=project_knowledge_r5.citation_links(metadata_json)
         references = chat_browser_research.saved_report_links(metadata_json)
         if references:
             item['research_reports'] = references

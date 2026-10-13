@@ -108,6 +108,14 @@
     }).join(' · ');
   }
 
+  function annotationCitationLinks(message) {
+    return (Array.isArray(message.annotation_citations)?message.annotation_citations.slice(0,4):[]).map(c=>{
+      try{const u=new URL(String(c.source_url||''));if(!['https:','http:'].includes(u.protocol)||u.username||u.password||!/^A[1-4]$/.test(c.label))return '';
+      return `<details class="hs-chat-annotation-source"><summary><a href="${escapeHtml(u.href)}" target="_blank" rel="noopener noreferrer">[${escapeHtml(c.label)}] ${escapeHtml(c.title)}</a> · ${escapeHtml(c.captured_at)} UTC</summary><blockquote>${escapeHtml(c.excerpt||'')}</blockquote></details>`;
+      }catch(_){return '';}
+    }).join('');
+  }
+
   function chatMessageMarkup(message = {}) {
     const role = String(message.role || 'assistant') === 'user' ? 'user' : 'assistant';
     const assistantName = String(byId('sidebarAgentName')?.textContent || 'HomeServer Agent').trim() || 'HomeServer Agent';
@@ -120,7 +128,7 @@
         <div class="hs-chat-role">${escapeHtml(label)}</div>
         <div class="hs-chat-copy">${escapeHtml(message.content || '')}</div>
         ${model}
-        ${role === 'assistant' ? researchReportLinks(message) : ''}
+        ${role === 'assistant' ? researchReportLinks(message)+annotationCitationLinks(message) : ''}
       </div>
     </div>`;
   }
@@ -435,7 +443,7 @@
       clearTimeout(turn.timer);
       activeConversationId = data.conversation_id;
       const reply=String(data.reply || '').trim();
-      if(reply)existing?.insertAdjacentHTML('beforeend',chatMessageMarkup({role:'assistant',content:reply}));
+      if(reply)existing?.insertAdjacentHTML('beforeend',chatMessageMarkup({role:'assistant',content:reply,annotation_citations:data.annotation_citations||[]}));
       emitChatTurn(turn,'completed',{conversationId:data.conversation_id,runId:data.run_id,reply});
       const context = byId('chatContext');
       if (context) {
