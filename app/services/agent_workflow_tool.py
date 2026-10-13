@@ -212,6 +212,7 @@ def install() -> None:
         owner_tools: bool = False,
         read_only: bool = False,
         cancellation_token: CancellationToken | None = None,
+        project_knowledge_r6: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         agent = agent_routing.resolve_agent(source_app_key, agent_id, owner=owner_tools)
         parent_token = _CURRENT_PARENT_AGENT_ID.set(int(agent["id"]))
@@ -228,6 +229,8 @@ def install() -> None:
                 "owner_tools": owner_tools,
                 "read_only": read_only,
             }
+            if project_knowledge_r6 is not None:
+                chat_kwargs["project_knowledge_r6"] = project_knowledge_r6
             if cancellation_token is not None:
                 chat_kwargs["cancellation_token"] = cancellation_token
             result = original_chat(

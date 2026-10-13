@@ -2,7 +2,7 @@
   "section": "A5C11",
   "research_section": "R3",
   "capture_routing_section": "R4",
-  "project_knowledge_section": "R5",
+  "project_knowledge_section": "R6",
   "scope": "source definitions; installed user settings, custom plugins and live connectivity are not inferred",
   "homeserver_tools": [
     {
@@ -2934,6 +2934,7 @@
     "open_url",
     "poll_connect",
     "project_knowledge_r5",
+    "project_knowledge_r6",
     "quick_action_consume",
     "quick_action_run",
     "research_action",
@@ -5066,6 +5067,19 @@
         "workflow_tools_approvals"
       ]
     }
+  },
+  "chat_conversation_knowledge": {
+    "endpoint": "api/project-knowledge-r6.php",
+    "native_proxy": "app/services/project_knowledge_r6.py",
+    "scope_actions": [
+      "options",
+      "set_context",
+      "resolve"
+    ],
+    "attachment_limit": 6,
+    "canonical_folder_ids": true,
+    "pre_post_revision_recheck": true,
+    "stores_evidence": false
   },
   "chat_project_knowledge": {
     "endpoint": "api/project-knowledge-r5.php",

@@ -71,6 +71,8 @@ def chat(
     cloud_allowed: bool,
     max_context_chars: int,
     tool_permissions: set[str],
+    project_knowledge_r6: dict | None = None,
+    knowledge_scope_off_r6: bool = False,
 ) -> dict[str, Any]:
     text = str(message or "").strip()
     if not text:
@@ -83,6 +85,16 @@ def chat(
     external_id = _bounded_text(external_conversation_id, 160)
     permissions = set(tool_permissions or set())
 
+    from . import project_knowledge_r6 as r6, workspace_sync
+    r6_packet=None;r6_args=None;r6_authority=(source,permissions,cloud_allowed)
+    if project_knowledge_r6:
+        try:
+            if str(project_knowledge_r6.get('conversation_id'))!=external_id.removeprefix('vp3:'):
+                raise workspace_sync.WorkspaceSyncError('The delegated conversation changed.',409)
+            r6_packet,r6_args=r6.delegated_packet(project_knowledge_r6,text,*r6_authority)
+        except workspace_sync.WorkspaceSyncError as exc:raise brain.BrainError(str(exc),exc.status_code) from exc
+    r6_active=bool(r6_packet and r6_packet.get('active'))
+    r6_reserve=min(6000,max(0,max_context_chars-2000)) if r6_active else 0
     canonical = canonical_context.build_authorized_context(
         agent_id=int(homeserver_agent["id"]),
         query=text,
@@ -90,14 +102,17 @@ def chat(
         permissions=permissions,
         owner=False,
         include_memory=include_memory,
-        include_knowledge=include_knowledge,
+        include_knowledge=include_knowledge and not r6_active and not knowledge_scope_off_r6,
         include_contacts=include_contacts,
         settings=None,
-        max_context_chars=max_context_chars,
+        max_context_chars=max_context_chars-r6_reserve,
         cloud_allowed=cloud_allowed,
         surface_context=surface_context,
-        include_collaboration=True,
+        include_collaboration=not r6_active and not knowledge_scope_off_r6,
     )
+    if r6_active:
+        try:r6.apply_packet(canonical,r6_packet,max_context_chars)
+        except workspace_sync.WorkspaceSyncError as exc:raise brain.BrainError(str(exc),exc.status_code) from exc
     bundle = canonical.bundle
     bounded_history = _history_messages(history)
     messages: list[dict[str, Any]] = [
@@ -150,6 +165,7 @@ def chat(
             owner=False,
             state=tool_state,
             provider_key=provider_override,
+            **({"scoped_knowledge":True} if r6_active or knowledge_scope_off_r6 else {}),
         )
     except providers.ProviderError as exc:
         duration_ms = int((time.perf_counter() - started) * 1000)
@@ -182,12 +198,18 @@ def chat(
             )
         raise brain.BrainError(str(exc), 503) from exc
 
+    if r6_active:
+        try:r6.recheck(r6_packet,r6_args,delegated=r6_authority)
+        except workspace_sync.WorkspaceSyncError as exc:
+            with db() as c:c.execute("UPDATE agent_runs SET status='failed',error=?,completed_at=CURRENT_TIMESTAMP WHERE id=?",('project_knowledge_authority_changed',run_id))
+            raise brain.BrainError(str(exc),exc.status_code) from exc
     duration_ms = int((time.perf_counter() - started) * 1000)
     reply = str(generated.get("content") or "").strip()
     if not reply:
         raise brain.BrainError("Inference provider returned no final response text.", 503)
 
     metadata = {
+        "project_knowledge_r6":r6.public(r6_packet),
         "delegation_version": DELEGATION_VERSION,
         "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
         "canonical_conversation_owner": "vp3",
@@ -288,6 +310,9 @@ def chat(
 
     return {
         "reply": reply,
+        "knowledge_scope_off_r6":knowledge_scope_off_r6,
+        "project_knowledge_r6":r6.public(r6_packet),
+        "knowledge_scope_off_r6":knowledge_scope_off_r6,
         "provider": str(generated.get("provider") or provider_key),
         "model": str(generated.get("model") or selected_model),
         "compute_source": actual_compute_source,

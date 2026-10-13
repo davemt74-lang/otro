@@ -18,6 +18,7 @@ class ChatRequest(BaseModel):
     include_contacts: bool | None = None
     cloud_allowed: bool | None = None
     read_only: bool = False
+    project_knowledge_r6: dict | None = None
     max_context_chars: int | None = Field(default=None, ge=2000, le=24000)
 
 
@@ -170,6 +171,7 @@ def _chat_or_http(
                 tool_permissions=tool_permissions,
                 owner_tools=owner_tools,
                 read_only=True,
+                **({"project_knowledge_r6": payload.project_knowledge_r6} if payload.project_knowledge_r6 is not None else {}),
             )
         return context_chat.chat(
             source,
@@ -182,6 +184,7 @@ def _chat_or_http(
             context_options=_chat_context_options(payload),
             tool_permissions=tool_permissions,
             owner_tools=owner_tools,
+            **({"project_knowledge_r6": payload.project_knowledge_r6} if payload.project_knowledge_r6 is not None else {}),
         )
     except (agent_routing.AgentRoutingError, brain.BrainError, context_engine.ContextError) as exc:
         status_code = getattr(exc, "status_code", 422)

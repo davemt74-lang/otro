@@ -1,6 +1,6 @@
 # Agent skills and tools — A5C11
 
-The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **79 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
+The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **80 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
 
 This is a source audit of the matching build. User-enabled policies, installed custom plugins, active models, approved websites, and the currently deployed connection are checked by the live diagnostic, not inferred from repository code.
 
@@ -182,7 +182,7 @@ Commands are extension message handlers, not permission grants. Every protected 
 | notification | `notification_poll` |
 | open | `open_url` |
 | poll | `poll_connect` |
-| project | `project_knowledge_r5` |
+| project | `project_knowledge_r5`, `project_knowledge_r6` |
 | quick | `quick_action_consume`, `quick_action_run` |
 | research | `research_action`, `research_analyze_current`, `research_context`, `research_runtime_action` |
 | reset | `reset_local_connection` |
@@ -257,3 +257,7 @@ A blocked or not-verified check stays visible with a next action. Source code av
 ## Certification scope
 
 Automated acceptance exercises production PHP mission endpoints and readback, paired dispatcher, real SQLite contacts and approvals, source receipt persistence, duplicate retries, current permissions, Chromium Chat UI, extension connection logic, existing Browser Companion research, and Windows packaging/upgrade gates. Authentication, model responses, and web-navigation content are deterministic test fixtures. The installed-user diagnostic must run on the installed systems to establish their current health.
+
+## R6 conversation Knowledge
+
+Cloud, HomeServer and Chrome expose conversation project/folder scopes and up to six annotation or saved-report attachments. The `project_knowledge_r6` Chrome command and paired native proxy use the canonical Cloud context endpoint. Sources are reauthorized and revisions rechecked before and after inference. Native local collection grants remain separate; Cloud folder IDs are resolved canonically. Scope changes store preferences only and do not execute a model turn. Existing captures, Knowledge and Research ledgers retain evidence identity.

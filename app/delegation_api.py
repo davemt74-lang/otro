@@ -32,6 +32,8 @@ class DelegationRequest(BaseModel):
     delegation: DelegatedAgent | None = None
     history: list[DelegatedMessage] = Field(default_factory=list, max_length=12)
     surface_context: dict[str, Any] = Field(default_factory=dict)
+    project_knowledge_r6: dict[str, Any] | None = None
+    knowledge_scope_off_r6: bool = False
     include_memory: bool | None = None
     include_knowledge: bool | None = None
     include_contacts: bool | None = None
@@ -106,6 +108,8 @@ def _delegate(payload: DelegationRequest, identity: dict) -> dict:
             cloud_allowed=payload.cloud_allowed is not False,
             max_context_chars=payload.max_context_chars or 12000,
             tool_permissions=permissions,
+            project_knowledge_r6=payload.project_knowledge_r6,
+            knowledge_scope_off_r6=payload.knowledge_scope_off_r6,
         )
     except (agent_routing.AgentRoutingError, brain.BrainError) as exc:
         raise _workflow_http_error(exc) from exc

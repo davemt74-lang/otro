@@ -116,6 +116,15 @@
     }).join('');
   }
 
+  function projectContextLinks(message){
+    const packet=message.project_knowledge_r6;if(!packet?.active)return '';
+    return '<section class="hs-chat-project-sources"><strong>'+escapeHtml(packet.state.title)+'</strong>'+packet.sources.map(s=>{
+      try{const u=new URL(s.url);if(!['http:','https:'].includes(u.protocol)||u.username||u.password)return '';
+      return '<a style="display:block;overflow-wrap:anywhere" href="'+escapeHtml(u.href)+'" target="_blank" rel="noopener noreferrer">['+escapeHtml(s.label)+'] '+escapeHtml(s.title)+' · '+escapeHtml(s.captured_at)+' UTC</a>';
+      }catch(_){return '';}
+    }).join('')+'</section>';
+  }
+
   function chatMessageMarkup(message = {}) {
     const role = String(message.role || 'assistant') === 'user' ? 'user' : 'assistant';
     const assistantName = String(byId('sidebarAgentName')?.textContent || 'HomeServer Agent').trim() || 'HomeServer Agent';
@@ -128,7 +137,7 @@
         <div class="hs-chat-role">${escapeHtml(label)}</div>
         <div class="hs-chat-copy">${escapeHtml(message.content || '')}</div>
         ${model}
-        ${role === 'assistant' ? researchReportLinks(message)+annotationCitationLinks(message) : ''}
+        ${role === 'assistant' ? researchReportLinks(message)+annotationCitationLinks(message)+projectContextLinks(message) : ''}
       </div>
     </div>`;
   }
@@ -137,6 +146,7 @@
     const node = byId('chatMessages');
     if (!node) return;
     const messages = data?.messages || [];
+    window.VP3ProjectKnowledgeR6?.record([...messages].reverse().find(m=>m.role==='assistant')?.project_knowledge_r6);
     if (!messages.length) {
       node.innerHTML = '<div class="chat-empty">Start a private conversation with your HomeServer Agent Brain. Local memory, knowledge and tools are used only within your permissions.</div>';
       return;
@@ -435,15 +445,16 @@
       const data = await new Promise((resolve,reject)=>{
         const abort=()=>reject(new DOMException('Chat turn cancelled or timed out.','AbortError'));
         turn.controller.signal.addEventListener('abort',abort,{once:true});
-        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, conversation_id:turn.conversationId})})
+        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value()})})
           .then(resolve,reject).finally(()=>turn.controller.signal.removeEventListener('abort',abort));
       });
       if(pendingChatTurn !== turn || turn.revision !== conversationRevision || turn.controller.signal.aborted)return;
       if(!data.conversation_id || typeof data.reply !== 'string')throw new Error('Agent returned an invalid chat response. Try again.');
       clearTimeout(turn.timer);
       activeConversationId = data.conversation_id;
+      window.VP3ProjectKnowledgeR6?.consume(data.project_knowledge_r6);
       const reply=String(data.reply || '').trim();
-      if(reply)existing?.insertAdjacentHTML('beforeend',chatMessageMarkup({role:'assistant',content:reply,annotation_citations:data.annotation_citations||[]}));
+      if(reply)existing?.insertAdjacentHTML('beforeend',chatMessageMarkup({role:'assistant',content:reply,annotation_citations:data.annotation_citations||[],project_knowledge_r6:data.project_knowledge_r6}));
       emitChatTurn(turn,'completed',{conversationId:data.conversation_id,runId:data.run_id,reply});
       const context = byId('chatContext');
       if (context) {
@@ -461,6 +472,7 @@
       });
     } catch (err) {
       if(pendingChatTurn !== turn)return;
+      if(window.VP3ProjectKnowledgeR6&&!input.value)input.value=message;
       emitChatTurn(turn,'failed',{message:err.name==='AbortError'?'Chat request timed out. Try again.':err.message});
       brainFlash(err.name==='AbortError'?'Chat request timed out. Try again.':err.message,true);
     } finally {

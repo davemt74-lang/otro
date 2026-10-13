@@ -147,6 +147,7 @@ def chat(
     owner_tools: bool = False,
     read_only: bool = False,
     cancellation_token: CancellationToken | None = None,
+    project_knowledge_r6: dict | None = None,
 ) -> dict[str, Any]:
     if cancellation_token is not None:
         cancellation_token.raise_if_cancelled()
@@ -168,7 +169,23 @@ def chat(
     # subsequent turns cannot export prior observations through model tools.
     read_only = bool(read_only or settings.get("agent_eyes_local_only"))
 
-    research_intent = bool(source_app_key == 'owner' and owner_tools and include_memory and include_knowledge
+    from . import project_knowledge_r6 as r6, workspace_sync
+    r6_packet=None;r6_args=None
+    r6_selected_off=source_app_key=='owner' and owner_tools and r6.local_mode(conversation_id)=='off'
+    if r6_selected_off:include_knowledge=False
+    if source_app_key=='owner' and owner_tools:
+        if include_knowledge and settings['include_knowledge'] and settings['cloud_allowed']:
+            try:r6_packet,r6_args=r6.owner_packet(conversation_id,int(agent['id']),text,project_knowledge_r6)
+            except workspace_sync.WorkspaceSyncError as exc:raise brain.BrainError(str(exc),exc.status_code) from exc
+        elif include_knowledge and settings['include_knowledge'] and r6.requires_cloud(conversation_id):
+            raise brain.BrainError('The selected Knowledge context requires current Cloud permission. Choose a different context to continue.',403)
+        elif project_knowledge_r6 and project_knowledge_r6.get('attachments'):
+            raise brain.BrainError('Knowledge is disabled for this conversation.',403)
+    elif project_knowledge_r6:
+        raise brain.BrainError('Project context selection requires the owner canvas.',403)
+    r6_active=bool(r6_packet and r6_packet.get('active'))
+    r6_reserve=min(6000,max(0,int(settings['max_context_chars'])-2000)) if r6_active else 0
+    research_intent = bool(not r6_active and source_app_key == 'owner' and owner_tools and include_memory and include_knowledge
         and settings.get('include_memory') and settings.get('include_knowledge') and settings.get('cloud_allowed') and not read_only
         and re.search(r'\b(recall|remember|saved|previous|prior|earlier)\b', text, re.I)
         and re.search(r'\b(research|reports?|findings)\b', text, re.I))
@@ -184,14 +201,17 @@ def chat(
         permissions=granted_permissions,
         owner=owner_tools,
         include_memory=include_memory,
-        include_knowledge=include_knowledge,
+        include_knowledge=include_knowledge and not r6_active,
         include_contacts=include_contacts,
         settings=settings,
-        max_context_chars=int(settings["max_context_chars"]) - research_reserve,
+        max_context_chars=int(settings["max_context_chars"]) - research_reserve - r6_reserve,
         cloud_allowed=bool(settings["cloud_allowed"]),
         surface_context=None,
-        include_collaboration=True,
+        include_collaboration=not r6_active,
     )
+    if r6_active:
+        try:r6.apply_packet(canonical,r6_packet,int(settings['max_context_chars']))
+        except workspace_sync.WorkspaceSyncError as exc:raise brain.BrainError(str(exc),exc.status_code) from exc
     bundle = canonical.bundle
 
     if research_intent and canonical.cloud_allowed and research_reserve >= 800:
@@ -359,6 +379,7 @@ def chat(
                 state=tool_state,
                 provider_key=provider_override,
                 workspace_datasets=workspace_datasets,
+                **({"scoped_knowledge":True} if r6_active or r6_selected_off else {}),
             )
         else:
             generated, tool_state = brain._generate_with_agent_tools(
@@ -371,6 +392,7 @@ def chat(
                 provider_key=provider_override,
                 cancellation_token=cancellation_token,
                 workspace_datasets=workspace_datasets,
+                **({"scoped_knowledge":True} if r6_active or r6_selected_off else {}),
             )
         tool_state["read_only"] = bool(read_only)
         if cancellation_token is not None:
@@ -404,6 +426,11 @@ def chat(
         reason = cancellation_token.reason
         cancel_turn(reason)
         raise brain.BrainError("Agent turn cancelled.", 409)
+    if r6_active:
+        try:r6.recheck(r6_packet,r6_args)
+        except workspace_sync.WorkspaceSyncError as exc:
+            cancel_turn('project_knowledge_authority_changed')
+            raise brain.BrainError(str(exc),exc.status_code) from exc
     if research_request:
         try:
             fresh = chat_browser_research.request(research_request)
@@ -422,6 +449,7 @@ def chat(
     context_event_id = context_engine.record_retrieval(conversation_id, source_app_key, bundle)
     agent_summary = agent_routing.safe_summary(agent)
     metadata = {
+        "project_knowledge_r6": r6.public(r6_packet),
         "provider": generated["provider"],
         "run_id": run_id,
         "tool_call_count": int(tool_state.get("call_count") or 0),
@@ -584,6 +612,7 @@ def chat(
             "settings": effective_settings,
         },
         "research_reports": metadata.get("research_reports", []),
+        "project_knowledge_r6":r6.public(r6_packet),
         "annotation_citations": [r for r in canonical.source_refs if r.get("kind")=="browser_annotation"],
         "collaboration": {
             "version": canonical.collaboration.get("version"),
