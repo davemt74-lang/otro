@@ -182,7 +182,7 @@ Commands are extension message handlers, not permission grants. Every protected 
 | notification | `notification_poll` |
 | open | `open_url` |
 | poll | `poll_connect` |
-| project | `project_knowledge_r5` |
+| project | `project_knowledge_r5`, `project_knowledge_r6` |
 | quick | `quick_action_consume`, `quick_action_run` |
 | research | `research_action`, `research_analyze_current`, `research_context`, `research_runtime_action` |
 | reset | `reset_local_connection` |
