@@ -1,6 +1,6 @@
 # Agent skills and tools — A5C11
 
-The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **78 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
+The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **79 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
 
 This is a source audit of the matching build. User-enabled policies, installed custom plugins, active models, approved websites, and the currently deployed connection are checked by the live diagnostic, not inferred from repository code.
 
@@ -14,6 +14,7 @@ This is a source audit of the matching build. User-enabled policies, installed c
 | Chat Chrome Research R3 | Cloud and native Chat review an explicit external source search within approved websites or up to five supplied URLs, then review the frozen source plan and queue existing Chrome research, display cited observed/inferred/conflicting claims, save a reviewed report draft, retrieve saved evidence under current project/site grants and compare captured observations without rereading. | Current Chrome runtime grants, exact plan approval, exclusive expiring reader lease, native Cloud/privacy checks, receipt reuse and separate write review. No new generic model tool or parallel evidence ledger. |
 | Cloud Research Projects v20.60 | Projects, memberships, source versions, annotations, findings, evidence links and reports. | Cloud project membership and publishing controls. Existing Chrome research saves/handoffs use this system. |
 | Chrome annotations R4 | Highlighted quotes and notes delivered to existing Agent Chat, with optional Research project and Knowledge folder/tags. | Canonical captures and exact atomic writes; Knowledge and capture references use existing account-bound workspace replicas; native Chat and Brain retain privacy and pairing fences. |
+| Project Knowledge R5 | Search annotations by text/project/folder/tag/date, use authorized quotes in Chat, review organization edits, retrieve original source citations and confirm exact synchronization revisions. | Existing capture and Knowledge identities, atomic revision edits, current owner/pairing/privacy checks, no automatic model turn and hash-only workspace receipts. |
 | Cloud Booking Agent discovery | Legacy public DuckDuckGo HTML search for venue/market leads. | This discovery helper is separate from HomeServer browser authority; no new parallel search engine was added. |
 | Proactive Agent and Brain | Context-aware suggestions, commitments, rescore/objectives, activity awareness, scheduled missions and workflow events. | Suggestions and schedules retain current permissions and review gates; scheduled browser grants are not reused automatically. |
 
@@ -181,6 +182,7 @@ Commands are extension message handlers, not permission grants. Every protected 
 | notification | `notification_poll` |
 | open | `open_url` |
 | poll | `poll_connect` |
+| project | `project_knowledge_r5` |
 | quick | `quick_action_consume`, `quick_action_run` |
 | research | `research_action`, `research_analyze_current`, `research_context`, `research_runtime_action` |
 | reset | `reset_local_connection` |

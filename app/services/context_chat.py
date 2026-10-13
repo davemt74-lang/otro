@@ -584,6 +584,7 @@ def chat(
             "settings": effective_settings,
         },
         "research_reports": metadata.get("research_reports", []),
+        "annotation_citations": [r for r in canonical.source_refs if r.get("kind")=="browser_annotation"],
         "collaboration": {
             "version": canonical.collaboration.get("version"),
             "active": bool(canonical.collaboration_sources),

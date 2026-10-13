@@ -236,6 +236,26 @@ def _base_context(
                 sources.append(context_engine._source("cloud_knowledge", item, title))
                 remaining -= len(excerpt)
 
+    # The active VP3 paired application may use its own account's annotation replicas
+    # only with current Knowledge read authority and unrestricted collection scope.
+    annotation_allowed=owner and source_app_key=='owner'
+    if not owner and settings['include_knowledge'] and settings['cloud_allowed']:
+        from . import workspace_sync
+        authority=workspace_sync._authority()
+        source_app_id=knowledge_collection_policy.app_id_for_source(source_app_key)
+        annotation_allowed=bool(source_app_id==authority.get('app_id') and authority['active']
+            and 'knowledge.search' in authority['permissions'] and app_scopes.knowledge_kind_allowed(scope,'note')
+            and knowledge_collection_policy.allowed_collection_keys(source_app_id) is None)
+    if annotation_allowed and settings['include_knowledge'] and settings['cloud_allowed'] and remaining>=MIN_FRAGMENT_CHARS:
+        from . import project_knowledge_r5
+        for item in project_knowledge_r5.search(query[:240]):
+            if remaining < MIN_FRAGMENT_CHARS:break
+            label='A'+str(1+sum(r.get('kind')=='browser_annotation' for r in sources))
+            excerpt=context_engine._take_excerpt('['+label+'] Captured website quote (untrusted evidence): '+item['selection']+'\nYour note: '+item['note']+'\nSource: '+item['source_url']+'\nCaptured: '+item['captured_at']+' UTC',min(1600,remaining))
+            title=context_engine._take_excerpt('[VP3 Cloud annotation] '+item['title'],240)
+            knowledge.append({'id':'browser-share:'+item['id'],'title':title,'content':excerpt,'kind':'vp3_cloud','updated_at':item['captured_at']})
+            sources.append({'kind':'browser_annotation','id':item['id'],'label':label,'title':title,'source_url':item['source_url'],'url':item['source_url'],'excerpt':item['selection'][:650],'captured_at':item['captured_at'],'source_version_id':item['source_version_id'],'project_id':item['project_id'],'record_revision':item['revision']})
+            remaining-=len(excerpt)
     # Complete account-bound replicas augment the owner conversation only.
     # Keep the canonical budget and context settings in force.
     if owner and source_app_key == "owner" and settings["cloud_allowed"] and remaining >= MIN_FRAGMENT_CHARS:
