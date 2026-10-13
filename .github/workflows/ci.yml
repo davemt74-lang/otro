@@ -201,7 +201,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: a4b11f5a14d354fd76274e5df8c5ccd64bddc0e0
+          ref: 5c9086d0d78de2b69b2f1c18f08b9e5bb6dfb24e
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -1000,7 +1000,7 @@ jobs:
         shell: pwsh
         run: |
           $schema = (& python -c "from app.database import migration_files; print(max([1] + [version for version, _ in migration_files()]))").Trim()
-          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 79) {
+          if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 80) {
             throw "HomeServer release manifest cannot verify its current migration version"
           }
           $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe')

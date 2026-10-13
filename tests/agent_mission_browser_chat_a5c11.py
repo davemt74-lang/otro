@@ -88,13 +88,13 @@ with tempfile.TemporaryDirectory(prefix='a5c11-') as data:
             assert c.execute('SELECT count(*) FROM agent_mission_browser_sources_v11').fetchone()[0]==1
         # Actual current runtime evidence never launches a browser or calls the model.
         before=len(prompts);report=success('diagnostics.get')['diagnostics']
-        assert report['homeserver']['schema']==79 and report['section']=='A5C11'
+        assert report['homeserver']['schema']>=80 and report['section']=='A5C11'
         assert report['homeserver']['source']=='paired_app' and report['read_only'] and report['token_spend']==0
         assert report['browser_pages_opened']==0 and len(prompts)==before and captured==[url]
         assert 'last_error' not in report['homeserver']['sync'] and not report['ready']
         assert next(c for c in report['checks'] if c['key']=='round_trip')['status']=='ready'
         assert next(c for c in report['checks'] if c['key']=='matching_contract')['status']=='ready'
-        extension=relay.extension_diagnostic();assert extension['ok'] and extension['payload']['diagnostics']['homeserver']['schema']==79
+        extension=relay.extension_diagnostic();assert extension['ok'] and extension['payload']['diagnostics']['homeserver']['schema']>=80
         assert relay.extension_diagnostic(False)['status']==401
         persisted="""import sys;sys.path.insert(0,sys.argv[1]);from app.database import initialize_database,db;initialize_database();
 with db() as c:
