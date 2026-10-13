@@ -5068,6 +5068,19 @@
       ]
     }
   },
+  "chat_conversation_knowledge": {
+    "endpoint": "api/project-knowledge-r6.php",
+    "native_proxy": "app/services/project_knowledge_r6.py",
+    "scope_actions": [
+      "options",
+      "set_context",
+      "resolve"
+    ],
+    "attachment_limit": 6,
+    "canonical_folder_ids": true,
+    "pre_post_revision_recheck": true,
+    "stores_evidence": false
+  },
   "chat_project_knowledge": {
     "endpoint": "api/project-knowledge-r5.php",
     "native_proxy": "app/services/project_knowledge_r5.py",
@@ -5117,18 +5130,5 @@
     },
     "native_proxy": "app/services/chat_browser_research.py",
     "separate_website_and_exact_plan_approvals": true
-  },
-  "chat_conversation_knowledge": {
-    "endpoint": "api/project-knowledge-r6.php",
-    "native_proxy": "app/services/project_knowledge_r6.py",
-    "scope_actions": [
-      "options",
-      "set_context",
-      "resolve"
-    ],
-    "attachment_limit": 6,
-    "canonical_folder_ids": true,
-    "pre_post_revision_recheck": true,
-    "stores_evidence": false
   }
 }

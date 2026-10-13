@@ -261,4 +261,3 @@ Automated acceptance exercises production PHP mission endpoints and readback, pa
 ## R6 conversation Knowledge
 
 Cloud, HomeServer and Chrome expose conversation project/folder scopes and up to six annotation or saved-report attachments. The `project_knowledge_r6` Chrome command and paired native proxy use the canonical Cloud context endpoint. Sources are reauthorized and revisions rechecked before and after inference. Native local collection grants remain separate; Cloud folder IDs are resolved canonically. Scope changes store preferences only and do not execute a model turn. Existing captures, Knowledge and Research ledgers retain evidence identity.
-
