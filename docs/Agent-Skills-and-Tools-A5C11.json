@@ -1,6 +1,6 @@
 {
   "section": "A5C11",
-  "research_section": "R1",
+  "research_section": "R2",
   "scope": "source definitions; installed user settings, custom plugins and live connectivity are not inferred",
   "homeserver_tools": [
     {
@@ -5080,6 +5080,13 @@
     ],
     "source_urls": 5,
     "evidence_ledger": "browser_research_v2230",
+    "source_discovery": {
+      "provider": "existing DuckDuckGo public-search helper",
+      "canvas_query_consent": true,
+      "domain_scope": "first_five_sorted_existing_grants",
+      "candidates_are_evidence": false,
+      "followup_auto_execution": false
+    },
     "native_proxy": "app/services/chat_browser_research.py",
     "separate_website_and_exact_plan_approvals": true
   }

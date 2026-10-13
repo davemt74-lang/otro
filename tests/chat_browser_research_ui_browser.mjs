@@ -14,7 +14,7 @@ await page.route('**/api/research',async route=>{
  if(blocked)return route.fulfill({status:403,json:{ok:false,error:'Permission revoked'}});
  const response={ok:true,contract:'vp3.chat-browser-research.v1'};
  if(body.action==='list')Object.assign(response,{requests:[],runtimes:[{id:'runtime',title:'Approved research',domains:['one.example','two.example']}],projects:[{id:'project',title:'Reviewed research'}]});
- else if(body.action==='prepare')response.request={...r};
+ else if(body.action==='prepare')response.request={...r,question:body.question,sources:body.discovery_confirmed?r.sources.map(x=>({...x,origin:'web_search',discovery_domains:body.discovery_domains,title:'Candidate <img src=x>',reason:'Not yet read or verified'})):r.sources};
  else if(body.action==='start'){assert.equal(body.confirmed,true);assert.equal(body.expected_hash,r.review_hash);r={...r,status:'waiting_chrome'};response.request=r;}
  else if(body.action==='get')response.request=r;
  else if(body.action==='save'){assert.equal(body.project_id,'project');response.request={...r,mission:{...r.mission,report:{url:'/research-report.php?id=draft'}}};}
@@ -32,6 +32,16 @@ try{
  await page.addStyleTag({content:css});await page.addScriptTag({content:script});
  await page.locator('#vp3ChatTaskMode').selectOption('chrome');
  await page.locator('select[aria-label="Approved Chrome research runtime"]').selectOption('runtime');
+ await page.locator('#chatInput').fill('Compare available services and missing evidence');await page.locator('#chatForm button').click();
+ await page.getByRole('button',{name:'Approve search and propose sources'}).waitFor();
+ assert.equal(calls.filter(x=>x.action==='prepare').length,0,'no search before canvas consent');
+ assert.match(await page.locator('.vp3-chat-research pre').innerText(),/site:one.example OR site:two.example/);
+ await page.getByRole('button',{name:'Cancel search review'}).click();assert.equal(calls.filter(x=>x.action==='prepare').length,0);
+ await page.locator('#chatForm button').click();await page.getByRole('button',{name:'Approve search and propose sources'}).click();
+ await page.getByRole('button',{name:'Approve plan and start Chrome research'}).waitFor();
+ const discovery=calls.find(x=>x.action==='prepare');assert.equal(discovery.discovery_confirmed,true);assert.deepEqual(discovery.discovery_domains,['one.example','two.example']);
+ assert.equal(calls.filter(x=>x.action==='start').length,0,'search cannot start Chrome');
+ await page.getByText('Search candidates are suggestions, not evidence.',{exact:false}).waitFor();assert.equal(await page.locator('img[src=x]').count(),0);
  await page.locator('#chatInput').fill(r.question);await page.locator('#chatForm button').click();
  await page.getByRole('button',{name:'Approve plan and start Chrome research'}).waitFor();
  assert.equal(calls.filter(x=>x.action==='start').length,0);assert.equal(await page.evaluate(()=>window.ordinary||0),0);
@@ -44,6 +54,7 @@ try{
  await page.getByRole('button',{name:'Refresh research'}).click();await page.getByText('Supported brief <img src=x>',{exact:true}).waitFor();
  assert.equal(await page.locator('img[src=x]').count(),0);assert.equal(await page.locator('.vp3-chat-research a').count(),2);
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+2));
+ const beforeFollowup=calls.filter(x=>x.action==='prepare').length;await page.getByRole('button',{name:'Research this gap'}).click();assert.equal(await page.locator('#chatInput').inputValue(),'Investigate: A missing date');assert.equal(calls.filter(x=>x.action==='prepare').length,beforeFollowup,'gap cannot automatically search or restart');
  blocked=true;await page.getByRole('button',{name:'Refresh research'}).click();await page.waitForFunction(()=>!document.querySelector('.vp3-chat-research pre'));
- assert.deepEqual(errors,[]);console.log('PASS: '+(native?'HomeServer':'Cloud')+' Chrome mode intercepts ordinary Chat, prepares without execution, requires exact approval, restores cited/conflicting findings, renders safe text/mobile and clears revoked results.');
+ assert.deepEqual(errors,[]);console.log('PASS: '+(native?'HomeServer':'Cloud')+' R2 canvas consent reviews exact external query, separates unverified candidates from evidence, prepares gap follow-ups without execution, intercepts ordinary Chat, requires exact approval, restores cited/conflicting findings, renders safe text/mobile and clears revoked results.');
 }finally{await browser.close();}
