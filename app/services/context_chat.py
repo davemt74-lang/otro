@@ -169,7 +169,9 @@ def chat(
     # subsequent turns cannot export prior observations through model tools.
     read_only = bool(read_only or settings.get("agent_eyes_local_only"))
 
-    from . import project_knowledge_r6 as r6, workspace_sync
+    from . import project_knowledge_r6 as r6, workspace_sync, knowledge_actions_r9 as r9
+    knowledge_candidate=source_app_key=='owner' and owner_tools and r9.intent(text)
+    knowledge_draft=None
     r6_packet=None;r6_args=None
     r6_selected_off=source_app_key=='owner' and owner_tools and r6.local_mode(conversation_id)=='off'
     if r6_selected_off:include_knowledge=False
@@ -242,7 +244,7 @@ def chat(
     provider_key = str(inference.get("selected_provider") or "unavailable")
     provider_model = str(inference.get("model") or "")
     provider_override: str | None = None
-    if not canonical.cloud_allowed:
+    if not canonical.cloud_allowed and not knowledge_candidate:
         provider_key, provider_model, provider_override = _private_inference_route(inference)
 
     with db() as connection:
@@ -264,7 +266,7 @@ def chat(
         read_only = True
         canonical.cloud_allowed = False
         canonical.effective_settings.update({"cloud_allowed": False, "agent_eyes_local_only": True})
-        provider_key, provider_model, provider_override = _private_inference_route(inference)
+        if not knowledge_candidate:provider_key, provider_model, provider_override = _private_inference_route(inference)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": canonical_context.system_prompt(agent, canonical)},
         *history,
@@ -369,7 +371,15 @@ def chat(
         and (name not in ('agents', 'chats') or canonical.effective_settings['include_memory'])
     )
     try:
-        if cancellation_token is None:
+        if knowledge_candidate:
+            try:knowledge_draft=r9.chat(text,conversation_id,int(agent['id']),current_settings,read_only,include_knowledge,project_knowledge_r6,user_message_id)
+            except workspace_sync.WorkspaceSyncError as exc:
+                cancel_turn('knowledge_action_authority_changed')
+                raise brain.BrainError(str(exc),exc.status_code) from exc
+            draft_execution=knowledge_draft.get('execution') or {}
+            generated={'content':knowledge_draft['answer'],'provider':draft_execution.get('provider') or 'knowledge_review','model':draft_execution.get('model') or 'reviewed-knowledge-r9'}
+            tool_state={'call_count':0,'run_ids':[],'action_request_ids':[],'provider_usage':draft_execution.get('usage') or {}}
+        elif cancellation_token is None:
             generated, tool_state = brain._generate_with_agent_tools(
                 messages,
                 source_app_key=source_app_key,
@@ -449,6 +459,7 @@ def chat(
     context_event_id = context_engine.record_retrieval(conversation_id, source_app_key, bundle)
     agent_summary = agent_routing.safe_summary(agent)
     metadata = {
+        "knowledge_actions_r9": knowledge_draft,
         "project_knowledge_r6": r6.public(r6_packet),
         "provider": generated["provider"],
         "run_id": run_id,
@@ -477,6 +488,11 @@ def chat(
         cancel_turn(reason)
         raise brain.BrainError("Agent turn cancelled.", 409)
 
+    if knowledge_draft and knowledge_draft.get('drafts'):
+        try:r9.verify(knowledge_draft,conversation_id,int(agent['id']))
+        except workspace_sync.WorkspaceSyncError as exc:
+            cancel_turn('knowledge_action_authority_changed')
+            raise brain.BrainError(str(exc),exc.status_code) from exc
     with db() as connection:
         connection.execute(
             """
@@ -546,7 +562,7 @@ def chat(
             ),
         )
 
-    actual_compute_source = "homeserver_local" if generated["provider"] == "ollama" else "user_provider"
+    actual_compute_source = "vp3_cloud" if (knowledge_draft or {}).get('execution') and knowledge_draft['execution'].get('source')=='vp3_cloud' else ("homeserver_local" if generated["provider"] == "ollama" else "user_provider")
     provider_usage = dict(tool_state.get("provider_usage") or {})
     try:
         usage_service.record_usage(
@@ -558,7 +574,7 @@ def chat(
             prompt_tokens=int(provider_usage.get("prompt_tokens", 0)),
             completion_tokens=int(provider_usage.get("completion_tokens", 0)),
             total_tokens=int(provider_usage.get("total_tokens", 0)),
-            billable_tokens=0,
+            billable_tokens=int((knowledge_draft or {}).get("execution",{}).get("cloud_tokens_debited",0)) if (knowledge_draft or {}).get("execution") else 0,
             request_kind="chat",
             metadata={
                 "conversation_id": conversation_id,
@@ -591,7 +607,7 @@ def chat(
         "provider": generated["provider"],
         "model": generated["model"],
         "compute_source": actual_compute_source,
-        "cloud_tokens_debited": 0,
+        "cloud_tokens_debited": int((knowledge_draft or {}).get('execution',{}).get('cloud_tokens_debited',0)) if (knowledge_draft or {}).get('execution') else 0,
         "usage": provider_usage,
         "run_id": run_id,
         "read_only": bool(read_only),
@@ -611,6 +627,7 @@ def chat(
             "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
             "settings": effective_settings,
         },
+        "knowledge_actions_r9": knowledge_draft,
         "research_reports": metadata.get("research_reports", []),
         "project_knowledge_r6":r6.public(r6_packet),
         "annotation_citations": [r for r in canonical.source_refs if r.get("kind")=="browser_annotation"],

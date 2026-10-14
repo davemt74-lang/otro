@@ -131,7 +131,7 @@
     const label = role === 'user' ? 'You' : assistantName;
     const avatar = role === 'user' ? 'Y' : '✦';
     const model = message.model ? `<small class="hs-chat-model">${escapeHtml(message.model)}</small>` : '';
-    return `<div class="chat-message ${role}">
+    return `<div class="chat-message ${role}" data-chat-message-id="${Number(message.id||0)}">
       <div class="hs-chat-avatar" aria-hidden="true">${avatar}</div>
       <div class="hs-chat-message-body">
         <div class="hs-chat-role">${escapeHtml(label)}</div>
@@ -155,6 +155,8 @@
       if (message?.card?.card_type === 'meeting') return renderMeetingCard(message.card);
       return chatMessageMarkup(message);
     }).join('');
+    for(const message of messages){if(message.role==='assistant')window.VP3KnowledgeActionsR9?.show(message.knowledge_actions_r9,node.querySelector('[data-chat-message-id="'+Number(message.id||0)+'"] .hs-chat-message-body'));}
+
     if (byId('view-chat')?.classList.contains('active')) {
       requestAnimationFrame(() => node.lastElementChild?.scrollIntoView({block: 'end', behavior: 'instant'}));
     }
@@ -455,14 +457,15 @@
       window.VP3ProjectKnowledgeR6?.consume(data.project_knowledge_r6);
       const reply=String(data.reply || '').trim();
       if(reply)existing?.insertAdjacentHTML('beforeend',chatMessageMarkup({role:'assistant',content:reply,annotation_citations:data.annotation_citations||[],project_knowledge_r6:data.project_knowledge_r6}));
+      window.VP3KnowledgeActionsR9?.show(data.knowledge_actions_r9,existing?.lastElementChild?.querySelector('.hs-chat-message-body'));
       emitChatTurn(turn,'completed',{conversationId:data.conversation_id,runId:data.run_id,reply});
       const context = byId('chatContext');
       if (context) {
         const toolText = data.tools?.call_count ? ` · ${data.tools.call_count} tool call${data.tools.call_count === 1 ? '' : 's'}` : '';
         const pending = data.tools?.action_request_ids?.length || 0;
         const approvalText = pending ? ` · ${pending} approval${pending === 1 ? '' : 's'} pending` : '';
-        const computeText = data.compute_source === 'homeserver_local' ? 'HomeServer local' : 'user provider';
-        context.textContent = `${computeText} · 0 VP3 cloud tokens · ${data.context?.memory_count || 0} memories · ${data.context?.knowledge_count || 0} knowledge matches${toolText}${approvalText} · ${data.model || ''}`;
+        const computeText = data.knowledge_actions_r9?.execution?.source==='vp3_cloud'?'VP3 Cloud':data.compute_source === 'homeserver_local' ? 'HomeServer local' : data.knowledge_actions_r9?'Knowledge review':'user provider';
+        context.textContent = `${computeText} · ${Number(data.cloud_tokens_debited||0)} VP3 cloud tokens · ${data.context?.memory_count || 0} memories · ${data.context?.knowledge_count || 0} knowledge matches${toolText}${approvalText} · ${data.model || ''}`;
       }
       if (data.tools?.action_request_ids?.length) brainFlash('Agent created a pending action. Review it in Approvals.');
       // Sidebar/history availability must not turn a successful reply into a

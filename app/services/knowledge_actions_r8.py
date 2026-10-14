@@ -11,7 +11,7 @@ CONTRACT='vp3.knowledge-actions.r8'
 
 def request(body:dict,client:httpx.Client|None=None)->dict:
     action=body.get('action')
-    if action not in {'options','suggest','prepare','get','decide'}:
+    if action not in {'options','suggest','prepare','get','decide','converse','validate_draft'}:
         raise workspace_sync.WorkspaceSyncError('Unknown reviewed refresh operation.')
     conversation=body.get('local_conversation');agent=body.get('parent_agent_id') or 0
     if not isinstance(conversation,str) or type(agent) is not int:
@@ -22,15 +22,16 @@ def request(body:dict,client:httpx.Client|None=None)->dict:
         permissions=workspace_sync._authority()['permissions']
         if 'knowledge.search' not in permissions:
             raise workspace_sync.WorkspaceSyncError('Current Knowledge permission is required.',403)
-        if action in {'suggest','prepare','decide'} and (body.get('operation') not in required or required[body['operation']] not in permissions):
+        if action in {'suggest','prepare','decide','validate_draft'} and (body.get('operation') not in required or required[body['operation']] not in permissions):
             raise workspace_sync.WorkspaceSyncError('Current destination permission is required for this action.',403)
         return permissions
     agent=int(agent_routing.resolve_agent('owner',agent or None,owner=True)['id']);authorize();session=load_https_session();suffix='/api/homeserver-https-poll-v1300.php'
     if not session or not session['endpoint'].endswith(suffix):
         raise workspace_sync.WorkspaceSyncError('Connect the matching Cloud refresh release.',409)
-    allowed={'action','local_conversation','parent_agent_id','references','state_revision','operation','target_key','fields','instruction','request_id','id','expected_hash','decision','confirmed'}
+    allowed={'action','local_conversation','parent_agent_id','references','state_revision','operation','target_key','fields','instruction','request_id','id','expected_hash','decision','confirmed','draft_fingerprint','target_revision'}
     payload={k:v for k,v in body.items() if k in allowed}
     payload['parent_agent_id']=agent
+    if action=='converse':payload['allowed_operations']=[op for op,permission in required.items() if permission in authorize()]
     if len(json.dumps(payload).encode())>32000:raise workspace_sync.WorkspaceSyncError('Refresh request is too large.',413)
     token=session['session_token'];device=load_or_create_remote_identity()['device_id']
     def send(c):return c.post(session['endpoint'][:-len(suffix)]+'/api/knowledge-actions-r8.php',json=payload,
@@ -61,6 +62,12 @@ def request(body:dict,client:httpx.Client|None=None)->dict:
     for item in [result.get('action')]:
         if isinstance(item,dict) and item.get('preview') and item['preview'].get('operation') not in allowed:
             raise workspace_sync.WorkspaceSyncError('Destination permission changed.',403)
+    if action=='converse':
+        draft=result.get('conversation_draft')
+        if not isinstance(draft,dict) or draft.get('contract')!='vp3.knowledge-actions.r9' or draft.get('context_key')!=expected or not isinstance(draft.get('drafts'),list) or len(draft['drafts'])>3 or any(not isinstance(p,dict) or p.get('operation') not in allowed for p in draft['drafts']):
+            raise workspace_sync.WorkspaceSyncError('Invalid or unauthorized conversational draft.',403)
+    if action=='validate_draft' and not result.get('action') and (not isinstance(result.get('draft'),dict) or result['draft'].get('operation') not in allowed):
+        raise workspace_sync.WorkspaceSyncError('Destination permission changed.',403)
     if action=='decide':workspace_sync.wake()
     return result
 
