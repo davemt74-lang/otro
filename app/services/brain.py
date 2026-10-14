@@ -569,6 +569,8 @@ def get_conversation(source_app_key: str, conversation_id: str) -> dict:
         item['annotation_citations']=project_knowledge_r5.citation_links(metadata_json)
         try:item['project_knowledge_r6']=json.loads(metadata_json or '{}').get('project_knowledge_r6')
         except (ValueError,TypeError):item['project_knowledge_r6']=None
+        try:item['knowledge_actions_r9']=json.loads(metadata_json or '{}').get('knowledge_actions_r9')
+        except (ValueError,TypeError):item['knowledge_actions_r9']=None
         references = chat_browser_research.saved_report_links(metadata_json)
         if references:
             item['research_reports'] = references

@@ -1,4 +1,4 @@
-name: Knowledge-backed Chat Actions R8
+name: Conversational Knowledge Actions R9
 on:
   pull_request:
   push:
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: da9d186da51b310baa702c6064cac03d9e754bae
+          ref: 6b2ad51a65602147621bd3ab1bab351613653909
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -51,7 +51,7 @@ jobs:
           php _certification/cloud/tests/project-knowledge-r5-mysql.php
           php _certification/cloud/tests/project-knowledge-r6-mysql.php
           php _certification/cloud/tests/project-knowledge-r7-mysql.php
-          php _certification/cloud/tests/knowledge-actions-r8-mysql.php
+          php _certification/cloud/tests/knowledge-actions-r9-mysql.php
       - name: Same captures and Knowledge in native Chat and Brain
         run: |
           python tests/browser_captures_r4.py
@@ -59,6 +59,7 @@ jobs:
           python tests/project_knowledge_r6.py
           python tests/project_knowledge_r7.py
           python tests/knowledge_actions_r8.py
+          python tests/knowledge_actions_r9.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -73,3 +74,4 @@ jobs:
           node _certification/cloud/tests/project-knowledge-r6-ui.mjs
           node _certification/cloud/tests/project-knowledge-r7-ui.mjs
           node _certification/cloud/tests/knowledge-actions-r8-ui.mjs
+          node _certification/cloud/tests/knowledge-actions-r9-ui.mjs

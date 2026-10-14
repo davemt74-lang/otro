@@ -83,7 +83,7 @@ jobs:
           assert tree(manifest['source_commit'])==current_tree,'Compiled tree differs from merged tree'
           assert manifest['packaged_browser_certified'] is True and manifest['browser_section']=='A5B4'
           assert manifest['mission_lifecycle_section']=='A5C11'
-          assert manifest['project_knowledge_section']=='R8'
+          assert manifest['project_knowledge_section']=='R9'
           for name in ('HomeServer.exe','HomeServerSetup.exe'):
               with (root/name).open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==manifest['files'][name],name+' hash mismatch'
           browser_root=root/'tools'/'browser'
@@ -201,7 +201,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: da9d186da51b310baa702c6064cac03d9e754bae
+          ref: 6b2ad51a65602147621bd3ab1bab351613653909
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -226,7 +226,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/project_knowledge_r7.py
       - name: Knowledge-backed action proxy, canonical receipts and privacy boundaries
-        run: python tests/knowledge_actions_r8.py
+        run: |
+          python tests/knowledge_actions_r8.py
+          python tests/knowledge_actions_r9.py
       - name: Reviewed Cloud research request lifecycle
         run: |
           php _certification/cloud/tests/chat-browser-research-v1.php
@@ -1026,7 +1028,7 @@ jobs:
             mission_lifecycle_section = 'A5C11'
             research_section = 'R3'
             capture_routing_section = 'R4'
-            project_knowledge_section = 'R8'
+            project_knowledge_section = 'R9'
             channel = 'stable'
             minimum_schema_version = 38
             current_schema_version = [int]$schema
@@ -1050,7 +1052,7 @@ jobs:
             managed_browser_runtime = 'tools/browser/manifest.json'
             packaged_browser_certified = $true
             files = $hashMap
-            release_notes = 'R8 Knowledge-backed task/CRM/document actions, exact evidence-bound approvals and canonical sync receipts; retains R7 reviewed source reread and Knowledge refresh; retains R6 conversation project/folder context, multiple source attachments and canonical scoped Knowledge in native answers; retains R5 citations and receipts, R4 capture routing, R3 research and A5C11 diagnostics.'
+            release_notes = 'R9 ordinary Chat conversational drafts and inline editable reviews; retains R8 Knowledge-backed task/CRM/document actions, exact evidence-bound approvals and canonical sync receipts; retains R7 reviewed source reread and Knowledge refresh; retains R6 conversation project/folder context, multiple source attachments and canonical scoped Knowledge in native answers; retains R5 citations and receipts, R4 capture routing, R3 research and A5C11 diagnostics.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution

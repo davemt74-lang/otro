@@ -198,6 +198,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.locator('.hs-chat-research-source').first().waitFor();
   assert.equal(await page.locator('a.hs-chat-research-source[href^="javascript:"]').count(),0);
   assert.equal(await page.locator('img[src=unsafe]').count(),0);
+  await page.locator('.hs-chat-research-source').first().scrollIntoViewIfNeeded();
   assert.match(await page.locator('.hs-chat-research-source').first().innerText(),/Captured studio findings/);
   await page.locator('#chatOptionsButton').click();
   await page.waitForFunction(() => !document.querySelector('#contextUseMemory').disabled);
