@@ -7,7 +7,7 @@ from fastapi import APIRouter, Cookie, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .services import members
+from .services import members, stonefellow_native
 
 ROOT_DIR=Path(__file__).resolve().parents[1]
 UI_DIR=ROOT_DIR/"ui"
@@ -153,6 +153,43 @@ def member_agent_context(homeserver_member:str|None=Cookie(default=None))->dict:
         return members.brain_context(identity["member_id"])
     except members.MemberError as exc:
         _raise(exc)
+
+
+@router.post("/api/v1/member/stonefellow/authorize")
+def member_stonefellow_start(homeserver_member:str|None=Cookie(default=None))->dict:
+    member=_identity(homeserver_member)
+    try:
+        return stonefellow_native.start_pair("fan.library.read",member_id=member["member_id"],
+                                             label="VP3 HomeServer Music")
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.post("/api/v1/member/stonefellow/complete")
+def member_stonefellow_finish(homeserver_member:str|None=Cookie(default=None))->dict:
+    member=_identity(homeserver_member)
+    try:
+        return stonefellow_native.finish_pair("fan.library.read",member_id=member["member_id"])
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.get("/api/v1/member/stonefellow/library")
+def member_stonefellow_library(homeserver_member:str|None=Cookie(default=None))->dict:
+    member=_identity(homeserver_member)
+    try:
+        return stonefellow_native.fan_library(member["member_id"])
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.delete("/api/v1/member/stonefellow")
+def member_stonefellow_disconnect(homeserver_member:str|None=Cookie(default=None))->dict:
+    member=_identity(homeserver_member)
+    try:
+        return stonefellow_native.fan_disconnect(member["member_id"])
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("/api/v1/control/members")
