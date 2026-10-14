@@ -187,7 +187,7 @@ def finish_pair(scope: str, *, member_id: str = "", client=None, resolver=None) 
         pending_key, linked_key = _vault_key(member_id, "PENDING_FAN"), _vault_key(member_id, "FAN")
         binding = "M" + hashlib.sha256(member_id.encode()).hexdigest()[:32]
     elif scope == "admin.presence.read" and not member_id:
-        pending_key, linked_key, binding = "PENDING_ADMIN", "ADMIN_CONNECTION_TOKEN", "HOME_OWNER"
+        pending_key, linked_key, binding = "PENDING_ADMIN", "ADMIN_CONNECTION_TOKEN", "HOMESERVER_OWNER"
     else:
         raise StonefellowError("Invalid HomeServer pairing scope.", 403)
     pending = homeserver_app_security.get_secret(APP_KEY, pending_key)
