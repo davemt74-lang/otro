@@ -551,6 +551,7 @@ def capabilities() -> dict:
             "agent.delegation.v1",
             "knowledge.context.scoped.r6",
             "knowledge.refresh.reviewed.r7",
+            "knowledge.actions.reviewed.r8",
             "agent.workflows.v048",
             "agent.workflows.model_delegate",
             "agent.handoffs.v049",

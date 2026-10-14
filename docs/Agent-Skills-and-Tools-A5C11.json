@@ -2,7 +2,7 @@
   "section": "A5C11",
   "research_section": "R3",
   "capture_routing_section": "R4",
-  "project_knowledge_section": "R7",
+  "project_knowledge_section": "R8",
   "scope": "source definitions; installed user settings, custom plugins and live connectivity are not inferred",
   "homeserver_tools": [
     {
@@ -2917,6 +2917,7 @@
     "execution_action",
     "following",
     "integration_diagnostics",
+    "knowledge_actions_r8",
     "live_action",
     "live_poll",
     "live_rooms",
@@ -5068,6 +5069,29 @@
         "workflow_tools_approvals"
       ]
     }
+  },
+  "chat_knowledge_actions": {
+    "endpoint": "api/knowledge-actions-r8.php",
+    "native_proxy": "app/services/knowledge_actions_r8.py",
+    "operations": [
+      "options",
+      "suggest",
+      "prepare",
+      "get",
+      "decide"
+    ],
+    "action_types": [
+      "task.create",
+      "contacts.update",
+      "knowledge.update"
+    ],
+    "evidence_bound_exact_review": true,
+    "canonical_writers": [
+      "agent_brain_store_memory",
+      "workspace_native_edit_v1"
+    ],
+    "delivery_receipts": "existing_workspace_chat_snapshot",
+    "original_evidence_preserved": true
   },
   "chat_reviewed_knowledge_refresh": {
     "endpoint": "api/project-knowledge-r7.php",

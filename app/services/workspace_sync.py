@@ -179,6 +179,8 @@ def local_snapshot(dataset: str) -> dict:
         records.extend(project_knowledge_r5.receipts())
         from . import project_knowledge_r7
         records.extend(project_knowledge_r7.receipts())
+        from . import knowledge_actions_r8
+        records.extend(knowledge_actions_r8.receipts())
     records.sort(key=lambda row:(row['table'],row['source_id']))
     body=json.dumps({'contract':CONTRACT,'source':'homeserver','dataset':dataset,'records':records},ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
     if len(body)>MAX_BYTES:
