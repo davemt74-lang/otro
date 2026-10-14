@@ -148,6 +148,7 @@ def chat(
     read_only: bool = False,
     cancellation_token: CancellationToken | None = None,
     project_knowledge_r6: dict | None = None,
+    knowledge_revision: dict | None = None,
 ) -> dict[str, Any]:
     if cancellation_token is not None:
         cancellation_token.raise_if_cancelled()
@@ -169,8 +170,8 @@ def chat(
     # subsequent turns cannot export prior observations through model tools.
     read_only = bool(read_only or settings.get("agent_eyes_local_only"))
 
-    from . import project_knowledge_r6 as r6, workspace_sync, knowledge_actions_r9 as r9
-    knowledge_candidate=source_app_key=='owner' and owner_tools and r9.intent(text)
+    from . import project_knowledge_r6 as r6, workspace_sync, knowledge_actions_r9 as r9, knowledge_revisions_r11 as r11
+    knowledge_candidate=source_app_key=='owner' and owner_tools and (r9.intent(text) or r11.intent(text))
     knowledge_draft=None
     r6_packet=None;r6_args=None
     r6_selected_off=source_app_key=='owner' and owner_tools and r6.local_mode(conversation_id)=='off'
@@ -372,7 +373,7 @@ def chat(
     )
     try:
         if knowledge_candidate:
-            try:knowledge_draft=r9.chat(text,conversation_id,int(agent['id']),current_settings,read_only,include_knowledge,project_knowledge_r6,user_message_id)
+            try:knowledge_draft=r9.chat(text,conversation_id,int(agent['id']),current_settings,read_only,include_knowledge,project_knowledge_r6,user_message_id,knowledge_revision)
             except workspace_sync.WorkspaceSyncError as exc:
                 cancel_turn('knowledge_action_authority_changed')
                 raise brain.BrainError(str(exc),exc.status_code) from exc

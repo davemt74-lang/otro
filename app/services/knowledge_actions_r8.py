@@ -28,7 +28,7 @@ def request(body:dict,client:httpx.Client|None=None)->dict:
     agent=int(agent_routing.resolve_agent('owner',agent or None,owner=True)['id']);authorize();session=load_https_session();suffix='/api/homeserver-https-poll-v1300.php'
     if not session or not session['endpoint'].endswith(suffix):
         raise workspace_sync.WorkspaceSyncError('Connect the matching Cloud refresh release.',409)
-    allowed={'action','local_conversation','parent_agent_id','references','state_revision','operation','target_key','fields','instruction','request_id','id','expected_hash','decision','confirmed','draft_fingerprint','target_revision'}
+    allowed={'action','local_conversation','parent_agent_id','references','state_revision','operation','target_key','fields','instruction','request_id','id','expected_hash','decision','confirmed','draft_fingerprint','target_revision','revision_packet','knowledge_revision','revision_root_id'}
     payload={k:v for k,v in body.items() if k in allowed}
     payload['parent_agent_id']=agent
     if action=='converse':payload['allowed_operations']=[op for op,permission in required.items() if permission in authorize()]
