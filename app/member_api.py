@@ -7,7 +7,7 @@ from fastapi import APIRouter, Cookie, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .services import members
+from .services import members, stonefellow_native
 
 ROOT_DIR=Path(__file__).resolve().parents[1]
 UI_DIR=ROOT_DIR/"ui"
@@ -153,6 +153,104 @@ def member_agent_context(homeserver_member:str|None=Cookie(default=None))->dict:
         return members.brain_context(identity["member_id"])
     except members.MemberError as exc:
         _raise(exc)
+
+
+class StonefellowAdminSite(BaseModel):
+    origin:str=Field(min_length=12,max_length=250)
+
+
+def _stonefellow_member_admin(token:str|None)->dict:
+    identity=_identity(token)
+    if identity.get("role")!="admin":
+        raise HTTPException(status_code=403,detail="HomeServer member administrator access required.")
+    try:
+        stonefellow_native._allowed_member(identity["member_id"])
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    return identity
+
+
+@router.put("/api/v1/member/stonefellow/admin/origin")
+def member_stonefellow_admin_origin(payload:StonefellowAdminSite,
+                                     homeserver_member:str|None=Cookie(default=None))->dict:
+    _stonefellow_member_admin(homeserver_member)
+    try:
+        return stonefellow_native.configure_origin(payload.origin)
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.post("/api/v1/member/stonefellow/admin/authorize")
+def member_stonefellow_admin_start(homeserver_member:str|None=Cookie(default=None))->dict:
+    _stonefellow_member_admin(homeserver_member)
+    try:
+        return stonefellow_native.start_pair("admin.presence.read",label="VP3 HomeServer Owner")
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.post("/api/v1/member/stonefellow/admin/complete")
+def member_stonefellow_admin_finish(homeserver_member:str|None=Cookie(default=None))->dict:
+    _stonefellow_member_admin(homeserver_member)
+    try:
+        return stonefellow_native.finish_pair("admin.presence.read")
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.get("/api/v1/member/stonefellow/admin/status")
+def member_stonefellow_admin_status(homeserver_member:str|None=Cookie(default=None))->dict:
+    _stonefellow_member_admin(homeserver_member)
+    try:
+        return stonefellow_native.admin_status()
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.delete("/api/v1/member/stonefellow/admin")
+def member_stonefellow_admin_disconnect(homeserver_member:str|None=Cookie(default=None))->dict:
+    _stonefellow_member_admin(homeserver_member)
+    try:
+        return stonefellow_native.admin_disconnect()
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.post("/api/v1/member/stonefellow/authorize")
+def member_stonefellow_start(homeserver_member:str|None=Cookie(default=None))->dict:
+    member=_identity(homeserver_member)
+    try:
+        return stonefellow_native.start_pair("fan.library.read",member_id=member["member_id"],
+                                             label="VP3 HomeServer Music")
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.post("/api/v1/member/stonefellow/complete")
+def member_stonefellow_finish(homeserver_member:str|None=Cookie(default=None))->dict:
+    member=_identity(homeserver_member)
+    try:
+        return stonefellow_native.finish_pair("fan.library.read",member_id=member["member_id"])
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.get("/api/v1/member/stonefellow/library")
+def member_stonefellow_library(homeserver_member:str|None=Cookie(default=None))->dict:
+    member=_identity(homeserver_member)
+    try:
+        return stonefellow_native.fan_library(member["member_id"])
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.delete("/api/v1/member/stonefellow")
+def member_stonefellow_disconnect(homeserver_member:str|None=Cookie(default=None))->dict:
+    member=_identity(homeserver_member)
+    try:
+        return stonefellow_native.fan_disconnect(member["member_id"])
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
 
 
 @router.get("/api/v1/control/members")

@@ -3,9 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_update_center, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor
+from .services import homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_update_center, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor, stonefellow_native
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
+
+
+class StonefellowOriginRequest(BaseModel):
+    origin:str=Field(min_length=12,max_length=250)
 
 
 class CreateUserAppRequest(BaseModel):
@@ -1118,6 +1122,47 @@ def photo_library_slideshow(
     limit:int=Query(default=200,ge=1,le=500),
 )->dict:
     return _call(homeserver_photo_library.slideshow,q,folder_album,limit)
+
+@router.put("/stonefellow/origin")
+def stonefellow_set_origin(payload:StonefellowOriginRequest)->dict:
+    try:
+        return stonefellow_native.configure_origin(payload.origin)
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.post("/stonefellow/admin/authorize")
+def stonefellow_admin_start()->dict:
+    try:
+        return stonefellow_native.start_pair("admin.presence.read",
+                                              label="VP3 HomeServer Administrator")
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.post("/stonefellow/admin/complete")
+def stonefellow_admin_finish()->dict:
+    try:
+        return stonefellow_native.finish_pair("admin.presence.read")
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.get("/stonefellow/admin/status")
+def stonefellow_admin_status()->dict:
+    try:
+        return stonefellow_native.admin_status()
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.delete("/stonefellow/admin")
+def stonefellow_admin_disconnect()->dict:
+    try:
+        return stonefellow_native.admin_disconnect()
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
 
 @router.get("/music-server/capability")
 def music_server_capability()->dict:
