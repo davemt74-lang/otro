@@ -11,18 +11,18 @@ CONTRACT='vp3.knowledge-actions.r8'
 
 def request(body:dict,client:httpx.Client|None=None)->dict:
     action=body.get('action')
-    if action not in {'options','suggest','prepare','get','decide','converse','validate_draft'}:
+    if action not in {'options','suggest','prepare','get','decide','converse','validate_draft','destination'}:
         raise workspace_sync.WorkspaceSyncError('Unknown reviewed refresh operation.')
     conversation=body.get('local_conversation');agent=body.get('parent_agent_id') or 0
     if not isinstance(conversation,str) or type(agent) is not int:
         raise workspace_sync.WorkspaceSyncError('Choose a saved conversation and current lead.')
-    required={'task.create':'memory.read','contacts.update':'contacts.read','knowledge.update':'knowledge.search'}
+    required={'task.create':'memory.read','contacts.update':'contacts.read','knowledge.update':'knowledge.search','knowledge.create':'knowledge.search'}
     def authorize():
         r5.authorized(conversation,agent)
         permissions=workspace_sync._authority()['permissions']
         if 'knowledge.search' not in permissions:
             raise workspace_sync.WorkspaceSyncError('Current Knowledge permission is required.',403)
-        if action in {'suggest','prepare','decide','validate_draft'} and (body.get('operation') not in required or required[body['operation']] not in permissions):
+        if action in {'suggest','prepare','decide','validate_draft','destination'} and (body.get('operation') not in required or required[body['operation']] not in permissions):
             raise workspace_sync.WorkspaceSyncError('Current destination permission is required for this action.',403)
         return permissions
     agent=int(agent_routing.resolve_agent('owner',agent or None,owner=True)['id']);authorize();session=load_https_session();suffix='/api/homeserver-https-poll-v1300.php'
