@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 from .services import workspace_sync, native_workspaces, workspace_actions
-from .services import browser_captures_r4, project_knowledge_r5, project_knowledge_r6, project_knowledge_r7
+from .services import browser_captures_r4, project_knowledge_r5, project_knowledge_r6, project_knowledge_r7, knowledge_actions_r8
 
 router=APIRouter(prefix='/api/v1/control/workspace-sync',tags=['workspace-sync'])
 
@@ -55,6 +55,20 @@ async def project_refresh(request:Request,response:Response,x_requested_with:str
         if not isinstance(body,dict):raise ValueError()
         from starlette.concurrency import run_in_threadpool
         return await run_in_threadpool(project_knowledge_r7.request,body)
+    except (ValueError,TypeError) as exc:raise HTTPException(422,detail='Invalid context request.') from exc
+    except workspace_sync.WorkspaceSyncError as exc:raise HTTPException(exc.status_code,detail=str(exc)) from exc
+
+@router.post('/knowledge-actions')
+async def knowledge_actions(request:Request,response:Response,x_requested_with:str|None=Header(default=None))->dict:
+    mutation(request,x_requested_with);response.headers['Cache-Control']='no-store'
+    raw=await request.body()
+    if len(raw)>32000:raise HTTPException(413,detail='Context request is too large.')
+    import json
+    try:
+        body=json.loads(raw)
+        if not isinstance(body,dict):raise ValueError()
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(knowledge_actions_r8.request,body)
     except (ValueError,TypeError) as exc:raise HTTPException(422,detail='Invalid context request.') from exc
     except workspace_sync.WorkspaceSyncError as exc:raise HTTPException(exc.status_code,detail=str(exc)) from exc
 

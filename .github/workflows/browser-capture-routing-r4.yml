@@ -1,4 +1,4 @@
-name: Reviewed Knowledge Refresh R7
+name: Knowledge-backed Chat Actions R8
 on:
   pull_request:
   push:
@@ -20,6 +20,7 @@ jobs:
         ports: ['3306:3306']
         options: --health-cmd="mysqladmin ping -h 127.0.0.1 -pfixture" --health-interval=5s --health-timeout=5s --health-retries=20
     env:
+      VP3_KNOWLEDGE_R8_EXPORT: ${{ github.workspace }}/_certification/knowledge-actions-r8-export.json
       VP3_KNOWLEDGE_R7_EXPORT: ${{ github.workspace }}/_certification/project-knowledge-r7-export.json
       VP3_KNOWLEDGE_R6_EXPORT: ${{ github.workspace }}/_certification/project-knowledge-r6-export.json
       VP3_CAPTURE_R5_EXPORT: ${{ github.workspace }}/_certification/project-knowledge-r5-export.json
@@ -33,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 2fd6498ca236770e4ae38cd30d186093174684c0
+          ref: da9d186da51b310baa702c6064cac03d9e754bae
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -50,12 +51,14 @@ jobs:
           php _certification/cloud/tests/project-knowledge-r5-mysql.php
           php _certification/cloud/tests/project-knowledge-r6-mysql.php
           php _certification/cloud/tests/project-knowledge-r7-mysql.php
+          php _certification/cloud/tests/knowledge-actions-r8-mysql.php
       - name: Same captures and Knowledge in native Chat and Brain
         run: |
           python tests/browser_captures_r4.py
           python tests/project_knowledge_r5.py
           python tests/project_knowledge_r6.py
           python tests/project_knowledge_r7.py
+          python tests/knowledge_actions_r8.py
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -69,3 +72,4 @@ jobs:
           node _certification/cloud/tests/project-knowledge-r5-ui.mjs
           node _certification/cloud/tests/project-knowledge-r6-ui.mjs
           node _certification/cloud/tests/project-knowledge-r7-ui.mjs
+          node _certification/cloud/tests/knowledge-actions-r8-ui.mjs

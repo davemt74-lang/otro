@@ -1,6 +1,6 @@
 # Agent skills and tools — A5C11
 
-The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **81 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
+The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **82 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
 
 This is a source audit of the matching build. User-enabled policies, installed custom plugins, active models, approved websites, and the currently deployed connection are checked by the live diagnostic, not inferred from repository code.
 
@@ -11,6 +11,7 @@ This is a source audit of the matching build. User-enabled policies, installed c
 | HomeServer Local Research | `local.research`: knowledge search and durable memory reads. Local File Reader and Relationship Context provide additional evidence. | HomeServer permissions and private context scopes; these are existing skills. |
 | HomeServer browser specialists | `browser.read`: one reviewed public HTTPS URL per worker; separate origin grant, isolated capture, read budgets, citations and owner controls. | A5C11 connects this existing reader to Chat preparation. No website opens during planning. |
 | Chrome Browser Research Agent v22.30 | Approved domain envelope, multi-site source plans, bounded pages/claims, freshness, deduplication, corroboration, conflicts, memo, report and governed handoffs. | Existing Browser Companion delegation and research runtime remains active. |
+| Knowledge-backed Chat Actions R8 | Select current source revisions, draft editable fields with the configured Agent model, then separately approve one exact task/CRM/document change. | Canonical Cloud writers, immutable evidence-bound preview, fresh owner/conversation/scope and source/destination guards, idempotent apply and existing native workspace receipts. |
 | Chat Chrome Research R3 | Cloud and native Chat review an explicit external source search within approved websites or up to five supplied URLs, then review the frozen source plan and queue existing Chrome research, display cited observed/inferred/conflicting claims, save a reviewed report draft, retrieve saved evidence under current project/site grants and compare captured observations without rereading. | Current Chrome runtime grants, exact plan approval, exclusive expiring reader lease, native Cloud/privacy checks, receipt reuse and separate write review. No new generic model tool or parallel evidence ledger. |
 | Cloud Research Projects v20.60 | Projects, memberships, source versions, annotations, findings, evidence links and reports. | Cloud project membership and publishing controls. Existing Chrome research saves/handoffs use this system. |
 | Chrome annotations R4 | Highlighted quotes and notes delivered to existing Agent Chat, with optional Research project and Knowledge folder/tags. | Canonical captures and exact atomic writes; Knowledge and capture references use existing account-bound workspace replicas; native Chat and Brain retain privacy and pairing fences. |
@@ -174,6 +175,7 @@ Commands are extension message handlers, not permission grants. Every protected 
 | execution | `execution_action` |
 | following | `following` |
 | integration | `integration_diagnostics` |
+| knowledge | `knowledge_actions_r8` |
 | live | `live_action`, `live_poll`, `live_rooms` |
 | local | `local_screenshot_cancel`, `local_screenshot_start`, `local_screenshot_status` |
 | media | `media_data` |
