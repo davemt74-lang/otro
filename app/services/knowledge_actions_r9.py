@@ -8,7 +8,7 @@ def intent(text:str)->bool:
     return bool(re.search(r"^(?:(?:please\s+)|(?:(?:can|could|would)\s+you\s+))?(?:use|create|make|draft|prepare|update|change|add|turn)\b",text.strip(),re.I)
         and not re.search(r"\b(?:do not|don't|never|hypothetical|for example|example of|suppose|if we)\b",text,re.I)
         and re.search(r'\b(?:knowledge|highlights?|annotations?|sources?|evidence|notes?|findings|research)\b',text,re.I)
-        and re.search(r'\b(?:tasks?|follow[ -]up|contacts?|crm|documents?)\b',text,re.I))
+        and re.search(r'\b(?:tasks?|follow[ -]up|contacts?|crm|documents?|briefs?|comparisons?|summar(?:y|ies))\b',text,re.I))
 
 def chat(text:str,conversation:str,agent:int,settings:dict,read_only:bool,include_knowledge:bool,selected:dict|None=None,turn_id:int=0)->dict:
     blocked={'contract':CONTRACT,'drafts':[],'answer':'Enable Cloud and Knowledge access for this conversation to draft a reviewed Knowledge action.'}

@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='knowledge-r9-') as data:
         assert request.url.path=='/installed/vp3/api/knowledge-actions-r8.php'
         assert not any(k in body for k in ('owner_user_id','knowledge_content','query','evidence'))
         if body['action']=='converse':
-            assert body['allowed_operations']==['task.create','contacts.update','knowledge.update']
+            assert body['allowed_operations']==['task.create','contacts.update','knowledge.update','knowledge.create']
             if revoke:
                 with db() as c:c.execute("UPDATE app_permissions SET allowed=0 WHERE paired_app_id=? AND permission='contacts.read'",(app,))
             if replace:save_https_session(endpoint,'r9-replacement-session-000000000000000000')
