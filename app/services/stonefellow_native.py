@@ -89,6 +89,7 @@ def _allowed_member(member_id: str) -> None:
 
 def _post(origin: str, body: dict, *, client=None, resolver=None) -> dict:
     host = normalize_origin(origin, resolver=resolver)
+    homeserver_app_security.require_permission(APP_KEY, "network.external")
     try:
         if client is not None:
             response = client.post(host + PAIR_PATH, json=body)
@@ -108,6 +109,7 @@ def _post(origin: str, body: dict, *, client=None, resolver=None) -> dict:
 
 def _get(origin: str, token: str, path: str, *, client=None, resolver=None) -> dict:
     host = normalize_origin(origin, resolver=resolver)
+    homeserver_app_security.require_permission(APP_KEY, "network.external")
     if path not in (FAN_PATH, ADMIN_PATH) or not re.fullmatch(r"sfhs_[a-f0-9]{64}", token):
         raise StonefellowError("Invalid Stonefellow account capability.", 403)
     headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
@@ -150,7 +152,7 @@ def start_pair(scope: str, *, member_id: str = "", label: str = "VP3 HomeServer"
     else:
         if member_id:
             raise StonefellowError("Admin presence must be initiated by the HomeServer owner.", 403)
-        pending_key, linked_key, binding = "PENDING_ADMIN", "ADMIN_CONNECTION_TOKEN", "HOME_OWNER"
+        pending_key, linked_key, binding = "PENDING_ADMIN", "ADMIN_CONNECTION_TOKEN", "HOMESERVER_OWNER"
     origin = homeserver_app_security.get_secret(APP_KEY, "CLOUD_ORIGIN")
     if not origin:
         raise StonefellowError("HomeServer owner must configure the Stonefellow site first.")
