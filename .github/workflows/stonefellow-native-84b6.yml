@@ -37,4 +37,4 @@ jobs:
       - name: Compile native Stonefellow application and member routes
         run: python -m py_compile app/services/stonefellow_native.py app/services/homeserver_app_prebuilt.py app/member_api.py app/homeserver_apps_api.py tests/stonefellow_native_84b6.py
       - name: Verify logged-in Cloud consent, per-member isolation, owner admin scopes and revocation
-        run: python -m tests.stonefellow_native_84b6
+        run: python -c "import runpy; runpy.run_path('tests/stonefellow_native_84b6.py',run_name='__main__')"
