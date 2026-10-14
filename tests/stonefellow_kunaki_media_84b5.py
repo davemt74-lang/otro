@@ -141,7 +141,7 @@ with tempfile.TemporaryDirectory(prefix="sf-84b5-") as folder:
         check(status == {"status": "awaiting_browser_approval", "job_id": jid,
                          "file_count": 3}, "End-to-end mock Cloud staging and review status")
         target = root / jid
-        check(target.is_dir() and stat_mode(target) == 0o700 if False else target.is_dir(),
+        check(target.is_dir() and (target.stat().st_mode & 0o777) == 0o700,
               "Private unique job staging directory created")
         check((target / "audio-A-1.wav").read_bytes() == audio, "Original recording staged exactly")
         check((target / "artwork-front.jpg").read_bytes() == art_front,
