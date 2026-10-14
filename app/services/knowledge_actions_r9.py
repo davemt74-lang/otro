@@ -10,15 +10,24 @@ def intent(text:str)->bool:
         and re.search(r'\b(?:knowledge|highlights?|annotations?|sources?|evidence|notes?|findings|research)\b',text,re.I)
         and re.search(r'\b(?:tasks?|follow[ -]up|contacts?|crm|documents?|briefs?|comparisons?|summar(?:y|ies))\b',text,re.I))
 
-def chat(text:str,conversation:str,agent:int,settings:dict,read_only:bool,include_knowledge:bool,selected:dict|None=None,turn_id:int=0)->dict:
+def chat(text:str,conversation:str,agent:int,settings:dict,read_only:bool,include_knowledge:bool,selected:dict|None=None,turn_id:int=0,revision:dict|None=None)->dict:
     blocked={'contract':CONTRACT,'drafts':[],'answer':'Enable Cloud and Knowledge access for this conversation to draft a reviewed Knowledge action.'}
     if read_only or not include_knowledge or not settings.get('cloud_allowed') or not settings.get('include_knowledge') or r6.local_mode(conversation)=='off':return blocked
     body={'action':'converse','local_conversation':conversation,'parent_agent_id':agent,'instruction':text,'references':(selected or {}).get('attachments',[]),'request_id':'native-message:'+str(turn_id)}
-    try:return actions.request(body)['conversation_draft']
+    from . import knowledge_revisions_r11 as r11
+    prior=None
+    if r11.intent(text):
+        prior=r11.packet(conversation,revision,text,agent)
+        body.update(revision_packet=prior,knowledge_revision=revision)
+    try:
+        value=actions.request(body)['conversation_draft']
+        if r11.intent(text) and prior!=r11.packet(conversation,revision,text,agent):raise workspace_sync.WorkspaceSyncError('Current Chat draft changed during refinement.',409)
+        return value
     except workspace_sync.WorkspaceSyncError as exc:raise workspace_sync.WorkspaceSyncError(str(exc),exc.status_code) from exc
 
 def verify(value:dict,conversation:str,agent:int)->None:
     for draft in value.get('drafts',[]):
         keys=('operation','target_key','fields','references','state_revision','draft_fingerprint','target_revision')
         body={k:draft[k] for k in keys}
+        if 'revision_root_id' in draft:body['revision_root_id']=draft['revision_root_id']
         actions.request({'action':'validate_draft','local_conversation':conversation,'parent_agent_id':agent,**body})

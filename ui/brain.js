@@ -447,14 +447,14 @@
       const data = await new Promise((resolve,reject)=>{
         const abort=()=>reject(new DOMException('Chat turn cancelled or timed out.','AbortError'));
         turn.controller.signal.addEventListener('abort',abort,{once:true});
-        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value()})})
+        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value(),knowledge_revision:window.VP3KnowledgeRevisionsR11?.value(message)})})
           .then(resolve,reject).finally(()=>turn.controller.signal.removeEventListener('abort',abort));
       });
       if(pendingChatTurn !== turn || turn.revision !== conversationRevision || turn.controller.signal.aborted)return;
       if(!data.conversation_id || typeof data.reply !== 'string')throw new Error('Agent returned an invalid chat response. Try again.');
       clearTimeout(turn.timer);
       activeConversationId = data.conversation_id;
-      window.VP3ProjectKnowledgeR6?.consume(data.project_knowledge_r6);
+      window.VP3ProjectKnowledgeR6?.consume(data.project_knowledge_r6);window.VP3KnowledgeRevisionsR11?.consume();
       const reply=String(data.reply || '').trim();
       if(reply)existing?.insertAdjacentHTML('beforeend',chatMessageMarkup({role:'assistant',content:reply,annotation_citations:data.annotation_citations||[],project_knowledge_r6:data.project_knowledge_r6}));
       window.VP3KnowledgeActionsR9?.show(data.knowledge_actions_r9,existing?.lastElementChild?.querySelector('.hs-chat-message-body'));

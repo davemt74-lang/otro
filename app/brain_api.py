@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
     cloud_allowed: bool | None = None
     read_only: bool = False
     project_knowledge_r6: dict | None = None
+    knowledge_revision: dict | None = None
     max_context_chars: int | None = Field(default=None, ge=2000, le=24000)
 
 
@@ -171,6 +172,7 @@ def _chat_or_http(
                 tool_permissions=tool_permissions,
                 owner_tools=owner_tools,
                 read_only=True,
+                **({"knowledge_revision": payload.knowledge_revision} if payload.knowledge_revision is not None else {}),
                 **({"project_knowledge_r6": payload.project_knowledge_r6} if payload.project_knowledge_r6 is not None else {}),
             )
         return context_chat.chat(
@@ -184,6 +186,7 @@ def _chat_or_http(
             context_options=_chat_context_options(payload),
             tool_permissions=tool_permissions,
             owner_tools=owner_tools,
+            **({"knowledge_revision": payload.knowledge_revision} if payload.knowledge_revision is not None else {}),
             **({"project_knowledge_r6": payload.project_knowledge_r6} if payload.project_knowledge_r6 is not None else {}),
         )
     except (agent_routing.AgentRoutingError, brain.BrainError, context_engine.ContextError) as exc:
