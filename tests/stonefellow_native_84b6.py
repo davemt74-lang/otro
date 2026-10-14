@@ -199,7 +199,7 @@ with patch.object(native.homeserver_apps,"get",return_value={"installed_version"
               "Built-in VP3 app includes account login and explicit authorization UX")
         check("sfhs_" not in js and "ADMIN_CONNECTION_TOKEN" not in js,
               "Native UI never embeds access tokens or administrator secrets")
-        check('id="ownerPanel"' in html and "ownerApi('/authorize'" in js
+        check('id="ownerPanel"' in html and "ownerAction('/authorize'" in js
               and "member/me" in js,
               "Native UI has separately gated administrator pairing and member consent")
         member_source=__import__('pathlib').Path('app/member_api.py').read_text(encoding='utf-8')
