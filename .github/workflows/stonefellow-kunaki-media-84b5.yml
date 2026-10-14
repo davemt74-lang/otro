@@ -27,4 +27,4 @@ jobs:
       - name: Compile secure worker and offline acceptance
         run: python -m py_compile app/services/stonefellow_kunaki_media.py tests/stonefellow_kunaki_media_84b5.py
       - name: Signed transfer, no vendor writes, and private-media integrity
-        run: python tests/stonefellow_kunaki_media_84b5.py
+        run: PYTHONPATH=. python tests/stonefellow_kunaki_media_84b5.py
