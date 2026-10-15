@@ -268,7 +268,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-migration-") as data_dir:
         provider_keys = [row["provider_key"] for row in migrated.execute("SELECT provider_key FROM model_providers ORDER BY provider_key").fetchall()]
         assert provider_keys == ["anthropic", "ollama", "openai", "openrouter"]
         inference_settings = migrated.execute("SELECT preferred_provider FROM inference_settings WHERE id=1").fetchone()
-        assert inference_settings is not None and inference_settings["preferred_provider"] == "auto"
+        assert inference_settings is not None and inference_settings["preferred_provider"] == "anthropic"
         assert migrated.execute("SELECT COUNT(*) FROM inference_usage_events").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM conversations").fetchone()[0] == 0
         assert migrated.execute("SELECT COUNT(*) FROM agent_runs").fetchone()[0] == 0

@@ -504,6 +504,10 @@ def _generate_anthropic_step(
         raise ProviderError("Claude / Anthropic API key is not configured.")
     system, converted = _anthropic_payload_messages(messages)
     request_body: dict[str, Any] = {"model": model, "max_tokens": 1024, "messages": converted}
+    if model == "claude-haiku-5-5":
+        # Existing chat/tool budgets are output budgets, without reasoning tokens.
+        request_body["thinking"] = {"type": "disabled"}
+        request_body["output_config"] = {"effort": "medium"}
     if system:
         request_body["system"] = system
     converted_tools = _anthropic_tools(tools)
