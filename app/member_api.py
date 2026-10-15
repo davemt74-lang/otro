@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Cookie, HTTPException, Query, Response
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Response
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .services import members, stonefellow_native
@@ -150,7 +150,13 @@ def member_activity(
 def member_agent_context(homeserver_member:str|None=Cookie(default=None))->dict:
     identity=_identity(homeserver_member)
     try:
-        return members.brain_context(identity["member_id"])
+        result=members.brain_context(identity["member_id"])
+        if any(app.get("app_key")==stonefellow_native.APP_KEY for app in result["apps"]):
+            try:
+                result["stonefellow_music"]=stonefellow_native.fan_agent_context(identity["member_id"])
+            except stonefellow_native.StonefellowError:
+                result["stonefellow_music"]={"status":"unavailable","read_only":True}
+        return result
     except members.MemberError as exc:
         _raise(exc)
 
@@ -242,6 +248,40 @@ def member_stonefellow_library(homeserver_member:str|None=Cookie(default=None))-
         return stonefellow_native.fan_library(member["member_id"])
     except stonefellow_native.StonefellowError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+
+@router.get("/api/v1/member/stonefellow/audio/{track_id}")
+def member_stonefellow_audio(track_id:str,
+                            range_header:str|None=Header(default=None,alias="Range"),
+                            homeserver_member:str|None=Cookie(default=None)):
+    identity=_identity(homeserver_member)
+    try:
+        audio=stonefellow_native.fan_audio(identity["member_id"],track_id,
+                                           range_header=range_header or "")
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    return Response(content=audio["body"],status_code=audio["status_code"],
+                    media_type=audio["media_type"],headers=audio["headers"])
+
+
+
+@router.get("/api/v1/member/stonefellow/download/{track_id}")
+def member_stonefellow_download(track_id:str,
+                                homeserver_member:str|None=Cookie(default=None)):
+    identity=_identity(homeserver_member)
+    try:
+        first=stonefellow_native.fan_download_prepare(identity["member_id"],track_id)
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    ext="mp3" if first["media_type"]=="audio/mpeg" else "wav"
+    return StreamingResponse(
+        stonefellow_native.fan_download_chunks(identity["member_id"],track_id,first),
+        media_type=first["media_type"],
+        headers={"Cache-Control":"private, no-store",
+                 "X-Content-Type-Options":"nosniff",
+                 "Content-Length":str(first["total_bytes"]),
+                 "Content-Disposition":f'attachment; filename="stonefellow-{track_id}.{ext}"'})
 
 
 @router.delete("/api/v1/member/stonefellow")

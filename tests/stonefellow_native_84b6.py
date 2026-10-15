@@ -157,8 +157,8 @@ with patch.object(native.homeserver_apps,"get",return_value={"installed_version"
         library=native.fan_library(member1,client=client,resolver=resolver)
         check(library["count"]==1 and library["tracks"][0]["title"]=="Purchased Song",
               "Native HomeServer music catalog reads only fan-approved Stonefellow tracks")
-        check(not library["admin_privileges"] and not library["local_stream_gateway_active"],
-              "Fan permissions never imply administration or an unbuilt playback bridge")
+        check(not library["admin_privileges"] and library["local_stream_gateway_active"],
+              "84B7 fan playback capability never implies administrator authority")
         check(native.fan_library(member2,client=client,resolver=resolver)["count"]==0,
               "Other HomeServer member sees no purchased content")
         check(denies(lambda:native.start_pair("payments.write",member_id=member1,

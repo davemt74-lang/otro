@@ -43,6 +43,18 @@
           <div id="memberContext" class="member-list"></div>
         </section>
 
+        <section class="panel member-wide" id="stonefellowPanel" hidden>
+          <div class="panel-head"><div><h2>Stonefellow Music</h2><p class="muted">Your separately authorized Stonefellow account. Purchases and print licenses stay on Stonefellow.</p></div></div>
+          <div id="stonefellowMessage" role="status"></div>
+          <div class="member-music-controls">
+            <button type="button" class="button primary" id="stonefellowConnect">Connect Stonefellow</button>
+            <button type="button" class="button secondary" id="stonefellowComplete" hidden>Finish authorization</button>
+            <button type="button" class="button secondary" id="stonefellowRefresh">Refresh music</button>
+            <button type="button" class="button secondary" id="stonefellowDisconnect" hidden>Disconnect locally</button>
+          </div>
+          <audio id="stonefellowPlayer" controls preload="none" style="width:100%" hidden></audio>
+          <div id="stonefellowSongs" class="member-list"></div>
+        </section>
         <section class="panel member-wide">
           <div class="panel-head"><div><h2>My activity</h2><p class="muted">Only activity recorded for this user account.</p></div></div>
           <div id="memberActivity" class="member-list"></div>
