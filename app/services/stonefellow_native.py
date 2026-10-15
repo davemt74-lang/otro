@@ -23,6 +23,7 @@ CONTRACT = "vp3.stonefellow.native-pair.v1"
 PAIR_PATH = "/api/homeserver-pair.php"
 FAN_PATH = "/api/homeserver-library.php"
 ADMIN_PATH = "/api/homeserver-admin.php"
+AUDIO_PATH = "/api/homeserver-audio.php"
 SCOPES = {"fan.library.read", "admin.presence.read"}
 
 
@@ -242,7 +243,8 @@ def fan_library(member_id: str, *, client=None, resolver=None) -> dict:
                        "artist": "Stonefellow",
                        "duration_seconds": int(item.get("duration_seconds", 0)),
                        "stream_available_on_stonefellow": bool(item.get("can_stream")),
-                       "download_available_on_stonefellow": bool(item.get("can_download"))})
+                       "download_available_on_stonefellow": bool(item.get("can_download")),
+                       "vinyl_print_rights": item.get("vinyl_print_rights", {})})
     return {"contract": CONTRACT, "status": "connected", "tracks": tracks,
             "count": len(tracks), "purchases_authoritative_on_stonefellow": True,
             "admin_privileges": False, "local_stream_gateway_active": False}
@@ -273,3 +275,53 @@ def admin_disconnect() -> dict:
     homeserver_app_security.remove_secret(APP_KEY, "ADMIN_CONNECTION_TOKEN")
     homeserver_app_security.remove_secret(APP_KEY, "PENDING_ADMIN")
     return {"contract": CONTRACT, "status": "disconnected", "fan_links_affected": False}
+
+
+def fan_audio(member_id: str, track_id: str, *, download: bool = False,
+              range_header: str = "", client=None, resolver=None):
+    """Read one authorized audio segment; never return a reusable Cloud token."""
+    from urllib.parse import quote
+    _allowed_member(member_id)
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", track_id):
+        raise StonefellowError("Invalid Stonefellow track.", 422)
+    if range_header and (len(range_header) > 100 or not re.fullmatch(
+            r"bytes=(?:[0-9]+-[0-9]*|-[0-9]+)", range_header)):
+        raise StonefellowError("Invalid audio range.", 416)
+    origin = homeserver_app_security.get_secret(APP_KEY, "CLOUD_ORIGIN")
+    token = homeserver_app_security.get_secret(APP_KEY, _vault_key(member_id, "FAN"))
+    if not origin or not token:
+        raise StonefellowError("Stonefellow account connection required.", 401)
+    host = normalize_origin(origin, resolver=resolver)
+    homeserver_app_security.require_permission(APP_KEY, "network.external")
+    headers = {"Authorization": "Bearer " + token, "Accept": "audio/mpeg, audio/wav"}
+    if range_header and not download:
+        headers["Range"] = range_header
+    url = host + AUDIO_PATH + "?id=" + quote(track_id, safe="") + ("&download=1" if download else "")
+    try:
+        if client is None:
+            with httpx.Client(timeout=httpx.Timeout(30.0, connect=6.0),
+                              follow_redirects=False, trust_env=False, verify=True) as connection:
+                response = connection.get(url, headers=headers)
+        else:
+            response = client.get(url, headers=headers)
+    except httpx.HTTPError as exc:
+        raise StonefellowError("Stonefellow playback is temporarily unavailable.", 503) from exc
+    if response.status_code not in (200, 206):
+        raise StonefellowError("Stonefellow music authorization denied.", 403)
+    mime = response.headers.get("content-type", "").split(";")[0].lower()
+    if mime not in ("audio/mpeg", "audio/wav"):
+        raise StonefellowError("Unexpected Stonefellow audio format.", 502)
+    # A bounded per-request transfer: no caching on disk, no cloud secrets
+    # forwarded to the member browser, no arbitrary URLs or local paths.
+    raw = response.content
+    if len(raw) > 8 * 1024 * 1024:
+        raise StonefellowError("Audio segment exceeds the HomeServer transfer limit.", 413)
+    result_headers = {"Cache-Control": "private, no-store",
+                      "X-Content-Type-Options": "nosniff",
+                      "Accept-Ranges": "bytes"}
+    for key in ("content-range", "content-disposition"):
+        value = response.headers.get(key)
+        if value and "\r" not in value and "\n" not in value:
+            result_headers[key.title()] = value
+    return {"body": raw, "media_type": mime, "status_code": response.status_code,
+            "headers": result_headers}
