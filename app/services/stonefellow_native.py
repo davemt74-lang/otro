@@ -305,6 +305,8 @@ def _verified_audio(status: int, headers: dict, body: bytes,
                     asked: tuple[str, int | None, int | None, int | None]) -> dict:
     if status not in (200, 206):
         raise StonefellowError("Stonefellow music authorization denied.", 403)
+    if headers.get("content-encoding", "identity").lower() != "identity":
+        raise StonefellowError("Compressed byte-range audio is unsupported.", 502)
     mime = headers.get("content-type", "").split(";")[0].lower()
     if mime not in ("audio/mpeg", "audio/wav") or len(body) > MAX_SEGMENT_BYTES or not body:
         raise StonefellowError("Invalid or oversized audio transfer.", 502)
@@ -350,7 +352,8 @@ def fan_audio(member_id: str, track_id: str, *, download: bool = False,
     host = normalize_origin(origin, resolver=resolver)
     homeserver_app_security.require_permission(APP_KEY, "network.external")
     headers = {"Authorization": "Bearer " + token,
-               "Accept": "audio/mpeg, audio/wav", "Range": asked[0]}
+               "Accept": "audio/mpeg, audio/wav", "Accept-Encoding": "identity",
+               "Range": asked[0]}
     url = host + AUDIO_PATH + "?id=" + quote(track_id, safe="") + ("&download=1" if download else "")
     try:
         if client is not None:

@@ -59,6 +59,12 @@ with patch.object(sf.homeserver_apps,"get",return_value={"installed_version":"1.
            "Cloud credentials and cookies never forwarded")
         ok(requests[-1].headers["range"]=="bytes=0-4194303",
            "HomeServer sends bounded default range")
+        ok(requests[-1].headers.get("accept-encoding")=="identity",
+           "Proxy requests uncompressed bytes for consistent audio range offsets")
+        ok(denied(lambda:sf._verified_audio(206,{"content-type":"audio/mpeg",
+              "content-range":"bytes 0-3/4","content-encoding":"gzip"},
+              b"abcd",("bytes=0-3",0,3,None))),
+           "Compressed upstream byte ranges fail closed")
         ok(denied(lambda:sf.fan_audio(member,"song-one",range_header="bytes=-99999999",
                                      client=client,resolver=resolver)),
            "Reject oversized suffix range")
