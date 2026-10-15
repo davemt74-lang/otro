@@ -2,6 +2,7 @@ name: HomeServer v2.4 Data Continuity
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - 'app/services/**'
       - 'app/tasks_api.py'
@@ -21,6 +22,8 @@ permissions:
 
 jobs:
   federation:
+    # Draft PRs use targeted tests. Run full suite at ready-for-review and on main.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     name: Federated authority · ${{ matrix.os }}
     strategy:
       fail-fast: false
