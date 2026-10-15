@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Cookie, HTTPException, Query, Response
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -242,6 +242,21 @@ def member_stonefellow_library(homeserver_member:str|None=Cookie(default=None))-
         return stonefellow_native.fan_library(member["member_id"])
     except stonefellow_native.StonefellowError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+
+@router.get("/api/v1/member/stonefellow/audio/{track_id}")
+def member_stonefellow_audio(track_id:str,
+                            range_header:str|None=Header(default=None,alias="Range"),
+                            homeserver_member:str|None=Cookie(default=None)):
+    identity=_identity(homeserver_member)
+    try:
+        audio=stonefellow_native.fan_audio(identity["member_id"],track_id,
+                                           range_header=range_header or "")
+    except stonefellow_native.StonefellowError as exc:
+        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+    return Response(content=audio["body"],status_code=audio["status_code"],
+                    media_type=audio["media_type"],headers=audio["headers"])
 
 
 @router.delete("/api/v1/member/stonefellow")
