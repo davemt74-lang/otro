@@ -110,8 +110,7 @@
       return '<article class="member-item"><div class="member-item-head"><h3>'+esc(t.title)+'</h3>'
         +'<button class="button secondary" data-stonefellow-play="'+esc(t.id)+'" '+(t.stream_available_on_stonefellow?'':'disabled')+'>Play</button></div>'
         +'<p class="muted">Stonefellow · '+esc(t.duration_seconds||0)+' seconds · Vinyl prints available: '+esc(r.available||0)+'</p>'
-        +(packs.length?'<p class="muted">Extra print-license packages: '+packs.map(p=>esc(p.licenses)+' for 
-})();+(Number(p.price_cents||0)/100).toFixed(2)).join(', ')+' — purchase on Stonefellow.</p>':'')
+        +(packs.length?'<p class="muted">Extra print-license packages: '+packs.map(p=>esc(p.licenses)+' for USD '+(Number(p.price_cents||0)/100).toFixed(2)).join(', ')+' — purchase on Stonefellow.</p>':'')
         +'<p class="muted">Owned downloads remain available through your Stonefellow account.</p></article>';
     }).join(''):'<div class="empty-state">No digitally owned tracks are available for this Stonefellow account.</div>';
   }
