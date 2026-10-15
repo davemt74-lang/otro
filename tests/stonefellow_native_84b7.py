@@ -24,6 +24,11 @@ def transport(request):
     requests.append(request)
     if request.headers.get("authorization")!="Bearer "+vault[sf._vault_key(member,"FAN")]:
         return httpx.Response(401,json={"ok":False})
+    if request.url.path==sf.FAN_PATH:
+        return httpx.Response(200,json={"ok":True,"contract":"stonefellow.fan-music.v1",
+          "tracks":[{"id":"song-one","title":"My Song","duration_seconds":10,
+                     "can_stream":True,"can_download":True,
+                     "vinyl_print_rights":{"available":2}}]})
     if request.url.path!=sf.AUDIO_PATH or request.url.params.get("id")!="song-one":
         return httpx.Response(404)
     return httpx.Response(206,headers={"content-type":"audio/mpeg",
@@ -44,8 +49,10 @@ with patch.object(sf.homeserver_apps,"get",return_value={"installed_version":"1.
         ok(denied(lambda:sf.fan_audio(member,"song-one",range_header="bytes=0-9000000",
                                      client=client,resolver=resolver)),
            "Reject oversized transfer ranges before network")
-        ok(denied(lambda:sf.fan_audio(member,"song-one",download=True,client=client,resolver=resolver)),
-           "Full downloads remain on Stonefellow website")
+        ok(sf.fan_audio(member,"song-one",download=True,client=client,resolver=resolver)["body"]==b"abcd",
+           "Native owned download chunks use the approved Cloud media endpoint")
+        ok(requests[-1].url.params.get("download")=="1",
+           "Download chunks require the distinct Cloud digital download entitlement")
         song=sf.fan_audio(member,"song-one",client=client,resolver=resolver)
         ok(song["body"]==b"abcd" and song["status_code"]==206,"Scoped playback data forwarded")
         ok("Authorization" not in song["headers"] and "Set-Cookie" not in song["headers"],
@@ -55,7 +62,12 @@ with patch.object(sf.homeserver_apps,"get",return_value={"installed_version":"1.
         ok(denied(lambda:sf.fan_audio(member,"song-one",range_header="bytes=-99999999",
                                      client=client,resolver=resolver)),
            "Reject oversized suffix range")
-        ok(len(requests)==1,"Rejected requests never contact Cloud")
+        ok(len(requests)==2,"Rejected requests never contact Cloud")
+        agent=sf.fan_agent_context(member,client=client,resolver=resolver)
+        ok(agent["tracks"][0]["vinyl_credits_available"]==2 and agent["read_only"],
+           "Member Agent context receives only this account's read-only music information")
+        ok("sfhs_" not in json.dumps(agent) and not agent["purchase_execution"],
+           "Agent context excludes Stonefellow bearer tokens and payment authority")
 print("84B7 HomeServer media contract",count,"checks passed")
 
 # Two chunk 8-byte download fixture, with bounded transfer size for tests.

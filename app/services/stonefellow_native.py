@@ -325,8 +325,8 @@ def _verified_audio(status: int, headers: dict, body: bytes,
                 raise StonefellowError("Cloud returned an unexpected suffix.", 502)
         elif start != requested_start or end != min(requested_end, total-1):
             raise StonefellowError("Cloud returned an unexpected audio segment.", 502)
-    elif headers.get("content-range"):
-        raise StonefellowError("Cloud returned an unexpected content range.", 502)
+    elif headers.get("content-range") or asked[3] is not None or asked[1] not in (None, 0):
+        raise StonefellowError("Cloud ignored or contradicted the requested audio range.", 502)
     response_headers = {"Cache-Control": "private, no-store",
                         "X-Content-Type-Options": "nosniff", "Accept-Ranges": "bytes"}
     if status == 206:
