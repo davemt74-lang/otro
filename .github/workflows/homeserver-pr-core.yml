@@ -2,6 +2,7 @@ name: HomeServer PR Core
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +13,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  smoke:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check changed Python/JS/JSON source files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/ci_pr_smoke.py
+      - name: Validate CI-G1 gate policy
+        run: python tests/ci_g1_release_policy.py
+
   core:
+    # Draft PRs use targeted tests. Run full suite at ready-for-review and on main.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:

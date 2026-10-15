@@ -2,7 +2,12 @@ name: Agent Mission Tool Orchestration A5C
 on:
   pull_request:
     paths:
-      - 'app/**'
+      - 'app/agent_mission*.py'
+      - 'app/agent_mission_tools_api.py'
+      - 'app/services/agent_mission*.py'
+      - 'app/services/agent_browser_runtime.py'
+      - 'app/services/agent_browser_*.py'
+      - 'app/services/agent_live_browser*.py'
       - 'database/migrations/07*_agent_mission*.sql'
       - 'database/agent_mission_orchestration.sql'
       - 'database/agent_mission_actions.sql'

@@ -1,0 +1,20 @@
+name: CI-G1 Workflow Policy
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'tests/ci_g1_release_policy.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - 'tests/ci_g1_release_policy.py'
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/ci_g1_release_policy.py

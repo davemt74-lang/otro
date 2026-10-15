@@ -2,6 +2,7 @@ name: HomeServer Apps V1
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
     paths:
       - 'app/homeserver_apps_api.py'
       - 'app/services/homeserver_app_*.py'
@@ -187,6 +188,8 @@ concurrency:
 
 jobs:
   apps-foundation:
+    # Drafts get focused tests; full suite runs for the ready candidate and on main.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

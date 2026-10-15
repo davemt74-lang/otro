@@ -4,6 +4,21 @@ on:
   push:
     branches:
       - main
+    # Legacy compatibility only when its runtime, installer or tests change.
+    # Main HomeServer CI and v2.4 release acceptance remain complete.
+    paths:
+      - 'app/config.py'
+      - 'app/bridge.py'
+      - 'app/services/remote_bridge.py'
+      - 'app/services/local_voice.py'
+      - 'app/services/agent_voice_profiles.py'
+      - 'tests/homeserver_v23_release_acceptance.py'
+      - 'tests/voice_profile_execution_v235.py'
+      - 'tests/governed_actions_v230.py'
+      - 'tests/installer_contract.py'
+      - 'installer/**'
+      - 'requirements.txt'
+      - '.github/workflows/homeserver-v23-release.yml'
   workflow_dispatch:
 
 concurrency:
