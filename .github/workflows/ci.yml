@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'app/services/agent_browser_runtime.py'
+      - 'app/services/providers.py'
+      - 'database/migrations/*_haiku55_defaults.sql'
+      - 'tests/haiku55_provider.py'
       - 'app/services/agent_mission*.py'
       - 'app/agent_mission*.py'
       - 'database/migrations/07*_agent_mission*.sql'
@@ -373,7 +376,11 @@ jobs:
       - name: Watched knowledge source regression
         run: python tests/knowledge_sources.py
       - name: Inference routing and token usage regression
-        run: python tests/inference_usage.py
+        run: |
+          python tests/inference_usage.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/haiku55_provider.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows data bootstrap regression
         run: python tests/bootstrap.py
       - name: Single-instance primitive regression

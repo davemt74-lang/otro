@@ -36,6 +36,11 @@ with tempfile.TemporaryDirectory(prefix="homeserver-inference-usage-") as data_d
         assert default_inference.json()["available"] is False
         assert default_inference.json()["cloud_fallback_required"] is True
         assert default_inference.json()["selected_provider"] is None
+        assert default_inference.json()["preferred_provider"] == "anthropic"
+        # Auto remains explicitly local-first; the shipped main preference is Claude.
+        assert client.put(
+            "/api/v1/control/inference/preference", json={"preferred_provider": "auto"}
+        ).status_code == 200
 
         secret_value = "sk-ant-test-provider-secret-1234"
         saved = client.put(

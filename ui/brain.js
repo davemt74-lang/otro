@@ -253,7 +253,7 @@
         <label class="credential-field">ElevenLabs API key <span id="credentialElevenlabsStatus" class="credential-status"></span><input id="elevenlabsApiKey" type="password" autocomplete="off" placeholder="Leave blank to keep saved key"><button class="text-button danger" type="button" data-clear-provider-credential="elevenlabs">Clear saved key</button></label>
       </div>
       <div class="provider-grid" style="margin-top:16px">
-        <label>Claude model<input id="anthropicModel" maxlength="200" placeholder="Enter your Anthropic model id"></label>
+        <label>Claude model<input id="anthropicModel" list="anthropicModelOptions" maxlength="200" placeholder="claude-haiku-5-5"><datalist id="anthropicModelOptions"><option value="claude-haiku-5-5">Claude Haiku 5.5 — Main model</option><option value="claude-haiku-4-5">Claude Haiku 4.5</option><option value="claude-sonnet-5">Claude Sonnet 5</option><option value="claude-opus-5">Claude Opus 5</option></datalist></label>
         <label>OpenAI model<input id="openaiModel" maxlength="200" placeholder="Enter your OpenAI model id"></label>
         <label>OpenRouter model<input id="openrouterModel" maxlength="200" placeholder="provider/model"></label>
       </div>
