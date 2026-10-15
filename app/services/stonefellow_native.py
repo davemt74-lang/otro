@@ -247,7 +247,7 @@ def fan_library(member_id: str, *, client=None, resolver=None) -> dict:
                        "vinyl_print_rights": item.get("vinyl_print_rights", {})})
     return {"contract": CONTRACT, "status": "connected", "tracks": tracks,
             "count": len(tracks), "purchases_authoritative_on_stonefellow": True,
-            "admin_privileges": False, "local_stream_gateway_active": False}
+            "admin_privileges": False, "local_stream_gateway_active": True}
 
 
 def fan_disconnect(member_id: str) -> dict:
@@ -277,81 +277,145 @@ def admin_disconnect() -> dict:
     return {"contract": CONTRACT, "status": "disconnected", "fan_links_affected": False}
 
 
+MAX_SEGMENT_BYTES = 4 * 1024 * 1024
+MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
+
+
+def _audio_range(header: str) -> tuple[str, int | None, int | None, int | None]:
+    if not header:
+        return f"bytes=0-{MAX_SEGMENT_BYTES-1}", 0, MAX_SEGMENT_BYTES - 1, None
+    if len(header) > 100:
+        raise StonefellowError("Invalid audio range.", 416)
+    requested = re.fullmatch(r"bytes=([0-9]+)-([0-9]*)", header)
+    if requested:
+        start = int(requested.group(1))
+        end = int(requested.group(2)) if requested.group(2) else start + MAX_SEGMENT_BYTES - 1
+        if start > 2**63-1 or end < start or end-start >= MAX_SEGMENT_BYTES:
+            raise StonefellowError("Audio range exceeds the segment limit.", 416)
+        return f"bytes={start}-{end}", start, end, None
+    suffix = re.fullmatch(r"bytes=-([0-9]+)", header)
+    if suffix:
+        count = int(suffix.group(1))
+        if 0 < count <= MAX_SEGMENT_BYTES:
+            return f"bytes=-{count}", None, None, count
+    raise StonefellowError("Invalid audio range.", 416)
+
+
+def _verified_audio(status: int, headers: dict, body: bytes,
+                    asked: tuple[str, int | None, int | None, int | None]) -> dict:
+    if status not in (200, 206):
+        raise StonefellowError("Stonefellow music authorization denied.", 403)
+    mime = headers.get("content-type", "").split(";")[0].lower()
+    if mime not in ("audio/mpeg", "audio/wav") or len(body) > MAX_SEGMENT_BYTES or not body:
+        raise StonefellowError("Invalid or oversized audio transfer.", 502)
+    total = len(body)
+    start = 0
+    if status == 206:
+        match = re.fullmatch(r"bytes ([0-9]+)-([0-9]+)/([0-9]+)",
+                             headers.get("content-range", ""))
+        if not match:
+            raise StonefellowError("Cloud did not provide a valid audio range.", 502)
+        start, end, total = (int(x) for x in match.groups())
+        if (total < 1 or total > MAX_DOWNLOAD_BYTES or start > end or end >= total
+                or end-start+1 != len(body)):
+            raise StonefellowError("Cloud returned inconsistent audio bytes.", 502)
+        _, requested_start, requested_end, suffix = asked
+        if suffix is not None:
+            if start != max(0, total-suffix) or end != total-1:
+                raise StonefellowError("Cloud returned an unexpected suffix.", 502)
+        elif start != requested_start or end != min(requested_end, total-1):
+            raise StonefellowError("Cloud returned an unexpected audio segment.", 502)
+    elif headers.get("content-range"):
+        raise StonefellowError("Cloud returned an unexpected content range.", 502)
+    response_headers = {"Cache-Control": "private, no-store",
+                        "X-Content-Type-Options": "nosniff", "Accept-Ranges": "bytes"}
+    if status == 206:
+        response_headers["Content-Range"] = f"bytes {start}-{start+len(body)-1}/{total}"
+    return {"body": body, "status_code": status, "media_type": mime,
+            "start": start, "total_bytes": total, "headers": response_headers}
+
+
 def fan_audio(member_id: str, track_id: str, *, download: bool = False,
-              range_header: str = "", client=None, resolver=None):
-    """Read one authorized audio segment; never return a reusable Cloud token."""
+              range_header: str = "", client=None, resolver=None) -> dict:
+    """A single bounded, verified, member-owned audio segment."""
     from urllib.parse import quote
     _allowed_member(member_id)
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", track_id):
         raise StonefellowError("Invalid Stonefellow track.", 422)
-    if range_header and (len(range_header) > 100 or not re.fullmatch(
-            r"bytes=(?:[0-9]+-[0-9]*|-[0-9]+)", range_header)):
-        raise StonefellowError("Invalid audio range.", 416)
+    if download:
+        raise StonefellowError("Use the separately governed native download route.", 422)
+    asked = _audio_range(range_header)
     origin = homeserver_app_security.get_secret(APP_KEY, "CLOUD_ORIGIN")
     token = homeserver_app_security.get_secret(APP_KEY, _vault_key(member_id, "FAN"))
-    if not origin or not token:
+    if not origin or not token or not re.fullmatch(r"sfhs_[a-f0-9]{64}", token):
         raise StonefellowError("Stonefellow account connection required.", 401)
     host = normalize_origin(origin, resolver=resolver)
     homeserver_app_security.require_permission(APP_KEY, "network.external")
-    headers = {"Authorization": "Bearer " + token, "Accept": "audio/mpeg, audio/wav"}
-    # Playback requests are bounded to 4 MiB when the browser omits Range.
-    # A full-file response is deliberately not fetched into HomeServer RAM.
-    if download:
-        raise StonefellowError("Use the Stonefellow site for owned downloads.", 422)
-    headers["Range"] = range_header or "bytes=0-4194303"
-    url = host + AUDIO_PATH + "?id=" + quote(track_id, safe="") + ("&download=1" if download else "")
-    # Bound requested ranges BEFORE contacting Cloud, not just response bytes.
-    header_range = headers["Range"]
-    bounded = re.fullmatch(r"bytes=([0-9]+)-([0-9]*)", header_range)
-    if bounded:
-        start = int(bounded.group(1))
-        if start > 2**63 - 1:
-            raise StonefellowError("Audio range is outside supported limits.", 416)
-        end = int(bounded.group(2)) if bounded.group(2) else start + 4194303
-        if end < start or end - start >= 4194304:
-            raise StonefellowError("Audio range exceeds the segment limit.", 416)
-        headers["Range"] = f"bytes={start}-{end}"
-    else:
-        suffix = re.fullmatch(r"bytes=-([0-9]+)", header_range)
-        if not suffix or int(suffix.group(1)) < 1 or int(suffix.group(1)) > 4194304:
-            raise StonefellowError("Invalid audio suffix range.", 416)
+    headers = {"Authorization": "Bearer " + token,
+               "Accept": "audio/mpeg, audio/wav", "Range": asked[0]}
+    url = host + AUDIO_PATH + "?id=" + quote(track_id, safe="")
     try:
-        if client is None:
+        if client is not None:
+            response = client.get(url, headers=headers)
+            status, source_headers, raw = response.status_code, dict(response.headers), response.content
+        else:
             with httpx.Client(timeout=httpx.Timeout(30.0, connect=6.0),
                               follow_redirects=False, trust_env=False, verify=True) as connection:
                 with connection.stream("GET", url, headers=headers) as streamed:
-                    response_status = streamed.status_code
-                    response_headers = dict(streamed.headers)
+                    status, source_headers = streamed.status_code, dict(streamed.headers)
+                    if status not in (200, 206):
+                        raise StonefellowError("Stonefellow music authorization denied.", 403)
                     chunks = []
                     received = 0
                     for chunk in streamed.iter_bytes():
                         received += len(chunk)
-                        if received > 4194304:
-                            raise StonefellowError("Audio segment exceeds the HomeServer transfer limit.", 413)
+                        if received > MAX_SEGMENT_BYTES:
+                            raise StonefellowError("Audio segment exceeds the transfer limit.", 413)
                         chunks.append(chunk)
                     raw = b"".join(chunks)
-        else:
-            response = client.get(url, headers=headers)
-            response_status = response.status_code
-            response_headers = response.headers
-            raw = response.content
     except httpx.HTTPError as exc:
         raise StonefellowError("Stonefellow playback is temporarily unavailable.", 503) from exc
-    if response_status not in (200, 206):
-        raise StonefellowError("Stonefellow music authorization denied.", 403)
-    mime = response_headers.get("content-type", "").split(";")[0].lower()
-    if mime not in ("audio/mpeg", "audio/wav"):
-        raise StonefellowError("Unexpected Stonefellow audio format.", 502)
-    # A bounded per-request transfer: no caching on disk, no cloud secrets
-    # forwarded to the member browser, no arbitrary URLs or local paths.
-    if len(raw) > 4 * 1024 * 1024:
-        raise StonefellowError("Audio segment exceeds the HomeServer transfer limit.", 413)
-    result_headers = {"Cache-Control": "private, no-store",
-                      "X-Content-Type-Options": "nosniff",
-                      "Accept-Ranges": "bytes"}
-    for key in ("content-range", "content-disposition"):
-        value = response_headers.get(key)
-        if value and "\r" not in value and "\n" not in value:
-            result_headers[key.title()] = value
-    return {"body": raw, "media_type": mime, "status_code": response_status,
-            "headers": result_headers}
+    return _verified_audio(status, source_headers, raw, asked)
+
+
+def fan_download_prepare(member_id: str, track_id: str, *, client=None, resolver=None) -> dict:
+    """First verify a fresh Cloud entitlement before writing browser headers."""
+    _allowed_member(member_id)
+    first = fan_audio(member_id, track_id, client=client, resolver=resolver)
+    if first["total_bytes"] > MAX_DOWNLOAD_BYTES:
+        raise StonefellowError("Track exceeds native download limit.", 413)
+    return first
+
+
+def fan_download_chunks(member_id: str, track_id: str, first: dict,
+                        *, client=None, resolver=None):
+    """Each segment rechecks member assignment, Cloud authorization and file length."""
+    total = first["total_bytes"]
+    if total > MAX_DOWNLOAD_BYTES or first["start"] != 0:
+        raise StonefellowError("Invalid download entitlement.", 403)
+    yield first["body"]
+    offset = len(first["body"])
+    while offset < total:
+        end = min(total - 1, offset + MAX_SEGMENT_BYTES - 1)
+        part = fan_audio(member_id, track_id, range_header=f"bytes={offset}-{end}",
+                         client=client, resolver=resolver)
+        if (part["status_code"] != 206 or part["total_bytes"] != total
+                or part["start"] != offset or not part["body"]):
+            raise StonefellowError("Music changed during download.", 409)
+        yield part["body"]
+        offset += len(part["body"])
+
+
+def fan_agent_context(member_id: str, *, client=None, resolver=None) -> dict:
+    """Only the requesting member's permitted music, never tokens or owner context."""
+    data = fan_library(member_id, client=client, resolver=resolver)
+    rows = [{"id": t["id"], "title": t["title"],
+             "can_play": t["stream_available_on_stonefellow"],
+             "can_download": t["download_available_on_stonefellow"],
+             "vinyl_credits_available": max(0, int(
+                 (t.get("vinyl_print_rights") or {}).get("available", 0)))}
+            for t in data.get("tracks", [])[:250]]
+    return {"contract": "vp3.stonefellow.member-agent-read.v1",
+            "status": data["status"], "tracks": rows,
+            "read_only": True, "purchase_execution": False,
+            "manufacturing_execution": False, "credentials_exposed": False}
