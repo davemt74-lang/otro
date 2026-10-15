@@ -294,8 +294,11 @@ def fan_audio(member_id: str, track_id: str, *, download: bool = False,
     host = normalize_origin(origin, resolver=resolver)
     homeserver_app_security.require_permission(APP_KEY, "network.external")
     headers = {"Authorization": "Bearer " + token, "Accept": "audio/mpeg, audio/wav"}
-    if range_header and not download:
-        headers["Range"] = range_header
+    # Playback requests are bounded to 4 MiB when the browser omits Range.
+    # A full-file response is deliberately not fetched into HomeServer RAM.
+    if download:
+        raise StonefellowError("Use the Stonefellow site for owned downloads.", 422)
+    headers["Range"] = range_header or "bytes=0-4194303"
     url = host + AUDIO_PATH + "?id=" + quote(track_id, safe="") + ("&download=1" if download else "")
     try:
         if client is None:
@@ -314,7 +317,7 @@ def fan_audio(member_id: str, track_id: str, *, download: bool = False,
     # A bounded per-request transfer: no caching on disk, no cloud secrets
     # forwarded to the member browser, no arbitrary URLs or local paths.
     raw = response.content
-    if len(raw) > 8 * 1024 * 1024:
+    if len(raw) > 4 * 1024 * 1024:
         raise StonefellowError("Audio segment exceeds the HomeServer transfer limit.", 413)
     result_headers = {"Cache-Control": "private, no-store",
                       "X-Content-Type-Options": "nosniff",
