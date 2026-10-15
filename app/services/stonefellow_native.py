@@ -300,31 +300,58 @@ def fan_audio(member_id: str, track_id: str, *, download: bool = False,
         raise StonefellowError("Use the Stonefellow site for owned downloads.", 422)
     headers["Range"] = range_header or "bytes=0-4194303"
     url = host + AUDIO_PATH + "?id=" + quote(track_id, safe="") + ("&download=1" if download else "")
+    # Bound requested ranges BEFORE contacting Cloud, not just response bytes.
+    header_range = headers["Range"]
+    bounded = re.fullmatch(r"bytes=([0-9]+)-([0-9]*)", header_range)
+    if bounded:
+        start = int(bounded.group(1))
+        if start > 2**63 - 1:
+            raise StonefellowError("Audio range is outside supported limits.", 416)
+        end = int(bounded.group(2)) if bounded.group(2) else start + 4194303
+        if end < start or end - start >= 4194304:
+            raise StonefellowError("Audio range exceeds the segment limit.", 416)
+        headers["Range"] = f"bytes={start}-{end}"
+    else:
+        suffix = re.fullmatch(r"bytes=-([0-9]+)", header_range)
+        if not suffix or int(suffix.group(1)) < 1 or int(suffix.group(1)) > 4194304:
+            raise StonefellowError("Invalid audio suffix range.", 416)
     try:
         if client is None:
             with httpx.Client(timeout=httpx.Timeout(30.0, connect=6.0),
                               follow_redirects=False, trust_env=False, verify=True) as connection:
-                response = connection.get(url, headers=headers)
+                with connection.stream("GET", url, headers=headers) as streamed:
+                    response_status = streamed.status_code
+                    response_headers = dict(streamed.headers)
+                    chunks = []
+                    received = 0
+                    for chunk in streamed.iter_bytes():
+                        received += len(chunk)
+                        if received > 4194304:
+                            raise StonefellowError("Audio segment exceeds the HomeServer transfer limit.", 413)
+                        chunks.append(chunk)
+                    raw = b"".join(chunks)
         else:
             response = client.get(url, headers=headers)
+            response_status = response.status_code
+            response_headers = response.headers
+            raw = response.content
     except httpx.HTTPError as exc:
         raise StonefellowError("Stonefellow playback is temporarily unavailable.", 503) from exc
-    if response.status_code not in (200, 206):
+    if response_status not in (200, 206):
         raise StonefellowError("Stonefellow music authorization denied.", 403)
-    mime = response.headers.get("content-type", "").split(";")[0].lower()
+    mime = response_headers.get("content-type", "").split(";")[0].lower()
     if mime not in ("audio/mpeg", "audio/wav"):
         raise StonefellowError("Unexpected Stonefellow audio format.", 502)
     # A bounded per-request transfer: no caching on disk, no cloud secrets
     # forwarded to the member browser, no arbitrary URLs or local paths.
-    raw = response.content
     if len(raw) > 4 * 1024 * 1024:
         raise StonefellowError("Audio segment exceeds the HomeServer transfer limit.", 413)
     result_headers = {"Cache-Control": "private, no-store",
                       "X-Content-Type-Options": "nosniff",
                       "Accept-Ranges": "bytes"}
     for key in ("content-range", "content-disposition"):
-        value = response.headers.get(key)
+        value = response_headers.get(key)
         if value and "\r" not in value and "\n" not in value:
             result_headers[key.title()] = value
-    return {"body": raw, "media_type": mime, "status_code": response.status_code,
+    return {"body": raw, "media_type": mime, "status_code": response_status,
             "headers": result_headers}
