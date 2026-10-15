@@ -101,3 +101,20 @@ with patch.object(sf, "MAX_SEGMENT_BYTES", 4), \
         vault.pop(sf._vault_key(member,"FAN"),None)
         ok(denied(lambda:sf.fan_audio(member,"song-one",client=client,resolver=resolver)),
            "Revoked fan credentials stop the next audio segment")
+
+# Embedded VP3 app must actually expose the tested music endpoints to users.
+from app.services import homeserver_app_prebuilt as prebuilt
+from io import BytesIO
+from zipfile import ZipFile
+package=prebuilt._package(prebuilt.CATALOG[sf.APP_KEY])
+with ZipFile(BytesIO(package)) as archive:
+    js=archive.read("assets/app.js").decode("utf-8")
+    html=archive.read("index.html").decode("utf-8")
+ok("nativePlayer" in html and "/audio/" in js and "/download/" in js,
+   "Packaged Stonefellow app renders approved playback and owned downloads")
+ok("vinyl_print_rights" in js and "ownerPanel" in html,
+   "Packaged app shows read-only vinyl balances and independent admin scope")
+ok("sfhs_" not in js and "ADMIN_CONNECTION_TOKEN" not in js,
+   "Browser assets include no Cloud capability tokens")
+ok(prebuilt.CATALOG[sf.APP_KEY]["version"]=="1.1.0",
+   "Versioned built-in app advertises native music upgrade")
