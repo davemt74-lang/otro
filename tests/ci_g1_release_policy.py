@@ -34,4 +34,33 @@ assert "app/services/agent_mission*.py" in mission
 legacy = (WORKFLOWS / "homeserver-v23-release.yml").read_text(encoding="utf-8")
 assert "app/services/local_voice.py" in legacy and "installer/**" in legacy
 assert "  workflow_dispatch:" in legacy
+
+# The PR Core smoke must stay available on every draft/non-draft PR.
+core = (WORKFLOWS / "homeserver-pr-core.yml").read_text(encoding="utf-8")
+assert "  smoke:\n    if: github.event_name == 'pull_request'" in core
+assert "scripts/ci_pr_smoke.py" in core
+assert "fetch-depth: 0" in core
+import importlib.util
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location("ci_pr_smoke", ROOT / "scripts/ci_pr_smoke.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+with patch("pathlib.Path.is_file", return_value=True):
+    smoke = module.checks(["file.py", "file.js", "file.mjs", "data.json", "README.md"])
+assert len(smoke) == 4, smoke
+assert any(cmd[-1] == "file.py" for cmd in smoke)
+assert any(cmd[:2] == ["node", "--check"] for cmd in smoke)
+for unsafe in ("../secret.py", "/tmp/evil.js"):
+    try:
+        module.checks([unsafe])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("CI smoke did not reject path traversal: " + unsafe)
+try:
+    module.diff_files("wrong-revision")
+except ValueError:
+    pass
+else:
+    raise AssertionError("Missing PR base must fail closed")
 print("CI-G1: staged PR gates, focused triggers and complete main certification verified")
