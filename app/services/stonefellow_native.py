@@ -342,8 +342,6 @@ def fan_audio(member_id: str, track_id: str, *, download: bool = False,
     _allowed_member(member_id)
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", track_id):
         raise StonefellowError("Invalid Stonefellow track.", 422)
-    if download:
-        raise StonefellowError("Use the separately governed native download route.", 422)
     asked = _audio_range(range_header)
     origin = homeserver_app_security.get_secret(APP_KEY, "CLOUD_ORIGIN")
     token = homeserver_app_security.get_secret(APP_KEY, _vault_key(member_id, "FAN"))
@@ -353,7 +351,7 @@ def fan_audio(member_id: str, track_id: str, *, download: bool = False,
     homeserver_app_security.require_permission(APP_KEY, "network.external")
     headers = {"Authorization": "Bearer " + token,
                "Accept": "audio/mpeg, audio/wav", "Range": asked[0]}
-    url = host + AUDIO_PATH + "?id=" + quote(track_id, safe="")
+    url = host + AUDIO_PATH + "?id=" + quote(track_id, safe="") + ("&download=1" if download else "")
     try:
         if client is not None:
             response = client.get(url, headers=headers)
@@ -381,7 +379,7 @@ def fan_audio(member_id: str, track_id: str, *, download: bool = False,
 def fan_download_prepare(member_id: str, track_id: str, *, client=None, resolver=None) -> dict:
     """First verify a fresh Cloud entitlement before writing browser headers."""
     _allowed_member(member_id)
-    first = fan_audio(member_id, track_id, client=client, resolver=resolver)
+    first = fan_audio(member_id, track_id, download=True, client=client, resolver=resolver)
     if first["total_bytes"] > MAX_DOWNLOAD_BYTES:
         raise StonefellowError("Track exceeds native download limit.", 413)
     return first
@@ -397,7 +395,7 @@ def fan_download_chunks(member_id: str, track_id: str, first: dict,
     offset = len(first["body"])
     while offset < total:
         end = min(total - 1, offset + MAX_SEGMENT_BYTES - 1)
-        part = fan_audio(member_id, track_id, range_header=f"bytes={offset}-{end}",
+        part = fan_audio(member_id, track_id, download=True, range_header=f"bytes={offset}-{end}",
                          client=client, resolver=resolver)
         if (part["status_code"] != 206 or part["total_bytes"] != total
                 or part["start"] != offset or not part["body"]):

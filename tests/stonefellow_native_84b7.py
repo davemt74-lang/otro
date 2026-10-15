@@ -61,11 +61,12 @@ print("84B7 HomeServer media contract",count,"checks passed")
 # Two chunk 8-byte download fixture, with bounded transfer size for tests.
 with patch.object(sf, "MAX_SEGMENT_BYTES", 4), \
      patch.object(sf.homeserver_apps,"get",return_value={"installed_version":"1.0.0"}), \
-     patch.object(sf.homeserver_app_security,"get_secret",side_effect=get_secret), \
+     patch.object(sf.homeserver_app_security,"get_secret",side_effect=secret), \
      patch.object(sf.homeserver_app_security,"require_permission",return_value={}), \
-     patch.object(sf.members,"assigned_apps",side_effect=assigned), \
-     patch.object(sf.members,"get_member",side_effect=fake_member):
+     patch.object(sf.members,"assigned_apps",side_effect=apps), \
+     patch.object(sf.members,"get_member",side_effect=lambda m:{"status":"active","role":"member"}):
     def stream_mock(request):
+        ok(request.url.params.get("download")=="1", "Every native download chunk requires independent Cloud download entitlement")
         at = request.headers["range"]
         if at == "bytes=0-3":
             return httpx.Response(206,headers={"content-type":"audio/mpeg",
