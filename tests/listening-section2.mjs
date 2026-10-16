@@ -132,7 +132,7 @@ if(cloud){
  function brain(b){load('brain.js',b,'window.BrainTest={submitChatTurn,leaveConversation,state:()=>({pendingChatTurn,activeConversationId})};');return b.window.BrainTest;}
  const submitEvent=b=>({preventDefault(){},target:b.element('chatForm')});
  const emitTurn=(b,requestId,status,reply='')=>b.emit('homeserver:chat-turn',{detail:{requestId,status,reply}});
- function standaloneTurn(b,api,id){b.element('chatForm').requestSubmit=()=>emitTurn(b,id,'started');api.autoSubmitSpeech('new speech');}
+ function standaloneTurn(b,api,id){b.element('chatForm').requestSubmit=()=>{b.element('chatInput').value='';emitTurn(b,id,'started');};api.autoSubmitSpeech('new speech');}
  await test('identical replies on distinct turns speak; duplicate completion is ignored',async()=>{
   const b=browser(),timer=clock(b),spoken=[];b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);api.seed();
   standaloneTurn(b,api,1);emitTurn(b,1,'completed','same reply');emitTurn(b,1,'completed','same reply');assert.equal(spoken.length,1);spoken[0].onend();
@@ -153,7 +153,21 @@ if(cloud){
   b.element('strictLocalVoice').checked=false;api.seed();api.speakAgentReply('hello');await timer.advance(15000);assert.equal(api.state().speaking,false);api.stopConversationMode('');
  });
  await test('browser recognition aggregates new final indices and stops on startup/device failure',async()=>{
-  const b=browser(),timer=clock(b);const api=voice(b);api.seed();const starts=[];b.element('chatForm').requestSubmit=()=>{starts.push(b.element('chatInput').value);emitTurn(b,1,'started');};api.startBrowserListening();const listener=api.recognition();listener.onstart();listener.onresult(result('你好',0));listener.onresult(result('世界',1));await flush();await timer.advance(0);assert.equal(starts[0],'你好 世界');api.stopConversationMode('');api.seed();api.startBrowserListening();api.recognition().onerror({error:'audio-capture'});assert.equal(api.state().conversationMode,false);api.seed();api.startBrowserListening();await timer.advance(5000);assert.equal(api.state().conversationMode,false);
+  const b=browser(),timer=clock(b);const api=voice(b);api.seed();const starts=[];b.element('chatForm').requestSubmit=()=>{starts.push(b.element('chatInput').value);b.element('chatInput').value='';emitTurn(b,1,'started');};api.startBrowserListening();const listener=api.recognition();listener.onstart();listener.onresult(result('你好',0));listener.onresult(result('世界',1));await flush();await timer.advance(0);assert.equal(starts[0],'你好 世界');api.stopConversationMode('');api.seed();api.startBrowserListening();api.recognition().onerror({error:'audio-capture'});assert.equal(api.state().conversationMode,false);api.seed();api.startBrowserListening();await timer.advance(5000);assert.equal(api.state().conversationMode,false);
+ });
+ await test('failed and stopped drafts pause listening instead of overwriting input',async()=>{
+  for(const status of ['failed','cancelled']){
+   const b=browser(),timer=clock(b);const api=voice(b);api.seed();standaloneTurn(b,api,1);
+   b.element('chatInput').value='Preserve the interrupted message';emitTurn(b,1,status);await timer.advance(1000);
+   assert.equal(api.state().conversationMode,false);assert.equal(b.element('chatInput').value,'Preserve the interrupted message');assert.equal(api.recognition(),null);
+  }
+ });
+ await test('recognition becomes listening only on start and stops after bounded network failures',async()=>{
+  const b=browser(),timer=clock(b);const api=voice(b);api.seed();api.startBrowserListening();
+  assert.equal(b.element('voiceInputButton').dataset.voiceState,'connecting');assert.equal(b.element('voiceInputButton').classList.contains('listening'),false);
+  api.recognition().onstart();assert.equal(b.element('voiceInputButton').dataset.voiceState,'listening');
+  for(let i=0;i<3;i++){const current=api.recognition();current.onerror({error:'network'});current.onend();await flush();await timer.advance(250);}
+  assert.equal(api.state().conversationMode,false);assert.equal(api.recognition(),null);
  });
  await test('canonical owner emits actual reply despite failed history refresh',async()=>{
   const b=browser();clock(b);const spoken=[];b.window.speechSynthesis.speak=u=>spoken.push(u);b.window.fetch=async url=>url==='/api/v1/control/chat'?response({reply:'actual answer',conversation_id:'c1',run_id:'r1'}):Promise.reject(Error('history offline'));
