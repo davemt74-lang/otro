@@ -127,30 +127,36 @@ void restoreFollowup();
 let directChatBypass=false;
 async function prepareChatTask(){
  if(busy||!chatInput||window.HomeServerChatTurn?.isBusy?.())return;
- const objective=chatInput.value.trim();if(!objective||objective.length>4000){root.open=true;say('Enter a task request of 1 to 4,000 characters.');return;}
+ const objective=chatInput.value.trim();if(!objective||objective.length>4000){root.open=true;window.HomeServerChatOptions?.open('more');say('Enter a task request of 1 to 4,000 characters.');return;}
  const mode=taskMode.value,intent={objective,...taskContext()},context=JSON.stringify(taskContext());
  const taskStorageKey='vp3.chat-task.pending.a5c7.'+String(cfg.csrf)+'.'+mode+'.'+context;
  let request;
  try{const stored=JSON.parse(sessionStorage.getItem(taskStorageKey)||'null');if(stored&&JSON.stringify(stored.intent)===JSON.stringify(intent))request=stored;}catch(_){}
- if(!request){const request_id=window.crypto?.randomUUID?.();if(!request_id){root.open=true;say('Secure request IDs are unavailable.');return;}request={intent,request_id};}
- try{sessionStorage.setItem(taskStorageKey,JSON.stringify(request));}catch(_){root.open=true;say('Task recovery storage is unavailable. Enable session storage and retry.');return;}
+ if(!request){const request_id=window.crypto?.randomUUID?.();if(!request_id){root.open=true;window.HomeServerChatOptions?.open('more');say('Secure request IDs are unavailable.');return;}request={intent,request_id};}
+ try{sessionStorage.setItem(taskStorageKey,JSON.stringify(request));}catch(_){root.open=true;window.HomeServerChatOptions?.open('more');say('Task recovery storage is unavailable. Enable session storage and retry.');return;}
  const controller=new AbortController(),timer=window.setTimeout(()=>controller.abort(),120000),wasOpen=root.open;
+ const voiceTurn=Boolean(window.HomeServerConversationVoice?.pendingVoiceSubmit?.());
+ const routeEvent=(state,message='')=>window.dispatchEvent(new CustomEvent('homeserver:chat-route',{detail:{id:request.request_id,state,voiceTurn,message}}));
+ let cancelled=false,outcome='failed';
+ const cancelRoute=event=>{if(voiceTurn&&event.detail?.id===request.request_id){cancelled=true;controller.abort();}};
+ window.addEventListener('homeserver:chat-route-cancel',cancelRoute);
  let continueChat=false,turnStarted=false;
  function turn(status,extra={}){window.dispatchEvent(new CustomEvent('homeserver:chat-turn',{detail:{requestId:'task:'+request.request_id,status,...extra}}));}
  function startTurn(){if(!turnStarted){turnStarted=true;turn('started',{conversationId:request.intent.conversation_id});}}
- function current(){if(context!==JSON.stringify(taskContext()))throw new Error('Conversation or lead changed. Return to the original conversation to retry.');}
+ function current(){if(controller.signal.aborted)throw new DOMException('Task routing cancelled.','AbortError');if(context!==JSON.stringify(taskContext()))throw new Error('Conversation or lead changed. Return to the original conversation to retry.');}
  setBusy(true);taskMode.disabled=true;chatInput.disabled=true;if(chatSubmit)chatSubmit.disabled=true;root.open=true;say(mode==='automatic'?'Lead agent is choosing how to help…':'Lead agent is preparing specialist assignments…');
+ routeEvent('started');
  if(mode==='specialists')startTurn();
  try{
   const response=await api(mode==='automatic'?'task.route':'task.prepare',{...request.intent,request_id:request.request_id},controller.signal);
   current();
   if(mode==='automatic'&&response.route==='chat'){
    if(response.conversation_id&&window.HomeServerChatTurn?.usePreparedConversation&&!window.HomeServerChatTurn.usePreparedConversation(response.conversation_id))throw new Error('Prepared conversation could not be selected. Retry the same request.');
-   sessionStorage.removeItem(taskStorageKey);continueChat=true;root.open=wasOpen;
+   sessionStorage.removeItem(taskStorageKey);continueChat=true;outcome='chat';root.open=wasOpen;
   }else if(mode==='automatic'&&response.route==='followup'){
    if(!response.followup)throw new Error('Mission command was not confirmed. Retry the same request.');
    if(response.conversation_id&&window.HomeServerChatTurn?.usePreparedConversation&&!window.HomeServerChatTurn.usePreparedConversation(response.conversation_id))throw new Error('Original conversation could not be selected.');
-   renderFollowup(response.followup,JSON.stringify(taskContext()));sessionStorage.removeItem(taskStorageKey);chatInput.value='';root.open=wasOpen;
+   renderFollowup(response.followup,JSON.stringify(taskContext()));sessionStorage.removeItem(taskStorageKey);chatInput.value='';root.open=wasOpen;outcome='review';
    say('Review the command on the chat canvas. No work changes until you confirm.');startTurn();turn('completed',{reply:status.textContent});
   }else{
    if(mode==='automatic'&&response.route!=='specialists')throw new Error('Routing decision was not confirmed. Retry the same request.');
@@ -160,11 +166,11 @@ async function prepareChatTask(){
    selected=m.id;toolsByMission.set(m.id,contract.tools);if(!contract.tools.configured)toolDrafts.set(m.id,m.chat_task.draft);
    const index=items.findIndex(x=>x.id===m.id);if(index>=0)items[index]=m;else items.unshift(m);
    showList();showMission(m);sessionStorage.removeItem(taskStorageKey);chatInput.value='';
-   say('Plan prepared. Review and approve assignments, then start specialists. Each proposed edit requires separate approval.');
+   say('Plan prepared. Review and approve assignments, then start specialists. Each proposed edit requires separate approval.');outcome='review';
    startTurn();turn('completed',{reply:status.textContent});
   }
- }catch(e){root.open=true;say((e.name==='AbortError'?'Task preparation timed out.':e.message||'Task preparation interrupted.')+' Your request remains available for retry.');startTurn();turn('failed',{message:status.textContent});}
- finally{window.clearTimeout(timer);setBusy(false);taskMode.disabled=false;chatInput.disabled=false;if(chatSubmit)chatSubmit.disabled=false;}
+ }catch(e){if(cancelled){outcome='cancelled';root.open=wasOpen;say('Task routing stopped. Your request remains available for review.');}else{root.open=true;say((e.name==='AbortError'?'Task preparation timed out.':e.message||'Task preparation interrupted.')+' Your request remains available for retry.');startTurn();turn('failed',{message:status.textContent});}}
+ finally{window.clearTimeout(timer);window.removeEventListener('homeserver:chat-route-cancel',cancelRoute);setBusy(false);taskMode.disabled=false;chatInput.disabled=false;if(chatSubmit)chatSubmit.disabled=false;routeEvent(outcome,status.textContent);}
  if(continueChat){directChatBypass=true;try{form.requestSubmit();}finally{directChatBypass=false;}}
 }
 form.addEventListener('submit',event=>{
@@ -594,7 +600,7 @@ function renderBrain(body){
  const name=el('div','');name.appendChild(el('strong','','HomeServer Agent Teams'));
  name.appendChild(el('span','','Mission execution · '+(lastRefresh?fmt(new Date(lastRefresh).toISOString()):'not yet synchronized')));
  header.appendChild(name);
- const open=btn('Open in Chat','open-team-chat','');open.dataset.action='open-team-chat';open.addEventListener('click',()=>{root.open=true;root.scrollIntoView({block:'nearest'});});header.appendChild(open);
+ const open=btn('Open in Chat','open-team-chat','');open.dataset.action='open-team-chat';open.addEventListener('click',()=>{root.open=true;window.HomeServerChatOptions?.open('more');root.scrollIntoView({block:'nearest'});});header.appendChild(open);
  section.appendChild(header);
  const recent=items.slice(0,5);
  if(!recent.length)section.appendChild(el('p','chat-activity-empty','No HomeServer mission activity is available.'));
@@ -743,7 +749,7 @@ const diagnosticHost=el('section','vp3-integration-diagnostic');diagnosticHost.h
 async function operation(action,id,taskId,decision){
  if(action==='diagnostics.get'){if(busy)return;setBusy(true);say('Checking installed integration…');try{const r=await api(action);renderDiagnostic(r.diagnostics);say('Integration diagnostic complete.');}catch(e){diagnosticHost.replaceChildren();diagnosticHost.hidden=true;say(e.message);}finally{setBusy(false);}return;}
  if(action.startsWith('schedule.'))return scheduleOperation(action,id);
- if(action==='open-team-chat'){root.open=true;root.scrollIntoView({block:'nearest'});if(id)operation('get',id,taskId);return;}
+ if(action==='open-team-chat'){root.open=true;window.HomeServerChatOptions?.open('more');root.scrollIntoView({block:'nearest'});if(id)operation('get',id,taskId);return;}
  if(busy)return;
  if(action==='actions.recover'){
   const change=(changesByMission.get(id)||[]).find(x=>x.id===taskId);

@@ -23,6 +23,7 @@
   let awaitingAgent = false;
   let speaking = false;
   let pendingTranscript = '';
+  let voiceRouteId = '';
   let waitingRequestId = null;
   let waitingGeneration = 0;
   let outputGeneration = 0;
@@ -362,6 +363,7 @@
     conversationMode = false;
     pendingTranscript = '';
     const requestId=waitingRequestId;waitingRequestId=null;
+    if(voiceRouteId){const id=voiceRouteId;voiceRouteId='';window.dispatchEvent(new CustomEvent('homeserver:chat-route-cancel',{detail:{id}}));}
     awaitingAgent = false;
     outputGeneration+=1;ttsController?.abort();ttsController=null;
     clearTimeout(speechWatchdog);clearTimeout(resumeTimer);clearTimeout(browserStartTimer);
@@ -395,7 +397,7 @@
     setVoiceState('thinking');
     try{form.requestSubmit();}
     catch(err){awaitingAgent=false;flash(err.message || 'Chat submission failed.',true);resumeListening();return;}
-    if(waitingRequestId === null){awaitingAgent=false;flash('Chat was not submitted. Try again.',true);resumeListening();}
+    if(waitingRequestId === null && !voiceRouteId){awaitingAgent=false;flash('Chat was not submitted. Try again.',true);resumeListening();}
   }
 
   function resumeListening() {
@@ -807,9 +809,21 @@
     else speakBrowserReply(message,generation);
   }
 
+  window.addEventListener('homeserver:chat-route',event=>{
+    const route=event.detail||{};
+    if(!route.voiceTurn||!conversationMode||waitingGeneration!==captureGeneration)return;
+    if(route.state==='started'&&awaitingAgent){voiceRouteId=route.id;return;}
+    if(!voiceRouteId||voiceRouteId!==route.id)return;
+    voiceRouteId='';
+    if(route.state==='chat')return;
+    waitingRequestId=null;awaitingAgent=false;
+    if(route.state==='review'&&route.message)speakAgentReply(route.message);
+    else{if(route.state==='failed')flash(route.message||'Task routing failed. Listening again.',true);resumeListening();}
+  });
+
   window.addEventListener('homeserver:chat-turn',event=>{
     const turn=event.detail || {};
-    if(!conversationMode || !awaitingAgent || waitingGeneration!==captureGeneration)return;
+    if(!conversationMode || !awaitingAgent || voiceRouteId || waitingGeneration!==captureGeneration)return;
     if(turn.status==='started' && waitingRequestId===null){waitingRequestId=turn.requestId;return;}
     if(waitingRequestId===null || turn.requestId!==waitingRequestId)return;
     if(!['completed','failed','cancelled'].includes(turn.status))return;
@@ -948,6 +962,7 @@
 
   window.HomeServerConversationVoice = Object.freeze({
     isEnabled: () => Boolean(conversationMode),
+    pendingVoiceSubmit: () => Boolean(conversationMode && awaitingAgent && waitingRequestId === null),
     speakStatus: text => {
       const message = String(text || '').trim();
       if (!conversationMode || !message) return false;

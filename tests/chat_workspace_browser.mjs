@@ -159,6 +159,18 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   let microphoneCalls = 0;
   await page.exposeFunction('countMicrophoneCall', () => {microphoneCalls++;});
   await page.addInitScript(() => {
+    window.voiceFixture = {recognizers: [], spoken: []};
+    window.SpeechRecognition = class {
+      constructor() { window.voiceFixture.recognizers.push(this); }
+      start() { this.active = true; queueMicrotask(() => this.onstart?.()); }
+      stop() { this.active = false; queueMicrotask(() => this.onend?.()); }
+      abort() { this.stop(); }
+    };
+    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    Object.defineProperty(window, 'speechSynthesis', {value: {
+      getVoices: () => [], addEventListener() {}, removeEventListener() {}, cancel() {},
+      speak(utterance) { window.voiceFixture.spoken.push(utterance.text); queueMicrotask(() => {utterance.onstart?.(); utterance.onend?.();}); },
+    }});
     const original = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
     if (original) navigator.mediaDevices.getUserMedia = (...args) => {window.countMicrophoneCall(); return original(...args);};
   });
@@ -169,12 +181,24 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('.topbar').isVisible(), false);
   assert.equal(await page.locator('#chatContextControls').isVisible(), false);
   assert.equal(await page.locator('#chatForm button:visible').count(), 2);
+  await page.waitForFunction(() => document.querySelectorAll('#chatKnowledgeControls>details').length === 4 && document.querySelector('#chatToolControls .vp3-agent-teams-a3'));
+  assert.equal(await page.locator('#view-chat .chat-panel>.project-knowledge-r6,#view-chat .chat-panel>.knowledge-actions-r8,#view-chat .chat-panel>.vp3-chat-task-mode,#view-chat .chat-panel>.vp3-agent-teams-a3').count(), 0);
+  assert.equal(await page.locator('.project-knowledge-r6').isVisible(), false);
+  // A late module insertion must be moved without cloning or resetting edits.
+  await page.evaluate(() => {
+    const panel = document.querySelector('.project-knowledge-r5');
+    panel.querySelector('input').value = 'Retained source search';
+    window.retainedKnowledgePanel = panel;
+    document.getElementById('chatForm').before(panel);
+  });
+  await page.waitForFunction(() => document.querySelector('#chatKnowledgeControls .project-knowledge-r5') === window.retainedKnowledgePanel);
   const plusRect = await page.locator('#chatOptionsButton').boundingBox();
   const inputRect = await page.locator('#chatInput').boundingBox();
   assert.ok(plusRect.x > inputRect.x + inputRect.width / 2, '+ belongs on the right');
   await page.locator('#chatOptionsButton').click();
   assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.open), true);
   assert.equal(await page.locator('#chatContextControls').isVisible(), true);
+  assert.equal(await page.locator('.project-knowledge-r5 input').first().inputValue(), 'Retained source search');
   await page.keyboard.press('ArrowRight');
   assert.equal(await page.locator('#chatOptionsTabVoice').getAttribute('aria-selected'), 'true');
   await page.waitForFunction(() => document.querySelector('#voiceTtsVoice')?.options.length > 0);
@@ -188,6 +212,15 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   }
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('#chatOptionsButton').evaluate(node => node === document.activeElement), true);
+  await page.locator('#chatOptionsButton').click();
+  await page.locator('#chatOptionsTabMore').click();
+  await page.getByLabel('Work mode', {exact: true}).selectOption('chat');
+  await page.locator('#chatOptionsClose').click();
+  await page.locator('#chatOptionsButton').click();
+  await page.locator('#chatOptionsTabMore').click();
+  assert.equal(await page.getByLabel('Work mode', {exact: true}).inputValue(), 'chat');
+  await page.getByLabel('Work mode', {exact: true}).selectOption('automatic');
+  await page.locator('#chatOptionsClose').click();
 
   assert.equal(await page.locator('#vp3ChatTaskMode').inputValue(), 'automatic');
   await page.locator('#chatInput').fill('Browser acceptance message');
@@ -311,6 +344,79 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.open), false);
   assert.equal(await page.locator('#hsTranscriptionCanvas').isVisible(), true);
   await page.locator('#hsTranscriptClose').click();
+
+  // Exercise actual native Chat + planner + conversation voice with only the
+  // browser speech services mocked. A delayed route must not restart capture.
+  let releaseVoiceRoute, voiceRouteGate = null, failVoiceRoute = false;
+  let voiceSends = 0;
+  page.on('request', request => {if (new URL(request.url()).pathname === '/api/v1/control/chat' && request.method() === 'POST') voiceSends++;});
+  const missionRoute = '**/api/v1/control/agent-browser-workspaces';
+  await page.route(missionRoute, async route => {
+    if (route.request().postDataJSON()?.action !== 'task.route') return route.continue();
+    if (voiceRouteGate) await voiceRouteGate;
+    if (failVoiceRoute) return route.fulfill({status:503,json:{ok:false,error:'Routing is unavailable'}});
+    return route.continue();
+  });
+  async function speak(text, final = true) {
+    await page.evaluate(({text,final}) => {
+      const recognizer = window.voiceFixture.recognizers.findLast(item => item.active);
+      if (!recognizer) throw Error('No active conversation recognizer');
+      const result = [{transcript:text}]; result.isFinal = final;
+      recognizer.onresult({resultIndex:0,results:[result]});
+    }, {text,final});
+  }
+  async function listening() { await page.waitForFunction(() => document.querySelector('#voiceInputButton.listening') && window.voiceFixture.recognizers.some(item => item.active)); }
+  await page.locator('#chatOptionsButton').click();
+  await page.locator('#chatOptionsTabVoice').click();
+  await page.locator('#voiceInputButton').click();
+  await listening();
+  assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.open), false);
+  await speak('A native voice', false);
+  assert.equal(await page.locator('#chatInput').inputValue(), 'A native voice');
+  voiceRouteGate = new Promise(resolve => {releaseVoiceRoute = resolve;});
+  await speak('A native voice question');
+  await page.waitForFunction(() => document.querySelector('#chatInput').disabled);
+  const recognitionCount = await page.evaluate(() => window.voiceFixture.recognizers.length);
+  await delay(1000);
+  assert.equal(await page.evaluate(() => window.voiceFixture.recognizers.length), recognitionCount, 'Routing must keep capture paused');
+  assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.open), false, 'Ordinary routing keeps tools closed');
+  releaseVoiceRoute(); voiceRouteGate = null;
+  await page.waitForFunction(() => window.voiceFixture.spoken.length === 1);
+  await listening();
+  assert.equal(voiceSends, 1, 'One spoken input sends one canonical Chat request');
+  assert.match(await page.evaluate(() => window.voiceFixture.spoken[0]), /Browser acceptance reply/);
+  failVoiceRoute = true;
+  await speak('A failed native route');
+  await page.waitForFunction(() => document.querySelector('#chatOptionsDialog').open);
+  assert.match(await page.locator('.vp3-teams-status').innerText(), /Routing is unavailable/);
+  assert.equal(voiceSends, 1, 'Uncertain routing must not dispatch Chat');
+  await page.locator('#chatOptionsClose').click();
+  await listening();
+  failVoiceRoute = false;
+  voiceRouteGate = new Promise(resolve => {releaseVoiceRoute = resolve;});
+  await speak('Stop this delayed native request');
+  await page.waitForFunction(() => document.querySelector('#chatInput').disabled);
+  await page.locator('#chatCaptureStop').click();
+  releaseVoiceRoute(); voiceRouteGate = null;
+  await page.waitForFunction(() => !document.querySelector('#chatInput').disabled);
+  assert.equal(voiceSends, 1, 'Stop rejects a late route instead of submitting it');
+  assert.equal(await page.locator('#chatInput').inputValue(), 'Stop this delayed native request');
+  assert.equal(await page.locator('#voiceInputButton').getAttribute('aria-pressed'), 'false');
+  assert.equal(await page.evaluate(() => window.HomeServerConversationVoice.isEnabled()), false);
+  await page.unroute(missionRoute);
+  // Explicit research keeps its consent review available in the options dialog.
+  await page.locator('#chatOptionsButton').click();
+  await page.locator('#chatOptionsTabMore').click();
+  await page.getByLabel('Work mode', {exact:true}).selectOption('chrome');
+  await page.locator('#chatOptionsClose').click();
+  await page.locator('#chatInput').fill('Research a source');
+  await page.locator('#chatForm [type="submit"]').click();
+  await page.waitForFunction(() => document.querySelector('#chatOptionsDialog').open);
+  assert.equal(await page.locator('.vp3-chat-research').isVisible(), true);
+  assert.equal(voiceSends, 1);
+  await page.getByLabel('Work mode', {exact:true}).selectOption('automatic');
+  await page.locator('#chatOptionsClose').click();
+  console.log('PASS: native voice interim input, delayed routing, one spoken reply, listening resume, failed routes, Stop cancellation, and visible Chrome research consent');
 
   // Capture state comes from the existing ownership controls, and Stop delegates
   // to those controls instead of introducing a second recording implementation.
