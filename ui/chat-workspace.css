@@ -12,6 +12,10 @@ body.shell-agent-first #view-chat .chat-message.user { width: min(1120px, 100%);
 body.shell-agent-first #view-chat .chat-compose { position: sticky; left: auto; bottom: 14px; transform: none; flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: min(1120px, 100%); margin: 8px auto 0; padding: 12px 14px 8px; border-radius: 22px; box-shadow: 0 4px 18px rgba(15,23,42,.06), 0 18px 0 6px #fff; backdrop-filter: none; }
 body.shell-agent-first #view-chat .chat-compose textarea { width: 100%; min-height: 36px; padding: 6px 2px; }
 .chat-composer-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+#chatSessionStatus[hidden]{display:none!important}
+#chatSessionStatus{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--muted);padding:6px 0}
+#chatSessionStatus button{background:transparent;border:0;text-decoration:underline;color:inherit;font:inherit;cursor:pointer;padding:4px}
+#chatSessionStatusText{flex:1;min-width:160px}
 .chat-composer-icon { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border, #d8dadd); border-radius: 50%; background: transparent; color: inherit; font: inherit; font-size: 25px; line-height: 1; cursor: pointer; }
 .chat-composer-icon:hover { background: #f1f1f3; }
 body.shell-agent-first #view-chat .chat-compose .chat-send { font-size: 23px; background: #171717; color: #fff; }

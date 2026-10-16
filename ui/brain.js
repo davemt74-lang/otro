@@ -5,24 +5,78 @@
   let chatTurnSequence = 0;
   let pendingChatTurn = null;
   let conversationRevision = 0;
+  let restoreLoads = 0;
+  let contextReady = false;
+  const DRAFT_KEY = 'homeserver:chat:drafts-v1', ACTIVE_KEY = 'homeserver:chat:active-v1';
+  const validId = id => typeof id === 'string' && /^[0-9a-f]{32}$/.test(id);
+  const scopeKey = () => activeConversationId || 'new:' + Number(window.HomeServerAgentRouting?.getSelectedAgentId?.() || 0);
+  function readStore(kind, key, fallback) { try { return JSON.parse(window[kind].getItem(key) || 'null') || fallback; } catch (_) { return fallback; } }
+  function drafts() {
+    const value = readStore('sessionStorage', DRAFT_KEY, {}), result = {};
+    for (const [key, item] of Object.entries(value)) if ((validId(key) || /^new:\d+$/.test(key)) && typeof item?.text === 'string' && item.text.length <= 32000 && Number.isFinite(item.at) && item.at <= Date.now() && Date.now() - item.at < 86400000) result[key] = item;
+    return result;
+  }
+  function saveDraft(text, scope = scopeKey(), state = 'draft') {
+    const value = drafts();
+    if (String(text || '').trim()) value[scope] = {text: String(text).slice(0,32000), at: Date.now(), state}; else delete value[scope];
+    const bounded = Object.fromEntries(Object.entries(value).sort((a,b) => b[1].at-a[1].at).slice(0,8));
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(bounded)); } catch (_) {}
+  }
+  function rememberConversation() { try { localStorage.setItem(ACTIVE_KEY, JSON.stringify({id:activeConversationId,at:Date.now()})); } catch (_) {} }
+  function recoveryStatus(message = '', detail = '') {
+    let host = byId('chatSessionStatus');
+    if (!host && byId('chatForm')) {
+      host = document.createElement('div'); host.id = 'chatSessionStatus'; host.setAttribute('role','status');
+      const text = document.createElement('span'); text.id = 'chatSessionStatusText';
+      const check = document.createElement('button'); check.type = 'button'; check.textContent = 'Check history'; check.id = 'chatCheckHistory';
+      check.addEventListener('click', () => {if(activeConversationId)loadConversation(activeConversationId).catch(() => recoveryStatus('History is unavailable. Your draft is kept.'));});
+      const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Dismiss'; close.addEventListener('click',()=>recoveryStatus());
+      host.append(text,check,close); byId('chatForm').appendChild(host);
+    }
+    if (host) { host.hidden = !message; byId('chatSessionStatusText').textContent = message; byId('chatCheckHistory').hidden = !activeConversationId; }
+    if (message) window.dispatchEvent(new CustomEvent('homeserver:chat-diagnostic',{detail:{state:'attention',message:detail || message,time:new Date().toISOString()}}));
+  }
+  function restoreDraft() {
+    const input = byId('chatInput'), saved = drafts()[scopeKey()];
+    if (input) {input.value = saved?.text || ''; input.style.height='auto'; input.style.height=`${Math.min(input.scrollHeight,180)}px`;}
+    recoveryStatus(saved && saved.state !== 'draft' ? 'Your message is kept. Check history before sending again.' : '');
+  }
+  function clearPrivateRecovery() {
+    const turn=pendingChatTurn;pendingChatTurn=null;if(turn){clearTimeout(turn.timer);turn.controller.abort();}
+    try {sessionStorage.removeItem(DRAFT_KEY);localStorage.removeItem(ACTIVE_KEY);} catch (_) {}
+    window.HomeServerConversationVoice?.stop?.();
+    conversationRevision++;activeConversationId=null;contextReady=false;
+    window.HomeServerAgentRouting?.adoptConversation?.(null,null);
+    byId('chatMessages')?.replaceChildren();byId('conversationList')?.replaceChildren();
+    if (byId('chatInput')) byId('chatInput').value = '';
+    if(byId('chatInput'))byId('chatInput').disabled=false;
+    const submit=byId('chatForm')?.querySelector('button[type="submit"]');if(submit)submit.disabled=false;
+    recoveryStatus('Sign in again to continue.');
+  }
+  window.addEventListener('homeserver:owner-session-expired',clearPrivateRecovery);
   const emitChatTurn = (turn, status, extra = {}) => window.dispatchEvent(new CustomEvent('homeserver:chat-turn', {detail:{requestId:turn.id,conversationId:turn.conversationId,status,...extra}}));
-  function cancelChatTurn(requestId = null){
+  function cancelChatTurn(requestId = null, restore = true){
     const turn=pendingChatTurn;
     if(!turn || (requestId != null && requestId !== turn.id))return false;
     pendingChatTurn=null;
     turn.controller.abort();clearTimeout(turn.timer);
+    saveDraft(turn.message,turn.scope,'interrupted');
+    if(restore && turn.revision===conversationRevision){if(byId('chatInput')&&!byId('chatInput').value)byId('chatInput').value=turn.message;recoveryStatus('Stopped. Your message is kept. Check history before sending again.');}
     emitChatTurn(turn,'cancelled');
     const input=byId('chatInput'),submit=byId('chatForm')?.querySelector('button[type="submit"]');
     if(input)input.disabled=false;if(submit)submit.disabled=false;
     return true;
   }
   function leaveConversation(){
-    conversationRevision+=1;cancelChatTurn();
+    if(!pendingChatTurn)saveDraft(byId('chatInput')?.value);
+    conversationRevision+=1;cancelChatTurn(null,false);
     window.HomeServerConversationVoice?.stop?.();
   }
-  window.HomeServerChatTurn=Object.freeze({isBusy:()=>Boolean(pendingChatTurn),cancel:cancelChatTurn,usePreparedConversation:id=>{
+  window.HomeServerChatTurn=Object.freeze({isBusy:()=>Boolean(pendingChatTurn),conversationId:()=>activeConversationId,cancel:cancelChatTurn,usePreparedConversation:id=>{
     if(pendingChatTurn||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return false;
-    activeConversationId=id;setChatTitle();void loadConversations(false).catch(()=>{});return true;
+    const previous=scopeKey();activeConversationId=id;
+    const old=drafts()[previous];if(old&&previous!==id){saveDraft(old.text,id,old.state);saveDraft('',previous);}
+    rememberConversation();setChatTitle();void loadConversations(false).catch(()=>{});return true;
   }});
   window.addEventListener('pagehide',()=>cancelChatTurn());
   const byId = id => document.getElementById(id);
@@ -43,7 +97,7 @@
     const response = await fetch(path, {...options, headers});
     let data = {};
     try { data = await response.json(); } catch (_) {}
-    if (!response.ok) throw new Error(data.detail || `Request failed (${response.status})`);
+    if (!response.ok) {const error=new Error(data.detail || `Request failed (${response.status})`);error.status=response.status;if(response.status===401)clearPrivateRecovery();throw error;}
     return data;
   }
 
@@ -163,13 +217,19 @@
   }
 
   async function loadConversation(id, revision = null, turnId = null) {
+    const switching=revision===null;if(switching)restoreLoads++;
+    try {
     if(revision === null){leaveConversation();revision=conversationRevision;}
     const data = await brainApi(`/api/v1/control/conversations/${encodeURIComponent(id)}`);
     if(revision !== conversationRevision || (turnId !== null && turnId !== chatTurnSequence))return;
-    activeConversationId = id;
+    activeConversationId = id; contextReady=true;
+    window.HomeServerAgentRouting?.adoptConversation?.(id,data.routing?.agent);
+    rememberConversation();
     setChatTitle(data.conversation?.title || 'Conversation');
     renderMessages(data);
+    if(turnId === null)restoreDraft();
     document.querySelectorAll('[data-brain-conversation]').forEach(item => item.classList.toggle('active', item.dataset.brainConversation === id));
+    } finally {if(switching)restoreLoads--;}
   }
 
   function conversationMarkup(item) {
@@ -192,7 +252,15 @@
     if (!list) return;
     list.innerHTML = data.items.length ? data.items.map(conversationMarkup).join('') : '<div class="empty-state">No conversations yet.</div>';
     if (activeConversationId && data.items.some(item => item.id === activeConversationId)) return;
-    if (selectFirst && data.items.length) await loadConversation(data.items[0].id);
+    if (selectFirst) {
+      const saved=readStore('localStorage',ACTIVE_KEY,null);
+      if(saved && Number.isFinite(saved.at) && saved.at<=Date.now() && Date.now()-saved.at<2592000000){
+        if(saved.id === null){contextReady=true;restoreDraft();return;}
+        if(validId(saved.id)){try{await loadConversation(saved.id);}catch(error){if(error.status!==404)throw error;activeConversationId=null;contextReady=true;rememberConversation();restoreDraft();}return;}
+      }
+      if(data.items.length)await loadConversation(data.items[0].id);
+      else {contextReady=true;restoreDraft();}
+    }
   }
 
   async function deleteConversation(id) {
@@ -201,9 +269,12 @@
     await brainApi(`/api/v1/control/conversations/${encodeURIComponent(id)}`, {method: 'DELETE'});
     if (activeConversationId === id) {
       activeConversationId = null;
+      rememberConversation();
+      window.HomeServerAgentRouting?.adoptConversation?.(null,null);
       setChatTitle();
       renderMessages({messages: []});
     }
+    saveDraft('',id);
     await loadConversations(false);
     brainFlash('Conversation deleted.');
   }
@@ -321,6 +392,9 @@
   }
 
   async function loadChatView() {
+    restoreLoads++;
+    try {
+    await window.HomeServerAgentRouting?.refresh?.();
     const calls = [loadConversations(true), loadProvider(), loadAgentTools()];
     calls.push(loadInference().catch(() => null));
     await Promise.all(calls);
@@ -328,6 +402,8 @@
       setChatTitle();
       renderMessages({messages: []});
     }
+    } catch(error) { if(error.status!==401)recoveryStatus('Conversation history is unavailable. Open a conversation or start a new chat.'); throw error; }
+    finally {restoreLoads--;}
   }
 
   document.addEventListener('click', async event => {
@@ -372,10 +448,13 @@
     }
 
     if (event.target.id === 'newChat') {
-      leaveConversation();
+      leaveConversation();contextReady=true;
       activeConversationId = null;
+      window.HomeServerAgentRouting?.adoptConversation?.(null,null);
+      rememberConversation();
       setChatTitle();
       renderMessages({messages: []});
+      restoreDraft();
       document.querySelectorAll('[data-brain-conversation]').forEach(item => item.classList.remove('active'));
       byId('chatInput')?.focus();
     }
@@ -414,7 +493,14 @@
   });
 
   const chatInput = byId('chatInput');
+  document.addEventListener('submit',event=>{
+    if(event.target!==byId('chatForm') || (contextReady && !restoreLoads && navigator.onLine!==false))return;
+    event.preventDefault();event.stopImmediatePropagation();
+    if(contextReady&&!restoreLoads)saveDraft(chatInput?.value);window.HomeServerConversationVoice?.stop?.();
+    recoveryStatus(!contextReady?'Open a conversation or start a new chat before sending.':restoreLoads?'Restoring your conversation. Your message is kept.':'You are offline. Your message is kept.');
+  },true);
   chatInput?.addEventListener('input', () => {
+    if(!pendingChatTurn)saveDraft(chatInput.value);
     chatInput.style.height = 'auto';
     chatInput.style.height = `${Math.min(chatInput.scrollHeight, 180)}px`;
   });
@@ -431,7 +517,10 @@
     const message = input.value.trim();
     if (!message || pendingChatTurn) return;
     const submit = event.target.querySelector('button[type="submit"]');
-    const turn={id:++chatTurnSequence,conversationId:activeConversationId,controller:new AbortController(),revision:conversationRevision};
+    if(navigator.onLine===false){saveDraft(message);window.HomeServerConversationVoice?.stop?.();recoveryStatus('You are offline. Your message is kept.');return;}
+    recoveryStatus();
+    const turn={id:++chatTurnSequence,conversationId:activeConversationId,message,scope:scopeKey(),controller:new AbortController(),revision:conversationRevision};
+    saveDraft(message,turn.scope,'pending');
     pendingChatTurn=turn;
     turn.timer=setTimeout(()=>turn.controller.abort(),120000);
     submit.disabled = true;
@@ -454,6 +543,7 @@
       if(!data.conversation_id || typeof data.reply !== 'string')throw new Error('Agent returned an invalid chat response. Try again.');
       clearTimeout(turn.timer);
       activeConversationId = data.conversation_id;
+      rememberConversation();saveDraft('',turn.scope);
       window.VP3ProjectKnowledgeR6?.consume(data.project_knowledge_r6);window.VP3KnowledgeRevisionsR11?.consume();
       const reply=String(data.reply || '').trim();
       if(reply)existing?.insertAdjacentHTML('beforeend',chatMessageMarkup({role:'assistant',content:reply,annotation_citations:data.annotation_citations||[],project_knowledge_r6:data.project_knowledge_r6}));
@@ -475,7 +565,10 @@
       });
     } catch (err) {
       if(pendingChatTurn !== turn)return;
-      if(window.VP3ProjectKnowledgeR6&&!input.value)input.value=message;
+      if(err.status===401){clearPrivateRecovery();emitChatTurn(turn,'failed',{message:'Sign in again to continue.'});return;}
+      saveDraft(message,turn.scope,'failed');
+      if(!input.value)input.value=message;
+      recoveryStatus('Your message is kept. Check history before sending again.',`Chat ${err.status || err.name || 'transport error'}`);
       emitChatTurn(turn,'failed',{message:err.name==='AbortError'?'Chat request timed out. Try again.':err.message});
       brainFlash(err.name==='AbortError'?'Chat request timed out. Try again.':err.message,true);
     } finally {

@@ -17,6 +17,7 @@
   };
 
   const nativeFetch = window.fetch.bind(window);
+  let bindingSequence = 0;
 
   function urlPath(input) {
     try {
@@ -81,7 +82,11 @@
     });
     let payload = {};
     try { payload = await response.json(); } catch (_) {}
-    if (!response.ok) throw new Error(payload.detail || `Request failed (${response.status})`);
+    if (!response.ok) {
+      const error=new Error(payload.detail || `Request failed (${response.status})`);error.status=response.status;
+      if(response.status===401)window.dispatchEvent(new Event('homeserver:owner-session-expired'));
+      throw error;
+    }
     return payload;
   }
 
@@ -173,7 +178,7 @@
   }
 
   async function syncConversationBinding(conversationId = activeConversationFromDom()) {
-    if (state.syncingConversation) return;
+    const sequence=++bindingSequence;
     if (!conversationId) {
       state.activeConversationId = null;
       state.selectedAgentId = state.primaryAgentId;
@@ -184,15 +189,17 @@
     state.syncingConversation = true;
     try {
       const payload = await requestJson(`/api/v1/control/conversations/${encodeURIComponent(conversationId)}/routing`);
+      if(sequence!==bindingSequence)return;
       state.activeConversationId = conversationId;
       if (payload.agent?.id) state.selectedAgentId = Number(payload.agent.id);
       renderSelector();
       notifyAgentChanged('conversation_binding');
     } catch (_) {
+      if(sequence!==bindingSequence)return;
       state.activeConversationId = conversationId;
       renderSelector();
     } finally {
-      state.syncingConversation = false;
+      if(sequence===bindingSequence)state.syncingConversation = false;
     }
   }
 
@@ -304,7 +311,13 @@
     version: VERSION,
     getSelectedAgentId: () => state.selectedAgentId,
     getSelectedAgent: () => selectedAgent() ? {...selectedAgent()} : null,
-    getActiveConversationId: () => state.activeConversationId,
+    getActiveConversationId: () => window.HomeServerChatTurn?.conversationId ? window.HomeServerChatTurn.conversationId() : state.activeConversationId,
+    adoptConversation: (id,agent) => {
+      bindingSequence++;
+      state.activeConversationId=id;state.syncingConversation=false;
+      state.selectedAgentId=id ? Number(agent?.id || state.selectedAgentId || state.primaryAgentId) : state.primaryAgentId;
+      renderSelector();notifyAgentChanged(id?'conversation_binding':'new_conversation');
+    },
     getAgents: () => state.agents.map(item => ({...item})),
     refresh: loadAgents,
     syncConversationBinding,
