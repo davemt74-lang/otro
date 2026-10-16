@@ -50,6 +50,13 @@ body.shell-agent-first .primary-sidebar-nav .agent-brain-drawer-toggle { width: 
 body.shell-agent-first #view-chat #agentWorkflowPanel:not(.hidden) { flex: 0 0 auto; max-height: none; overflow: visible; }
 .chat-options-dialog #deleteChat { display: inline-block; }
 .chat-options-dialog #chatOptionsStatus { padding: 0 18px 16px; color: #b91c1c; }
+.chat-options-dialog #chatKnowledgeControls,.chat-options-dialog #chatToolControls { min-width: 0; }
+.chat-options-dialog #chatKnowledgeControls>details,.chat-options-dialog #chatToolControls>details { margin: 10px 0; padding: 12px; border: 1px solid var(--border,#e5e7eb); border-radius: 12px; }
+.chat-options-dialog #chatKnowledgeControls>details[open],.chat-options-dialog #chatToolControls>details[open] { max-height: none; overflow: visible; }
+.chat-options-dialog .vp3-chat-task-mode { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 16px; }
+.chat-options-dialog .vp3-chat-task-mode select { max-width: 65%; min-height: 36px; }
+.chat-options-dialog .vp3-chat-research { margin: 12px 0; }
+.chat-options-dialog .vp3-chat-research[hidden],.chat-options-dialog .vp3-mission-followup[hidden] { display: none !important; }
 .chat-options-dialog :focus-visible, .chat-compose :focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
 @media (max-width: 900px) {
   #hsV220IndexMenu { display: inline-grid; position: fixed; top: 12px; left: 14px; z-index: 80; }

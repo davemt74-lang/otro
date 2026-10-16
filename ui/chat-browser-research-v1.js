@@ -48,7 +48,7 @@ function render(r){
    for(const e of c.evidence||[])box.append(node('p',`${e.domain} · ${e.excerpt||''}`));content.append(box);}
   for(const p of m.pages||[])content.append(node('small',`${p.domain} · source receipt ${p.fingerprint} · ${p.source_version_id?'pinned source version '+p.source_version_id:'fingerprint-only evidence'}`));
   for(const gap of m.gaps||[])content.append(node('p','Evidence gap: '+gap));
-  if(r.status==='complete')for(const gap of (m.gaps||[]).slice(0,3)){const b=node('button','Research this gap');b.type='button';b.addEventListener('click',()=>{input.value=('Investigate: '+String(gap)).slice(0,1500);status.textContent='Send this follow-up to review a new search plan. Existing research stays unchanged.';input.focus();});content.append(b);}
+  if(r.status==='complete')for(const gap of (m.gaps||[]).slice(0,3)){const b=node('button','Research this gap');b.type='button';b.addEventListener('click',()=>{input.value=('Investigate: '+String(gap)).slice(0,1500);status.textContent='Send this follow-up to review a new search plan. Existing research stays unchanged.';input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();});content.append(b);}
   if(r.status==='complete'&&!m.report){content.append(node('p','Review the brief and choose a project to save a draft.'),project,button('Save reviewed report draft','save'));}
   if(m.report){const a=node('a','Open report draft');const u=String(m.report.url||'');if(u.startsWith('/')&&!u.startsWith('//')){a.href=cfg.cloud_base?cfg.cloud_base+u:u;content.append(a);}}
  }

@@ -6,6 +6,8 @@
   const trigger = byId('chatOptionsButton');
   let opener = trigger;
   let voicePrepared = false;
+  const form = byId('chatForm');
+  const chatPanel = form?.parentElement;
   const captureObserver = new MutationObserver(updateCapture);
   const observedCapture = new WeakSet();
 
@@ -40,6 +42,22 @@
     updateCapture();
     return ['voiceInputButton', 'dictateInputButton', 'chatVoiceSettingsButton', 'voiceSettingsForm', 'chatOnboardingToggle', 'agentBrainDrawerToggle'].every(id => byId(id));
   }
+
+  // Reuse each module's nodes, handlers and draft state. Only watch this
+  // container's direct children; message updates never trigger this observer.
+  function dockTools() {
+    if (!chatPanel) return;
+    for (const child of [...chatPanel.children]) {
+      if (child.matches('.project-knowledge-r5,.project-knowledge-r6,.project-knowledge-r7,.knowledge-actions-r8,.browser-captures-r4')) {
+        byId('chatKnowledgeControls').appendChild(child);
+      } else if (child.matches('.vp3-chat-task-mode,.vp3-agent-teams-a3,.vp3-chat-research,.vp3-mission-followup')) {
+        byId('chatToolControls').appendChild(child);
+      }
+    }
+  }
+  dockTools();
+  const toolsObserver = new MutationObserver(dockTools);
+  if (chatPanel) toolsObserver.observe(chatPanel, {childList: true});
 
   function updateCapture() {
     const active = ['voiceInputButton', 'dictateInputButton'].filter(id => byId(id)?.getAttribute('aria-pressed') === 'true');
@@ -87,6 +105,22 @@
     trigger.setAttribute('aria-expanded', 'false');
     opener?.focus?.({preventScroll: true});
   });
+  // Source tools prepare text through the canonical input event. Return to
+  // the composer without submitting or replacing their retained panel state.
+  byId('chatInput').addEventListener('input', event => {
+    if (!event.isTrusted && dialog.open && !form.contains(document.activeElement)) {
+      opener = byId('chatInput');
+      close();
+    }
+  });
+  document.addEventListener('submit', event => {
+    if (event.target !== form) return;
+    if (byId('vp3ChatTaskMode')?.value === 'chrome') open('more');
+    else close();
+  }, true);
+  window.addEventListener('homeserver:chat-route', event => {
+    if (['review', 'failed'].includes(event.detail?.state)) open('more');
+  });
   dialog.addEventListener('click', event => {
     const tab = event.target.closest('[data-chat-options-tab]');
     if (tab) selectTab(tab.dataset.chatOptionsTab);
@@ -128,4 +162,5 @@
   }
   window.addEventListener('pagehide', () => captureObserver.disconnect(), {once: true});
   window.addEventListener('pagehide', () => composerObserver.disconnect(), {once: true});
+  window.addEventListener('pagehide', () => toolsObserver.disconnect(), {once: true});
 })();
