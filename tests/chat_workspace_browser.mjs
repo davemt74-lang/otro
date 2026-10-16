@@ -159,7 +159,12 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   let microphoneCalls = 0;
   await page.exposeFunction('countMicrophoneCall', () => {microphoneCalls++;});
   await page.addInitScript(() => {
-    window.voiceFixture = {recognizers: [], spoken: []};
+    window.voiceFixture = {recognizers: [], spoken: [], inputWrites: []};
+    const value=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');
+    Object.defineProperty(HTMLTextAreaElement.prototype,'value',{...value,set(text){
+      if(this.id==='chatInput'){window.voiceFixture.inputWrites.push({text,stack:new Error().stack});window.voiceFixture.inputWrites.splice(0,Math.max(0,window.voiceFixture.inputWrites.length-12));}
+      value.set.call(this,text);
+    }});
     window.SpeechRecognition = class {
       constructor() { window.voiceFixture.recognizers.push(this); }
       start() { this.active = true; queueMicrotask(() => this.onstart?.()); }
@@ -365,7 +370,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
       recognizer.onresult({resultIndex:0,results:[result]});
     }, {text,final});
   }
-  async function listening() { await page.waitForFunction(() => document.querySelector('#voiceInputButton.listening') && window.voiceFixture.recognizers.some(item => item.active)).catch(async error=>{throw new Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({input:document.querySelector('#chatInput').value,voice:document.querySelector('#voiceInputButton').outerHTML,flash:document.querySelector('#flash').textContent,active:window.voiceFixture.recognizers.map(x=>x.active)}))));}); }
+  async function listening() { await page.waitForFunction(() => document.querySelector('#voiceInputButton.listening') && window.voiceFixture.recognizers.some(item => item.active)).catch(async error=>{throw new Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({input:document.querySelector('#chatInput').value,voice:document.querySelector('#voiceInputButton').outerHTML,flash:document.querySelector('#flash').textContent,active:window.voiceFixture.recognizers.map(x=>x.active),writes:window.voiceFixture.inputWrites}))));}); }
   await page.locator('#chatOptionsButton').click();
   await page.locator('#chatOptionsTabVoice').click();
   await page.locator('#voiceInputButton').click();
@@ -393,7 +398,8 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.locator('#chatOptionsClose').click();
   await page.waitForFunction(() => !window.HomeServerConversationVoice.isEnabled());
   assert.equal(await page.locator('#chatInput').inputValue(), 'A failed native route', 'Recovery never starts capture over a failed draft');
-  await page.locator('#chatInput').fill('');
+  await page.locator('#chatInput').evaluate(input=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));});
+  assert.equal(await page.locator('#chatInput').inputValue(),'','Clearing a failed draft must finish before enabling capture');
   await page.locator('#chatOptionsButton').click();
   await page.locator('#chatOptionsTabVoice').click();
   await page.locator('#voiceInputButton').click();
@@ -505,6 +511,22 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await recoveryPage.locator('#chatCheckHistory').click();
   await recoveryPage.waitForFunction(id => window.HomeServerChatTurn.conversationId()===id,selectedConversation);
   assert.equal(recoverySends,2,'Checking history never resends a stopped request');
+  // New unsent specialist drafts restore only an Agent returned by the owner API.
+  await recoveryPage.locator('#sidebarNewChat').click();
+  await recoveryPage.locator('#chatOptionsButton').click();await recoveryPage.locator('#chatOptionsTabMore').click();
+  await recoveryPage.locator('#chatAgentSelect').selectOption(String(secondary.agent.id));
+  await recoveryPage.locator('#chatOptionsClose').click();
+  await recoveryPage.locator('#chatInput').fill('An unsent specialist draft');
+  await recoveryPage.reload();
+  await recoveryPage.waitForFunction(id=>window.HomeServerAgentRouting?.getSelectedAgentId()===id && document.querySelector('#chatInput').value==='An unsent specialist draft',secondary.agent.id).catch(async error=>{throw Error(error.message+' '+JSON.stringify(await recoveryPage.evaluate(()=>({agent:window.HomeServerAgentRouting?.getSelectedAgentId(),draft:document.querySelector('#chatInput').value,active:localStorage.getItem('homeserver:chat:active-v1'),drafts:sessionStorage.getItem('homeserver:chat:drafts-v1')}))));});
+  assert.equal(await recoveryPage.evaluate(()=>window.HomeServerChatTurn.conversationId()),null);
+  assert.equal(recoverySends,2,'Restoring an unsent specialist draft does not create a conversation');
+  await recoveryPage.locator('#chatOptionsButton').click();await recoveryPage.locator('#chatOptionsTabMore').click();
+  await recoveryPage.locator('#chatAgentSelect').selectOption('1');
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'','New drafts are separated by selected Agent');
+  await recoveryPage.locator('#chatAgentSelect').selectOption(String(secondary.agent.id));
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'An unsent specialist draft');
+  await recoveryPage.locator('#chatOptionsClose').click();
   // Session loss clears private recovery state and stops all capture.
   await recoveryPage.route('**/api/v1/control/conversations?*',route => route.fulfill({status:401,json:{detail:'Owner session expired'}}));
   await recoveryPage.reload();

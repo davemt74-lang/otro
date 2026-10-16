@@ -7,6 +7,7 @@
   let conversationRevision = 0;
   let restoreLoads = 0;
   let contextReady = false;
+  let restoredDraftScope = null;
   const DRAFT_KEY = 'homeserver:chat:drafts-v1', ACTIVE_KEY = 'homeserver:chat:active-v1';
   const validId = id => typeof id === 'string' && /^[0-9a-f]{32}$/.test(id);
   const scopeKey = () => activeConversationId || 'new:' + Number(window.HomeServerAgentRouting?.getSelectedAgentId?.() || 0);
@@ -22,7 +23,7 @@
     const bounded = Object.fromEntries(Object.entries(value).sort((a,b) => b[1].at-a[1].at).slice(0,8));
     try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(bounded)); } catch (_) {}
   }
-  function rememberConversation() { try { localStorage.setItem(ACTIVE_KEY, JSON.stringify({id:activeConversationId,at:Date.now()})); } catch (_) {} }
+  function rememberConversation() { try { localStorage.setItem(ACTIVE_KEY, JSON.stringify({id:activeConversationId,agentId:Number(window.HomeServerAgentRouting?.getSelectedAgentId?.()||0),at:Date.now()})); } catch (_) {} }
   function recoveryStatus(message = '', detail = '') {
     let host = byId('chatSessionStatus');
     if (!host && byId('chatForm')) {
@@ -37,7 +38,8 @@
     if (message) window.dispatchEvent(new CustomEvent('homeserver:chat-diagnostic',{detail:{state:'attention',message:detail || message,time:new Date().toISOString()}}));
   }
   function restoreDraft() {
-    const input = byId('chatInput'), saved = drafts()[scopeKey()];
+    restoredDraftScope=scopeKey();
+    const input = byId('chatInput'), saved = drafts()[restoredDraftScope];
     if (input) {input.value = saved?.text || ''; input.style.height='auto'; input.style.height=`${Math.min(input.scrollHeight,180)}px`;}
     recoveryStatus(saved && saved.state !== 'draft' ? 'Your message is kept. Check history before sending again.' : '');
   }
@@ -45,7 +47,7 @@
     const turn=pendingChatTurn;pendingChatTurn=null;if(turn){clearTimeout(turn.timer);turn.controller.abort();}
     try {sessionStorage.removeItem(DRAFT_KEY);localStorage.removeItem(ACTIVE_KEY);} catch (_) {}
     window.HomeServerConversationVoice?.stop?.();
-    conversationRevision++;activeConversationId=null;contextReady=false;
+    conversationRevision++;activeConversationId=null;contextReady=false;restoredDraftScope=null;
     window.HomeServerAgentRouting?.adoptConversation?.(null,null);
     byId('chatMessages')?.replaceChildren();byId('conversationList')?.replaceChildren();
     if (byId('chatInput')) byId('chatInput').value = '';
@@ -255,7 +257,11 @@
     if (selectFirst) {
       const saved=readStore('localStorage',ACTIVE_KEY,null);
       if(saved && Number.isFinite(saved.at) && saved.at<=Date.now() && Date.now()-saved.at<2592000000){
-        if(saved.id === null){contextReady=true;restoreDraft();return;}
+        if(saved.id === null){
+          const agent=window.HomeServerAgentRouting?.getAgents?.().find(item=>Number(item.id)===Number(saved.agentId));
+          window.HomeServerAgentRouting?.adoptConversation?.(null,agent);
+          contextReady=true;restoreDraft();return;
+        }
         if(validId(saved.id)){try{await loadConversation(saved.id);}catch(error){if(error.status!==404)throw error;activeConversationId=null;contextReady=true;rememberConversation();restoreDraft();}return;}
       }
       if(data.items.length)await loadConversation(data.items[0].id);
@@ -273,6 +279,7 @@
       window.HomeServerAgentRouting?.adoptConversation?.(null,null);
       setChatTitle();
       renderMessages({messages: []});
+      restoreDraft();
     }
     saveDraft('',id);
     await loadConversations(false);
@@ -493,6 +500,11 @@
   });
 
   const chatInput = byId('chatInput');
+  window.addEventListener('homeserver:chat-agent-changed',event=>{
+    if(event.detail?.reason!=='selection'||activeConversationId||pendingChatTurn||!contextReady)return;
+    if(restoredDraftScope)saveDraft(chatInput?.value,restoredDraftScope);
+    rememberConversation();restoreDraft();
+  });
   document.addEventListener('submit',event=>{
     if(event.target!==byId('chatForm') || (contextReady && !restoreLoads && navigator.onLine!==false))return;
     event.preventDefault();event.stopImmediatePropagation();
@@ -500,7 +512,7 @@
     recoveryStatus(!contextReady?'Open a conversation or start a new chat before sending.':restoreLoads?'Restoring your conversation. Your message is kept.':'You are offline. Your message is kept.');
   },true);
   chatInput?.addEventListener('input', () => {
-    if(!pendingChatTurn)saveDraft(chatInput.value);
+    if(!pendingChatTurn){saveDraft(chatInput.value);if(!activeConversationId)rememberConversation();}
     chatInput.style.height = 'auto';
     chatInput.style.height = `${Math.min(chatInput.scrollHeight, 180)}px`;
   });

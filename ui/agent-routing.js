@@ -299,7 +299,8 @@
     ensureStyles();
     ensureWorkflowExtension();
     ensureSelector();
-    loadAgents().then(() => syncConversationBinding()).catch(() => null);
+    // The canonical Chat owner restores its authorized selection after loading.
+    loadAgents().then(() => {if(!window.HomeServerChatTurn?.conversationId)return syncConversationBinding();}).catch(() => null);
     const list = byId('conversationList');
     if (list) conversationObserver.observe(list, {subtree: true, childList: true, attributes: true, attributeFilter: ['class']});
     const appsList = byId('appsList');
@@ -315,7 +316,8 @@
     adoptConversation: (id,agent) => {
       bindingSequence++;
       state.activeConversationId=id;state.syncingConversation=false;
-      state.selectedAgentId=id ? Number(agent?.id || state.selectedAgentId || state.primaryAgentId) : state.primaryAgentId;
+      const allowed=state.agents.find(item=>Number(item.id)===Number(agent?.id));
+      state.selectedAgentId=id ? Number(agent?.id || state.selectedAgentId || state.primaryAgentId) : Number(allowed?.id || state.primaryAgentId);
       renderSelector();notifyAgentChanged(id?'conversation_binding':'new_conversation');
     },
     getAgents: () => state.agents.map(item => ({...item})),
