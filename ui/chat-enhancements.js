@@ -744,6 +744,11 @@
   }
 
   function currentOutput(generation){return conversationMode && generation===outputGeneration;}
+  function failPlayback(generation) {
+    if(!currentOutput(generation))return;
+    stopConversationMode('');
+    flash('Voice playback failed. Your reply is in chat. Select Voice to try again.',true);
+  }
   function finishSpeaking(generation) {
     if(!currentOutput(generation))return;
     outputGeneration+=1;
@@ -759,15 +764,17 @@
     if(strictLocalEnabled()){
       stopConversationMode('');flash('Strict Local Voice does not permit browser speech synthesis fallback.',true);return;
     }
-    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {finishSpeaking(generation);return;}
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {failPlayback(generation);return;}
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = navigator.language || document.documentElement.lang || 'en-US';
     utterance.rate = Number(window.HomeServerVoiceSettings?.getPreferences?.().speaking_rate || 1);
     utterance.pitch = 1;
     utterance.onend = ()=>finishSpeaking(generation);
-    utterance.onerror = ()=>finishSpeaking(generation);
-    try{window.speechSynthesis.speak(utterance);}catch(err){flash(err.message || 'Speech playback failed.',true);finishSpeaking(generation);}
+    utterance.onerror = ()=>failPlayback(generation);
+    clearTimeout(speechWatchdog);
+    speechWatchdog=setTimeout(()=>failPlayback(generation),Math.min(180000,Math.max(15000,text.length*100+5000)));
+    try{window.speechSynthesis.speak(utterance);}catch(err){failPlayback(generation);}
   }
 
   async function speakLocalReply(text,generation) {
@@ -796,19 +803,22 @@
       playbackSource=null;try{source.disconnect();}catch(_){}finishSpeaking(generation);
     };
     clearTimeout(speechWatchdog);
-    speechWatchdog=setTimeout(()=>finishSpeaking(generation),Math.max(10000,Number(decoded.duration || 0)*1000+5000));
+    speechWatchdog=setTimeout(()=>failPlayback(generation),Math.max(10000,Number(decoded.duration || 0)*1000+5000));
     source.start(0);
   }
 
   function handleLocalTtsFailure(err,generation,text) {
     if(!currentOutput(generation))return;
+    clearTimeout(speechWatchdog);ttsController?.abort();ttsController=null;
+    // Invalidate every pending fetch/decode callback before starting fallback.
+    const fallbackGeneration=++outputGeneration;
     cleanupPlayback();
     if (strictLocalEnabled()) {stopConversationMode('');flash(err.message || 'Strict Local Piper speech synthesis failed.',true);return;}
     if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
       voicePath.tts = 'browser';flash('Local Piper failed; using browser speech synthesis fallback for this conversation.',true);
-      speakBrowserReply(text,generation);return;
+      speakBrowserReply(text,fallbackGeneration);return;
     }
-    finishSpeaking(generation);
+    failPlayback(fallbackGeneration);
   }
 
   function speakAgentReply(text) {
@@ -817,7 +827,9 @@
     const generation=++outputGeneration;
     ttsController?.abort();cleanupPlayback();clearTimeout(speechWatchdog);
     lastSpokenText=message;speaking=true;setVoiceState('speaking');
-    speechWatchdog=setTimeout(()=>finishSpeaking(generation),Math.min(180000,Math.max(15000,message.length*100+5000)));
+    // Piper has a 60-second server deadline. Preparation and audible playback
+    // use separate watchdogs, so a short reply is not dropped after 15 seconds.
+    speechWatchdog=setTimeout(()=>handleLocalTtsFailure(new Error('Local Piper speech synthesis timed out.'),generation,message),65000);
     if (voicePath.tts === 'local') speakLocalReply(message,generation).catch(err=>handleLocalTtsFailure(err,generation,message));
     else speakBrowserReply(message,generation);
   }
