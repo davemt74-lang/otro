@@ -13,6 +13,8 @@ on:
       - 'ui/agent-browser-workspaces.js'
       - 'tests/*a5c*'
       - 'tests/chat_workspace_browser.mjs'
+      - 'ui/chat-enhancements.js'
+      - 'tests/listening-section2.mjs'
       - 'scripts/stage_browser_runtime.py'
       - 'installer/HomeServer.iss'
       - '.github/workflows/ci.yml'

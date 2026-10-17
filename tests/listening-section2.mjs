@@ -148,9 +148,32 @@ if(cloud){
  await test('late local TTS success and failure cannot change a newer output',async()=>{
   for(const fail of [false,true]){const b=browser();clock(b);const waiting=deferred(),spoken=[];let signal;b.window.fetch=(_url,init)=>{signal=init.signal;return waiting.promise;};b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);api.seed('local');api.speakAgentReply('old');api.stopConversationMode('');assert(signal.aborted);api.seed('browser');api.speakAgentReply('fresh');if(fail)waiting.reject(Error('old failure'));else waiting.resolve({ok:true,arrayBuffer:async()=>new ArrayBuffer(8)});await flush();assert.equal(spoken.length,1);assert(api.state().speaking);api.stopConversationMode('');}
  });
- await test('Strict Local blocks fallback and playback watchdog resumes listening',async()=>{
+ await test('Strict Local blocks fallback and stalled playback pauses conversation',async()=>{
   const b=browser(),timer=clock(b),spoken=[];b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);api.seed();b.element('strictLocalVoice').checked=true;api.speakAgentReply('private');assert.equal(spoken.length,0);assert.equal(api.state().conversationMode,false);
-  b.element('strictLocalVoice').checked=false;api.seed();api.speakAgentReply('hello');await timer.advance(15000);assert.equal(api.state().speaking,false);api.stopConversationMode('');
+  b.element('strictLocalVoice').checked=false;api.seed();api.speakAgentReply('hello');await timer.advance(15000);assert.equal(api.state().speaking,false);assert.equal(api.state().conversationMode,false);assert.match(b.element('flash').textContent,/reply is in chat/i);api.stopConversationMode('');
+ });
+ await test('local synthesis has its own deadline and only permitted fallback runs once',async()=>{
+  for(const strict of [false,true]){
+   const b=browser(),timer=clock(b),spoken=[];const waiting=deferred();let signal;
+   b.window.fetch=(_url,init)=>{signal=init.signal;return waiting.promise;};b.window.speechSynthesis.speak=u=>spoken.push(u);
+   const api=voice(b);api.seed('local');b.element('strictLocalVoice').checked=strict;api.speakAgentReply('short answer');
+   await timer.advance(15000);assert.equal(signal.aborted,false,'Piper is allowed its server synthesis deadline');assert(api.state().speaking);
+   await timer.advance(50000);assert.equal(signal.aborted,true);assert.equal(spoken.length,strict?0:1);
+   if(strict)assert.equal(api.state().conversationMode,false);else assert(api.state().speaking);
+   waiting.resolve({ok:true,arrayBuffer:async()=>new ArrayBuffer(8)});await flush();assert.equal(spoken.length,strict?0:1);api.stopConversationMode('');
+  }
+ });
+ await test('browser playback error pauses instead of silently listening over a missing reply',async()=>{
+  const b=browser();clock(b);const spoken=[];b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);api.seed();api.speakAgentReply('answer');spoken[0].onerror({error:'not-allowed'});
+  assert.equal(api.state().conversationMode,false);assert.match(b.element('flash').textContent,/reply is in chat/i);
+ });
+ await test('slow successful Piper preparation plays once and normal completion resumes listening',async()=>{
+  const b=browser(),timer=clock(b),waiting=deferred();let starts=0,source;
+  b.window.fetch=()=>waiting.promise;const api=voice(b);api.seed('local');
+  api.context({state:'running',resume:async()=>{},close:async()=>{},decodeAudioData:async()=>({duration:1}),createBufferSource:()=>source={connect(){},disconnect(){},start(){starts++;},stop(){}}});
+  api.speakAgentReply('short answer');await timer.advance(30000);assert(api.state().speaking);
+  waiting.resolve({ok:true,arrayBuffer:async()=>new ArrayBuffer(8)});await flush();assert.equal(starts,1);source.onended();assert.equal(api.state().speaking,false);assert(api.state().conversationMode);
+  await timer.advance(250);assert(api.recognition());api.stopConversationMode('');await timer.advance(65000);assert.equal(starts,1);
  });
  await test('browser recognition aggregates new final indices and stops on startup/device failure',async()=>{
   const b=browser(),timer=clock(b);const api=voice(b);api.seed();const starts=[];b.element('chatForm').requestSubmit=()=>{starts.push(b.element('chatInput').value);b.element('chatInput').value='';emitTurn(b,1,'started');};api.startBrowserListening();const listener=api.recognition();listener.onstart();listener.onresult(result('你好',0));listener.onresult(result('世界',1));await flush();await timer.advance(0);assert.equal(starts[0],'你好 世界');api.stopConversationMode('');api.seed();api.startBrowserListening();api.recognition().onerror({error:'audio-capture'});assert.equal(api.state().conversationMode,false);api.seed();api.startBrowserListening();await timer.advance(5000);assert.equal(api.state().conversationMode,false);
