@@ -180,7 +180,9 @@ def _memory_candidates(
             """
             SELECT id, memory_key, content, importance, created_at, updated_at
             FROM agent_memory
-            WHERE agent_id=? OR agent_id IS NULL
+            WHERE (agent_id=? OR agent_id IS NULL)
+              AND (expires_at IS NULL OR TRIM(expires_at)=''
+                   OR julianday(expires_at)>julianday('now'))
             ORDER BY importance DESC, updated_at DESC, id DESC
             LIMIT 150
             """,

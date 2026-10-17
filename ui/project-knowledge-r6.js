@@ -34,7 +34,7 @@
       const response=await fetch(endpoint,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},body:JSON.stringify({action,csrf_token:cfg.csrf,...context(),...extra})});
       result=await response.json();if(!response.ok||!result?.ok)throw Error(String(result?.error||result?.detail||'Conversation Knowledge is unavailable.'));
     }
-    if(origin!==key()||gen!==generation){clear();throw Error('Conversation changed. Refresh its Knowledge context.');}
+    if(origin!==key()||gen!==generation)throw Error('Conversation changed. Refresh its Knowledge context.');
     if(result?.contract!=='vp3.project-knowledge.r6')throw Error('Update the matching Conversation Knowledge release.');return result;
   }
   function renderAttachments(){
@@ -50,9 +50,9 @@
     };card.append(attach);results.append(card);
   }
   async function load(){
-    if(busy)return;generation++;binding=key();results.replaceChildren();lock(true);status.textContent='Loading conversation context…';
+    if(busy)return;const gen=++generation,origin=key();binding=origin;results.replaceChildren();lock(true);status.textContent='Loading conversation context…';
     try{
-      const data=await api('options',{q:query.value.trim()});state=data.state;cloudOrigin=data.cloud_origin||'';
+      const data=await api('options',{q:query.value.trim()});if(gen!==generation||origin!==key())return;state=data.state;cloudOrigin=data.cloud_origin||'';
       scope.replaceChildren(new Option('All authorized Knowledge','all'),new Option('Knowledge off','off'));
       for(const p of data.projects||[])scope.append(new Option(`Project: ${p.title}`,`project:${p.id}`));
       for(const f of data.folders||[])scope.append(new Option(`Folder: ${f.folder_name}`,`folder:${f.id}`));
@@ -60,13 +60,13 @@
       if(![...scope.options].some(o=>o.value===value))scope.append(new Option('Current context unavailable',value));scope.value=value;
       if(!state.available){attachments.clear();renderAttachments();status.textContent='This context is unavailable. Choose another context explicitly.';}
       else{for(const s of [...data.items,...data.reports])renderSource(s);status.textContent=`Context: ${state.title}. ${state.scope.mode==='off'?'Knowledge is disabled.':'Sources are rechecked when you send.'}`;}
-    }catch(e){clear(e.message);}finally{lock(false);}
+    }catch(e){if(gen===generation)clear(e.message);}finally{if(gen===generation)lock(false);}
   }
   choose.onclick=async()=>{
-    if(!state||busy)return;lock(true);
+    if(!state||busy)return;const gen=generation,origin=key();lock(true);
     const value=scope.value;const requested={mode:value.split(':')[0],project_id:value.startsWith('project:')?value.slice(8):'',folder_id:value.startsWith('folder:')?Number(value.slice(7)):0};
-    try{await api('set_context',{scope:requested,expected_revision:state.revision});attachments.clear();renderAttachments();window.dispatchEvent(new CustomEvent('vp3:project-knowledge-r6-context-changed'));lock(false);await load();}
-    catch(e){status.textContent=e.message;lock(false);}
+    try{await api('set_context',{scope:requested,expected_revision:state.revision});if(gen!==generation||origin!==key())return;attachments.clear();renderAttachments();window.dispatchEvent(new CustomEvent('vp3:project-knowledge-r6-context-changed'));lock(false);await load();}
+    catch(e){if(gen!==generation)return;if(origin!==key()){clear();return;}status.textContent=e.message;lock(false);}
   };
   function brainRecord(packet,target=document.querySelector('#agentBrainDrawer .agent-brain-drawer-body')||(document.querySelector('#chatNotificationDrawer [data-notification-tab=brain].active')?document.querySelector('#chatNotificationDrawer [data-notification-drawer-body]'):null)){
     if(!target)return;let host=target.querySelector('.r6-brain-sources');if(!host){host=node('section');host.className='r6-brain-sources';target.prepend(host);}host.replaceChildren();
@@ -78,7 +78,7 @@
     window.dispatchEvent(new CustomEvent('vp3:project-knowledge-r6-used',{detail:packet}));
   }
   window.VP3ProjectKnowledgeR6={
-    value(){if(binding&&binding!==key()){clear();throw Error('Conversation changed. Refresh selected sources.');}if(!state)return undefined;return {state_revision:state.revision,attachments:[...attachments.values()].map(s=>({kind:s.kind,id:s.id,revision:s.revision}))};},
+    value(){if(binding&&binding!==key()){clear();throw Error('Conversation changed. Refresh selected sources.');}if(busy)throw Error('Wait for Knowledge context to finish loading.');if(!state)return undefined;return {state_revision:state.revision,attachments:[...attachments.values()].map(s=>({kind:s.kind,id:s.id,revision:s.revision}))};},
     consume(packet){attachments.clear();renderAttachments();record(packet);},record,refresh:load,renderBrain(target){brainRecord(lastPacket,target);}
   };
   search.onclick=load;query.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();load();}});
