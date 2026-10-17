@@ -142,6 +142,7 @@
           event.target.value = String(state.selectedAgentId || state.primaryAgentId || '');
           return;
         }
+        bindingSequence++;
         state.selectedAgentId = Number(event.target.value || state.primaryAgentId || 0) || null;
         notifyAgentChanged('selection');
       });
@@ -181,7 +182,8 @@
     const sequence=++bindingSequence;
     if (!conversationId) {
       state.activeConversationId = null;
-      state.selectedAgentId = state.primaryAgentId;
+      // A passive history refresh must preserve an explicit new-chat choice.
+      if(!window.HomeServerChatTurn?.conversationId || !state.agents.some(item=>Number(item.id)===Number(state.selectedAgentId)))state.selectedAgentId = state.primaryAgentId;
       renderSelector();
       notifyAgentChanged('new_conversation');
       return;
@@ -278,7 +280,7 @@
     if (event.target.closest('[data-view="chat"], [data-go="chat"]')) {
       setTimeout(() => {
         ensureSelector();
-        loadAgents().then(() => syncConversationBinding()).catch(() => null);
+        loadAgents().then(() => {if(!window.HomeServerChatTurn?.conversationId)return syncConversationBinding();}).catch(() => null);
       }, 0);
     }
     if (event.target.closest('[data-view="apps"], [data-go="apps"], #refreshConnectedAppsV029')) {

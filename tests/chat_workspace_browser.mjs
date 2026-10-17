@@ -512,11 +512,22 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await recoveryPage.waitForFunction(id => window.HomeServerChatTurn.conversationId()===id,selectedConversation);
   assert.equal(recoverySends,2,'Checking history never resends a stopped request');
   // New unsent specialist drafts restore only an Agent returned by the owner API.
+  let releaseNewChatRefresh;
+  const newChatRefreshGate=new Promise(resolve=>{releaseNewChatRefresh=resolve;});
+  const pendingRefreshes=[];
+  await recoveryPage.route('**/api/v1/control/agent-routing',route=>{
+    const pending=(async()=>{const response=await route.fetch();await newChatRefreshGate;await route.fulfill({response});})();
+    pendingRefreshes.push(pending);return pending;
+  });
   await recoveryPage.locator('#sidebarNewChat').click();
   await recoveryPage.locator('#chatOptionsButton').click();await recoveryPage.locator('#chatOptionsTabMore').click();
   await recoveryPage.locator('#chatAgentSelect').selectOption(String(secondary.agent.id));
   await recoveryPage.locator('#chatOptionsClose').click();
   await recoveryPage.locator('#chatInput').fill('An unsent specialist draft');
+  releaseNewChatRefresh();await Promise.all(pendingRefreshes);
+  await recoveryPage.evaluate(()=>window.HomeServerAgentRouting.refresh());
+  assert.equal(await recoveryPage.evaluate(()=>window.HomeServerAgentRouting.getSelectedAgentId()),secondary.agent.id,'A delayed sidebar refresh cannot reset an explicit specialist choice');
+  await recoveryPage.unroute('**/api/v1/control/agent-routing');
   await recoveryPage.reload();
   await recoveryPage.waitForFunction(id=>window.HomeServerAgentRouting?.getSelectedAgentId()===id && document.querySelector('#chatInput').value==='An unsent specialist draft',secondary.agent.id).catch(async error=>{throw Error(error.message+' '+JSON.stringify(await recoveryPage.evaluate(()=>({agent:window.HomeServerAgentRouting?.getSelectedAgentId(),draft:document.querySelector('#chatInput').value,active:localStorage.getItem('homeserver:chat:active-v1'),drafts:sessionStorage.getItem('homeserver:chat:drafts-v1')}))));});
   assert.equal(await recoveryPage.evaluate(()=>window.HomeServerChatTurn.conversationId()),null);
