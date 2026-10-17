@@ -34,7 +34,9 @@ def _memory_context(agent_id: int, limit: int = 6) -> list[dict[str, Any]]:
             """
             SELECT id, memory_key, content, importance, updated_at
             FROM agent_memory
-            WHERE agent_id=? OR agent_id IS NULL
+            WHERE (agent_id=? OR agent_id IS NULL)
+              AND (expires_at IS NULL OR TRIM(expires_at)=''
+                   OR julianday(expires_at)>julianday('now'))
             ORDER BY importance DESC, updated_at DESC, id DESC
             LIMIT ?
             """,

@@ -15,6 +15,10 @@ on:
       - 'tests/chat_workspace_browser.mjs'
       - 'ui/chat-enhancements.js'
       - 'tests/listening-section2.mjs'
+      - 'app/services/context_engine.py'
+      - 'app/services/brain.py'
+      - 'ui/project-knowledge-r6.js'
+      - 'tests/memory_context_freshness.py'
       - 'scripts/stage_browser_runtime.py'
       - 'installer/HomeServer.iss'
       - '.github/workflows/ci.yml'
@@ -377,6 +381,8 @@ jobs:
         run: python tests/cognitive_runtime.py
       - name: Watched knowledge source regression
         run: python tests/knowledge_sources.py
+      - name: Agent memory freshness and expiry
+        run: python tests/memory_context_freshness.py
       - name: Inference routing and token usage regression
         run: |
           python tests/inference_usage.py
