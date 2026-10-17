@@ -18,6 +18,7 @@
   const AudioContextCtor = () => window.AudioContext || window.webkitAudioContext || null;
 
   let recognition = null;
+  let recognitionFailures = 0;
   let conversationMode = false;
   let conversationStarting = false;
   let awaitingAgent = false;
@@ -286,6 +287,8 @@
     const button = byId('voiceInputButton');
     if (!button) return;
     button.classList.remove('listening', 'transcribing', 'thinking', 'speaking');
+    button.dataset.voiceState = conversationStarting ? 'connecting' : conversationMode ? state : 'idle';
+    window.dispatchEvent(new CustomEvent('homeserver:voice-state',{detail:{state:button.dataset.voiceState}}));
     const engaged = conversationMode || conversationStarting;
     button.setAttribute('aria-pressed', engaged ? 'true' : 'false');
     const label = button.querySelector('.chat-control-label');
@@ -300,6 +303,7 @@
       return;
     }
     button.setAttribute('aria-label', 'Stop conversation mode');
+    if(state === 'connecting') {if(label)label.textContent='Connecting';return;}
     if (state === 'transcribing') {
       button.classList.add('transcribing');
       if (label) label.textContent = 'Transcribing';
@@ -402,6 +406,7 @@
 
   function resumeListening() {
     if (!conversationMode || awaitingAgent || speaking) return;
+    if (byId('chatInput')?.value.trim()) {stopConversationMode('Your draft is kept. Send or clear it before listening again.');return;}
     clearTimeout(resumeTimer);const generation=captureGeneration;
     resumeTimer=setTimeout(()=>{if(!conversationMode||generation!==captureGeneration)return;if(voicePath.stt==='local')startLocalListening();else startBrowserListening();},250);
   }
@@ -410,6 +415,7 @@
     if (!conversationMode || awaitingAgent || speaking || recognition) return;
     const Recognition = recognitionConstructor();
     const input = byId('chatInput');
+    if(input?.value.trim()){stopConversationMode('Your draft is kept. Send or clear it before listening again.');return;}
     if (!Recognition || !input) {
       stopConversationMode('');
       flash('Browser speech recognition is unavailable.', true);
@@ -424,14 +430,15 @@
     recognition.interimResults = true;
     recognition.lang = navigator.language || document.documentElement.lang || 'en-US';
     recognition.maxAlternatives = 1;
-    setVoiceState('listening');
+    setVoiceState('connecting');
 
     clearTimeout(browserStartTimer);
     browserStartTimer=setTimeout(()=>{if(conversationMode && recognition===current && generation===captureGeneration){stopConversationMode('');flash('Speech recognition did not start. Check microphone permission and try again.',true);}},5000);
-    current.onstart=()=>{if(recognition===current && generation===captureGeneration)clearTimeout(browserStartTimer);};
+    current.onstart=()=>{if(recognition===current && generation===captureGeneration){clearTimeout(browserStartTimer);setVoiceState('listening');}};
     const deliveredFinals=new Set();
     recognition.onresult = event => {
       if(!conversationMode||recognition!==current||generation!==captureGeneration)return;
+      recognitionFailures=0;
       let finalText = '';
       let interimText = '';
       for (let i = Number(event.resultIndex || 0); i < event.results.length; i += 1) {
@@ -456,7 +463,10 @@
         stopConversationMode('');
         flash('Microphone access was not allowed. Enable microphone permission to use conversation mode.', true);
       } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        flash(`Conversation listening error: ${event.error || 'speech service error'}.`, true);
+        recognitionFailures++;
+        window.dispatchEvent(new CustomEvent('homeserver:chat-diagnostic',{detail:{state:'speech-error',message:String(event.error||'speech service error'),time:new Date().toISOString()}}));
+        if(recognitionFailures>=3){stopConversationMode('');flash('Speech connection failed. Select Voice to try again.',true);return;}
+        flash('Speech connection interrupted. Reconnecting…', true);
       }
     };
 
@@ -504,6 +514,7 @@
   async function startLocalListening() {
     if (!conversationMode || awaitingAgent || speaking || mediaRecorder) return;
     const input = byId('chatInput');
+    if(input?.value.trim()){stopConversationMode('Your draft is kept. Send or clear it before listening again.');return;}
     const Context = AudioContextCtor();
     if (!hasLocalCapture() || !input || !Context) {
       if (strictLocalEnabled()) {
@@ -519,6 +530,7 @@
     input.value = '';
     input.dispatchEvent(new Event('input', {bubbles: true}));
     const generation = ++captureGeneration;
+    setVoiceState('connecting');
     captureChunks = [];
     captureVoiceStarted = false;
 
@@ -529,6 +541,7 @@
         return;
       }
       mediaStream = acquired;
+      for(const track of acquired.getAudioTracks())track.addEventListener('ended',()=>{if(conversationMode&&generation===captureGeneration){stopConversationMode('');flash('Microphone disconnected. Select Voice to reconnect.',true);}} ,{once:true});
       captureTicket?.ownStream(acquired);
       captureAudioContext = new Context();
       const source = captureAudioContext.createMediaStreamSource(mediaStream);
@@ -837,6 +850,8 @@
       stopConversationMode(conversationStarting ? 'Conversation mode setup cancelled.' : 'Conversation mode stopped.');
       return;
     }
+    if(byId('chatInput')?.value.trim()){flash('Your draft is kept. Send or clear it before starting voice.');return;}
+    recognitionFailures=0;
 
     // Mark setup as engaged before awaiting status so Dictate, Voice Settings,
     // or a second Talk click can reliably cancel this startup transaction.

@@ -36,7 +36,7 @@
       const button = byId(id);
       if (button && !observedCapture.has(button)) {
         observedCapture.add(button);
-        captureObserver.observe(button, {attributes: true, attributeFilter: ['aria-pressed']});
+        captureObserver.observe(button, {attributes: true, attributeFilter: ['aria-pressed','data-voice-state']});
       }
     }
     updateCapture();
@@ -61,10 +61,15 @@
 
   function updateCapture() {
     const active = ['voiceInputButton', 'dictateInputButton'].filter(id => byId(id)?.getAttribute('aria-pressed') === 'true');
-    byId('chatCaptureStop').hidden = active.length === 0;
-    byId('chatCaptureStatus').hidden = active.length === 0;
-    byId('chatCaptureStatus').textContent = active.includes('voiceInputButton') ? 'Conversation mode' : active.length ? 'Dictating' : '';
+    const busy=window.HomeServerChatTurn?.isBusy?.();
+    byId('chatCaptureStop').hidden = active.length === 0 && !busy;
+    byId('chatCaptureStatus').hidden = active.length === 0 && !busy;
+    const state=byId('voiceInputButton')?.dataset.voiceState;
+    const labels={connecting:'Connecting microphone…',listening:'Listening…',transcribing:'Transcribing…',thinking:'Thinking…',speaking:'Speaking…'};
+    byId('chatCaptureStatus').textContent = active.includes('voiceInputButton') ? labels[state] || 'Conversation mode' : busy ? 'Thinking…' : active.length ? 'Dictating' : '';
   }
+
+  window.addEventListener('homeserver:chat-turn',()=>queueMicrotask(updateCapture));
 
   function selectTab(name, focus = false) {
     if (!['context', 'voice', 'more'].includes(name)) name = 'context';
@@ -142,10 +147,20 @@
     selectTab(tabs[next].dataset.chatOptionsTab, true);
   });
   byId('chatCaptureStop').addEventListener('click', () => {
+    window.HomeServerChatTurn?.cancel?.();
     for (const id of ['voiceInputButton', 'dictateInputButton']) if (byId(id)?.getAttribute('aria-pressed') === 'true') byId(id).click();
   });
 
   window.HomeServerChatOptions = Object.freeze({open, close, isVoiceOpen: () => dialog.open && !byId('chatOptionsVoice').hidden});
+  const diagnosticEvents=[];
+  function renderDiagnostics(){
+    const body=byId('chatBrainDrawer');if(!body)return;
+    let host=byId('chatSessionDiagnostics');if(!host){host=document.createElement('details');host.id='chatSessionDiagnostics';body.appendChild(host);}
+    host.replaceChildren();const title=document.createElement('summary');title.textContent='Chat session diagnostics';host.appendChild(title);
+    for(const entry of diagnosticEvents){const row=document.createElement('p');row.textContent=entry.time+' · '+entry.state+' · '+entry.message;host.appendChild(row);}
+  }
+  window.addEventListener('homeserver:chat-diagnostic',event=>{const d=event.detail||{};diagnosticEvents.unshift({time:String(d.time||new Date().toISOString()).slice(0,40),state:String(d.state||'status').slice(0,40),message:String(d.message||'').slice(0,400)});diagnosticEvents.splice(10);renderDiagnostics();});
+  document.addEventListener('click',event=>{if(event.target.closest('#chatBrainToggle'))renderDiagnostics();});
   const composerObserver = new ResizeObserver(entries => {
     const height = Math.ceil(entries[0].target.getBoundingClientRect().height);
     document.documentElement.style.setProperty('--chat-composer-height', `${height}px`);

@@ -159,7 +159,12 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   let microphoneCalls = 0;
   await page.exposeFunction('countMicrophoneCall', () => {microphoneCalls++;});
   await page.addInitScript(() => {
-    window.voiceFixture = {recognizers: [], spoken: []};
+    window.voiceFixture = {recognizers: [], spoken: [], inputWrites: []};
+    const value=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');
+    Object.defineProperty(HTMLTextAreaElement.prototype,'value',{...value,set(text){
+      if(this.id==='chatInput'){window.voiceFixture.inputWrites.push({text,stack:new Error().stack});window.voiceFixture.inputWrites.splice(0,Math.max(0,window.voiceFixture.inputWrites.length-12));}
+      value.set.call(this,text);
+    }});
     window.SpeechRecognition = class {
       constructor() { window.voiceFixture.recognizers.push(this); }
       start() { this.active = true; queueMicrotask(() => this.onstart?.()); }
@@ -365,7 +370,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
       recognizer.onresult({resultIndex:0,results:[result]});
     }, {text,final});
   }
-  async function listening() { await page.waitForFunction(() => document.querySelector('#voiceInputButton.listening') && window.voiceFixture.recognizers.some(item => item.active)); }
+  async function listening() { await page.waitForFunction(() => document.querySelector('#voiceInputButton.listening') && window.voiceFixture.recognizers.some(item => item.active)).catch(async error=>{throw new Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({input:document.querySelector('#chatInput').value,voice:document.querySelector('#voiceInputButton').outerHTML,flash:document.querySelector('#flash').textContent,active:window.voiceFixture.recognizers.map(x=>x.active),writes:window.voiceFixture.inputWrites}))));}); }
   await page.locator('#chatOptionsButton').click();
   await page.locator('#chatOptionsTabVoice').click();
   await page.locator('#voiceInputButton').click();
@@ -391,6 +396,13 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.match(await page.locator('.vp3-teams-status').innerText(), /Routing is unavailable/);
   assert.equal(voiceSends, 1, 'Uncertain routing must not dispatch Chat');
   await page.locator('#chatOptionsClose').click();
+  await page.waitForFunction(() => !window.HomeServerConversationVoice.isEnabled());
+  assert.equal(await page.locator('#chatInput').inputValue(), 'A failed native route', 'Recovery never starts capture over a failed draft');
+  await page.locator('#chatInput').evaluate(input=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));});
+  assert.equal(await page.locator('#chatInput').inputValue(),'','Clearing a failed draft must finish before enabling capture');
+  await page.locator('#chatOptionsButton').click();
+  await page.locator('#chatOptionsTabVoice').click();
+  await page.locator('#voiceInputButton').click();
   await listening();
   failVoiceRoute = false;
   voiceRouteGate = new Promise(resolve => {releaseVoiceRoute = resolve;});
@@ -417,6 +429,124 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.getByLabel('Work mode', {exact:true}).selectOption('automatic');
   await page.locator('#chatOptionsClose').click();
   console.log('PASS: native voice interim input, delayed routing, one spoken reply, listening resume, failed routes, Stop cancellation, and visible Chrome research consent');
+
+  // Recovery uses the real owner session, persisted conversations and provider
+  // boundary. Transport failures never trigger a replay or clear the draft.
+  const recoveryPage = await context.newPage();
+  recoveryPage.on('pageerror', error => errors.push(error.stack || error.message));
+  let recoverySends = 0, failInference = true, releaseInference, inferenceGate = null;
+  recoveryPage.on('request', request => {if(new URL(request.url()).pathname === '/api/v1/control/chat' && request.method()==='POST')recoverySends++;});
+  await recoveryPage.route('**/api/v1/control/chat', async route => {
+    if(inferenceGate)await inferenceGate;
+    if(failInference)return route.fulfill({status:503,json:{detail:'Provider unavailable'}});
+    return route.continue();
+  });
+  await recoveryPage.goto(base + '/#chat');
+  await recoveryPage.waitForFunction(() => window.HomeServerChatTurn?.conversationId() && window.HomeServerAgentRouting?.getSelectedAgentId());
+  const selectedConversation=await recoveryPage.evaluate(() => window.HomeServerChatTurn.conversationId());
+  await recoveryPage.locator('#chatInput').fill('Keep this failed provider message');
+  await recoveryPage.locator('#chatForm [type="submit"]').click();
+  await recoveryPage.waitForFunction(() => !document.querySelector('#chatInput').disabled && document.querySelector('#chatSessionStatus')?.hidden===false);
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'Keep this failed provider message');
+  assert.equal(recoverySends,1);
+  // A newer server conversation cannot replace the explicitly selected one.
+  const secondary=await (await context.request.post(base+'/api/v1/control/agents',{data:{name:'Recovery specialist',instructions:'Help with recovery.',model:'test-model'}})).json();
+  const newer=await (await context.request.post(base+'/api/v1/control/chat',{data:{message:'A newer specialist conversation',agent_id:secondary.agent.id}})).json();
+  await recoveryPage.reload();
+  await recoveryPage.waitForFunction(id => window.HomeServerChatTurn?.conversationId()===id && document.querySelector('#chatInput').value==='Keep this failed provider message',selectedConversation);
+  assert.equal(recoverySends,1,'Refresh restores context and draft without replaying a failed turn');
+  // Opening the specialist conversation and reloading restores its bound Agent.
+  await recoveryPage.locator(`[data-brain-conversation="${newer.conversation_id}"]`).click();
+  await recoveryPage.waitForFunction(id => window.HomeServerChatTurn?.conversationId()===id,newer.conversation_id);
+  await recoveryPage.locator('#chatInput').fill('Specialist draft');
+  await recoveryPage.reload();
+  await recoveryPage.waitForFunction(({id,agent}) => window.HomeServerChatTurn?.conversationId()===id && window.HomeServerAgentRouting?.getSelectedAgentId()===agent,{id:newer.conversation_id,agent:secondary.agent.id});
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'Specialist draft');
+  // An older binding response must not override a newer conversation's Agent.
+  let releaseBinding,oldBindingRequested=false;
+  const bindingGate=new Promise(resolve=>{releaseBinding=resolve;});
+  const oldBindingPattern=`**/api/v1/control/conversations/${selectedConversation}/routing`;
+  await recoveryPage.route(oldBindingPattern,async route=>{oldBindingRequested=true;const response=await route.fetch();await bindingGate;await route.fulfill({response});});
+  await recoveryPage.evaluate(id=>{window.oldBinding=window.HomeServerAgentRouting.syncConversationBinding(id);},selectedConversation);
+  for(let attempt=0;!oldBindingRequested;attempt++){if(attempt>100)throw Error('Old binding not requested');await delay(25);}
+  await recoveryPage.evaluate(id=>window.HomeServerAgentRouting.syncConversationBinding(id),newer.conversation_id);
+  releaseBinding();await recoveryPage.evaluate(()=>window.oldBinding);await recoveryPage.unroute(oldBindingPattern);
+  assert.equal(await recoveryPage.evaluate(()=>window.HomeServerAgentRouting.getSelectedAgentId()),secondary.agent.id,'A late binding cannot change the selected Agent');
+  // Restart the actual runtime using the same data directory and owner token.
+  // No alternate conversation database or recovery-only server is involved.
+  const restartArgs=child.spawnargs.slice(1);
+  const stopped=new Promise(resolve=>child.once('exit',resolve));child.kill();await stopped;
+  child=spawn(process.env.HOMESERVER_TEST_PYTHON || 'python',restartArgs,{cwd:root,env:{...process.env,HOMESERVER_DATA_DIR:dataDir,NO_PROXY:'localhost,127.0.0.1'}});
+  child.stdout.on('data',()=>{});child.stderr.on('data',chunk=>{stderr=(stderr+chunk).slice(-5000);});
+  for(let attempt=0;;attempt++){
+    try{if((await context.request.get(base+'/api/v1/health')).ok())break;}catch(_){}
+    if(attempt>=100)throw Error('Restart did not listen: '+stderr);await delay(100);
+  }
+  assert.ok((await context.request.post(base+'/__owner/session',{headers:{'x-homeserver-owner':token}})).ok());
+  await recoveryPage.reload();
+  await recoveryPage.waitForFunction(({id,agent})=>window.HomeServerChatTurn?.conversationId()===id && window.HomeServerAgentRouting?.getSelectedAgentId()===agent,{id:newer.conversation_id,agent:secondary.agent.id});
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'Specialist draft','Runtime restart preserves the selected conversation, bound Agent and unsent draft');
+  assert.equal(recoverySends,1,'Runtime restart never replays the draft');
+  await recoveryPage.locator(`[data-brain-conversation="${selectedConversation}"]`).click();
+  await recoveryPage.waitForFunction(id => window.HomeServerChatTurn.conversationId()===id,selectedConversation);
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'Keep this failed provider message','Drafts belong to their conversation');
+  // Offline submit is stopped before automatic routing/tool interception.
+  await context.setOffline(true);
+  await recoveryPage.locator('#chatInput').fill('An offline draft');
+  await recoveryPage.locator('#chatForm [type="submit"]').click();
+  assert.equal(recoverySends,1);
+  assert.match(await recoveryPage.locator('#chatSessionStatus').innerText(),/offline/);
+  await context.setOffline(false);
+  assert.equal(recoverySends,1,'Reconnection does not automatically resend');
+  failInference=false;
+  inferenceGate=new Promise(resolve => {releaseInference=resolve;});
+  await recoveryPage.locator('#chatInput').fill('Stop an in-flight provider request');
+  await recoveryPage.locator('#chatForm [type="submit"]').click();
+  await recoveryPage.waitForFunction(() => window.HomeServerChatTurn.isBusy());
+  await recoveryPage.locator('#chatCaptureStop').click();
+  releaseInference(); inferenceGate=null;
+  await recoveryPage.waitForFunction(() => !window.HomeServerChatTurn.isBusy());
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'Stop an in-flight provider request');
+  assert.equal(await recoveryPage.locator('#chatInput').isEnabled(),true);
+  await recoveryPage.locator('#chatCheckHistory').click();
+  await recoveryPage.waitForFunction(id => window.HomeServerChatTurn.conversationId()===id,selectedConversation);
+  assert.equal(recoverySends,2,'Checking history never resends a stopped request');
+  // New unsent specialist drafts restore only an Agent returned by the owner API.
+  let releaseNewChatRefresh;
+  const newChatRefreshGate=new Promise(resolve=>{releaseNewChatRefresh=resolve;});
+  const pendingRefreshes=[];
+  await recoveryPage.route('**/api/v1/control/agent-routing',route=>{
+    const pending=(async()=>{const response=await route.fetch();await newChatRefreshGate;await route.fulfill({response});})();
+    pendingRefreshes.push(pending);return pending;
+  });
+  await recoveryPage.locator('#sidebarNewChat').click();
+  await recoveryPage.locator('#chatOptionsButton').click();await recoveryPage.locator('#chatOptionsTabMore').click();
+  await recoveryPage.locator('#chatAgentSelect').selectOption(String(secondary.agent.id));
+  await recoveryPage.locator('#chatOptionsClose').click();
+  await recoveryPage.locator('#chatInput').fill('An unsent specialist draft');
+  releaseNewChatRefresh();await Promise.all(pendingRefreshes);
+  await recoveryPage.evaluate(()=>window.HomeServerAgentRouting.refresh());
+  assert.equal(await recoveryPage.evaluate(()=>window.HomeServerAgentRouting.getSelectedAgentId()),secondary.agent.id,'A delayed sidebar refresh cannot reset an explicit specialist choice');
+  await recoveryPage.unroute('**/api/v1/control/agent-routing');
+  await recoveryPage.reload();
+  await recoveryPage.waitForFunction(id=>window.HomeServerAgentRouting?.getSelectedAgentId()===id && document.querySelector('#chatInput').value==='An unsent specialist draft',secondary.agent.id).catch(async error=>{throw Error(error.message+' '+JSON.stringify(await recoveryPage.evaluate(()=>({agent:window.HomeServerAgentRouting?.getSelectedAgentId(),draft:document.querySelector('#chatInput').value,active:localStorage.getItem('homeserver:chat:active-v1'),drafts:sessionStorage.getItem('homeserver:chat:drafts-v1')}))));});
+  assert.equal(await recoveryPage.evaluate(()=>window.HomeServerChatTurn.conversationId()),null);
+  assert.equal(recoverySends,2,'Restoring an unsent specialist draft does not create a conversation');
+  await recoveryPage.locator('#chatOptionsButton').click();await recoveryPage.locator('#chatOptionsTabMore').click();
+  await recoveryPage.locator('#chatAgentSelect').selectOption('1');
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'','New drafts are separated by selected Agent');
+  await recoveryPage.locator('#chatAgentSelect').selectOption(String(secondary.agent.id));
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'An unsent specialist draft');
+  await recoveryPage.locator('#chatOptionsClose').click();
+  // Session loss clears private recovery state and stops all capture.
+  await recoveryPage.route('**/api/v1/control/conversations?*',route => route.fulfill({status:401,json:{detail:'Owner session expired'}}));
+  await recoveryPage.reload();
+  await recoveryPage.waitForFunction(() => document.querySelector('#chatSessionStatusText')?.textContent.includes('Sign in') || document.querySelector('#chatSessionStatusText')?.textContent.includes('history is unavailable'));
+  assert.equal(await recoveryPage.evaluate(() => sessionStorage.getItem('homeserver:chat:drafts-v1')),null);
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'');
+  assert.equal(recoverySends,2);
+  await recoveryPage.close();
+  console.log('PASS: provider failure, scoped draft/Agent restoration, offline recovery, explicit history check, in-flight Stop, and session-loss cleanup without replay');
 
   // Capture state comes from the existing ownership controls, and Stop delegates
   // to those controls instead of introducing a second recording implementation.

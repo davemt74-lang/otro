@@ -17,6 +17,7 @@
   };
 
   const nativeFetch = window.fetch.bind(window);
+  let bindingSequence = 0;
 
   function urlPath(input) {
     try {
@@ -81,7 +82,11 @@
     });
     let payload = {};
     try { payload = await response.json(); } catch (_) {}
-    if (!response.ok) throw new Error(payload.detail || `Request failed (${response.status})`);
+    if (!response.ok) {
+      const error=new Error(payload.detail || `Request failed (${response.status})`);error.status=response.status;
+      if(response.status===401)window.dispatchEvent(new Event('homeserver:owner-session-expired'));
+      throw error;
+    }
     return payload;
   }
 
@@ -137,6 +142,7 @@
           event.target.value = String(state.selectedAgentId || state.primaryAgentId || '');
           return;
         }
+        bindingSequence++;
         state.selectedAgentId = Number(event.target.value || state.primaryAgentId || 0) || null;
         notifyAgentChanged('selection');
       });
@@ -173,10 +179,11 @@
   }
 
   async function syncConversationBinding(conversationId = activeConversationFromDom()) {
-    if (state.syncingConversation) return;
+    const sequence=++bindingSequence;
     if (!conversationId) {
       state.activeConversationId = null;
-      state.selectedAgentId = state.primaryAgentId;
+      // A passive history refresh must preserve an explicit new-chat choice.
+      if(!window.HomeServerChatTurn?.conversationId || !state.agents.some(item=>Number(item.id)===Number(state.selectedAgentId)))state.selectedAgentId = state.primaryAgentId;
       renderSelector();
       notifyAgentChanged('new_conversation');
       return;
@@ -184,15 +191,17 @@
     state.syncingConversation = true;
     try {
       const payload = await requestJson(`/api/v1/control/conversations/${encodeURIComponent(conversationId)}/routing`);
+      if(sequence!==bindingSequence)return;
       state.activeConversationId = conversationId;
       if (payload.agent?.id) state.selectedAgentId = Number(payload.agent.id);
       renderSelector();
       notifyAgentChanged('conversation_binding');
     } catch (_) {
+      if(sequence!==bindingSequence)return;
       state.activeConversationId = conversationId;
       renderSelector();
     } finally {
-      state.syncingConversation = false;
+      if(sequence===bindingSequence)state.syncingConversation = false;
     }
   }
 
@@ -271,7 +280,7 @@
     if (event.target.closest('[data-view="chat"], [data-go="chat"]')) {
       setTimeout(() => {
         ensureSelector();
-        loadAgents().then(() => syncConversationBinding()).catch(() => null);
+        loadAgents().then(() => {if(!window.HomeServerChatTurn?.conversationId)return syncConversationBinding();}).catch(() => null);
       }, 0);
     }
     if (event.target.closest('[data-view="apps"], [data-go="apps"], #refreshConnectedAppsV029')) {
@@ -292,7 +301,8 @@
     ensureStyles();
     ensureWorkflowExtension();
     ensureSelector();
-    loadAgents().then(() => syncConversationBinding()).catch(() => null);
+    // The canonical Chat owner restores its authorized selection after loading.
+    loadAgents().then(() => {if(!window.HomeServerChatTurn?.conversationId)return syncConversationBinding();}).catch(() => null);
     const list = byId('conversationList');
     if (list) conversationObserver.observe(list, {subtree: true, childList: true, attributes: true, attributeFilter: ['class']});
     const appsList = byId('appsList');
@@ -304,7 +314,14 @@
     version: VERSION,
     getSelectedAgentId: () => state.selectedAgentId,
     getSelectedAgent: () => selectedAgent() ? {...selectedAgent()} : null,
-    getActiveConversationId: () => state.activeConversationId,
+    getActiveConversationId: () => window.HomeServerChatTurn?.conversationId ? window.HomeServerChatTurn.conversationId() : state.activeConversationId,
+    adoptConversation: (id,agent) => {
+      bindingSequence++;
+      state.activeConversationId=id;state.syncingConversation=false;
+      const allowed=state.agents.find(item=>Number(item.id)===Number(agent?.id));
+      state.selectedAgentId=id ? Number(agent?.id || state.selectedAgentId || state.primaryAgentId) : Number(allowed?.id || state.primaryAgentId);
+      renderSelector();notifyAgentChanged(id?'conversation_binding':'new_conversation');
+    },
     getAgents: () => state.agents.map(item => ({...item})),
     refresh: loadAgents,
     syncConversationBinding,
