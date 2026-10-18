@@ -18,6 +18,8 @@ on:
       - 'app/services/context_engine.py'
       - 'app/services/brain.py'
       - 'ui/project-knowledge-r6.js'
+      - 'ui/knowledge-actions-r8.js'
+      - 'tests/chat_action_result_ownership_ui.mjs'
       - 'tests/memory_context_freshness.py'
       - 'scripts/stage_browser_runtime.py'
       - 'installer/HomeServer.iss'
