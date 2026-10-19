@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .services import homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_update_center, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor, stonefellow_native
+from .services import social_feed, homeserver_app_agent, homeserver_app_agent_runtime, homeserver_app_control, homeserver_app_distribution, homeserver_app_manager, homeserver_app_packages, homeserver_app_platform, homeserver_app_prebuilt, homeserver_app_releases, homeserver_app_resources, homeserver_app_runtime, homeserver_app_sample_data, homeserver_app_security, homeserver_app_sources, homeserver_app_update_center, homeserver_app_workspace, homeserver_apps, homeserver_download_manager, homeserver_media_library, homeserver_media_player, homeserver_media_processor, homeserver_media_server, homeserver_media_tools, homeserver_music_server, homeserver_photo_library, homeserver_video_editor, stonefellow_native
 
 router=APIRouter(prefix="/api/v1/control/homeserver-apps",tags=["homeserver-apps"])
 
@@ -353,6 +353,22 @@ def _call(operation,*args,**kwargs):  # noqa: ANN001,ANN201
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
     except homeserver_video_editor.VideoEditorError as exc:
         raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+
+
+@router.post("/feed/request")
+async def feed_request(request: Request) -> dict:
+    import json
+    raw = await request.body()
+    if len(raw) > 65536:
+        raise HTTPException(status_code=413, detail="Post request is too large.")
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=422, detail="A Feed request is required.") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="A Feed request is required.")
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(_call, social_feed.request, body)
 
 
 @router.get("")

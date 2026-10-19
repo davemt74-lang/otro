@@ -1,10 +1,10 @@
 name: Agent Chat Browser Acceptance
 on:
   pull_request:
-    paths: [ui/**, tests/chat_workspace_browser.mjs, tests/project_knowledge_context_ui.mjs, tests/chat_action_result_ownership_ui.mjs, .github/workflows/chat-workspace-browser.yml]
+    paths: [ui/**, tests/chat_workspace_browser.mjs, tests/project_knowledge_context_ui.mjs, tests/chat_action_result_ownership_ui.mjs, tests/social_feed_v1.py, tests/social_feed_v1_browser.mjs, .github/workflows/chat-workspace-browser.yml]
   push:
     branches: [main]
-    paths: [ui/**, tests/chat_workspace_browser.mjs, tests/project_knowledge_context_ui.mjs, tests/chat_action_result_ownership_ui.mjs, .github/workflows/chat-workspace-browser.yml]
+    paths: [ui/**, tests/chat_workspace_browser.mjs, tests/project_knowledge_context_ui.mjs, tests/chat_action_result_ownership_ui.mjs, tests/social_feed_v1.py, tests/social_feed_v1_browser.mjs, .github/workflows/chat-workspace-browser.yml]
 permissions:
   contents: read
 concurrency:
@@ -29,6 +29,8 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Complete owner chat browser acceptance
         run: |
+          python tests/social_feed_v1.py
+          node tests/social_feed_v1_browser.mjs
           node tests/chat_action_result_ownership_ui.mjs
           node tests/chat_workspace_browser.mjs
           node tests/project_knowledge_context_ui.mjs

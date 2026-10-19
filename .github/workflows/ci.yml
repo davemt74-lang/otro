@@ -18,6 +18,13 @@ on:
       - 'app/services/context_engine.py'
       - 'app/services/brain.py'
       - 'ui/project-knowledge-r6.js'
+      - 'app/services/social_feed.py'
+      - 'app/services/homeserver_app_prebuilt.py'
+      - 'app/homeserver_apps_api.py'
+      - 'app/main.py'
+      - 'ui/feed-app/**'
+      - 'ui/shell.js'
+      - 'tests/social_feed_v1.py'
       - 'ui/knowledge-actions-r8.js'
       - 'tests/chat_action_result_ownership_ui.mjs'
       - 'tests/memory_context_freshness.py'
@@ -257,6 +264,8 @@ jobs:
         run: python tests/agent_mission_chat_routes_a5c7.py
       - name: Scheduled specialist tasks and recovery
         run: python tests/agent_mission_schedules_a5c6.py
+      - name: Default Feed package and paired account boundaries
+        run: python tests/social_feed_v1.py
       - name: Compile Python
         run: python -m compileall app desktop tests
       - name: Interactive capture ownership and Stop acceptance
