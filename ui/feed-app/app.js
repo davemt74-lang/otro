@@ -1,6 +1,7 @@
 /* Shared Cloud/HomeServer Feed UI. The Cloud account owns every draft and response. */
 (()=>{'use strict';
 const cfg=JSON.parse(document.getElementById('feed-config').textContent||'{}'),endpoint=cfg.endpoint||'/api/v1/control/homeserver-apps/feed/request',app=document.getElementById('app'),notice=document.getElementById('notice');
+if(!cfg.endpoint&&!new URLSearchParams(location.search).has('cloud')){const script=document.createElement('script');script.src='assets/vrss.js';document.body.append(script);return;}
 let cloudOrigin=location.origin;let viewer=null,generation=0,mode='following',pageCursor=0,profileId=0,media=[],requestId='',requestHash='',saving=false;
 const $=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=String(text);if(cls)e.className=cls;return e;},button=(text,fn,cls)=>{const b=$('button',text,cls);b.type='button';b.onclick=fn;return b;};
 const scope=()=>({g:generation,id:viewer?.id}),owns=s=>s.g===generation&&s.id===viewer?.id;

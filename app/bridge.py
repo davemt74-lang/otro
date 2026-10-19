@@ -31,6 +31,7 @@ from .files_api import router as files_router
 from .fleet_api import router as fleet_router
 from .hardware_experience_api import router as hardware_experience_router
 from .homeserver_apps_api import router as homeserver_apps_router
+from .vrss_api import router as vrss_router
 from .hosting_api import router as hosting_router
 from .hosting_public_api import router as hosting_public_router
 from .handoffs_api import router as handoffs_router
@@ -145,6 +146,7 @@ app.include_router(device_rollout_router)
 app.include_router(fleet_router)
 app.include_router(hardware_experience_router)
 app.include_router(homeserver_apps_router)
+app.include_router(vrss_router)
 app.include_router(hosting_router)
 app.include_router(hosting_public_router)
 

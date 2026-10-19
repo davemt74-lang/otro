@@ -29,7 +29,7 @@ try{for(const mode of ['cloud','native']){
   }
   const config=mode==='cloud'?JSON.stringify({endpoint,csrf:'fixture'}):'{}';return route.fulfill({contentType:'text/html',body:html.replace('<script id="feed-config" type="application/json">{}</script>','<script id="feed-config" type="application/json">'+config+'</script>')});
  });
- await page.goto('https://feed.test/');await page.getByRole('heading',{name:'Your feed',exact:true}).waitFor();
+ await page.goto('https://feed.test/?cloud=1');await page.getByRole('heading',{name:'Your feed',exact:true}).waitFor();
  await page.getByRole('link',{name:'Profile',exact:true}).click();await page.getByRole('button',{name:'Edit Profile',exact:true}).click();
  await page.getByLabel('Display name',{exact:true}).fill('Owner updated');await page.getByLabel('Bio',{exact:true}).fill('My updated bio');await page.getByLabel('Public profile — people can find and follow me',{exact:true}).check();await page.getByRole('button',{name:'Save Profile',exact:true}).click();await page.getByRole('heading',{name:'Owner updated',exact:true}).waitFor();
  assert.equal(profiles[7].is_public,true);assert.equal(await page.locator('.profile img').count(),0,'Missing avatar created a broken image');

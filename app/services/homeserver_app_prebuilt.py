@@ -13,7 +13,7 @@ from ..database import db
 from . import homeserver_app_data_lifecycle, homeserver_app_packages, homeserver_app_releases, homeserver_apps
 
 CONTRACT = "vp3.app.prebuilt-catalog.v1"
-CATALOG_VERSION = "2026.10.19.1"
+CATALOG_VERSION = "2026.10.19.2"
 
 APP_CSS = """*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#181b1f;font:14px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{max-width:980px;margin:0 auto;padding:28px}.top{display:flex;justify-content:space-between;gap:16px;margin-bottom:18px}.top h1{margin:3px 0}.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#727980}.muted{color:#6b7278}.panel{background:#fff;border:1px solid #e2e6e9;border-radius:15px;padding:18px}.toolbar{display:flex;gap:8px;margin-bottom:14px}.toolbar input{flex:1;min-width:0;border:1px solid #d5d9dd;border-radius:9px;padding:10px 11px;font:inherit}.button{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:#17191c;color:#fff}.secondary{background:#eef0f2;color:#202428}.danger{background:#fff1f1;color:#a43c3c}.list{display:grid;gap:10px}.row{border:1px solid #e7eaed;border-radius:12px;padding:13px;display:flex;justify-content:space-between;gap:14px}.row h3{margin:0 0 4px;font-size:15px}.row p{margin:0;color:#697075}.actions{display:flex;gap:7px}.empty{padding:28px;text-align:center;color:#777f86}.pill{display:inline-flex;padding:3px 8px;border-radius:999px;background:#eef1f3;font-size:11px}@media(max-width:700px){.shell{padding:18px}.toolbar,.row{display:block}.toolbar>*{width:100%;margin-bottom:7px}.actions{margin-top:10px}}"""
 
@@ -71,7 +71,7 @@ MUSIC_SERVER_JS = """const local=location.pathname.includes('/api/v1/control/hom
 MEDIA_SERVER_JS = """const local=location.pathname.includes('/api/v1/control/homeserver-apps/');const control='/api/v1/control/homeserver-apps/media-server';let access=sessionStorage.getItem('vp3_media_access')||'';const auth=()=>access?{'Authorization':'Bearer '+access}:{};async function api(path,opt={}){const base=local?control:'/__vp3_media__';const r=await fetch(base+path,{...opt,headers:{...(opt.headers||{}),...(!local?auth():{})}});if(r.status===401&&!local){access=prompt('Media Server access key')||'';sessionStorage.setItem('vp3_media_access',access);return api(path,opt)}if(!r.ok){let m='Request failed';try{m=(await r.json()).detail||m}catch{}throw new Error(m)}return r.json()}const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const fmt=n=>{n=Number(n||0);if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';if(n<1073741824)return (n/1048576).toFixed(1)+' MB';return (n/1073741824).toFixed(1)+' GB'};let current=null;async function load(){const q=document.getElementById('q').value.trim(),type=document.getElementById('type').value;const p=new URLSearchParams({limit:'300'});if(q)p.set('q',q);if(type)p.set('media_type',type);const [lib,status]=await Promise.all([api('/library?'+p),api('/status')]);document.getElementById('count').textContent=status.library_count||0;document.getElementById('videos').textContent=status.types.video||0;document.getElementById('audio').textContent=status.types.audio||0;document.getElementById('images').textContent=status.types.image||0;const grid=document.getElementById('grid');grid.innerHTML=lib.items.length?lib.items.map(x=>'<button class="card" data-media="'+esc(x.media_id)+'"><div class="thumb">'+(x.media_type==='video'?'▶':x.media_type==='audio'?'♫':'▧')+'</div><div class="card-body"><h3>'+esc(x.title)+'</h3><p>'+esc(x.media_type)+' · '+fmt(x.size_bytes)+'</p></div></button>').join(''):'<div class="empty">No media indexed yet.</div>';if(local)loadRoots()}async function loadRoots(){const r=await api('/roots');document.getElementById('roots').innerHTML=r.roots.map(x=>'<div class="root"><span><strong>'+esc(x.label)+'</strong><br><small class="muted">'+esc(x.computer_name||'This HomeServer')+' · '+esc(x.source_kind||'local_folder')+' · '+(x.connected?'Connected':'Unavailable')+'</small></span><span><button class="button secondary" data-check="'+esc(x.root_id)+'">Check</button> <button class="button secondary" data-remove="'+esc(x.root_id)+'">Remove</button></span></div>').join('')||'<p class="muted">No folders mapped.</p>'}async function openMedia(id){current=(await api('/item/'+encodeURIComponent(id))).item;const p=document.getElementById('playerContent');let stream=(local?control:'/__vp3_media__')+'/stream/'+encodeURIComponent(id);if(!local){const ticket=await api('/stream-ticket/'+encodeURIComponent(id));stream=ticket.stream_url}if(current.media_type==='video')p.innerHTML='<video controls autoplay src="'+stream+'"></video>';else if(current.media_type==='audio')p.innerHTML='<audio controls autoplay src="'+stream+'"></audio>';else p.innerHTML='<img src="'+stream+'" alt="">';document.getElementById('playerTitle').textContent=current.title;document.getElementById('player').classList.remove('hidden');const el=p.querySelector('video,audio');if(el&&current.playback?.position_seconds)el.currentTime=current.playback.position_seconds;if(el){el.addEventListener('timeupdate',()=>{if(Math.floor(el.currentTime)%10===0)api('/playback/'+encodeURIComponent(id),{method:local?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_seconds:el.currentTime,duration_seconds:el.duration||0,completed:false})}).catch(()=>{})})}}document.getElementById('q').addEventListener('input',()=>load());document.getElementById('type').addEventListener('change',load);document.getElementById('grid').addEventListener('click',e=>{const b=e.target.closest('[data-media]');if(b)openMedia(b.dataset.media)});document.getElementById('closePlayer').addEventListener('click',()=>{document.getElementById('player').classList.add('hidden');document.getElementById('playerContent').innerHTML=''});if(local){document.getElementById('manage').hidden=false;document.getElementById('addRoot').addEventListener('click',async()=>{const path=document.getElementById('rootPath').value.trim();if(!path)return;const computer_name=document.getElementById('computerName').value.trim(),source_hint=document.getElementById('sourceHint').value.trim();await api('/mapped-roots',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,label:'',computer_name,source_hint,source_kind:computer_name?'computer_folder':'local_folder'})});document.getElementById('rootPath').value='';document.getElementById('computerName').value='';document.getElementById('sourceHint').value='';await api('/scan',{method:'POST'});load()});document.getElementById('scan').addEventListener('click',async()=>{await api('/scan',{method:'POST'});load()});document.getElementById('remote').addEventListener('click',async()=>{const r=await api('/remote/enable',{method:'POST'});prompt('Copy this access key now. It will not be shown again.',r.access_key)});document.getElementById('roots').addEventListener('click',async e=>{const check=e.target.closest('[data-check]');if(check){await api('/roots/'+encodeURIComponent(check.dataset.check)+'/check',{method:'POST'});load();return}const b=e.target.closest('[data-remove]');if(!b)return;await api('/roots/'+encodeURIComponent(b.dataset.remove),{method:'DELETE'});load()})}load().catch(e=>document.getElementById('grid').innerHTML='<div class="empty">'+esc(e.message)+'</div>');"""
 
 CATALOG = {
-    "vp3.feed": {"key":"vp3.feed","name":"Feed","version":"1.0.0","release_channel":"stable","min_homeserver_version":"2.4","data_schema_version":"1","default_app":True,"category":"Social","kind":"social_feed","description":"Your VP3 posts, people and following feed.","sample":[],"routes":{"local":True,"private_remote":False,"public":False},"release_notes":["Default Feed app with posts, profiles and shared VP3 follows."]},
+    "vp3.feed": {"key":"vp3.feed","name":"Feed","version":"1.1.0","release_channel":"stable","min_homeserver_version":"2.4","data_schema_version":"1","default_app":True,"category":"Social","kind":"social_feed","description":"VRSS: your local posts, profile and RSS reader.","sample":[],"routes":{"local":True,"private_remote":False,"public":False},"release_notes":["Local VRSS identity and posts without Cloud pairing.","RSS/Atom subscriptions and opt-in public RSS publishing.","Existing Cloud Feed remains separately available."]},
     "vp3.notes": {
         "key": "vp3.notes",
         "name": "VP3 Notes",
@@ -694,7 +694,7 @@ def _package(definition: dict[str, Any]) -> bytes:
     }
     if definition["kind"] == "social_feed":
         root=Path(__file__).resolve().parents[2]/"ui"/"feed-app"
-        for name in ("app.js","app.css"):
+        for name in ("app.js","app.css","vrss.js"):
             files["assets/"+name]=(root/name).read_text(encoding="utf-8")
     if str(definition.get("data_schema_version") or "1") == "2":
         files["database/migrations/002_section7.sql"] = "CREATE TABLE IF NOT EXISTS vp3_section7_migration_marker (id INTEGER PRIMARY KEY, applied_at TEXT);\n"
@@ -973,7 +973,7 @@ def public_capability() -> dict[str, Any]:
 
 
 def ensure_defaults() -> None:
-    """Install bundled defaults once, preserving existing apps and lifecycle choices."""
+    """Install defaults and advance the known bundled Feed, preserving stopped state."""
     for key, definition in CATALOG.items():
         if not definition.get("default_app"):
             continue
@@ -983,6 +983,16 @@ def ensure_defaults() -> None:
             if exc.status_code != 404:
                 raise
             app = None
-        if app and (app.get("installed_version") or app.get("app_class") != "system"):
+        if app and app.get("installed_version"):
+            if (key == "vp3.feed" and app.get("app_class") == "system"
+                    and app.get("installed_version") == "1.0.0"
+                    and (app.get("metadata") or {}).get("prebuilt_catalog_key") == key
+                    and app["lifecycle_state"] in {"running", "stopped"}):
+                state = app["lifecycle_state"]
+                install(key)
+                if state == "stopped":
+                    homeserver_apps.transition(key, "stopped", actor_type="system", actor_key="vrss_upgrade")
+            continue
+        if app and app.get("app_class") != "system":
             continue
         install(key)

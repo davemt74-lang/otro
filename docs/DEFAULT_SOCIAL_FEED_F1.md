@@ -1,5 +1,7 @@
 # F1 — Default HomeServer Feed
 
+This describes the original Cloud-backed F1 view. The default HomeServer view now uses [VRSS V1](VRSS_ARCHITECTURE_V1.md); F1 remains separately accessible through Profile → Open Cloud Feed. Existing Cloud data and relationships are not migrated or automatically published.
+
 Feed is a bundled default System App (`vp3.feed`) installed on new and existing HomeServer startup. It uses the existing package, registry and recovery services. Existing installed/stopped apps and key collisions with user apps are preserved. The app is owner-operated through the existing owner gateway and paired VP3 account; separate HomeServer member identities are not substituted for that account.
 
 Feed, Create Post and Profile screens use the same assets in HomeServer and Cloud (`feed.php`). Profiles reuse VP3 names, usernames, bio, profile privacy, avatars and existing user_follows relationships. Profile changes preserve unrelated settings and reject a stale revision. Private profiles are excluded from discovery; owner posts remain visible locally. Follow/Unfollow affects the canonical relationship. Blocks and inactive accounts are excluded from social reads.
