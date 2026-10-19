@@ -15,9 +15,9 @@ def _call(fn,*args,**kwargs):
     try:
         return fn(*args,**kwargs)
     except hosting_public.PublicRoutingError as exc:
-        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code,detail=str(exc),headers={"Cache-Control":"no-store"}) from exc
     except hosting_serving.ServingError as exc:
-        raise HTTPException(status_code=exc.status_code,detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code,detail=str(exc),headers={"Cache-Control":"no-store"}) from exc
 
 
 @router.api_route(

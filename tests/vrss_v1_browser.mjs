@@ -37,6 +37,21 @@ try{
   // A late feed response cannot overwrite the current profile.
   let releaseFeed;const waitFeed=new Promise(r=>releaseFeed=r);let enteredFeed;const didFeed=new Promise(r=>enteredFeed=r);await page.route(endpoint,async route=>{const p=route.request().postDataJSON();if(p.action==='feed'&&p.mode!=='profile'){const response=await route.fetch();enteredFeed();await waitFeed;return route.fulfill({response});}return route.continue();});
   await page.getByRole('link',{name:'Feed',exact:true}).click();await didFeed;await page.getByRole('link',{name:'Profile',exact:true}).click();await page.getByRole('heading',{name:'Dave '+width,exact:true}).waitFor();releaseFeed();await page.waitForTimeout(80);assert.equal(await page.getByRole('heading',{name:'Your feed',exact:true}).count(),0);await page.unroute(endpoint);
+  // Select the existing Hosting binding rather than asking the owner to configure a proxy.
+  await page.getByRole('button',{name:'Edit Profile',exact:true}).click();
+  await page.getByLabel('Publishing address',{exact:true}).waitFor();
+  if(width===1440)await page.getByLabel('Publishing address',{exact:true}).selectOption(config.hosting_site_id);
+  assert.equal(await page.getByLabel('Public HTTPS address',{exact:true}).inputValue(),'https://dave.example.test');
+  assert.equal(await page.getByLabel('Public HTTPS address',{exact:true}).evaluate(n=>n.readOnly),true);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`address editor overflow at ${width}`);
+  await page.getByLabel('Enable public profile and RSS publishing',{exact:true}).check();
+  await page.getByRole('button',{name:'Save Profile',exact:true}).click();
+  await page.getByRole('link',{name:'Public profile',exact:true}).waitFor();
+  const edge={'X-VP3-Route-Token':config.route_token,'X-Forwarded-Host':'dave.example.test','X-Forwarded-Proto':'https'};
+  const publicRSS=await context.request.get(origin+'/__vp3/hosting/vrss/v1/rss',{headers:edge});
+  assert.equal(publicRSS.status(),200);assert.match(await publicRSS.text(),/Local draft/);
+  assert.equal((await context.request.get(origin+'/__vp3/hosting/assets/vrss.js',{headers:edge})).status(),404);
+  if(process.env.VRSS_SCREENSHOT_DIR)await page.screenshot({path:`${process.env.VRSS_SCREENSHOT_DIR}/vrss-hosting-profile-${width}.png`,fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`overflow at ${width}`);
   await page.getByRole('link',{name:'Feed',exact:true}).click();await page.getByRole('button',{name:'Following',exact:true}).click();await page.getByRole('button',{name:'Unfollow',exact:true}).click();await page.getByRole('button',{name:'Unfollow',exact:true}).waitFor({state:'detached'});await page.getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('heading',{name:'Your feed',exact:true}).waitFor();await page.getByRole('heading',{name:'New album',exact:true}).waitFor({state:'detached'});
   await context.close();

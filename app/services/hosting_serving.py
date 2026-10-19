@@ -234,6 +234,13 @@ def serve(
     except Exception:
         binding=None
     target_app_key=str((binding or {}).get("target_app_key") or "").strip().lower()
+    if target_app_key=="vp3.feed":
+        from ..vrss_api import hosted_response
+        from . import vrss
+        try:
+            return hosted_response(site_id, request_path, method, request_headers)
+        except vrss.VRSSError as exc:
+            raise ServingError(str(exc), exc.status_code) from exc
     if target_app_key=="vp3.media-server" and str(request_path or "").lstrip("/").startswith("__vp3_media__/"):
         try:
             from . import homeserver_media_server

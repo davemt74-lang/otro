@@ -82,6 +82,8 @@ def database():
     try:
         connection.executescript(SCHEMA)
         connection.execute("BEGIN IMMEDIATE")
+        if "hosting_site_id" not in {row[1] for row in connection.execute("PRAGMA table_info(vrss_profile)")}:
+            connection.execute("ALTER TABLE vrss_profile ADD COLUMN hosting_site_id TEXT NOT NULL DEFAULT ''")
         connection.execute("INSERT OR IGNORE INTO vrss_profile(id,actor_id) VALUES(1,?)", ("urn:uuid:" + str(uuid.uuid4()),))
         yield connection
         running()
@@ -146,6 +148,39 @@ def profile(connection):
     return p
 
 
+def hosting_options():
+    """Use existing Cloud-owned bindings and TLS; never provision DNS locally."""
+    from . import hosting_cloud_control, hosting_public, hosting_runtime
+    sites = []
+    for site in hosting_runtime.list_sites():
+        site_id = str(site["site_id"])
+        try:
+            binding = hosting_cloud_control.binding_for_site(site_id)
+        except hosting_runtime.HostingError:
+            continue
+        if not binding or binding.get("target_app_key") != APP_KEY:
+            continue
+        try:
+            route = hosting_public.route_status_for_site(site_id) or {}
+        except hosting_runtime.HostingError:
+            route = {}
+        hostname = str(site.get("requested_hostname") or "")
+        if not hostname:
+            continue
+        sites.append({"site_id": site_id, "name": site["display_name"], "hostname": hostname,
+                      "public_base": "https://" + hostname,
+                      "ready": bool(route.get("route_ready")) and route.get("hostname") == hostname,
+                      "tls_state": route.get("tls_state", "pending")})
+    return {"sites": sorted(sites, key=lambda row: row["site_id"]), "authority": "cloud_hosting"}
+
+
+def hosted_address(site_id, base, *, require_ready=True):
+    candidate = next((row for row in hosting_options()["sites"] if row["site_id"] == site_id), None)
+    if not candidate or candidate["public_base"] != base or (require_ready and not candidate["ready"]):
+        raise VRSSError("The assigned Hosting address is unavailable. Check its subdomain and HTTPS status.", 409)
+    return candidate
+
+
 def update_profile(body):
     name = text(body.get("display_name"), 120, "Display name", True)
     bio = text(body.get("bio"), 2000, "Bio")
@@ -157,14 +192,21 @@ def update_profile(body):
     enabled = body.get("enabled")
     if type(enabled) is not bool or (enabled and not base):
         raise VRSSError("Public publishing needs an HTTPS address and your explicit choice.", 422)
+    hosting_site_id = text(body.get("hosting_site_id", ""), 160, "Hosting site")
     with database() as c:
         p = profile(c)
         if type(body.get("expected_revision")) is not int or body["expected_revision"] != p["revision"]:
             raise VRSSError("Profile changed. Reload before saving.", 409)
         if p["address_locked"] and base != p["public_base"]:
             raise VRSSError("This published address is permanent in VRSS v1. Address migration is not available yet.", 409)
-        c.execute("UPDATE vrss_profile SET display_name=?,bio=?,public_base=?,enabled=?,address_locked=?,revision=revision+1 WHERE id=1",
-                  (name, bio, base, int(enabled), int(enabled or p["address_locked"])))
+        if hosting_site_id:
+            # Disabling remains possible after revocation/offline routing.
+            if enabled or hosting_site_id != p["hosting_site_id"] or base != p["public_base"]:
+                hosted_address(hosting_site_id, base, require_ready=enabled)
+        if p["hosting_site_id"] and p["address_locked"] and hosting_site_id != p["hosting_site_id"]:
+            raise VRSSError("This profile is bound to its published Hosting site. Address migration is not available yet.", 409)
+        c.execute("UPDATE vrss_profile SET display_name=?,bio=?,public_base=?,enabled=?,address_locked=?,hosting_site_id=?,revision=revision+1 WHERE id=1",
+                  (name, bio, base, int(enabled), int(enabled or p["address_locked"]), hosting_site_id))
         return profile(c)
 
 
@@ -435,7 +477,7 @@ def request(body):
         with database() as c:
             c.execute("DELETE FROM vrss_subscriptions WHERE id=?", (body.get("id"),))
             result["removed"] = True
-    elif action not in {"bootstrap", "profile", "feed", "subscriptions"}:
+    elif action not in {"bootstrap", "profile", "feed", "subscriptions", "hosting"}:
         raise VRSSError("Unknown VRSS action.", 422)
     with database() as c:
         p = profile(c)
@@ -478,6 +520,8 @@ def request(body):
                                   "url": row["url"], "author": {"display_name": row["source_title"], "feed_url": row["feed_url"]}, "visibility": "source", "can_delete": False})
             last = page[19] if len(page) > 20 else None
             result["feed"] = {"items": items, "has_more": bool(last), "next_cursor": json.dumps([last["sort_at"], last["kind"], last["seq"]]) if last else ""}
+    if action in {"bootstrap", "hosting"}:
+        result["hosting"] = hosting_options()
     return {"ok": True, "contract": CONTRACT, "viewer_id": p["actor_id"], **result}
 
 
@@ -486,6 +530,11 @@ def public_document(kind, post_id=""):
         p = profile(c)
         if not p["enabled"] or not p["public_base"]:
             raise VRSSError("Public VRSS publishing is disabled.", 404)
+        if p["hosting_site_id"]:
+            try:
+                hosted_address(p["hosting_site_id"], p["public_base"])
+            except VRSSError as exc:
+                raise VRSSError("Public VRSS Hosting is unavailable.", 404) from exc
         rows = c.execute("SELECT * FROM vrss_posts WHERE deleted=0 AND visibility='public' ORDER BY seq DESC LIMIT 100").fetchall()
         public = {"contract": CONTRACT, "id": p["actor_id"], "name": p["display_name"], "bio": p["bio"], "url": p["profile_url"], "rss": p["feed_url"], "capabilities": {"rss": True, "social_writes": False}}
         if kind == "profile":

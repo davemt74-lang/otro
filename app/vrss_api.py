@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -55,22 +56,56 @@ def public_html(doc, post=False):
     return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + e(title) + '</title><style>body{max-width:720px;margin:48px auto;padding:20px;font:17px/1.6 system-ui;color:#18222f}a{color:#315cc5}p{white-space:pre-wrap;overflow-wrap:anywhere}</style><main><h1>' + e(title) + "</h1>" + content + "</main></html>"
 
 
+def document_response(kind, post_id="", accept=""):
+    doc = vrss.public_document(kind, post_id)
+    if kind == "rss":
+        return Response(doc, media_type="application/rss+xml", headers=HEADERS)
+    if "text/html" in accept:
+        return HTMLResponse(public_html(doc, kind == "post"), headers=HEADERS)
+    return JSONResponse(doc, headers=HEADERS)
+
+
+def hosted_response(site_id, request_path, method="GET", headers=None):
+    """Allowlisted public surface, reached after the existing Hosting authority."""
+    from .services import hosting_runtime
+    if method not in {"GET", "HEAD"}:
+        raise vrss.VRSSError("VRSS public Hosting is read-only.", 405)
+    # Accept only public documents; never fall through to owner app assets or controls.
+    path = str(request_path or "")
+    if not path.startswith("/"):
+        path = "/" + path
+    post_id = ""
+    if path in {"/", "/vrss/v1/profile"}:
+        kind = "profile"
+    elif path == "/vrss/v1/rss":
+        kind = "rss"
+    elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", path):
+        kind, post_id = "post", path.rsplit("/", 1)[1]
+    else:
+        raise vrss.VRSSError("Public VRSS document not found.", 404)
+    with vrss.database() as c:
+        profile = vrss.profile(c)
+    site = hosting_runtime.get_site(site_id)
+    base = "https://" + str(site.get("requested_hostname") or "")
+    if profile["public_base"] != base or profile["hosting_site_id"] != site_id:
+        raise vrss.VRSSError("This Hosting site is not the published VRSS address.", 404)
+    headers = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+    response = document_response(kind, post_id, "application/json" if "application/json" in headers.get("accept", "") else "text/html")
+    if method == "HEAD":
+        response.body = b""
+    return response
+
+
 @router.get("/vrss/v1/profile")
 def public_profile(request: Request):
-    doc = call(vrss.public_document, "profile")
-    if "text/html" in request.headers.get("accept", ""):
-        return HTMLResponse(public_html(doc), headers=HEADERS)
-    return JSONResponse(doc, headers=HEADERS)
+    return call(document_response, "profile", "", request.headers.get("accept", ""))
 
 
 @router.get("/vrss/v1/rss")
 def public_rss():
-    return Response(call(vrss.public_document, "rss"), media_type="application/rss+xml", headers=HEADERS)
+    return call(document_response, "rss")
 
 
 @router.get("/vrss/v1/posts/{post_id}")
 def public_post(post_id: str, request: Request):
-    doc = call(vrss.public_document, "post", post_id)
-    if "text/html" in request.headers.get("accept", ""):
-        return HTMLResponse(public_html(doc, True), headers=HEADERS)
-    return JSONResponse(doc, headers=HEADERS)
+    return call(document_response, "post", post_id, request.headers.get("accept", ""))

@@ -13,6 +13,8 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
     from app.services import vrss, homeserver_app_prebuilt
     initialize_database()
     homeserver_app_prebuilt.ensure_defaults()
+    from vrss_v1_hosting import configure_hosting
+    _, hosted_site, _, hosted_route = configure_hosting()
     def fetch(url):
         return b'''<rss version="2.0"><channel><title>Music news</title><link>https://news.example/</link><description>Music</description><item><guid>news:1</guid><title>New album</title><description>&lt;p&gt;Listen today&lt;/p&gt;&lt;script&gt;window.injected=true&lt;/script&gt;</description><link>https://news.example/album</link><enclosure url="https://media.example/music.mp3" length="10" type="audio/mpeg"/></item></channel></rss>''', url
     vrss.fetch_feed = fetch
@@ -21,5 +23,5 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
     import uvicorn
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
-    print(json.dumps({"url": "http://127.0.0.1:" + str(sock.getsockname()[1]), "owner": OWNER_CONTROL_TOKEN}), flush=True)
+    print(json.dumps({"url": "http://127.0.0.1:" + str(sock.getsockname()[1]), "owner": OWNER_CONTROL_TOKEN, "hosting_site_id": hosted_site["site_id"], "route_token": hosted_route["route_token"]}), flush=True)
     uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="off")).run(sockets=[sock])
