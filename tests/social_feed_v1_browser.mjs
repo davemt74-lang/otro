@@ -4,7 +4,7 @@ import {chromium} from 'playwright';
 const base=new URL('../ui/feed-app/',import.meta.url),html=await fs.readFile(new URL('index.html',base),'utf8'),script=await fs.readFile(new URL('app.js',base),'utf8'),css=await fs.readFile(new URL('app.css',base),'utf8');
 const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
 try{for(const mode of ['cloud','native']){
- const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[],calls=[],posts=[],requests=new Map();let account=7,failPost=false,holdFeed=false,releaseFeed,mediaRequests=0;
+ const page=await browser.newPage({viewport:{width:1440,height:900}}),errors=[],calls=[],posts=[],requests=new Map();let account=7,failPost=false,holdFeed=false,releaseFeed,holdPost=false,releasePost,mediaRequests=0;
  const profiles={7:{id:7,display_name:'Owner',username:'owner',bio:'My profile',is_public:false,is_self:true,following:false,counts:{followers:0,following:0},revision:'initial'},8:{id:8,display_name:'Other person',username:'other',bio:'Other profile',is_public:true,is_self:false,following:false,counts:{followers:0,following:0},revision:'other'},9:{id:9,display_name:'New account',username:'new',bio:'',is_public:true,is_self:true,following:false,counts:{followers:0,following:0},revision:'new'}};
  const endpoint=mode==='cloud'?'/api/social-feed-v1.php':'/api/v1/control/homeserver-apps/feed/request';
  page.on('pageerror',e=>errors.push(e.message));
@@ -22,7 +22,7 @@ try{for(const mode of ['cloud','native']){
    else if(p.action==='post.create'){
     if(!requests.has(p.request_id)){requests.set(p.request_id,posts.length);posts.push({id:'post-'+posts.length,cursor:posts.length+1,body:p.body,media:p.media,visibility:p.visibility,created_at:'2026-10-19T12:00:00Z',author:viewer,can_delete:true});}
     result={post_id:'post-'+requests.get(p.request_id),replayed:true};
-    if(failPost){failPost=false;return route.abort('failed');}
+    if(failPost){failPost=false;return route.abort('failed');}if(holdPost){holdPost=false;await new Promise(r=>{releasePost=r;});}
    }else if(p.action==='post.delete'){const i=posts.findIndex(x=>x.id===p.id);if(i>=0)posts.splice(i,1);result={deleted:true};}
    else if(p.action==='feed'){result={feed:{items:structuredClone(p.mode==='profile'?posts.filter(x=>x.author.id===p.user_id):posts),has_more:false,next_cursor:0}};if(holdFeed){holdFeed=false;await new Promise(r=>{releaseFeed=r;});}}
    return route.fulfill({json:{ok:true,contract:'vp3.social-feed.v1',viewer_id:account,...result}});
@@ -41,7 +41,7 @@ try{for(const mode of ['cloud','native']){
  const before=calls.length;await page.evaluate(()=>detachedFollow.click());await page.waitForTimeout(30);assert.equal(calls.length,before,'Detached follow button dispatched after navigation');
  await page.reload();await page.getByRole('heading',{name:'Create Post',exact:true}).waitFor();assert.match(await page.getByLabel('What would you like to share?',{exact:true}).inputValue(),/Draft survives/);
  failPost=true;await page.getByRole('button',{name:'Publish Post',exact:true}).click();await page.waitForFunction(()=>document.querySelector('#notice').textContent.length>0);assert.equal(posts.length,1,'Server write was not committed before lost response');
- await page.getByRole('button',{name:'Publish Post',exact:true}).click();await page.getByRole('heading',{name:'Owner updated',exact:true}).waitFor();assert.equal(posts.length,1,'Exact retry duplicated post');
+ holdPost=true;await page.getByRole('button',{name:'Publish Post',exact:true}).click();while(!releasePost)await page.waitForTimeout(10);assert.equal(await page.getByLabel('What would you like to share?',{exact:true}).isDisabled(),true,'Publication must freeze the sent draft while awaiting its receipt');releasePost();await page.getByRole('heading',{name:'Owner updated',exact:true}).waitFor();assert.equal(posts.length,1,'Exact retry duplicated post');
  assert.equal(await page.evaluate(()=>window.pwned),undefined);assert.match(await page.locator('article .body').innerText(),/<img/);assert.equal(mediaRequests,0,'External media loaded without clicking');if(process.env.FEED_SCREENSHOTS)await page.screenshot({path:process.env.FEED_SCREENSHOTS+'/feed-profile-'+mode+'.png',fullPage:true});
  await page.getByRole('button',{name:'Load image',exact:true}).click();await page.waitForFunction(()=>document.querySelector('article img')?.complete);assert.equal(mediaRequests,1);
  for(const width of [1440,390,320]){await page.setViewportSize({width,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'Profile/feed horizontal overflow at '+width);}
