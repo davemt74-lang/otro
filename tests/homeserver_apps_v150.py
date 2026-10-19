@@ -39,7 +39,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-apps-v150-") as data_dir:
         assert payload["app_store"] is False
         assert {"vp3.notes","vp3.inventory","vp3.checklists"}.issubset({p["key"] for p in payload["packages"]})
         assert all(len(p["package_sha256"])==64 for p in payload["packages"])
-        assert all(p["installed"] is False for p in payload["packages"])
+        assert all(p["installed"] is bool(p.get("default_app")) for p in payload["packages"])
+        assert next(p for p in payload["packages"] if p["key"]=="vp3.feed")["installed"] is True
 
         installed=client.post("/api/v1/control/homeserver-apps/catalog/prebuilt/vp3.notes/install")
         assert installed.status_code==200,installed.text

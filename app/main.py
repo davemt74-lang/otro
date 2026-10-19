@@ -31,6 +31,8 @@ UI_DIR = ROOT_DIR / "ui"
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
+    from .services import homeserver_app_prebuilt
+    homeserver_app_prebuilt.ensure_defaults()
     from .services import agent_mission_runtime
     agent_mission_runtime.recover_interrupted()
     from .services import agent_mission_browser

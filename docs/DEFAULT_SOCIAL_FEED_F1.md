@@ -1,0 +1,13 @@
+# F1 — Default HomeServer Feed
+
+Feed is a bundled default System App (`vp3.feed`) installed on new and existing HomeServer startup. It uses the existing package, registry and recovery services. Existing installed/stopped apps and key collisions with user apps are preserved. The app is owner-operated through the existing owner gateway and paired VP3 account; separate HomeServer member identities are not substituted for that account.
+
+Feed, Create Post and Profile screens use the same assets in HomeServer and Cloud (`feed.php`). Profiles reuse VP3 names, usernames, bio, profile privacy, avatars and existing user_follows relationships. Profile changes preserve unrelated settings and reject a stale revision. Private profiles are excluded from discovery; owner posts remain visible locally. Follow/Unfollow affects the canonical relationship. Blocks and inactive accounts are excluded from social reads.
+
+Posts support plain text and up to four public HTTPS image/audio/video/link URLs, with explicit public/followers/only-me audience. External media loads only on request. This section does not upload local files, ingest RSS, expose public hosted app routes, or register subdomains. Those features remain in the overall project scope for following sections. No RSS/comment/like controls are displayed before their backing service exists.
+
+A per-account request ID and content hash prevent repeated post writes after a lost response. Reusing an ID for changed content fails; retrying a deleted post does not restore it. Publication and profile/follow mutations use transactional account locking and final pairing revalidation. Native transport filters client fields, enforces bounded payloads and discards responses after pairing or app lifecycle changes. Credentials stay server-side. Browser drafts are scoped by the Cloud account and restored without automatic publishing; late results and detached controls cannot change a new view.
+
+The Cloud upgrade creates social_feed_posts_v1; the API also follows the existing idempotent schema initialization pattern. Native uses the current global schema and stores the packaged app through the existing app system. Install the matching Cloud package before upgrading HomeServer.
+
+Acceptance covers real MySQL visibility/block/follow rules, exact retries, authority rollback, profile revision conflicts and pagination; native default installation, package/asset verification, owner gateway and pairing fences; actual Chromium screens at desktop, 390px and 320px, profile changes, follows, lost publication responses, safe media loading, draft ownership and stale responses. Windows certification and exact-tree reuse gate installer delivery.

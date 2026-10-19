@@ -118,7 +118,7 @@
       <article class="panel hs-app-card ${installed?'is-installed':'is-available'}" data-hs-app-card="${esc(app.app_key)}">
         <div class="hs-app-card-head">
           <div class="hs-app-icon">${system?'VP3':'APP'}</div>
-          <div><div class="hs-app-status-row"><span class="hs-app-status ${esc(status)}"></span><span>${esc(statusLabel({lifecycle_state:status}))}</span></div><h3>${esc(app.name)}</h3><p>${esc(app.description||app.app_key)}</p></div>
+          <div><div class="hs-app-status-row"><span class="hs-app-status ${esc(status)}"></span><span>${esc(statusLabel({lifecycle_state:status}))}</span></div><h3>${esc(app.name)}</h3><p>${esc(app.description||app.app_key)}${app.default_app?' · Included with HomeServer':''}</p></div>
         </div>
         <div class="hs-app-tags">
           <span>${system?'VP3 Apps':'User App'}</span>

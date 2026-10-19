@@ -195,6 +195,11 @@
     newChat.className = 'sidebar-new-chat';
     newChat.textContent = '+  New Chat';
     primary.appendChild(newChat);
+    const feedLink = document.createElement('a');
+    feedLink.className = 'nav-item';
+    feedLink.href = '/api/v1/control/homeserver-apps/vp3.feed/preview/';
+    feedLink.textContent = 'Feed';
+    primary.appendChild(feedLink);
     // Keep every canonical workspace reachable from Agent Chat. The original
     // nav remains available to modules that use its buttons programmatically.
     function syncWorkspaceLinks() {
