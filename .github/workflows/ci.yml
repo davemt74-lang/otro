@@ -41,7 +41,7 @@ on:
 
 concurrency:
   group: homeserver-ci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -273,6 +273,7 @@ jobs:
       - name: VRSS local publishing and RSS reader boundaries
         run: |
           python tests/vrss_v1.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/vrss_v1_hosting.py
       - name: Compile Python
         run: python -m compileall app desktop tests
