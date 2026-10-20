@@ -31,8 +31,12 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
         remote_actor={'contract':social.CONTRACT,'id':'https://bob.example/vrss/v1/actor','identity':'urn:uuid:'+str(uuid.uuid4()),'name':'Bob <untrusted>','inbox':'https://bob.example/vrss/v1/inbox','rss':'https://bob.example/vrss/v1/rss','public_key':remote_key.public_key().public_bytes_raw().hex(),'rotations':[],'interactions':{'contract':'vp3.vrss.interactions.v1','likes':bool(os.environ.get('VRSS_REACTIONS_TEST'))}}
         remote_actor['comments']={'contract':'vp3.vrss.comments.v1','enabled':bool(os.environ.get('VRSS_COMMENTS_TEST'))}
         remote_actor['reposts']={'contract':'vp3.vrss.reposts.v1','enabled':bool(os.environ.get('VRSS_REPOSTS_TEST'))}
+        remote_actor['conversations']={'contract':'vp3.vrss.conversations.v1','mentions':bool(os.environ.get('VRSS_CONVERSATIONS_TEST'))}
         def social_exchange(url,payload=None):
             if payload is None:
+                if os.environ.get('VRSS_CONVERSATIONS_TEST') and url==remote_post:
+                    with vrss.database() as c:p=vrss.profile(c)
+                    return {'url':remote_post,'visibility':'public','author':{'id':remote_actor['identity']},'body':'Public mention @'+p['public_base']+'/vrss/v1/actor'}
                 if os.environ.get('VRSS_REACTIONS_TEST') and url==remote_post+'/interactions':return {'contract':'vp3.vrss.interactions.v1','object':remote_post,'actor':remote_actor['id'],'identity':remote_actor['identity'],'likes':remote_counts['likes']}
                 if os.environ.get('VRSS_COMMENTS_TEST') and url.startswith(remote_post+'/comments'):
                     import hashlib
@@ -71,6 +75,8 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
                 p=vrss.profile(c)
                 relation=c.execute("SELECT follow_id FROM vrss_social_relations WHERE actor=? AND direction='out'",(remote_actor['id'],)).fetchone()
             activity={'contract':social.CONTRACT,'id':'https://bob.example/vrss/v1/activities/'+str(uuid.uuid4()),'actor':remote_actor['id'],'identity':remote_actor['identity'],'recipient':social.actor_url(p),'type':kind,'follow_id':relation[0] if kind=='Accept' else 'https://bob.example/vrss/v1/follows/'+str(uuid.uuid4()),'seq':remote_seq[0],'issued_at':time.time()}
+            if kind=='Mention':
+                activity.pop('follow_id');activity.update(contract='vp3.vrss.conversations.v1',object=remote_post,comment_id='',mention_id='https://bob.example/vrss/v1/mentions/'+str(uuid.uuid4()))
             if kind in {'Like','Unlike'}:
                 with vrss.database() as c:inbound=c.execute("SELECT follow_id FROM vrss_social_relations WHERE actor=? AND direction='in'",(remote_actor['id'],)).fetchone()
                 activity.update(contract='vp3.vrss.interactions.v1',follow_id=inbound[0],object=p['public_base']+'/vrss/v1/posts/'+data['post_id'],reaction_id='https://bob.example/vrss/v1/reactions/'+str(uuid.uuid4()))
@@ -87,6 +93,16 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
             except vrss.VRSSError as e:
                 from fastapi.responses import JSONResponse
                 return JSONResponse({'detail':str(e)},status_code=e.status_code)
+    if os.environ.get('VRSS_CONVERSATIONS_TEST'):
+        @app.inner_app.post('/api/v1/control/vrss-test-conversation-reply')
+        async def conversation_reply(request:Request):
+            data=await request.json()
+            if data.get('reset'):remote_comments.clear()
+            key='https://bob.example/vrss/v1/comments/'+str(uuid.uuid4())
+            remote_comments[key]={'id':key,'actor':remote_actor['id'],'identity':remote_actor['identity'],'name':remote_actor['name'],'parent':'','body':data.get('body','A reply <script>literal</script>'),'created_at':vrss.now(),'depth':0,'state':'approved'}
+            with vrss.database() as c:c.execute('UPDATE vrss_conversation_watches SET due=0')
+            from app.services import vrss_conversations
+            vrss_conversations.refresh_due();return {'id':key}
     @app.inner_app.post('/api/v1/control/vrss-test-new-post')
     def new_post_fixture():
         with vrss.database() as c:

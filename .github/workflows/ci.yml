@@ -223,7 +223,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: davemt74-lang/software
-          ref: 6f06afeb643a2df805d6ae4910f047b97fbdff6a
+          ref: c4e50792ea71a13a37535011de5520ca33c081cf
           path: _certification/cloud
       - uses: shivammathur/setup-php@v2
         with:
@@ -295,6 +295,10 @@ jobs:
           python tests/vrss_v2f.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/vrss_v2f_tls.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/vrss_v2g.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/vrss_v2g_tls.py
       - name: Compile Python
         run: python -m compileall app desktop tests
       - name: Interactive capture ownership and Stop acceptance

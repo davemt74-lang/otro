@@ -34,6 +34,51 @@ def child(data):
                 p=v.request({'action':'profile'})['profile']
                 out=v.update_profile({'display_name':req['name'],'bio':'','enabled':True,'social_enabled':True,
                     'public_base':req['base'],'comments_enabled':req.get('comments',False),'reactions_enabled':req.get('reactions',False),'expected_revision':p['revision']})
+            elif cmd.startswith('conv_'):
+                from app.services import vrss_conversations as conv, vrss_comments as comments
+                docs=req.get('documents',{})
+                def loader(url):
+                    if url not in docs:raise v.VRSSError('Source unavailable',502)
+                    return docs[url]
+                if cmd=='conv_settings':
+                    p=v.request({'action':'profile'})['profile'];out=v.update_profile({**p,'mentions_enabled':req.get('mentions',p['mentions_enabled']),'thread_notifications_enabled':req.get('threads',p['thread_notifications_enabled']),'expected_revision':p['revision']})
+                elif cmd=='conv_watch':out=conv.set_watch(req['url'],req['enabled'],req['muted'],req['revision'],req['request_id'],loader)
+                elif cmd=='conv_status':out=conv.status()
+                elif cmd=='conv_thread':out=conv.thread(req['url'],loader=loader)
+                elif cmd=='conv_prepare':
+                    with v.database() as c:c.execute('UPDATE vrss_mention_intents SET due=0')
+                    conv.prepare_mentions(loader);out=True
+                elif cmd=='conv_refresh':
+                    with v.database() as c:c.execute('UPDATE vrss_conversation_watches SET due=0')
+                    with patch.object(s,'exchange',loader):conv.refresh_due(loader)
+                    out=conv.status()
+                elif cmd=='conv_race':
+                    def delayed(url):
+                        if '/comments' in url:
+                            watch=next(x for x in conv.status()['items'] if x['object']==req['url'])
+                            conv.set_watch(req['url'],False,True,watch['revision'],str(uuid.uuid4()),loader)
+                        return loader(url)
+                    with v.database() as c:c.execute('UPDATE vrss_conversation_watches SET due=0')
+                    with patch.object(s,'exchange',loader):conv.refresh_due(delayed)
+                    out=conv.status()
+                elif cmd=='conv_notices':
+                    with patch.object(s,'exchange',loader):
+                        conv.deliver_notices(loader);out=v.request({'action':'notices'})
+                elif cmd=='conv_send':
+                    sent=[];stop=threading.Event()
+                    def sender(url,packet):
+                        sent.append(packet);stop.set();return req['ack']
+                    s.deliver(sender,stop_event=stop);out=sent
+                elif cmd=='conv_private':
+                    with v.database() as c:c.execute("UPDATE vrss_posts SET visibility='private' WHERE id=?",(req['post_id'],))
+                    out=True
+                elif cmd=='conv_limit':
+                    with v.database() as c:
+                        if req.get('table')=='watches':
+                            c.executemany('INSERT INTO vrss_conversation_watches(object,actor,enabled,muted,revision) VALUES(?,?,1,0,1)',[(req['url']+'/'+str(i),'https://bob.example.test/vrss/v1/actor') for i in range(50)])
+                        else:c.executemany('INSERT INTO vrss_conversation_seen VALUES(?,?)',[(req['url'],str(i)) for i in range(10000)])
+                    out=True
+                else:raise AssertionError(cmd)
             elif cmd=='post':out=v.create_post({'body':req.get('body','A public post'),'media':[],'visibility':req.get('visibility','public'),'request_id':str(uuid.uuid4())})
             elif cmd=='public':out=v.public_document(req.get('kind','interactions'),req['id'])
             elif cmd in {'reaction','reaction_read','read_race','cancel_like_ack'}:
@@ -218,7 +263,7 @@ def child(data):
                 out=True
             elif cmd=='actor':out=s.actor_document()
             elif cmd=='follow':out=s.follow(req['url'],lambda _:req['doc'])
-            elif cmd=='receive':out=s.receive(json.dumps(req['packet']).encode(),lambda _:req['doc'])
+            elif cmd=='receive':out=s.receive(json.dumps(req['packet']).encode(),lambda url:req['documents'][url] if 'documents' in req else req['doc'])
             elif cmd=='packets':
                 with v.database() as c:
                     out=[s.signed(c,json.loads(r[0])) for r in c.execute("SELECT payload FROM vrss_social_outbox WHERE state='pending' ORDER BY seq")]
