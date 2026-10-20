@@ -16,6 +16,7 @@ MIGRATIONS_DIR = ROOT_DIR / "database" / "migrations"
 FEATURE_SCHEMA_PATHS = (
     ROOT_DIR / "database" / "knowledge_collections.sql",
     ROOT_DIR / "database" / "food_monster_connections.sql",
+    ROOT_DIR / "database" / "food_monster_knowledge_cache.sql",
     ROOT_DIR / "database" / "agent_voice_profiles.sql",
     ROOT_DIR / "database" / "agent_routing.sql",
     ROOT_DIR / "database" / "agent_delegation_workflows.sql",
