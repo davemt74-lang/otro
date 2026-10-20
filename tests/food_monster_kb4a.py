@@ -115,7 +115,7 @@ class OwnerChatTests(unittest.TestCase):
             return result(G, "menu")
         packet = self.packet("What's the dough recipe at Gelato?", search=out_of_scope)
         self.assertEqual(packet["sources"], [])
-        self.assertIn("source validation", packet["context"])
+        self.assertIn("did not match the requested category", packet["context"])
 
     def test_revision_and_source_validation(self):
         rec = result(G, "recipe")["results"][0]
