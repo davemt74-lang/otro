@@ -79,6 +79,20 @@ def main():
         assert projected.headers['cache-control']=='no-store' and 'secret' not in projected.text
         assert client.get(projection,headers={**edge,'X-VP3-Route-Token':'bad'}).status_code==403
         assert client.get(ingress+'vrss/v1/posts/'+private['post_id']+'/interactions',headers=edge).status_code==404
+        comments_path=ingress+'vrss/v1/posts/'+public['post_id']+'/comments'
+        assert client.get(comments_path,headers=edge).status_code==404
+        settings['comments_enabled']=True
+        p=vrss.update_profile({**settings,'expected_revision':p['revision']})
+        made=vrss.request({'action':'social.comment','url':p['public_base']+'/vrss/v1/posts/'+public['post_id'],'body':'Public owner comment','parent':'','request_id':str(uuid.uuid4())})
+        cid=made['comment']['id']
+        public_comments=client.get(comments_path,headers=edge)
+        assert public_comments.status_code==200 and public_comments.json()['items'][0]['body']=='Public owner comment'
+        assert 'state' not in public_comments.json()['items'][0] and public_comments.headers['cache-control']=='no-store'
+        import hashlib
+        assert client.get(comments_path+'/id-'+hashlib.sha256(cid.encode()).hexdigest(),headers=edge).json()['items'][0]['id']==cid
+        assert client.get(comments_path,headers={**edge,'X-VP3-Route-Token':'bad'}).status_code==403
+        assert client.get(ingress+'vrss/v1/posts/'+private['post_id']+'/comments',headers=edge).status_code==404
+        assert client.post(comments_path,json={},headers=edge).status_code==405
         profile = client.get(ingress, headers=edge)
         assert profile.status_code == 200 and 'Dave &lt;music&gt;' in profile.text
         assert 'Create Post' not in profile.text and '/api/v1/control' not in profile.text
@@ -108,11 +122,18 @@ def main():
         with db() as c:
             c.execute("UPDATE homeserver_apps SET installed_version='1.1.0' WHERE app_key=?", (vrss.APP_KEY,))
         homeserver_app_prebuilt.ensure_defaults()
-        assert homeserver_apps.get(vrss.APP_KEY)['installed_version'] == '1.5.0'
+        assert homeserver_apps.get(vrss.APP_KEY)['installed_version'] == '1.6.0'
         assert homeserver_apps.get(vrss.APP_KEY)['lifecycle_state'] == 'stopped'
         homeserver_apps.transition(vrss.APP_KEY, 'running')
         assert vrss.request({'action': 'bootstrap'})['profile']['actor_id'] == identity
         assert client.get(ingress + 'vrss/v1/rss', headers=edge).status_code == 200
+        homeserver_apps.transition(vrss.APP_KEY,'stopped')
+        with db() as c:c.execute("UPDATE homeserver_apps SET installed_version='1.5.0' WHERE app_key=?",(vrss.APP_KEY,))
+        homeserver_app_prebuilt.ensure_defaults()
+        assert homeserver_apps.get(vrss.APP_KEY)['installed_version']=='1.6.0' and homeserver_apps.get(vrss.APP_KEY)['lifecycle_state']=='stopped'
+        homeserver_apps.transition(vrss.APP_KEY,'running')
+        assert vrss.request({'action':'profile'})['profile']['actor_id']==identity
+        assert client.get(comments_path,headers=edge).json()['items'][0]['id']==cid
         # Disable publication without changing Hosting or deleting local posts.
         p = vrss.update_profile({**settings, 'enabled': False, 'expected_revision': p['revision']})
         assert client.get(ingress, headers=edge).status_code == 404

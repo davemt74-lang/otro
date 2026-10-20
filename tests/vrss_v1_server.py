@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
     _, hosted_site, _, hosted_route = configure_hosting()
     remote_post_id='11111111-1111-4111-8111-111111111111'
     remote_post='https://bob.example/vrss/v1/posts/'+remote_post_id
-    remote_counts={'likes':0}
+    remote_counts={'likes':0};remote_comments={}
     def fetch(url):
         if os.environ.get('VRSS_REACTIONS_TEST') and url=='https://bob.example/vrss/v1/rss':
             return ('<rss version="2.0"><channel><title>Bob VRSS</title><description>Posts</description><link>https://bob.example/</link><item><guid>remote-vrss-post</guid><title>Remote VRSS post</title><description>A public post</description><link>'+remote_post+'</link></item></channel></rss>').encode(),url
@@ -29,14 +29,25 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
         from app.services import vrss_social as social
         remote_key=Ed25519PrivateKey.generate();remote_seq=[0]
         remote_actor={'contract':social.CONTRACT,'id':'https://bob.example/vrss/v1/actor','identity':'urn:uuid:'+str(uuid.uuid4()),'name':'Bob <untrusted>','inbox':'https://bob.example/vrss/v1/inbox','rss':'https://bob.example/vrss/v1/rss','public_key':remote_key.public_key().public_bytes_raw().hex(),'rotations':[],'interactions':{'contract':'vp3.vrss.interactions.v1','likes':bool(os.environ.get('VRSS_REACTIONS_TEST'))}}
+        remote_actor['comments']={'contract':'vp3.vrss.comments.v1','enabled':bool(os.environ.get('VRSS_COMMENTS_TEST'))}
         def social_exchange(url,payload=None):
             if payload is None:
                 if os.environ.get('VRSS_REACTIONS_TEST') and url==remote_post+'/interactions':return {'contract':'vp3.vrss.interactions.v1','object':remote_post,'actor':remote_actor['id'],'identity':remote_actor['identity'],'likes':remote_counts['likes']}
+                if os.environ.get('VRSS_COMMENTS_TEST') and url.startswith(remote_post+'/comments'):
+                    import hashlib
+                    items=[item for item in remote_comments.values() if item['state']=='approved']
+                    if '/id-' in url:items=[item for item in items if hashlib.sha256(item['id'].encode()).hexdigest()==url.rsplit('/id-',1)[1]]
+                    return {'contract':'vp3.vrss.comments.v1','object':remote_post,'actor':remote_actor['id'],'identity':remote_actor['identity'],'items':[{k:v for k,v in item.items() if k!='state'} for item in items[:5]],'next_cursor':''}
                 assert url==remote_actor['id'];return remote_actor
             assert url==remote_actor['inbox']
             if payload['activity']['type'] in {'Like','Unlike'}:
                 remote_counts['likes']=int(payload['activity']['type']=='Like')
                 return {'contract':social.CONTRACT,'ok':True,'interaction':{'object':payload['activity']['object'],'actor':remote_actor['id'],'likes':remote_counts['likes']}}
+            if payload['activity']['type'] in {'Comment','DeleteComment'}:
+                a=payload['activity'];cid=a['comment_id']
+                if a['type']=='Comment':remote_comments.setdefault(cid,{'id':cid,'actor':a['actor'],'identity':a['identity'],'name':'HomeServer owner','parent':a['parent'],'body':a['body'],'created_at':vrss.now(),'depth':0,'state':'pending'})
+                else:remote_comments[cid]={'id':cid,'state':'deleted'}
+                return {'contract':social.CONTRACT,'ok':True,'comment':{'object':a['object'],'id':cid,'state':remote_comments[cid]['state']}}
             return {'contract':social.CONTRACT,'ok':True}
         social.exchange=social_exchange
     from app.runtime import app
@@ -54,6 +65,10 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
             if kind in {'Like','Unlike'}:
                 with vrss.database() as c:inbound=c.execute("SELECT follow_id FROM vrss_social_relations WHERE actor=? AND direction='in'",(remote_actor['id'],)).fetchone()
                 activity.update(contract='vp3.vrss.interactions.v1',follow_id=inbound[0],object=p['public_base']+'/vrss/v1/posts/'+data['post_id'],reaction_id='https://bob.example/vrss/v1/reactions/'+str(uuid.uuid4()))
+            if kind in {'Comment','DeleteComment'}:
+                with vrss.database() as c:inbound=c.execute("SELECT follow_id FROM vrss_social_relations WHERE actor=? AND direction='in'",(remote_actor['id'],)).fetchone()
+                activity.update(contract='vp3.vrss.comments.v1',follow_id=inbound[0],object=p['public_base']+'/vrss/v1/posts/'+data['post_id'],comment_id=data.get('comment_id','https://bob.example/vrss/v1/comments/'+str(uuid.uuid4())))
+                if kind=='Comment':activity.update(body=data.get('body','A signed comment'),parent=data.get('parent',''))
             packet={'activity':activity,'sent_at':int(time.time())};packet['signature']=remote_key.sign(social.canonical(packet)).hex()
             try:
                 result=social.receive(social.canonical(packet));social.deliver_notices();return result

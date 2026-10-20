@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {randomUUID} from 'node:crypto';
+import {chromium} from 'playwright';
+const child=spawn(process.env.VP3_TEST_PYTHON||'python',['-u','tests/vrss_v1_server.py'],{env:{...process.env,VRSS_SOCIAL_TEST:'1',VRSS_REACTIONS_TEST:'1',VRSS_COMMENTS_TEST:'1'},stdio:['ignore','pipe','pipe']});
+let errors='';child.stderr.on('data',b=>errors+=b.toString());
+const lines=createInterface({input:child.stdout});
+const config=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Fixture startup: '+errors)),60000);lines.on('line',line=>{try{const v=JSON.parse(line);if(v.url){clearTimeout(timer);resolve(v);}}catch{}});child.on('exit',code=>reject(Error(`Fixture exited ${code}: ${errors}`)));});
+const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
+try{
+ for(const width of [1440,390,320]){
+  const ctx=await browser.newContext({viewport:{width,height:960}}),page=await ctx.newPage(),base=config.url,ep=base+'/api/v1/control/homeserver-apps/vrss/request',preview=base+'/api/v1/control/homeserver-apps/vp3.feed/preview/';
+  const api=async(action,args={})=>{const r=await ctx.request.post(ep,{headers:{'X-VRSS-Request':'1'},data:{action,...args}});assert.equal(r.status(),200,await r.text());return r.json();};
+  const event=async data=>{const r=await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data});assert.equal(r.status(),200,await r.text());return r.json();};
+  const pump=async()=>assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-pump')).status(),200);
+  await ctx.request.post(base+'/__owner/session',{headers:{'X-HomeServer-Owner':config.owner}});
+  await page.goto(preview+'#profile');await page.getByRole('button',{name:'Edit Profile',exact:true}).click();
+  if(width===1440)assert.equal(await page.locator('#vrss-comments').isChecked(),false);
+  const address=page.getByLabel('Publishing address',{exact:true});if(await address.isEnabled())await address.selectOption(config.hosting_site_id);
+  await page.locator('#vrss-public').check();await page.locator('#vrss-social').check();await page.locator('#vrss-comments').check();
+  await page.getByRole('button',{name:'Save Profile',exact:true}).click();await page.getByRole('button',{name:'Edit Profile',exact:true}).waitFor();
+  const own=await api('post.create',{body:'Comment test '+width,media:[],visibility:'public',request_id:randomUUID()});
+  await api('social.follow',{url:'https://bob.example/'});await event({kind:'Accept'});await event({kind:'Follow'});await pump();
+  const sub=(await api('subscriptions')).subscriptions.find(s=>s.url==='https://bob.example/vrss/v1/rss');await api('refresh',{id:sub.id});
+  for(const n of (await api('notices')).notices)await api('notice.read',{notice_id:n.id});
+  await page.goto(preview);
+  const remote=page.locator('article.card').filter({has:page.getByRole('heading',{name:'Remote VRSS post',exact:true})});
+  await remote.getByRole('button',{name:'Comments',exact:true}).click();
+  const text=remote.getByRole('textbox',{name:'Your comment',exact:true});await text.fill('Durable comment '+width);
+  // Commit the first request, then lose only its response. Retrying must reuse the nonce.
+  let lost=false;const attempts=[];
+  await page.route(ep,async route=>{const body=route.request().postDataJSON();if(body.action==='social.comment'){attempts.push(body);if(!lost){lost=true;await route.fetch();await route.abort();return;}}await route.continue();});
+  await remote.getByRole('button',{name:'Post comment',exact:true}).click();
+  await page.locator('#notice').filter({hasText:/Failed to fetch|NetworkError|Load failed|fetch/i}).waitFor();
+  assert.equal(await text.inputValue(),'Durable comment '+width);
+  await remote.getByRole('button',{name:'Post comment',exact:true}).click();await remote.getByText('Waiting for delivery',{exact:true}).waitFor();
+  assert.equal(attempts.length,2);assert.equal(attempts[0].request_id,attempts[1].request_id);
+  const outgoing=await api('social.comments',{url:'https://bob.example/vrss/v1/posts/11111111-1111-4111-8111-111111111111',cursor:'0'});
+  assert.equal(outgoing.thread.outgoing.filter(x=>x.body==='Durable comment '+width).length,1);
+  await page.unroute(ep);await pump();await remote.getByRole('button',{name:'Comments',exact:true}).click();
+  await remote.getByText('Delivered to the post owner; check the published thread for approval.',{exact:true}).waitFor();
+  await remote.getByRole('button',{name:'Retract',exact:true}).click();await pump();
+  const content='<script>window.commentsInjected=true</script> Incoming '+width;
+  await event({kind:'Comment',post_id:own.post_id,body:content});
+  await ctx.request.post(base+'/api/v1/control/system/setup',{data:{complete:true}});
+  await page.goto(base+'/#chat');
+  const updates=page.getByRole('region',{name:'VRSS updates',exact:true});await updates.getByText('VRSS comment awaiting review',{exact:true}).waitFor();
+  await updates.getByRole('button',{name:'Review comments',exact:true}).click();
+  await updates.getByText(content,{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.commentsInjected),undefined);
+  await updates.getByRole('button',{name:'Approve',exact:true}).click();await updates.getByText('approved',{exact:true}).waitFor();
+  await updates.getByRole('button',{name:'Hide',exact:true}).click();await updates.getByText('hidden',{exact:true}).waitFor();
+  await updates.getByRole('button',{name:'Approve',exact:true}).click();await updates.getByText('approved',{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await updates.getByRole('button',{name:'Close review',exact:true}).click();
+  await page.goto(preview+'#profile');const local=page.locator('article.card').filter({hasText:'Comment test '+width});
+  await local.getByRole('button',{name:'Comments',exact:true}).click();await local.getByText(content,{exact:true}).waitFor();
+  await local.getByRole('button',{name:'Reply',exact:true}).click();await local.getByRole('textbox',{name:'Your comment',exact:true}).fill('Local owner reply '+width);
+  await local.getByRole('button',{name:'Post comment',exact:true}).click();await local.getByText('Local owner reply '+width,{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>window.commentsInjected),undefined);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  if(process.env.VRSS_SCREENSHOT_DIR)await page.screenshot({path:`${process.env.VRSS_SCREENSHOT_DIR}/vrss-comments-${width}.png`,fullPage:true});
+  await api('social.block',{actor:'https://bob.example/vrss/v1/actor'});await api('social.unblock',{actor:'https://bob.example/vrss/v1/actor'});await ctx.close();
+ }
+ console.log('PASS V2E browser at1440/390/320: explicit opt-in, lost-response nonce retry, signed queue/ACK status, author retraction, Chat approval/hiding, literal untrusted text, local replies and no overflow');
+}finally{await browser.close();child.kill();}
