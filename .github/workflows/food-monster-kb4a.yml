@@ -1,0 +1,32 @@
+name: KB4A Food Monster Owner Agent Chat
+on:
+  pull_request:
+    paths:
+      - 'app/services/food_monster_chat.py'
+      - 'app/services/context_chat.py'
+      - 'tests/food_monster_kb4a.py'
+      - 'docs/FOOD_MONSTER_KB4A_AGENT_CHAT.md'
+      - '.github/workflows/food-monster-kb4a.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/food_monster_chat.py'
+      - 'app/services/context_chat.py'
+      - 'tests/food_monster_kb4a.py'
+      - 'docs/FOOD_MONSTER_KB4A_AGENT_CHAT.md'
+      - '.github/workflows/food-monster-kb4a.yml'
+jobs:
+  owner-read-knowledge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install owner connector dependencies
+        run: python -m pip install fastapi==0.115.6 pydantic==2.10.4 httpx==0.28.1
+      - name: Syntax and source authorization
+        run: |
+          python -m py_compile app/services/food_monster_chat.py app/services/context_chat.py tests/food_monster_kb4a.py
+          PYTHONPATH=. python tests/food_monster_kb4a.py
+          PYTHONPATH=. python tests/food_monster_kb3.py

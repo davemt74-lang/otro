@@ -268,10 +268,23 @@ def chat(
         canonical.cloud_allowed = False
         canonical.effective_settings.update({"cloud_allowed": False, "agent_eyes_local_only": True})
         if not knowledge_candidate:provider_key, provider_model, provider_override = _private_inference_route(inference)
+    # Food Monster is an explicitly approved owner-to-owner application link.
+    # Never provide it to paired app agents or cross into a selected Project
+    # Knowledge packet or an Agent Eyes local-only observation session.
+    from . import food_monster_chat
+    food_monster_packet = {"sources": [], "errors": [], "context": "", "queried": False}
+    if (
+        source_app_key == "owner" and owner_tools and include_knowledge
+        and settings.get("include_knowledge")
+        and not (r6_active or r6_selected_off or current_settings.get("agent_eyes_local_only"))
+    ):
+        food_monster_packet = food_monster_chat.owner_packet(text, allow_knowledge=True)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": canonical_context.system_prompt(agent, canonical)},
         *history,
     ]
+    if food_monster_packet["context"]:
+        messages[0]["content"] += chr(10) * 2 + food_monster_packet["context"]
     if research_text:
         messages[0]['content'] += '\n\n' + research_text
     if read_only:
@@ -456,6 +469,9 @@ def chat(
     reply = str(generated.get("content") or "").strip()
     if not reply:
         raise brain.BrainError("Inference provider returned no final response text.", 503)
+    # Render verified source attribution inside the existing minimal chat
+    # canvas without exposing private bearer secrets or adding a dashboard.
+    reply += food_monster_chat.citations_footer(food_monster_packet["sources"])
 
     context_event_id = context_engine.record_retrieval(conversation_id, source_app_key, bundle)
     agent_summary = agent_routing.safe_summary(agent)
@@ -470,6 +486,7 @@ def chat(
         "provider_usage": dict(tool_state.get("provider_usage") or {}),
         "context_event_id": context_event_id,
         "context_sources": canonical.source_refs,
+        "food_monster_sources": food_monster_packet["sources"],
         "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
         "context_provenance": canonical.provenance,
         "context_budget": canonical.budget,
@@ -623,6 +640,8 @@ def chat(
             "collaboration_knowledge_count": canonical.collaboration_knowledge_count,
             "context_chars": canonical.total_context_chars,
             "sources": canonical.source_refs,
+            "food_monster_sources": food_monster_packet["sources"],
+            "food_monster_unavailable": list(food_monster_packet["errors"]),
             "provenance": canonical.provenance,
             "budget": canonical.budget,
             "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
