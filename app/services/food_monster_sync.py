@@ -145,6 +145,13 @@ def _apply_full_sweep(local_id: str, kind: str, docs: dict[str, dict[str, Any]],
     changes = {"created": 0, "updated": 0, "unchanged": 0, "removed": 0, "pendingRemoval": 0}
     with db() as connection:
         if auto_lease:
+            # Acquire the SQLite write reservation BEFORE checking the lease.
+            # Without this, another connection can revoke between the lease
+            # SELECT and the first document UPDATE (WAL snapshot upgrade race).
+            # Disabling a schedule then waits for this bounded category commit;
+            # once disable returns no prior lease can make a new write.
+            if not connection.in_transaction:
+                connection.execute("BEGIN IMMEDIATE")
             from . import food_monster_auto_sync
             food_monster_auto_sync.assert_lease(local_id, auto_lease, connection=connection)
         # Lock write intent, and require still-active connection before writes.

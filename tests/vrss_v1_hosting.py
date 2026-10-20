@@ -79,6 +79,15 @@ def main():
         assert projected.headers['cache-control']=='no-store' and 'secret' not in projected.text
         assert client.get(projection,headers={**edge,'X-VP3-Route-Token':'bad'}).status_code==403
         assert client.get(ingress+'vrss/v1/posts/'+private['post_id']+'/interactions',headers=edge).status_code==404
+        repost_path=ingress+'vrss/v1/posts/'+public['post_id']+'/reposts'
+        assert client.get(repost_path,headers=edge).status_code==404
+        settings['reposts_enabled']=True
+        p=vrss.update_profile({**settings,'expected_revision':p['revision']})
+        assert client.get(repost_path,headers=edge).json()['reposts']==0
+        assert client.get(repost_path,headers={**edge,'X-VP3-Route-Token':'bad'}).status_code==403
+        assert client.post(repost_path,headers=edge,json={}).status_code==405
+        assert client.get(ingress+'vrss/v1/posts/'+private['post_id']+'/reposts',headers=edge).status_code==404
+        assert client.get(ingress+'vrss/v1/reposts/'+str(uuid.uuid4()),headers=edge).status_code==404
         comments_path=ingress+'vrss/v1/posts/'+public['post_id']+'/comments'
         assert client.get(comments_path,headers=edge).status_code==404
         settings['comments_enabled']=True
@@ -122,17 +131,20 @@ def main():
         with db() as c:
             c.execute("UPDATE homeserver_apps SET installed_version='1.1.0' WHERE app_key=?", (vrss.APP_KEY,))
         homeserver_app_prebuilt.ensure_defaults()
-        assert homeserver_apps.get(vrss.APP_KEY)['installed_version'] == '1.6.0'
+        assert homeserver_apps.get(vrss.APP_KEY)['installed_version'] == '1.7.0'
         assert homeserver_apps.get(vrss.APP_KEY)['lifecycle_state'] == 'stopped'
         homeserver_apps.transition(vrss.APP_KEY, 'running')
         assert vrss.request({'action': 'bootstrap'})['profile']['actor_id'] == identity
         assert client.get(ingress + 'vrss/v1/rss', headers=edge).status_code == 200
+        with vrss.database() as c:
+            c.execute('ALTER TABLE vrss_profile DROP COLUMN reposts_enabled')
         homeserver_apps.transition(vrss.APP_KEY,'stopped')
-        with db() as c:c.execute("UPDATE homeserver_apps SET installed_version='1.5.0' WHERE app_key=?",(vrss.APP_KEY,))
+        with db() as c:c.execute("UPDATE homeserver_apps SET installed_version='1.6.0' WHERE app_key=?",(vrss.APP_KEY,))
         homeserver_app_prebuilt.ensure_defaults()
-        assert homeserver_apps.get(vrss.APP_KEY)['installed_version']=='1.6.0' and homeserver_apps.get(vrss.APP_KEY)['lifecycle_state']=='stopped'
+        assert homeserver_apps.get(vrss.APP_KEY)['installed_version']=='1.7.0' and homeserver_apps.get(vrss.APP_KEY)['lifecycle_state']=='stopped'
         homeserver_apps.transition(vrss.APP_KEY,'running')
         assert vrss.request({'action':'profile'})['profile']['actor_id']==identity
+        assert vrss.request({'action':'profile'})['profile']['reposts_enabled'] is False
         assert client.get(comments_path,headers=edge).json()['items'][0]['id']==cid
         # Disable publication without changing Hosting or deleting local posts.
         p = vrss.update_profile({**settings, 'enabled': False, 'expected_revision': p['revision']})

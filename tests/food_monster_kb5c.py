@@ -148,6 +148,26 @@ class KB5CAutoSyncTests(unittest.TestCase):
         auto._finish(FIRST,successor,True)
         self.assertIsNone(self.policy_rows()[0]["lease_id"])
 
+    def test_idempotent_owner_save_retains_the_existing_lease(self):
+        auto.set_policy(FIRST, True, 3600)
+        lease = auto._claim(FIRST)
+        self.assertTrue(lease)
+        unchanged = auto.set_policy(FIRST, True, 3600)
+        self.assertTrue(unchanged["enabled"])
+        self.assertEqual(self.policy_rows()[0]["lease_id"], lease)
+        self.assertEqual(auto.run_due()["claimed"], 0)
+        auto._finish(FIRST, lease, True)
+
+    def test_revoked_lease_cannot_commit_from_inside_a_document_transaction(self):
+        auto.set_policy(FIRST, True, 3600)
+        lease = auto._claim(FIRST)
+        self.assertTrue(lease)
+        auto.set_policy(FIRST, False, 3600)
+        with self.assertRaises(sync.FoodMonsterSyncCancelled):
+            sync._apply_full_sweep(FIRST, "recipe", {}, auto_lease=lease)
+        self.assertEqual(self.docs(), 0)
+        self.assertEqual(self.policy_rows()[0]["last_outcome"], "disabled")
+
     def test_opt_out_invalidates_in_flight_lease_and_prevents_commits(self):
         auto.set_policy(FIRST,True,21600)
         self.before_manifest=lambda: auto.set_policy(FIRST,False,21600)
