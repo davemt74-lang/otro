@@ -248,22 +248,58 @@ def search_instance(local_id: str, query: str, kind: str = "all", limit: int = 1
 
 
 def disconnect_instance(local_id: str) -> dict:
+    """Invalidate the exact Gelato bearer before deleting our local token.
+
+    If Gelato cannot confirm the revocation, still erase the local secret
+    and return an explicit manual source-side revocation requirement.
+    Never claim remote success on a timeout or identity mismatch.
+    """
     if not _ID.fullmatch(local_id):
         raise FoodMonsterLinkError("Invalid connection identifier.")
     with _LOCK:
         with db() as conn:
-            row = conn.execute("SELECT id,origin FROM food_monster_connections WHERE id=?", (local_id,)).fetchone()
+            row = conn.execute(
+                "SELECT id,origin,instance_id,remote_connection_id "
+                "FROM food_monster_connections WHERE id=?", (local_id,)
+            ).fetchone()
         if not row:
             raise FoodMonsterLinkError("Connection not found.", 404)
+        connection = dict(row)
         tokens = _vault_read()
+        token = tokens.get(local_id)
+        remote_revoked = False
+        if token:
+            try:
+                result = _request(
+                    connection["origin"], {"action": "revoke"}, token=token
+                )
+                remote_revoked = (
+                    result.get("schema") == "food-monster-vp3-v1"
+                    and result.get("revoked") is True
+                    and str(result.get("instanceId") or "").lower() == connection["instance_id"]
+                    and result.get("connectionId") == connection["remote_connection_id"]
+                )
+            except FoodMonsterLinkError:
+                remote_revoked = False
+
+        # Local access is always removed. A failed remote call cannot keep a
+        # disconnected credential available in the owner's secret store.
         tokens.pop(local_id, None)
         _vault_write(tokens)
         with db() as conn:
             conn.execute("DELETE FROM food_monster_connections WHERE id=?", (local_id,))
-        # Gelato KB2 does not yet expose a machine-authenticated revoke call.
-        # Make the remaining source-side revocation obligation conspicuous.
-        return {"disconnected": True, "remoteRevocationRequired": True,
-            "message": "Local credential deleted. Revoke the connection in Food Monster's owner approval page as well."}
+        return {
+            "disconnected": True,
+            "remoteRevoked": bool(remote_revoked),
+            "remoteRevocationRequired": not remote_revoked,
+            "message": (
+                "Connection revoked on Food Monster and removed from HomeServer."
+                if remote_revoked else
+                "Local connection removed. Remote revocation could not be verified; "
+                "open the Food Monster owner approval page at the same installation "
+                "and revoke this connection there."
+            ),
+        }
 
 
 @router.get("/connections")
