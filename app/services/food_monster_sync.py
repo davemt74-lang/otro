@@ -145,6 +145,12 @@ def _apply_full_sweep(local_id: str, kind: str, docs: dict[str, dict[str, Any]],
     changes = {"created": 0, "updated": 0, "unchanged": 0, "removed": 0, "pendingRemoval": 0}
     with db() as connection:
         if auto_lease:
+            # Acquire the SQLite writer slot BEFORE checking the lease. Owner
+            # disable/reconfigure is also a write. Thus either it wins first
+            # (we abort) or the snapshot commits first; never a stale commit
+            # after a successful owner disable response.
+            if not connection.in_transaction:
+                connection.execute("BEGIN IMMEDIATE")
             from . import food_monster_auto_sync
             food_monster_auto_sync.assert_lease(local_id, auto_lease, connection=connection)
         # Lock write intent, and require still-active connection before writes.
