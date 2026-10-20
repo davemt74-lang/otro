@@ -88,7 +88,10 @@ async def lifespan(_: FastAPI):
         device_rollout.stop()
 
 
+from .services import food_monster_connector
+
 app = FastAPI(title="HomeServer", version=settings.version, lifespan=lifespan)
+app.include_router(food_monster_connector.router)
 if UI_DIR.exists():
     app.mount("/assets", StaticFiles(directory=UI_DIR), name="assets")
 
