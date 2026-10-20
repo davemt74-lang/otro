@@ -217,6 +217,23 @@ class KB5CAutoSyncTests(unittest.TestCase):
         with self.assertRaises(connector.FoodMonsterLinkError):
             auto.get_policy(FIRST)
 
+    def test_scheduled_cache_commit_reserves_writer_before_lease_validation(self):
+        auto.set_policy(FIRST, True, 3600)
+        original = auto.assert_lease
+        transactional_checks = []
+
+        def checked(local_id, lease_id, *, connection=None):
+            if connection is not None:
+                transactional_checks.append(connection.in_transaction)
+            return original(local_id, lease_id, connection=connection)
+
+        with patch.object(auto, "assert_lease", side_effect=checked):
+            result = auto.run_due()
+        self.assertEqual(result["succeeded"], 1)
+        self.assertTrue(transactional_checks, "Lease must be checked inside commit transaction")
+        self.assertTrue(all(transactional_checks),
+                        "Writer transaction must begin before checking scheduled lease")
+
     def test_owner_routes_are_not_paired_app_permissions(self):
         paths={r.path for r in connector.router.routes}
         self.assertIn("/api/v1/control/food-monster/connections/{local_id}/auto-sync", paths)
