@@ -88,5 +88,8 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
     import uvicorn
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
+    # Advertise a listening socket, not a merely bound port. Otherwise
+    # Playwright may attempt an owner session before uvicorn starts serving.
+    sock.listen(128)
     print(json.dumps({"url": "http://127.0.0.1:" + str(sock.getsockname()[1]), "owner": OWNER_CONTROL_TOKEN, "hosting_site_id": hosted_site["site_id"], "route_token": hosted_route["route_token"]}), flush=True)
     uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="off")).run(sockets=[sock])
