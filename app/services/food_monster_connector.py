@@ -286,6 +286,11 @@ def disconnect_instance(local_id: str) -> dict:
         # disconnected credential available in the owner's secret store.
         tokens.pop(local_id, None)
         _vault_write(tokens)
+        # The KB5B private document table has a foreign-key cascade, and
+        # deleting documents fires FTS cleanup triggers. Purge explicitly
+        # before deleting the parent so no stale private cache survives.
+        from . import food_monster_sync
+        food_monster_sync.purge(local_id, connection_provider=db)
         with db() as conn:
             conn.execute("DELETE FROM food_monster_connections WHERE id=?", (local_id,))
         return {
@@ -327,5 +332,32 @@ def routes_search(local_id: str, payload: SearchRequest) -> dict:
 def routes_disconnect(local_id: str) -> dict:
     try:
         return disconnect_instance(local_id)
+    except FoodMonsterLinkError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+
+
+@router.post("/connections/{local_id}/sync")
+def routes_sync(local_id: str) -> dict:
+    from . import food_monster_sync
+    try:
+        return food_monster_sync.synchronize(local_id)
+    except FoodMonsterLinkError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+
+
+@router.get("/connections/{local_id}/sync-status")
+def routes_sync_status(local_id: str) -> dict:
+    from . import food_monster_sync
+    try:
+        return food_monster_sync.status(local_id)
+    except FoodMonsterLinkError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+
+
+@router.post("/connections/{local_id}/cache/search")
+def routes_cache_search(local_id: str, payload: SearchRequest) -> dict:
+    from . import food_monster_sync
+    try:
+        return food_monster_sync.query_cache(local_id, payload.q, payload.type, payload.limit)
     except FoodMonsterLinkError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from None

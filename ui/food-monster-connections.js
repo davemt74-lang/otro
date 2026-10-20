@@ -91,6 +91,50 @@
       }
     });
     row.append(remove);
+
+    const snapshot = create('small', 'fm-link-snapshot', 'Knowledge snapshot: checking…');
+    details.append(snapshot);
+    if (record.status === 'active') {
+      const syncButton = create('button', 'button secondary fm-link-sync', 'Sync knowledge');
+      syncButton.type = 'button';
+      syncButton.setAttribute('aria-label','Synchronize ' + String(record.label || 'Food Monster') + ' knowledge');
+      syncButton.addEventListener('click', async () => {
+        if (busy || !record.id || !/^[a-f0-9]{32}$/.test(record.id)) return;
+        setBusy(true);
+        syncButton.disabled = true;
+        snapshot.textContent = 'Syncing authorized knowledge…';
+        try {
+          const result = await localApi('/connections/' + encodeURIComponent(record.id) + '/sync', {method:'POST'});
+          const categories = result.collections || {};
+          const total = Object.values(categories).reduce((n, item) => n + (Number(item.created || 0) + Number(item.updated || 0)), 0);
+          notice('Completed private Food Monster snapshot for ' + (record.label || 'restaurant') +
+                 '. ' + total + ' created or updated. Cached records are snapshots, not verified live data.');
+          await refresh({preserveNotice:true});
+        } catch {
+          snapshot.textContent = 'Sync failed; previous snapshot may be stale.';
+          notice('Knowledge synchronization could not be completed. Existing evidence remains unverified.', true);
+        } finally {
+          setBusy(false);
+          syncButton.disabled = false;
+        }
+      });
+      row.append(syncButton);
+      if (/^[a-f0-9]{32}$/.test(record.id)) {
+        localApi('/connections/' + encodeURIComponent(record.id) + '/sync-status')
+          .then(result => {
+            if (!row.parentNode && !row.children.length) return;
+            const categories = Object.values(result.categories || {});
+            const count = categories.reduce((n, item) => n + Number(item.documents || 0), 0);
+            const latest = categories.map(item => item.lastSyncedAt).filter(Boolean).sort().at(-1);
+            const problems = categories.some(item => Boolean(item.lastError));
+            snapshot.textContent = latest
+              ? count + ' locally indexed · Last complete sync ' + latest + ' · Not live-verified' +
+                (problems ? ' · Sync warning' : '')
+              : 'Knowledge not yet synchronized';
+          })
+          .catch(() => { snapshot.textContent = 'Knowledge sync status unavailable'; });
+      }
+    }
     return row;
   }
 
