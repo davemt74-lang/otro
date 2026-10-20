@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {randomUUID} from 'node:crypto';
+import {chromium} from 'playwright';
+const child=spawn(process.env.VP3_TEST_PYTHON||'python',['-u','tests/vrss_v1_server.py'],{env:{...process.env,VRSS_SOCIAL_TEST:'1',VRSS_REACTIONS_TEST:'1',VRSS_REPOSTS_TEST:'1'},stdio:['ignore','pipe','pipe']});
+let errors='';child.stderr.on('data',b=>errors+=b.toString());
+const lines=createInterface({input:child.stdout});
+const config=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Fixture startup: '+errors)),60000);lines.on('line',line=>{try{const v=JSON.parse(line);if(v.url){clearTimeout(timer);resolve(v);}}catch{}});child.on('exit',code=>reject(Error(`Fixture exited ${code}: ${errors}`)));});
+const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
+try{
+ for(const width of [1440,390,320]){
+  const ctx=await browser.newContext({viewport:{width,height:960}}),page=await ctx.newPage(),base=config.url,ep=base+'/api/v1/control/homeserver-apps/vrss/request',preview=base+'/api/v1/control/homeserver-apps/vp3.feed/preview/';
+  const api=async(action,args={})=>{const r=await ctx.request.post(ep,{headers:{'X-VRSS-Request':'1'},data:{action,...args}});assert.equal(r.status(),200,await r.text());return r.json();};
+  const event=async data=>{const r=await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data});assert.equal(r.status(),200,await r.text());return r.json();};
+  const pump=async()=>assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-pump')).status(),200);
+  await ctx.request.post(base+'/__owner/session',{headers:{'X-HomeServer-Owner':config.owner}});
+  await page.goto(preview+'#profile');await page.getByRole('button',{name:'Edit Profile',exact:true}).click();
+  if(width===1440)assert.equal(await page.locator('#vrss-reposts').isChecked(),false);
+  const address=page.getByLabel('Publishing address',{exact:true});if(await address.isEnabled())await address.selectOption(config.hosting_site_id);
+  await page.locator('#vrss-public').check();await page.locator('#vrss-social').check();await page.locator('#vrss-reposts').check();
+  await page.getByRole('button',{name:'Save Profile',exact:true}).click();await page.getByRole('button',{name:'Edit Profile',exact:true}).waitFor();
+  const own=await api('post.create',{body:'Repost test '+width,media:[],visibility:'public',request_id:randomUUID()});
+  await api('social.follow',{url:'https://bob.example/'});await event({kind:'Accept'});await event({kind:'Follow'});await pump();
+  const sub=(await api('subscriptions')).subscriptions.find(s=>s.url==='https://bob.example/vrss/v1/rss');await api('refresh',{id:sub.id});
+  for(const n of (await api('notices')).notices)await api('notice.read',{notice_id:n.id});
+  await page.goto(preview);
+  const remote=page.locator('article.card').filter({has:page.getByRole('heading',{name:'Remote VRSS post',exact:true})});
+  let lost=false;const attempts=[];
+  await page.route(ep,async route=>{const body=route.request().postDataJSON();if(body.action==='social.repost'){attempts.push(body);if(!lost){lost=true;await route.fetch();await route.abort();return;}}await route.continue();});
+  await remote.getByRole('button',{name:'Repost',exact:true}).click();
+  await remote.getByRole('button',{name:'Retry repost',exact:true}).waitFor();
+  await page.reload();await remote.getByRole('button',{name:'Retry repost',exact:true}).click();
+  await remote.getByRole('button',{name:'Undo repost',exact:true}).waitFor();
+  await remote.getByText('Repost pending delivery',{exact:true}).waitFor();
+  assert.equal(attempts.length,2);assert.equal(attempts[0].request_id,attempts[1].request_id);
+  await page.unroute(ep);await pump();
+  await page.goto(preview+'#profile');
+  const pointer=page.locator('article.card').filter({hasText:'Original author: Bob <untrusted>'});await pointer.waitFor();
+  assert.equal(await pointer.getByRole('link',{name:'Read original',exact:true}).getAttribute('href'),'https://bob.example/vrss/v1/posts/11111111-1111-4111-8111-111111111111');
+  assert.equal(await pointer.locator('script').count(),0);assert.equal(await pointer.locator('img,audio,video').count(),0);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  if(process.env.VRSS_SCREENSHOT_DIR)await page.screenshot({path:`${process.env.VRSS_SCREENSHOT_DIR}/vrss-reposts-${width}.png`,fullPage:true});
+  await pointer.getByRole('button',{name:'Undo repost',exact:true}).click();await pointer.waitFor({state:'detached'});await pump();
+  await event({kind:'Repost',post_id:own.post_id});
+  await ctx.request.post(base+'/api/v1/control/system/setup',{data:{complete:true}});
+  await page.goto(base+'/#chat');
+  const updates=page.getByRole('region',{name:'VRSS updates',exact:true});await updates.getByText('New VRSS repost',{exact:true}).waitFor();
+  await updates.getByRole('button',{name:'Show reposts',exact:true}).click();await updates.getByText('1 reposts reported by the original author.',{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await api('social.block',{actor:'https://bob.example/vrss/v1/actor'});await api('social.unblock',{actor:'https://bob.example/vrss/v1/actor'});await ctx.close();
+ }
+ console.log('PASS V2F browser at1440/390/320: explicit consent, lost response/reload nonce recovery, attributed profile cards, original links, undo, verified Chat counts, literal names, no media copies and no overflow');
+}finally{await browser.close();child.kill();}

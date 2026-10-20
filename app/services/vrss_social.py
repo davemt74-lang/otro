@@ -66,6 +66,8 @@ def setup(c):
     vrss_interactions.setup(c)
     from . import vrss_comments
     vrss_comments.setup(c)
+    from . import vrss_reposts
+    vrss_reposts.setup(c)
 
 
 def ready(c):
@@ -103,7 +105,8 @@ def actor_document():
                 'inbox': p['public_base'] + '/vrss/v1/inbox', 'rss': p['feed_url'],
                 'public_key': key.public_key().public_bytes_raw().hex(), 'rotations': rotations,
                 'interactions': {'contract': 'vp3.vrss.interactions.v1', 'likes': bool(p['reactions_enabled'])},
-                'comments': {'contract': 'vp3.vrss.comments.v1', 'enabled': bool(p['comments_enabled'])}}
+                'comments': {'contract': 'vp3.vrss.comments.v1', 'enabled': bool(p['comments_enabled'])},
+                'reposts': {'contract': 'vp3.vrss.reposts.v1', 'enabled': bool(p['reposts_enabled'])}}
 
 
 def rotate():
@@ -291,6 +294,7 @@ def change(target, action):
         if action in {'unfollow', 'block'}:
             c.execute('DELETE FROM vrss_subscriptions WHERE url=?', (peer['rss'],))
         c.execute('UPDATE vrss_comments SET notice_delivered=0 WHERE actor=?', (target,))
+        c.execute('UPDATE vrss_reposts SET notice_delivered=0 WHERE actor=?', (target,))
     dismiss_notices(target) if action in {'block', 'remove'} else None
     return {'state': 'blocked' if action == 'block' else 'removed'}
 
@@ -313,6 +317,7 @@ def rate_limit(actor):
 def receive(raw, loader=None):
     from . import vrss_interactions as interactions
     from . import vrss_comments as comments
+    from . import vrss_reposts as reposts
     if len(raw) > MAX_BODY:
         raise v.VRSSError('VRSS activity is too large.', 413)
     try:
@@ -322,16 +327,19 @@ def receive(raw, loader=None):
         base = actor[:-len('/vrss/v1/actor')]
         reaction = a.get('type') in interactions.TYPES
         comment = a.get('type') in comments.TYPES
+        repost = a.get('type') in reposts.TYPES
         fields = {'contract','id','actor','identity','recipient','type','follow_id','seq','issued_at'}
         if reaction:
             fields |= {'object','reaction_id'}
+        if repost:
+            fields |= {'object','repost_id'}
         if comment:
             fields |= {'object','comment_id'}
             if a['type'] == 'Comment':
                 fields |= {'body','parent'}
         if (set(a) != fields
-                or a['contract'] != (comments.CONTRACT if comment else interactions.CONTRACT if reaction else CONTRACT)
-                or (not reaction and not comment and a['type'] not in {'Follow','Accept','Undo','Reject'})
+                or a['contract'] != (reposts.CONTRACT if repost else comments.CONTRACT if comment else interactions.CONTRACT if reaction else CONTRACT)
+                or (not repost and not reaction and not comment and a['type'] not in {'Follow','Accept','Undo','Reject'})
                 or type(a['seq']) is not int or not 0 < a['seq'] < 2**53
                 or type(a['issued_at']) not in {int,float} or not 0 < a['issued_at'] <= time.time() + 300
                 or type(packet['sent_at']) is not int or abs(time.time() - packet['sent_at']) > 300
@@ -346,6 +354,8 @@ def receive(raw, loader=None):
             interactions.validate(a)
         if comment:
             comments.validate(a)
+        if repost:
+            reposts.validate(a)
         signature = bytes.fromhex(packet['signature'])
     except (KeyError, ValueError, TypeError, AttributeError, UnicodeError, RecursionError) as exc:
         raise v.VRSSError('Invalid VRSS activity.', 422) from exc
@@ -382,6 +392,8 @@ def receive(raw, loader=None):
                 if reaction:
                     result['interaction'] = {'object': a['object'], 'actor': actor_url(p),
                                              'likes': interactions.count(c, p, a['object'])}
+                if repost:
+                    result['repost'] = reposts.acknowledgement(c, p, a)
                 if comment:
                     row = c.execute('SELECT state FROM vrss_comments WHERE id=?', (a['comment_id'],)).fetchone()
                     result['comment'] = {'object': a['object'], 'id': a['comment_id'], 'state': row['state']}
@@ -390,7 +402,7 @@ def receive(raw, loader=None):
                 raise v.VRSSError('Stale VRSS activity.', 409)
             if c.execute('SELECT count(*) FROM vrss_social_receipts').fetchone()[0] >= 10000:
                 raise v.VRSSError('VRSS inbox history is full.', 409)
-            direction = 'in' if reaction or comment or a['type'] in {'Follow','Undo'} else 'out'
+            direction = 'in' if reaction or comment or repost or a['type'] in {'Follow','Undo'} else 'out'
             expected = base if direction == 'in' else p['public_base']
             if prefix != expected:
                 raise v.VRSSError('VRSS follow owner does not match.', 403)
@@ -399,7 +411,10 @@ def receive(raw, loader=None):
                 c.execute('INSERT OR IGNORE INTO vrss_social_revoked VALUES(?,?)',(actor,fid))
             interaction = None
             comment_result = None
-            if comment:
+            repost_result = None
+            if repost:
+                repost_result = reposts.receive(c, p, peer, a)
+            elif comment:
                 comment_result = comments.receive(c, p, peer, a)
             elif reaction:
                 interaction = interactions.receive(c, p, peer, a)
@@ -423,10 +438,12 @@ def receive(raw, loader=None):
                 else:
                     c.execute('DELETE FROM vrss_social_notices WHERE actor=? AND delivered=0',(actor,))
                 c.execute('UPDATE vrss_comments SET notice_delivered=0 WHERE actor=?', (actor,))
+                c.execute('UPDATE vrss_reposts SET notice_delivered=0 WHERE actor=?', (actor,))
             c.execute('INSERT INTO vrss_social_receipts VALUES(?,?,?,?)',(a['id'],digest,actor,time.time()))
             c.execute('UPDATE vrss_social_peers SET receive_seq=? WHERE actor=?',(a['seq'],actor))
         return {'contract':CONTRACT,'ok':True, **({'interaction': interaction} if interaction is not None else {}),
-                **({'comment': comment_result} if comment_result is not None else {})}
+                **({'comment': comment_result} if comment_result is not None else {}),
+                **({'repost': repost_result} if repost_result is not None else {})}
     finally:
         _SLOTS.release()
 
@@ -455,7 +472,8 @@ def deliver(sender=None, stop_event=None):
             if job['blocked'] and a['type'] not in {'Undo','Reject'}:
                 c.execute("UPDATE vrss_social_outbox SET state='cancelled' WHERE id=?",(job['id'],))
                 continue
-            c.execute('UPDATE vrss_social_outbox SET lease=?,lease_until=?,attempts=attempts+1 WHERE id=?', (lease,time.time()+120,job['id']))
+            delivery_started = time.time()
+            c.execute('UPDATE vrss_social_outbox SET lease=?,lease_until=?,attempts=attempts+1 WHERE id=?', (lease,delivery_started+120,job['id']))
             packet=signed(c,a)
         try:
             # A block/unfollow in the gap cancels this lease before sending if it wins this check.
@@ -475,6 +493,8 @@ def deliver(sender=None, stop_event=None):
                     vrss_interactions.acknowledge(c, a, result)
                     from . import vrss_comments
                     vrss_comments.acknowledge(c, a, result)
+                    from . import vrss_reposts
+                    vrss_reposts.acknowledge(c, a, result, delivery_started)
         except Exception:
             with v.database() as c:
                 c.execute("UPDATE vrss_social_outbox SET error='Delivery unavailable; retrying automatically.',due=?,lease='',lease_until=0 WHERE id=? AND lease=? AND state='pending'",
@@ -486,6 +506,9 @@ def deliver(sender=None, stop_event=None):
     vrss_interactions.deliver_notices()
     from . import vrss_comments
     vrss_comments.deliver_notices()
+    from . import vrss_reposts
+    vrss_reposts.deliver_notices()
+    vrss_reposts.refresh_due(stop_event=stop_event)
 
 
 def deliver_notices():
@@ -508,7 +531,7 @@ def deliver_notices():
 def dismiss_notices(actor):
     from ..database import db
     with db() as c:
-        rows=c.execute("SELECT id,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_follower','vrss.new_like','vrss.new_comment')",(v.APP_KEY,)).fetchall()
+        rows=c.execute("SELECT id,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost')",(v.APP_KEY,)).fetchall()
         for row in rows:
             if json.loads(row['action_json']).get('actor')==actor:
                 c.execute('UPDATE notifications SET dismissed_at=COALESCE(dismissed_at,CURRENT_TIMESTAMP) WHERE id=?',(row['id'],))
@@ -540,7 +563,9 @@ def status(cursor=''):
         counts={row['direction']:row['n'] for row in c.execute("SELECT direction,count(*) AS n FROM vrss_social_relations r JOIN vrss_social_peers p ON p.actor=r.actor WHERE r.state='accepted' AND p.blocked=0 GROUP BY direction")}
         pending=c.execute("SELECT count(*) FROM vrss_social_outbox WHERE state='pending'").fetchone()[0]
         reviews=[dict(row) for row in c.execute("SELECT x.object,x.id FROM vrss_comments x JOIN vrss_social_relations r ON r.actor=x.actor AND r.direction='in' JOIN vrss_social_peers p ON p.actor=x.actor JOIN vrss_posts post ON x.object=? || '/vrss/v1/posts/' || post.id WHERE x.state='pending' AND r.state='accepted' AND r.follow_id=x.follow_id AND p.blocked=0 AND post.deleted=0 AND post.visibility='public' ORDER BY x.seq LIMIT 5", (p['public_base'],))]
+        from . import vrss_reposts
+        repost_states=[{**dict(row), **vrss_reposts.summary(c, p, row['object'])} for row in c.execute("SELECT object,enabled,verified_at,checked_at FROM vrss_repost_out ORDER BY created_at DESC,seq DESC LIMIT 5")]
         review=c.execute("SELECT count(*) FROM vrss_comments x JOIN vrss_social_relations r ON r.actor=x.actor AND r.direction='in' JOIN vrss_social_peers p ON p.actor=x.actor JOIN vrss_posts post ON x.object=? || '/vrss/v1/posts/' || post.id WHERE x.state='pending' AND r.state='accepted' AND r.follow_id=x.follow_id AND p.blocked=0 AND post.deleted=0 AND post.visibility='public'", (p['public_base'],)).fetchone()[0]
     return {'enabled':bool(p['social_enabled'] and p['enabled']),'likes_enabled':bool(p['reactions_enabled']),'relations':rows,'blocked':blocked,'deliveries':jobs,'pause_reason':pause_reason,
-            'followers':counts.get('in',0),'following':counts.get('out',0),'pending_deliveries':pending,'pending_comments':review,'comment_reviews':reviews,
+            'followers':counts.get('in',0),'following':counts.get('out',0),'pending_deliveries':pending,'pending_comments':review,'comment_reviews':reviews,'repost_checks':repost_states,
             'next_cursor':page[-1]['actor'] if len(peers)>25 else ''}

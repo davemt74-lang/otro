@@ -60,10 +60,20 @@ def public_html(doc, post=False):
 
 
 def document_response(kind, post_id="", accept="", after="0"):
+    if kind == 'repost':
+        from .services import vrss_reposts
+        with vrss.database() as c:
+            p = vrss.profile(c)
+        doc = vrss_reposts.public_pointer(p['public_base'] + '/vrss/v1/reposts/' + post_id)
+        if 'text/html' in accept:
+            e = html.escape
+            content = '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VRSS repost</title><style>body{max-width:720px;margin:48px auto;padding:20px;font:17px/1.6 system-ui;overflow-wrap:anywhere}</style><main><h1>Reposted by ' + e(doc['author']['name']) + '</h1><p>Original author: ' + e(doc['original']['name']) + '</p><p><a rel="noreferrer noopener" href="' + e(doc['original']['url'], quote=True) + '">Read the original post</a></p></main></html>'
+            return HTMLResponse(content, headers=HEADERS)
+        return JSONResponse(doc, headers=HEADERS)
     doc = vrss_social.actor_document() if kind == "actor" else vrss.public_document(kind, post_id, after)
     if kind == "rss":
         return Response(doc, media_type="application/rss+xml", headers=HEADERS)
-    if kind not in {"actor", "comments", "interactions"} and "text/html" in accept:
+    if kind not in {"actor", "comments", "interactions", "reposts"} and "text/html" in accept:
         return HTMLResponse(public_html(doc, kind == "post"), headers=HEADERS)
     return JSONResponse(doc, headers=HEADERS)
 
@@ -87,6 +97,13 @@ def hosted_response(site_id, request_path, method="GET", headers=None, body=b"")
         kind = "rss"
     elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", path):
         kind, post_id = "post", path.rsplit("/", 1)[1]
+    elif re.fullmatch(r"/vrss/v1/reposts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", path):
+        kind, post_id = 'repost', path.rsplit('/', 1)[1]
+    elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/reposts(?:/id-[0-9a-f]{64})?", path):
+        parts = path.split('/')
+        kind, post_id = 'reposts', parts[4]
+        if len(parts) == 7:
+            after = parts[6]
     elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/interactions", path):
         kind, post_id = "interactions", path.split('/')[-2]
     elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/comments(?:/(?:[1-9][0-9]{0,15}|id-[0-9a-f]{64}))?", path):
@@ -109,7 +126,7 @@ def hosted_response(site_id, request_path, method="GET", headers=None, body=b"")
         if headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
             raise vrss.VRSSError("A JSON VRSS activity is required.", 415)
         return JSONResponse(vrss_social.receive(body), status_code=202, headers=HEADERS)
-    response = document_response(kind, post_id, "application/json" if kind in {"interactions", "comments"} or "application/json" in headers.get("accept", "") else "text/html", after)
+    response = document_response(kind, post_id, "application/json" if kind in {"interactions", "comments", "reposts"} or "application/json" in headers.get("accept", "") else "text/html", after)
     if method == "HEAD":
         response.body = b""
     return response
@@ -133,6 +150,21 @@ def public_post(post_id: str, request: Request):
 @router.get("/vrss/v1/posts/{post_id}/interactions")
 def public_interactions(post_id: str):
     return call(document_response, "interactions", post_id)
+
+
+@router.get('/vrss/v1/reposts/{repost_id}')
+def public_repost(repost_id: str, request: Request):
+    return call(document_response, 'repost', repost_id, request.headers.get('accept', ''))
+
+
+@router.get('/vrss/v1/posts/{post_id}/reposts')
+def public_repost_count(post_id: str):
+    return call(document_response, 'reposts', post_id)
+
+
+@router.get('/vrss/v1/posts/{post_id}/reposts/{after}')
+def public_repost_receipt(post_id: str, after: str):
+    return call(document_response, 'reposts', post_id, '', after)
 
 
 @router.get("/vrss/v1/actor")
