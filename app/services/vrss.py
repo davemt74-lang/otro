@@ -124,6 +124,8 @@ def database():
             connection.execute("INSERT OR IGNORE INTO vrss_seen(subscription_id,item_key) SELECT subscription_id,item_key FROM vrss_items")
         # Existing cached subscriptions establish a quiet baseline on their first V2B check.
         connection.execute("INSERT OR IGNORE INTO vrss_profile(id,actor_id) VALUES(1,?)", ("urn:uuid:" + str(uuid.uuid4()),))
+        from . import vrss_social
+        vrss_social.setup(connection)
         yield connection
         running()
         guard = _AUTHORITY_GUARD.get()
@@ -184,6 +186,7 @@ def optional_url(value, base=""):
 def profile(connection):
     p = dict(connection.execute("SELECT * FROM vrss_profile WHERE id=1").fetchone())
     p["enabled"] = bool(p["enabled"])
+    p["social_enabled"] = bool(p.get("social_enabled", False))
     p["address_locked"] = bool(p["address_locked"])
     p["profile_url"] = p["public_base"] + "/vrss/v1/profile" if p["public_base"] else ""
     p["feed_url"] = p["public_base"] + "/vrss/v1/rss" if p["public_base"] else ""
@@ -247,6 +250,15 @@ def update_profile(body):
                 hosted_address(hosting_site_id, base, require_ready=enabled)
         if p["hosting_site_id"] and p["address_locked"] and hosting_site_id != p["hosting_site_id"]:
             raise VRSSError("This profile is bound to its published Hosting site. Address migration is not available yet.", 409)
+        social = body.get("social_enabled", p["social_enabled"])
+        if type(social) is not bool:
+            raise VRSSError("Choose whether to enable authenticated follows.", 422)
+        social = social and enabled
+        if social:
+            from . import vrss_social
+            vrss_social.actor_address(base + '/vrss/v1/actor')
+            vrss_social.identity(c)
+        c.execute("UPDATE vrss_profile SET social_enabled=? WHERE id=1", (int(social),))
         c.execute("UPDATE vrss_profile SET display_name=?,bio=?,public_base=?,enabled=?,address_locked=?,hosting_site_id=?,revision=revision+1 WHERE id=1",
                   (name, bio, base, int(enabled), int(enabled or p["address_locked"]), hosting_site_id))
         return profile(c)
@@ -646,6 +658,8 @@ def _refresh_loop(stop):
     while not stop.wait(15):
         try:
             refresh_due(stop_event=stop)
+            from . import vrss_social
+            vrss_social.deliver(stop_event=stop)
         except Exception:
             # Stopped/uninstalled apps and transient quota/database failures are retried locally.
             continue
@@ -670,10 +684,11 @@ def stop():
 
 def agent_invoke(action, arguments):
     if action == "vrss.status":
+        from . import vrss_social
         with database() as c:
             rows = subscriptions(c)
         return {"subscriptions": rows, "automatic_refresh": True, "interval_seconds": POLL_SECONDS,
-                "new_post_notifications": True, "remote_followers": False}
+                "new_post_notifications": True, "remote_followers": True, "social": vrss_social.status()}
     if action == "vrss.refresh_all":
         with database() as c:
             rows = c.execute("SELECT id,checked_at FROM vrss_subscriptions").fetchall()
@@ -681,6 +696,8 @@ def agent_invoke(action, arguments):
                 due = max(time.time(), datetime.fromisoformat(row["checked_at"]).timestamp() + 60) if row["checked_at"] else time.time()
                 c.execute("UPDATE vrss_subscriptions SET next_check_at=? WHERE id=?", (due, row["id"]))
         return {"queued": len(rows)}
+    if action.startswith("vrss.social."):
+        return request({"action": action.removeprefix("vrss."), **arguments})
     allowed = {"vrss.feed": "feed", "vrss.follow": "subscribe", "vrss.refresh": "refresh",
                "vrss.unfollow": "unsubscribe"}
     if action not in allowed:
@@ -698,17 +715,30 @@ def request(body):
         except (ValueError, TypeError, AttributeError) as exc:
             raise VRSSError("A valid item ID is required.", 422) from exc
     result = {}
-    if action == "notices":
+    if action.startswith("social."):
+        from . import vrss_social
+        command = action.removeprefix("social.")
+        if command == "status":
+            result["social"] = vrss_social.status()
+        elif command == "follow":
+            result.update(vrss_social.follow(body.get("url")))
+        elif command in {"unfollow", "block", "unblock", "remove"}:
+            result.update(vrss_social.change(body.get("actor"), command))
+        elif command == "rotate":
+            result.update(vrss_social.rotate())
+        else:
+            raise VRSSError("Unknown VRSS social action.", 422)
+    elif action == "notices":
         from ..database import db
         with db() as central:
-            rows = central.execute("SELECT id,title,body,created_at FROM notifications WHERE source_key=? AND event_key='vrss.new_posts' AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
+            rows = central.execute("SELECT id,title,body,created_at FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
         result["notices"] = [dict(row) for row in rows]
     elif action == "notice.read":
         from ..database import db
         if type(body.get("notice_id")) is not int or body["notice_id"] < 1:
             raise VRSSError("A valid notice ID is required.", 422)
         with db() as central:
-            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key='vrss.new_posts'", (body["notice_id"], APP_KEY))
+            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower')", (body["notice_id"], APP_KEY))
     elif action == "profile.update":
         result["profile"] = update_profile(body)
     elif action == "post.create":
@@ -722,6 +752,11 @@ def request(body):
     elif action == "refresh":
         result.update(refresh(body.get("id")))
     elif action == "unsubscribe":
+        from . import vrss_social
+        with database() as c:
+            social_peer = c.execute("SELECT p.actor FROM vrss_social_peers p JOIN vrss_social_relations r ON r.actor=p.actor JOIN vrss_subscriptions s ON s.url=p.rss WHERE s.id=? AND r.direction='out' AND r.state IN ('pending','accepted')", (body.get("id"),)).fetchone()
+        if social_peer:
+            vrss_social.change(social_peer['actor'], 'unfollow')
         with database() as c:
             c.execute("DELETE FROM vrss_subscriptions WHERE id=?", (body.get("id"),))
             from ..database import db
@@ -735,7 +770,7 @@ def request(body):
         if action in {"bootstrap", "profile"}:
             result["profile"] = p
         if action == "bootstrap":
-            result["capabilities"] = {"rss_reader": True, "local_posts": True, "public_rss": True, "social_writes": False, "cloud_required": False, "discovery": True, "automatic_refresh": True, "new_post_notifications": True, "remote_followers": False}
+            result["capabilities"] = {"rss_reader": True, "local_posts": True, "public_rss": True, "social_writes": True, "cloud_required": False, "discovery": True, "automatic_refresh": True, "new_post_notifications": True, "remote_followers": True}
         if action == "subscriptions":
             result["subscriptions"] = subscriptions(c)
         if action == "feed":
@@ -787,7 +822,7 @@ def public_document(kind, post_id=""):
             except VRSSError as exc:
                 raise VRSSError("Public VRSS Hosting is unavailable.", 404) from exc
         rows = c.execute("SELECT * FROM vrss_posts WHERE deleted=0 AND visibility='public' ORDER BY seq DESC LIMIT 100").fetchall()
-        public = {"contract": CONTRACT, "id": p["actor_id"], "name": p["display_name"], "bio": p["bio"], "url": p["profile_url"], "rss": p["feed_url"], "capabilities": {"rss": True, "social_writes": False}}
+        public = {"contract": CONTRACT, "id": p["actor_id"], "name": p["display_name"], "bio": p["bio"], "url": p["profile_url"], "rss": p["feed_url"], "capabilities": {"rss": True, "social_writes": bool(p["social_enabled"])}, "social": {"contract": "vp3.vrss.follow.v1", "actor": p["public_base"] + "/vrss/v1/actor"} if p["social_enabled"] else None}
         if kind == "profile":
             return public
         if kind == "post":

@@ -19,3 +19,6 @@ opencv-python-headless==4.10.0.84
 
 # IANA timezones for scheduled tasks on Windows.
 tzdata==2025.2
+
+# VRSS origin-bound authenticated follow exchange.
+cryptography==50.0.2

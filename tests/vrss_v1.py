@@ -167,7 +167,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-vrss-") as data:
     with db() as c:
         c.execute("UPDATE homeserver_apps SET installed_version='1.0.0' WHERE app_key=?", (v.APP_KEY,))
     packages.ensure_defaults()
-    assert homeserver_apps.get(v.APP_KEY)["installed_version"] == "1.3.0"
+    assert homeserver_apps.get(v.APP_KEY)["installed_version"] == "1.4.0"
     assert homeserver_apps.get(v.APP_KEY)["lifecycle_state"] == "stopped"
     reject(lambda: v.request({"action": "bootstrap"}), 409)
     homeserver_apps.transition(v.APP_KEY, "running")

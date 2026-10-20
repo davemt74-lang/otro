@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {createInterface} from 'node:readline';
+import {chromium} from 'playwright';
+const child=spawn(process.env.VP3_TEST_PYTHON||'python',['-u','tests/vrss_v1_server.py'],{env:{...process.env,VRSS_SOCIAL_TEST:'1'},stdio:['ignore','pipe','pipe']});
+let stderr='';child.stderr.on('data',b=>stderr+=b.toString());
+const lines=createInterface({input:child.stdout});
+const config=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Social fixture startup timed out: '+stderr)),60000);lines.on('line',line=>{try{const d=JSON.parse(line);if(d.url){clearTimeout(timer);resolve(d);}}catch{}});child.on('exit',code=>reject(Error(`Fixture exited ${code}: ${stderr}`)));});
+const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
+try{
+ for(const width of [1440,390,320]){
+  const ctx=await browser.newContext({viewport:{width,height:960}}),page=await ctx.newPage();
+  const base=config.url,ep=base+'/api/v1/control/homeserver-apps/vrss/request',remote='https://bob.example/vrss/v1/actor';
+  const api=async(action,extra={})=>{const r=await ctx.request.post(ep,{headers:{'X-VRSS-Request':'1'},data:{action,...extra}});assert.equal(r.status(),200,await r.text());return r.json();};
+  await ctx.request.post(base+'/__owner/session',{headers:{'X-HomeServer-Owner':config.owner}});
+  await page.goto(base+'/api/v1/control/homeserver-apps/vp3.feed/preview/#profile');
+  await page.getByRole('button',{name:'Edit Profile',exact:true}).click();
+  await page.getByLabel('Display name',{exact:true}).fill('Dave');
+  const publishing=page.getByLabel('Publishing address',{exact:true});if(await publishing.isEnabled())await publishing.selectOption(config.hosting_site_id);
+  await page.locator('#vrss-public').check();await page.locator('#vrss-social').check();
+  await page.getByRole('button',{name:'Save Profile',exact:true}).click();
+  await page.getByRole('button',{name:'Connections',exact:true}).click();
+  await page.getByLabel('VRSS profile address',{exact:true}).fill('https://bob.example/');
+  await page.getByRole('button',{name:'Follow VRSS profile',exact:true}).click();
+  await page.getByText('Follow pending remote acceptance',{exact:true}).waitFor();
+  assert.equal((await api('social.status')).social.following,0);
+  assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data:{kind:'Accept'}})).status(),200);
+  assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data:{kind:'Follow'}})).status(),200);
+  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await page.getByRole('button',{name:'Connections',exact:true}).click();
+  await page.getByText('1 verified follower · 1 profile followed',{exact:true}).waitFor();
+  await page.getByText('Follows you',{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+  if(process.env.VRSS_SCREENSHOT_DIR)await page.screenshot({path:`${process.env.VRSS_SCREENSHOT_DIR}/vrss-connections-${width}.png`,fullPage:true});
+  await page.getByRole('button',{name:'Close',exact:true}).click();
+  await ctx.request.post(base+'/api/v1/control/system/setup',{data:{complete:true}});
+  await page.goto(base+'/#chat');
+  const updates=page.getByRole('region',{name:'VRSS updates',exact:true});
+  await updates.getByText('New VRSS follower',{exact:true}).waitFor();
+  if(width<700)await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+  await page.getByRole('button',{name:'Open Agent Brain',exact:true}).click();
+  await page.locator('#agentBrainVRSS').getByText(/1 verified follower · 1 profile followed/).waitFor();
+  if(process.env.VRSS_SCREENSHOT_DIR)await page.screenshot({path:`${process.env.VRSS_SCREENSHOT_DIR}/vrss-social-brain-${width}.png`,fullPage:true});
+  await page.getByRole('button',{name:'Close Agent Brain',exact:true}).click();
+  const closeNav=page.getByRole('button',{name:'Close navigation',exact:true});if(width<700&&await closeNav.isVisible())await closeNav.click();
+  await updates.getByRole('button',{name:'Mark read',exact:true}).click();await updates.waitFor({state:'hidden'});
+  await page.goto(base+'/api/v1/control/homeserver-apps/vp3.feed/preview/#profile');
+  await page.getByRole('button',{name:'Connections',exact:true}).click();
+  await page.getByRole('button',{name:'Block',exact:true}).first().click();
+  await page.getByRole('button',{name:'Unblock',exact:true}).waitFor();
+  assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data:{kind:'Follow'}})).status(),403);
+  assert.equal((await api('social.status')).social.followers,0);
+  await page.getByRole('button',{name:'Unblock',exact:true}).click();
+  assert.equal((await api('social.status')).social.following,0);
+  await ctx.close();
+ }
+ console.log('PASS V2C real browser at 1440/390/320: explicit opt-in, pending/accepted follows, followers, block/unblock, Chat notices, Brain delivery status and no horizontal overflow');
+}finally{await browser.close();child.kill();}

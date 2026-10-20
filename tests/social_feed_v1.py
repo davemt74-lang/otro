@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory(prefix="vp3-feed-") as data:
     initialize_database()
     packages.ensure_defaults()
     item = homeserver_apps.get(feed.APP_KEY)
-    assert item["installed_version"] == "1.3.0" and item["lifecycle_state"] == "running"
+    assert item["installed_version"] == "1.4.0" and item["lifecycle_state"] == "running"
     assert item["app_class"] == "system" and item["protected_system_app"]
     package = packages._package(packages.CATALOG[feed.APP_KEY])
     assert package == packages._package(packages.CATALOG[feed.APP_KEY])

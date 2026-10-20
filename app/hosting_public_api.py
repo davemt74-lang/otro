@@ -5,6 +5,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from .services import hosting_diagnostics, hosting_public, hosting_serving
 
@@ -55,13 +56,17 @@ async def public_ingress(
                 raise HTTPException(status_code=413,detail="Hosted request body exceeds the runtime limit.")
         except ValueError as exc:
             raise HTTPException(status_code=400,detail="Invalid Content-Length header.") from exc
-    body=await request.body()
-    if len(body)>hosting_serving.MAX_REQUEST_BODY_BYTES:
-        raise HTTPException(status_code=413,detail="Hosted request body exceeds the runtime limit.")
+    limit=32768 if str(request_path).strip("/")=="vrss/v1/inbox" else hosting_serving.MAX_REQUEST_BODY_BYTES
+    body=bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body)>limit:
+            raise HTTPException(status_code=413,detail="Hosted request body exceeds the runtime limit.")
+    body=bytes(body)
 
     started=time.monotonic()
     try:
-        response=_call(
+        response=await run_in_threadpool(_call,
             hosting_serving.serve,
             route["site_id"],
             request_path,
