@@ -284,7 +284,7 @@ def chat(
         *history,
     ]
     if food_monster_packet["context"]:
-        messages[0]["content"] += "\\n\\n" + food_monster_packet["context"]
+        messages[0]["content"] += chr(10) * 2 + food_monster_packet["context"]
     if research_text:
         messages[0]['content'] += '\n\n' + research_text
     if read_only:
