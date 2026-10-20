@@ -23,7 +23,7 @@ RECIPE = re.compile(
 MENU = re.compile(r"\b(menu|menus|pizza|allergen|allergens|preparation|toppings?)\b", re.I)
 ALL = re.compile(r"\b(compare|comparison|across|both|all my restaurants|each restaurant)\b", re.I)
 EXCLUDE = {
-    "a", "about", "all", "and", "any", "are", "at", "batch", "current", "each",
+    "a", "about", "all", "and", "any", "are", "at", "batch", "can", "contain", "contains", "current", "do", "does", "each",
     "food", "foodmonster", "for", "from", "give", "have", "how", "i", "in",
     "is", "it", "latest", "list", "me", "menu", "menus", "monster", "my",
     "of", "our", "please", "production", "recipe", "recipes", "restaurant",
@@ -153,6 +153,9 @@ def owner_packet(
             packet["errors"].append(label + ": Food Monster knowledge is unavailable or authorization expired.")
             continue
         for item in rows:
+            if not isinstance(item, dict) or (kind != "all" and item.get("type") != kind):
+                packet["errors"].append(label + ": Returned knowledge did not match the requested category.")
+                continue
             citation = _source(item, conn)
             if citation is None:
                 packet["errors"].append(label + ": A returned knowledge record did not meet source validation.")
