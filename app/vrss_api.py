@@ -59,11 +59,11 @@ def public_html(doc, post=False):
     return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' + rss_link + '<title>' + e(title) + '</title><style>body{max-width:720px;margin:48px auto;padding:20px;font:17px/1.6 system-ui;color:#18222f}a{color:#315cc5}p{white-space:pre-wrap;overflow-wrap:anywhere}</style><main><h1>' + e(title) + "</h1>" + content + "</main></html>"
 
 
-def document_response(kind, post_id="", accept=""):
-    doc = vrss_social.actor_document() if kind == "actor" else vrss.public_document(kind, post_id)
+def document_response(kind, post_id="", accept="", after="0"):
+    doc = vrss_social.actor_document() if kind == "actor" else vrss.public_document(kind, post_id, after)
     if kind == "rss":
         return Response(doc, media_type="application/rss+xml", headers=HEADERS)
-    if kind != "actor" and "text/html" in accept:
+    if kind not in {"actor", "comments", "interactions"} and "text/html" in accept:
         return HTMLResponse(public_html(doc, kind == "post"), headers=HEADERS)
     return JSONResponse(doc, headers=HEADERS)
 
@@ -78,6 +78,7 @@ def hosted_response(site_id, request_path, method="GET", headers=None, body=b"")
     if method not in {"GET", "HEAD"} and not (method == "POST" and path == "/vrss/v1/inbox"):
         raise vrss.VRSSError("This VRSS path does not accept writes.", 405)
     post_id = ""
+    after = '0'
     if path in {"/", "/vrss/v1/profile"}:
         kind = "profile"
     elif path in {"/vrss/v1/actor", "/vrss/v1/inbox"}:
@@ -88,6 +89,11 @@ def hosted_response(site_id, request_path, method="GET", headers=None, body=b"")
         kind, post_id = "post", path.rsplit("/", 1)[1]
     elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/interactions", path):
         kind, post_id = "interactions", path.split('/')[-2]
+    elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/comments(?:/(?:[1-9][0-9]{0,15}|id-[0-9a-f]{64}))?", path):
+        parts = path.split('/')
+        kind, post_id = 'comments', parts[4]
+        if len(parts) == 7:
+            after = parts[6]
     else:
         raise vrss.VRSSError("Public VRSS document not found.", 404)
     with vrss.database() as c:
@@ -103,7 +109,7 @@ def hosted_response(site_id, request_path, method="GET", headers=None, body=b"")
         if headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
             raise vrss.VRSSError("A JSON VRSS activity is required.", 415)
         return JSONResponse(vrss_social.receive(body), status_code=202, headers=HEADERS)
-    response = document_response(kind, post_id, "application/json" if kind == "interactions" or "application/json" in headers.get("accept", "") else "text/html")
+    response = document_response(kind, post_id, "application/json" if kind in {"interactions", "comments"} or "application/json" in headers.get("accept", "") else "text/html", after)
     if method == "HEAD":
         response.body = b""
     return response
@@ -132,6 +138,16 @@ def public_interactions(post_id: str):
 @router.get("/vrss/v1/actor")
 def public_actor():
     return call(document_response, "actor")
+
+
+@router.get('/vrss/v1/posts/{post_id}/comments')
+def public_comments(post_id: str):
+    return call(document_response, 'comments', post_id)
+
+
+@router.get('/vrss/v1/posts/{post_id}/comments/{after}')
+def public_comments_page(post_id: str, after: str):
+    return call(document_response, 'comments', post_id, '', after)
 
 
 @router.post("/vrss/v1/inbox")

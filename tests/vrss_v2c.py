@@ -33,7 +33,7 @@ def child(data):
             if cmd=='configure':
                 p=v.request({'action':'profile'})['profile']
                 out=v.update_profile({'display_name':req['name'],'bio':'','enabled':True,'social_enabled':True,
-                    'public_base':req['base'],'reactions_enabled':req.get('reactions',False),'expected_revision':p['revision']})
+                    'public_base':req['base'],'comments_enabled':req.get('comments',False),'reactions_enabled':req.get('reactions',False),'expected_revision':p['revision']})
             elif cmd=='post':out=v.create_post({'body':req.get('body','A public post'),'media':[],'visibility':req.get('visibility','public'),'request_id':str(uuid.uuid4())})
             elif cmd=='public':out=v.public_document(req.get('kind','interactions'),req['id'])
             elif cmd in {'reaction','reaction_read','read_race','cancel_like_ack'}:
@@ -57,6 +57,52 @@ def child(data):
                         return {'contract':s.CONTRACT,'ok':True,'interaction':{'object':req['url'],'actor':packet['activity']['recipient'],'likes':999}}
                     s.deliver(cancelled_ack,stop_event=stop)
                     with v.database() as c:out=r.summary(c,v.profile(c),req['url'])
+            elif cmd.startswith('comment_'):
+                from app.services import vrss_comments as comments
+                docs=req.get('documents',{})
+                loader=lambda url:docs[url]
+                if cmd=='comment_create':out=comments.create(req['url'],req['body'],req.get('parent',''),req['request_id'],loader)
+                elif cmd=='comment_read':out=comments.read(req['url'],req.get('cursor','0'),loader)
+                elif cmd=='comment_review':out=comments.review(req['url'],req['id'])
+                elif cmd=='comment_delete':out=comments.remove(req['url'],req['id'],req['request_id'])
+                elif cmd=='comment_moderate':out=comments.moderate(req['url'],req['id'],req['decision'],req['revision'],req['request_id'])
+                elif cmd=='comment_public':out=v.public_document('comments',req['post_id'],req.get('cursor','0'))
+                elif cmd=='comment_optin':
+                    p=v.request({'action':'profile'})['profile'];out=v.update_profile({**p,'comments_enabled':req['enabled'],'expected_revision':p['revision']})
+                elif cmd=='comment_ack':
+                    s.deliver(lambda url,packet:req['result']);out=True
+                elif cmd=='comment_cancel_ack':
+                    stop=threading.Event();cancelled=[]
+                    def sender(url,packet):
+                        a=packet['activity'];assert a['type']=='Comment'
+                        comments.remove(a['object'],a['comment_id'],str(uuid.uuid4()));stop.set();cancelled.append(a['id'])
+                        return {'contract':s.CONTRACT,'ok':True,'comment':{'object':a['object'],'id':a['comment_id'],'state':'approved'}}
+                    s.deliver(sender,stop_event=stop)
+                    with v.database() as c:
+                        row=c.execute('SELECT * FROM vrss_comment_out WHERE id=?',(req['id'],)).fetchone()
+                        assert row['state']=='deleted' and row['operation_id'] not in cancelled
+                        assert c.execute('SELECT state FROM vrss_social_outbox WHERE id=?',(cancelled[0],)).fetchone()[0]=='cancelled'
+                    out=True
+                elif cmd=='comment_revoke':
+                    denied=[False]
+                    with v.database() as c:before=c.execute('SELECT count(*) FROM vrss_comment_requests').fetchone()[0]
+                    def guard():
+                        if denied[0]:raise v.VRSSError('Cloud revoked',403)
+                    def delayed(url):
+                        if '/comments' in url:
+                            if req['boundary']=='cloud':denied[0]=True
+                            else:
+                                with v.database() as c:c.execute("UPDATE vrss_social_relations SET state='removed' WHERE actor=? AND direction='out'",(req['actor'],))
+                        return docs[url]
+                    try:
+                        with v.authority_guard(guard):comments.create(req['url'],'Must not commit','',str(uuid.uuid4()),delayed)
+                    except v.VRSSError as exc:assert exc.status_code==(403 if req['boundary']=='cloud' else 409)
+                    else:raise AssertionError('Revoked comment discovery committed')
+                    finally:
+                        with v.database() as c:c.execute("UPDATE vrss_social_relations SET state='accepted' WHERE actor=? AND direction='out'",(req['actor'],))
+                    with v.database() as c:assert c.execute('SELECT count(*) FROM vrss_comment_requests').fetchone()[0]==before
+                    out=True
+                else:raise AssertionError(cmd)
             elif cmd=='likes_enabled':
                 with v.database() as c:c.execute('UPDATE vrss_profile SET reactions_enabled=?',(int(req['enabled']),))
                 out=True

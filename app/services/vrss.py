@@ -201,6 +201,7 @@ def profile(connection):
     p["enabled"] = bool(p["enabled"])
     p["social_enabled"] = bool(p.get("social_enabled", False))
     p["reactions_enabled"] = bool(p.get("reactions_enabled", False))
+    p["comments_enabled"] = bool(p.get("comments_enabled", False))
     p["address_locked"] = bool(p["address_locked"])
     p["profile_url"] = p["public_base"] + "/vrss/v1/profile" if p["public_base"] else ""
     p["feed_url"] = p["public_base"] + "/vrss/v1/rss" if p["public_base"] else ""
@@ -271,12 +272,18 @@ def update_profile(body):
         reactions = body.get("reactions_enabled", p["reactions_enabled"])
         if type(reactions) is not bool:
             raise VRSSError("Choose whether public posts accept VRSS likes.", 422)
+        comments = body.get('comments_enabled', p['comments_enabled'])
+        if type(comments) is not bool:
+            raise VRSSError('Choose whether public posts accept moderated VRSS comments.', 422)
         if social:
             from . import vrss_social
             vrss_social.actor_address(base + '/vrss/v1/actor')
             vrss_social.identity(c)
         c.execute("UPDATE vrss_profile SET social_enabled=? WHERE id=1", (int(social),))
         c.execute("UPDATE vrss_profile SET reactions_enabled=? WHERE id=1", (int(reactions),))
+        c.execute('UPDATE vrss_profile SET comments_enabled=? WHERE id=1', (int(comments),))
+        if comments != p['comments_enabled'] or social != p['social_enabled'] or enabled != p['enabled']:
+            c.execute('UPDATE vrss_comments SET notice_delivered=0')
         c.execute("UPDATE vrss_profile SET display_name=?,bio=?,public_base=?,enabled=?,address_locked=?,hosting_site_id=?,revision=revision+1 WHERE id=1",
                   (name, bio, base, int(enabled), int(enabled or p["address_locked"]), hosting_site_id))
         return profile(c)
@@ -765,21 +772,34 @@ def request(body):
         elif command == "reactions":
             from . import vrss_interactions
             result['reaction'] = vrss_interactions.read(body.get("url"))
+        elif command in {'comments', 'comment', 'comment_delete', 'moderate', 'comment_review'}:
+            from . import vrss_comments
+            if command == 'comments':
+                result['thread'] = vrss_comments.read(body.get('url'), body.get('cursor', '0'))
+            elif command == 'comment_review':
+                result['comment'] = vrss_comments.review(body.get('url'), body.get('comment_id'))
+            elif command == 'comment':
+                result.update(vrss_comments.create(body.get('url'), body.get('body'), body.get('parent', ''), body.get('request_id')))
+            elif command == 'comment_delete':
+                result.update(vrss_comments.remove(body.get('url'), body.get('comment_id'), body.get('request_id')))
+            else:
+                result.update(vrss_comments.moderate(body.get('url'), body.get('comment_id'), body.get('decision'), body.get('expected_revision'), body.get('request_id')))
         else:
             raise VRSSError("Unknown VRSS social action.", 422)
     elif action == "notices":
-        from . import vrss_interactions
+        from . import vrss_interactions, vrss_comments
         vrss_interactions.deliver_notices()
+        vrss_comments.deliver_notices()
         from ..database import db
         with db() as central:
-            rows = central.execute("SELECT id,title,body,created_at,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
+            rows = central.execute("SELECT id,title,body,created_at,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
         result["notices"] = [dict(row) for row in rows]
     elif action == "notice.read":
         from ..database import db
         if type(body.get("notice_id")) is not int or body["notice_id"] < 1:
             raise VRSSError("A valid notice ID is required.", 422)
         with db() as central:
-            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like')", (body["notice_id"], APP_KEY))
+            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment')", (body["notice_id"], APP_KEY))
     elif action == "profile.update":
         result["profile"] = update_profile(body)
     elif action == "post.create":
@@ -787,6 +807,7 @@ def request(body):
     elif action == "post.delete":
         with database() as c:
             c.execute("UPDATE vrss_posts SET deleted=1 WHERE id=?", (body.get("id"),))
+            c.execute("UPDATE vrss_comments SET notice_delivered=0 WHERE object=?", (profile(c)['public_base'] + '/vrss/v1/posts/' + body['id'],))
             result["deleted"] = True
     elif action == "subscribe":
         result.update(subscribe(body.get("url")))
@@ -858,7 +879,7 @@ def request(body):
     return {"ok": True, "contract": CONTRACT, "viewer_id": p["actor_id"], **result}
 
 
-def public_document(kind, post_id=""):
+def public_document(kind, post_id="", after="0"):
     with database() as c:
         p = profile(c)
         if not p["enabled"] or not p["public_base"]:
@@ -872,13 +893,23 @@ def public_document(kind, post_id=""):
         public = {"contract": CONTRACT, "id": p["actor_id"], "name": p["display_name"], "bio": p["bio"], "url": p["profile_url"], "rss": p["feed_url"], "capabilities": {"rss": True, "social_writes": bool(p["social_enabled"])}, "social": {"contract": "vp3.vrss.follow.v1", "actor": p["public_base"] + "/vrss/v1/actor"} if p["social_enabled"] else None}
         if kind == "profile":
             return public
-        if kind in {"post", "interactions"}:
+        if kind in {"post", "interactions", "comments"}:
             row = c.execute("SELECT * FROM vrss_posts WHERE id=? AND deleted=0 AND visibility='public'", (post_id,)).fetchone()
             if not row:
                 raise VRSSError("Post not found.", 404)
             if kind == "interactions":
                 from . import vrss_interactions
                 return vrss_interactions.public_view(c, p, p['public_base'] + '/vrss/v1/posts/' + row['id'])
+            if kind == 'comments':
+                from . import vrss_comments
+                obj = p['public_base'] + '/vrss/v1/posts/' + row['id']
+                if isinstance(after, str) and re.fullmatch(r'id-[0-9a-f]{64}', after):
+                    result = vrss_comments.page(c, p, obj)
+                    item = c.execute('SELECT * FROM vrss_comments WHERE object=? AND digest=?', (obj, after[3:])).fetchone()
+                    if not item or not vrss_comments.visible(c, p, item):
+                        raise VRSSError('Published comment not found.', 404)
+                    return {**result, 'items': [vrss_comments.value(c, p, item)], 'next_cursor': ''}
+                return vrss_comments.page(c, p, obj, after)
             value = post_value(row, p)
             value.pop("can_delete")
             value["author"] = public
