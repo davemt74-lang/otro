@@ -132,7 +132,7 @@ jobs:
           retention-days: 30
   test:
     needs: certified-build
-    if: always() && needs.certified-build.result != 'failure' && needs.certified-build.outputs.reused != 'true'
+    if: ${{ !cancelled() && needs.certified-build.result != 'failure' && needs.certified-build.outputs.reused != 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -277,7 +277,9 @@ jobs:
           python tests/vrss_v1_hosting.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/vrss_v2b.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/vrss_v2c.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/vrss_v2c_tls.py
       - name: Compile Python
         run: python -m compileall app desktop tests
