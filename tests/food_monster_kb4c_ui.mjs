@@ -61,6 +61,12 @@ const fetch = async (url, init={}) => {
     }];
     return {ok:true,json:async()=>({connection:{id:'a'.repeat(32)}})};
   }
+  if (path === '/connections/' + 'a'.repeat(32) + '/sync-status' && (!init.method || init.method === 'GET')) {
+    return {ok:true,json:async()=>({categories:{menu:{documents:1,lastSyncedAt:'2026-10-20T12:00:00Z',lastError:''}}})};
+  }
+  if (path === '/connections/' + 'a'.repeat(32) + '/sync' && init.method === 'POST') {
+    return {ok:true,json:async()=>({status:'synced',collections:{menu:{created:1,updated:0}}})};
+  }
   if (path === '/connections/' + 'a'.repeat(32) && init.method === 'DELETE') {
     remoteList = [];
     return {ok:true,json:async()=>({
@@ -94,6 +100,12 @@ assert.ok(requests.some(x=>x.init.method==='POST'), 'Paired via owner-local API'
 assert.equal(entries.fmLinksStatus.dataset.level,'info');
 
 const row = entries.fmLinksList.children[0];
+const syncButton = row.children.find(x=>x.className?.includes('fm-link-sync'));
+assert.ok(syncButton?.listeners.click, 'Food Monster synchronization control wired');
+await syncButton.listeners.click();
+assert.ok(requests.some(x=>x.url.endsWith('/sync') && x.init.method==='POST'),
+  'Manual sync must use owner-local HomeServer API');
+assert.match(entries.fmLinksStatus.textContent,/Completed private Food Monster snapshot/);
 const disconnect = row.children.find(x=>x.tag==='button');
 assert.ok(disconnect?.listeners.click, 'Disconnect button wired');
 await disconnect.listeners.click();
