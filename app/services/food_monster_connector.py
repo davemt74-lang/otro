@@ -290,7 +290,7 @@ def disconnect_instance(local_id: str) -> dict:
         # deleting documents fires FTS cleanup triggers. Purge explicitly
         # before deleting the parent so no stale private cache survives.
         from . import food_monster_sync
-        food_monster_sync.purge(local_id)
+        food_monster_sync.purge(local_id, connection_provider=db)
         with db() as conn:
             conn.execute("DELETE FROM food_monster_connections WHERE id=?", (local_id,))
         return {
