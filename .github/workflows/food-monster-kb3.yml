@@ -4,7 +4,7 @@ on:
     paths:
       - 'app/services/food_monster_connector.py'
       - 'app/main.py'
-      - 'database/migrations/030_food_monster_connections.sql'
+      - 'database/food_monster_connections.sql'
       - 'tests/food_monster_kb3.py'
       - 'docs/FOOD_MONSTER_KB3_CONNECTOR.md'
       - '.github/workflows/food-monster-kb3.yml'
@@ -13,7 +13,7 @@ on:
     paths:
       - 'app/services/food_monster_connector.py'
       - 'app/main.py'
-      - 'database/migrations/030_food_monster_connections.sql'
+      - 'database/food_monster_connections.sql'
       - 'tests/food_monster_kb3.py'
       - 'docs/FOOD_MONSTER_KB3_CONNECTOR.md'
       - '.github/workflows/food-monster-kb3.yml'
