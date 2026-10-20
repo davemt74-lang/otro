@@ -1,0 +1,33 @@
+name: KB4C Food Monster Chat Connection UX
+on:
+  pull_request:
+    paths:
+      - 'ui/index.html'
+      - 'ui/food-monster-connections.js'
+      - 'ui/food-monster-connections.css'
+      - 'tests/food_monster_kb4c_ui.mjs'
+      - 'docs/FOOD_MONSTER_KB4C_CHAT_CONNECTIONS.md'
+      - '.github/workflows/food-monster-kb4c.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ui/index.html'
+      - 'ui/food-monster-connections.js'
+      - 'ui/food-monster-connections.css'
+      - 'tests/food_monster_kb4c_ui.mjs'
+      - 'docs/FOOD_MONSTER_KB4C_CHAT_CONNECTIONS.md'
+      - '.github/workflows/food-monster-kb4c.yml'
+jobs:
+  chat-connection-ux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Parse minimal chat connection UX
+        run: |
+          node --check ui/food-monster-connections.js
+          node --check tests/food_monster_kb4c_ui.mjs
+      - name: Validate owner-only origin, form and disconnect UI
+        run: node tests/food_monster_kb4c_ui.mjs
