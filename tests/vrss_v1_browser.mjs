@@ -8,6 +8,15 @@ let stderr='';child.stderr.on('data',b=>stderr+=b.toString());
 const lines=createInterface({input:child.stdout});
 const config=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('VRSS server startup timed out')),60000);lines.on('line',line=>{try{const value=JSON.parse(line);if(value.url){clearTimeout(timer);resolve(value);}}catch{}});child.on('exit',code=>reject(Error(`VRSS server exited ${code}: ${stderr}`)));});
 const browser=await chromium.launch({headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
+// The fixture announces its socket before uvicorn completes initialization.
+// Probe readiness with harmless GETs rather than racing the first owner POST.
+let ready=false;
+for(let i=0;i<60;i++){
+  if(child.exitCode!==null)throw Error('VRSS fixture exited before readiness: '+stderr.slice(-800));
+  try{await fetch(config.url+'/',{signal:AbortSignal.timeout(1000)});ready=true;break;}
+  catch{await new Promise(resolve=>setTimeout(resolve,250));}
+}
+if(!ready)throw Error('VRSS fixture did not become ready: '+stderr.slice(-800));
 try{
  for(const width of [1440,390,320]){
   const context=await browser.newContext({viewport:{width,height:960}}),page=await context.newPage();
