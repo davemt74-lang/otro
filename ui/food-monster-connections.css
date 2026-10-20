@@ -1,0 +1,35 @@
+/* KB4C: compact private connector controls within the existing chat + Tools tab. */
+.fm-links-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--panel-bg, rgba(127,127,127,.07));
+  color: inherit;
+  border: 1px solid var(--border-color, rgba(127,127,127,.28));
+  border-radius: 14px;
+  min-width: 0;
+}
+.fm-links-header { display:flex; align-items:center; justify-content:space-between; gap: 12px; }
+.fm-links-header h3 { margin:0; font-size: 1rem; }
+.fm-links-panel > p { margin: .75rem 0; font-size: .89rem; line-height: 1.45; }
+.fm-links-panel button { cursor: pointer; }
+.fm-link-row { display:flex; align-items:center; justify-content:space-between; gap: 12px; padding: 12px 0; border-top:1px solid var(--border-color, rgba(127,127,127,.25)); }
+.fm-link-information { display:flex; flex-direction:column; gap: 4px; flex:1; overflow-wrap:anywhere; min-width:0; }
+.fm-link-information strong { font-size:.94rem; }
+.fm-link-information small { font-size:.78rem; opacity:.8; }
+.fm-link-empty { opacity:.75; font-size:.86rem; }
+.fm-link-remove { flex-shrink:0; }
+.fm-links-panel details { border-top:1px solid var(--border-color, rgba(127,127,127,.25)); padding-top:12px; }
+.fm-links-panel summary { cursor:pointer; font-weight:600; }
+.fm-links-panel details p { font-size:.84rem; line-height:1.5; overflow-wrap:anywhere; }
+#fmLinkForm { display:flex; flex-direction:column; gap:.65rem; }
+#fmLinkForm label { display:flex; flex-direction:column; gap:.3rem; font-size:.86rem; font-weight:500; }
+#fmLinkForm input { width:100%; box-sizing:border-box; min-height:40px; padding:9px 11px; border-radius:9px; border:1px solid var(--border-color, rgba(127,127,127,.4)); background:var(--surface-bg,#222729); color:inherit; font:inherit; }
+#fmLinkForm input:focus-visible, .fm-links-panel button:focus-visible, .fm-links-panel summary:focus-visible { outline: 2px solid var(--accent,#5abfae); outline-offset:2px; }
+#fmLinkForm button { align-self:flex-start; }
+#fmLinksStatus { white-space:pre-wrap; overflow-wrap:anywhere; min-height:1.1rem; }
+#fmLinksStatus[data-level="error"] { color:var(--danger,#e68e8e); }
+@media(max-width:600px) {
+  .fm-links-panel { padding:.75rem; }
+  .fm-link-row { flex-wrap:wrap; }
+  .fm-link-remove { margin-left:auto; }
+}
