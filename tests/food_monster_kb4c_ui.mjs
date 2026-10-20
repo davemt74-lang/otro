@@ -114,6 +114,16 @@ await syncButton.listeners.click();
 assert.ok(requests.some(x=>x.url.endsWith('/sync') && x.init.method==='POST'),
   'Manual sync must use owner-local HomeServer API');
 assert.match(entries.fmLinksStatus.textContent,/Completed private Food Monster snapshot/);
+const policyButton=row.children.find(x=>x.className?.includes('fm-link-save-policy'));
+assert.ok(policyButton?.listeners.click,'Background sync setting is available in chat Tools');
+const details=row.children.find(x=>x.className?.includes('fm-link-information'));
+const toggle=details.children.find(x=>x.className?.includes('fm-link-auto-label'))?.children[0];
+const cadence=details.children.find(x=>x.className?.includes('fm-link-interval'));
+assert.equal(toggle?.checked,false,'Auto sync is off until owner enables it');
+toggle.checked=true;
+cadence.value='3600';
+await policyButton.listeners.click();
+assert.ok(requests.some(x=>x.url.endsWith('/auto-sync') && x.init.method==='PUT'));
 const disconnect = row.children.find(x=>x.tag==='button');
 assert.ok(disconnect?.listeners.click, 'Disconnect button wired');
 await disconnect.listeners.click();
