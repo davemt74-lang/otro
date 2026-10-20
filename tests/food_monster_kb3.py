@@ -244,6 +244,9 @@ class FoodMonsterConnectorTests(unittest.TestCase):
             "/api/v1/control/food-monster/connections",
             "/api/v1/control/food-monster/connections/{local_id}/search",
             "/api/v1/control/food-monster/connections/{local_id}",
+            "/api/v1/control/food-monster/connections/{local_id}/sync",
+            "/api/v1/control/food-monster/connections/{local_id}/sync-status",
+            "/api/v1/control/food-monster/connections/{local_id}/cache/search",
         })
 
 
