@@ -40,10 +40,13 @@ jobs:
           python tests/vrss_shutdown.py
           python tests/vrss_v2e.py
           python tests/vrss_v2e_tls.py
+          python tests/vrss_v2f.py
+          python tests/vrss_v2f_tls.py
           node tests/vrss_v1_browser.mjs
           node tests/vrss_v2c_browser.mjs
           node tests/vrss_v2d_browser.mjs
           node tests/vrss_v2e_browser.mjs
+          node tests/vrss_v2f_browser.mjs
           node tests/social_feed_v1_browser.mjs
           node tests/chat_action_result_ownership_ui.mjs
           node tests/chat_workspace_browser.mjs

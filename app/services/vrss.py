@@ -202,6 +202,7 @@ def profile(connection):
     p["social_enabled"] = bool(p.get("social_enabled", False))
     p["reactions_enabled"] = bool(p.get("reactions_enabled", False))
     p["comments_enabled"] = bool(p.get("comments_enabled", False))
+    p["reposts_enabled"] = bool(p.get("reposts_enabled", False))
     p["address_locked"] = bool(p["address_locked"])
     p["profile_url"] = p["public_base"] + "/vrss/v1/profile" if p["public_base"] else ""
     p["feed_url"] = p["public_base"] + "/vrss/v1/rss" if p["public_base"] else ""
@@ -282,6 +283,12 @@ def update_profile(body):
         c.execute("UPDATE vrss_profile SET social_enabled=? WHERE id=1", (int(social),))
         c.execute("UPDATE vrss_profile SET reactions_enabled=? WHERE id=1", (int(reactions),))
         c.execute('UPDATE vrss_profile SET comments_enabled=? WHERE id=1', (int(comments),))
+        reposts = body.get('reposts_enabled', p['reposts_enabled'])
+        if type(reposts) is not bool:
+            raise VRSSError('Choose whether public posts permit VRSS reposts.', 422)
+        c.execute('UPDATE vrss_profile SET reposts_enabled=? WHERE id=1', (int(reposts),))
+        if reposts != p['reposts_enabled'] or social != p['social_enabled'] or enabled != p['enabled']:
+            c.execute('UPDATE vrss_reposts SET notice_delivered=0')
         if comments != p['comments_enabled'] or social != p['social_enabled'] or enabled != p['enabled']:
             c.execute('UPDATE vrss_comments SET notice_delivered=0')
         c.execute("UPDATE vrss_profile SET display_name=?,bio=?,public_base=?,enabled=?,address_locked=?,hosting_site_id=?,revision=revision+1 WHERE id=1",
@@ -769,6 +776,12 @@ def request(body):
         elif command == "like":
             from . import vrss_interactions
             result.update(vrss_interactions.set_like(body.get("url"), body.get("enabled"), body.get("request_id")))
+        elif command in {'repost', 'reposts'}:
+            from . import vrss_reposts
+            if command == 'repost':
+                result.update(vrss_reposts.set_repost(body.get('url'), body.get('enabled'), body.get('request_id')))
+            else:
+                result['repost'] = vrss_reposts.read(body.get('url'))
         elif command == "reactions":
             from . import vrss_interactions
             result['reaction'] = vrss_interactions.read(body.get("url"))
@@ -790,16 +803,18 @@ def request(body):
         from . import vrss_interactions, vrss_comments
         vrss_interactions.deliver_notices()
         vrss_comments.deliver_notices()
+        from . import vrss_reposts
+        vrss_reposts.deliver_notices()
         from ..database import db
         with db() as central:
-            rows = central.execute("SELECT id,title,body,created_at,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
+            rows = central.execute("SELECT id,title,body,created_at,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
         result["notices"] = [dict(row) for row in rows]
     elif action == "notice.read":
         from ..database import db
         if type(body.get("notice_id")) is not int or body["notice_id"] < 1:
             raise VRSSError("A valid notice ID is required.", 422)
         with db() as central:
-            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment')", (body["notice_id"], APP_KEY))
+            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost')", (body["notice_id"], APP_KEY))
     elif action == "profile.update":
         result["profile"] = update_profile(body)
     elif action == "post.create":
@@ -808,6 +823,7 @@ def request(body):
         with database() as c:
             c.execute("UPDATE vrss_posts SET deleted=1 WHERE id=?", (body.get("id"),))
             c.execute("UPDATE vrss_comments SET notice_delivered=0 WHERE object=?", (profile(c)['public_base'] + '/vrss/v1/posts/' + body['id'],))
+            c.execute("UPDATE vrss_reposts SET notice_delivered=0 WHERE object=?", (profile(c)['public_base'] + '/vrss/v1/posts/' + body['id'],))
             result["deleted"] = True
     elif action == "subscribe":
         result.update(subscribe(body.get("url")))
@@ -845,7 +861,7 @@ def request(body):
                         raise ValueError()
                     cursor = json.loads(before)
                     if (not isinstance(cursor, list) or len(cursor) != 3 or not isinstance(cursor[0], str)
-                            or len(cursor[0]) > 40 or type(cursor[1]) is not int or cursor[1] not in {0, 1}
+                            or len(cursor[0]) > 40 or type(cursor[1]) is not int or cursor[1] not in {0, 1, 2}
                             or type(cursor[2]) is not int or cursor[2] < 1):
                         raise ValueError()
                     where = " WHERE (sort_at,kind,seq)<(?,?,?)"
@@ -853,6 +869,7 @@ def request(body):
                 except (ValueError, TypeError) as exc:
                     raise VRSSError("Invalid feed page.", 422) from exc
             timeline = "SELECT 0 AS kind,seq,created_at AS sort_at FROM vrss_posts WHERE deleted=0"
+            timeline += " UNION ALL SELECT 2 AS kind,seq,created_at AS sort_at FROM vrss_repost_out WHERE enabled=1"
             if body.get("mode") != "profile":
                 timeline += " UNION ALL SELECT 1 AS kind,seq,received_at AS sort_at FROM vrss_items"
             page = c.execute("SELECT * FROM (" + timeline + ")" + where + " ORDER BY sort_at DESC,kind DESC,seq DESC LIMIT 21", params).fetchall()
@@ -861,6 +878,10 @@ def request(body):
                 if pointer["kind"] == 0:
                     row = c.execute("SELECT * FROM vrss_posts WHERE seq=?", (pointer["seq"],)).fetchone()
                     items.append(post_value(row, p))
+                elif pointer["kind"] == 2:
+                    from . import vrss_reposts
+                    row = c.execute("SELECT * FROM vrss_repost_out WHERE seq=?", (pointer["seq"],)).fetchone()
+                    items.append(vrss_reposts.pointer(c, p, row, owner=True))
                 else:
                     row = c.execute("SELECT i.*,s.title AS source_title,s.url AS feed_url FROM vrss_items i JOIN vrss_subscriptions s ON s.id=i.subscription_id WHERE i.seq=?", (pointer["seq"],)).fetchone()
                     items.append({"id": "rss:" + row["subscription_id"] + ":" + row["item_key"], "body": row["body"], "title": row["title"],
@@ -873,6 +894,8 @@ def request(body):
                     value = vrss_interactions.feed_value(c, p, item['url'], item['author'].get('feed_url',''))
                     if value is not None:
                         item['interactions'] = value
+                        from . import vrss_reposts
+                        item['repost_control'] = vrss_reposts.summary(c, p, item['url'])
             result["feed"] = {"items": items, "has_more": bool(last), "next_cursor": json.dumps([last["sort_at"], last["kind"], last["seq"]]) if last else ""}
     if action in {"bootstrap", "hosting"}:
         result["hosting"] = hosting_options()
@@ -893,13 +916,18 @@ def public_document(kind, post_id="", after="0"):
         public = {"contract": CONTRACT, "id": p["actor_id"], "name": p["display_name"], "bio": p["bio"], "url": p["profile_url"], "rss": p["feed_url"], "capabilities": {"rss": True, "social_writes": bool(p["social_enabled"])}, "social": {"contract": "vp3.vrss.follow.v1", "actor": p["public_base"] + "/vrss/v1/actor"} if p["social_enabled"] else None}
         if kind == "profile":
             return public
-        if kind in {"post", "interactions", "comments"}:
+        if kind in {"post", "interactions", "comments", "reposts"}:
             row = c.execute("SELECT * FROM vrss_posts WHERE id=? AND deleted=0 AND visibility='public'", (post_id,)).fetchone()
             if not row:
                 raise VRSSError("Post not found.", 404)
             if kind == "interactions":
                 from . import vrss_interactions
                 return vrss_interactions.public_view(c, p, p['public_base'] + '/vrss/v1/posts/' + row['id'])
+            if kind == 'reposts':
+                from . import vrss_reposts
+                if after != '0' and not re.fullmatch(r'id-[0-9a-f]{64}', after):
+                    raise VRSSError('Invalid repost receipt selector.', 422)
+                return vrss_reposts.source_view(c, p, p['public_base'] + '/vrss/v1/posts/' + row['id'], after[3:] if after != '0' else '')
             if kind == 'comments':
                 from . import vrss_comments
                 obj = p['public_base'] + '/vrss/v1/posts/' + row['id']
@@ -936,6 +964,26 @@ def public_document(kind, post_id="", after="0"):
                 if media["kind"] != "link":
                     ET.SubElement(item, "{http://search.yahoo.com/mrss/}content", {"url": media["url"], "medium": media["kind"]})
             if len(ET.tostring(root, encoding="utf-8", xml_declaration=True)) > MAX_XML:
+                channel.remove(item)
+                break
+        from . import vrss_reposts
+        if p['social_enabled']:
+            for row in c.execute('SELECT * FROM vrss_repost_out WHERE enabled=1 ORDER BY created_at DESC,seq DESC LIMIT 100'):
+                if not vrss_reposts.summary(c, p, row['object'])['published']:
+                    continue
+                item = ET.SubElement(channel, 'item')
+                ET.SubElement(item, 'guid', {'isPermaLink': 'false'}).text = row['repost_id']
+                ET.SubElement(item, 'link').text = row['repost_id']
+                ET.SubElement(item, 'title').text = 'Reposted from ' + row['source_name']
+                ET.SubElement(item, 'pubDate').text = format_datetime(datetime.fromisoformat(row['created_at']))
+                ET.SubElement(item, 'source', {'url': row['peer'][:-len('/actor')] + '/rss'}).text = row['source_name']
+                ET.SubElement(item, 'description').text = 'Reposted by ' + html.escape(p['display_name']) + ' from ' + html.escape(row['source_name']) + '. <a href="' + html.escape(row['object'], quote=True) + '">Read the original post</a>. Open the repost link to verify current availability.'
+        entries = sorted(channel.findall('item'), key=lambda item: parsedate_to_datetime(item.findtext('pubDate')).timestamp(), reverse=True)
+        for item in channel.findall('item'):
+            channel.remove(item)
+        for item in entries[:100]:
+            channel.append(item)
+            if len(ET.tostring(root, encoding='utf-8', xml_declaration=True)) > MAX_XML:
                 channel.remove(item)
                 break
         return ET.tostring(root, encoding="utf-8", xml_declaration=True)

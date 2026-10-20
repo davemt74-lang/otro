@@ -48,8 +48,9 @@ with tempfile.TemporaryDirectory(prefix='vrss-v2b-') as data:
     assert not v.request({'action':'notices'})['notices'],'Initial archive must be quiet'
     # Upgrade preserves canonical identity; manifests are genuinely executable through governed control.
     spec=control.manifest(v.APP_KEY)
-    assert len(spec['actions'])==19 and spec['compatible']
-    assert {'vrss.social.like','vrss.social.reactions'} <= {row['key'] for row in spec['actions']}
+    assert len(spec['actions'])==21 and spec['compatible']
+    assert {'vrss.social.like','vrss.social.reactions','vrss.social.repost','vrss.social.reposts'} <= {row['key'] for row in spec['actions']}
+    reject(lambda:control.invoke(v.APP_KEY,'vrss.social.repost',{'url':'https://news.example/vrss/v1/posts/11111111-1111-4111-8111-111111111111','enabled':True,'request_id':'stable-request-12345'},read_only=True),409)
     assert control.invoke(v.APP_KEY,'vrss.status',{},read_only=True)['result']['new_post_notifications']
     reject(lambda:control.invoke(v.APP_KEY,'vrss.refresh_all',{},read_only=True),409)
     assert control.invoke(v.APP_KEY,'vrss.refresh_all',{},confirmed=True)['result']['queued']==1

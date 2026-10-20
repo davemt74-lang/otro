@@ -57,6 +57,82 @@ def child(data):
                         return {'contract':s.CONTRACT,'ok':True,'interaction':{'object':req['url'],'actor':packet['activity']['recipient'],'likes':999}}
                     s.deliver(cancelled_ack,stop_event=stop)
                     with v.database() as c:out=r.summary(c,v.profile(c),req['url'])
+            elif cmd.startswith('repost_'):
+                from app.services import vrss_reposts as reposts
+                docs=req.get('documents',{})
+                loader=lambda url:docs[url]
+                if cmd=='repost_set':out=reposts.set_repost(req['url'],req['enabled'],req['request_id'],loader)
+                elif cmd=='repost_read':out=reposts.read(req['url'],loader)
+                elif cmd=='repost_public':out=v.public_document('reposts',req['post_id'],req.get('selector','0'))
+                elif cmd=='repost_pointer':out=reposts.public_pointer(req['id'],loader)
+                elif cmd=='repost_summary':
+                    with v.database() as c:out=reposts.summary(c,v.profile(c),req['url'])
+                elif cmd=='repost_feed':out=v.request({'action':'feed','mode':req.get('mode','following'),'before':req.get('before',0)})
+                elif cmd=='repost_rss':out=v.public_document('rss').decode()
+                elif cmd=='repost_optin':
+                    p=v.request({'action':'profile'})['profile'];out=v.update_profile({**p,'reposts_enabled':req['enabled'],'expected_revision':p['revision']})
+                elif cmd=='repost_delete_post':out=v.request({'action':'post.delete','id':req['post_id']})
+                elif cmd=='repost_expire':
+                    with v.database() as c:c.execute('UPDATE vrss_repost_out SET verified_at=0,checked_at=0')
+                    out=True
+                elif cmd=='repost_refresh':reposts.refresh_due(loader);out=True
+                elif cmd=='repost_ack':s.deliver(lambda url,packet:req['result']);out=True
+                elif cmd=='repost_cancel_ack':
+                    stop=threading.Event()
+                    def sender(url,packet):
+                        a=packet['activity'];assert a['type']=='Repost'
+                        reposts.set_repost(a['object'],False,str(uuid.uuid4()),loader);stop.set()
+                        return {'contract':s.CONTRACT,'ok':True,'repost':{'object':a['object'],'id':a['repost_id'],'actor':a['recipient'],'active':True,'reposts':999}}
+                    s.deliver(sender,stop_event=stop)
+                    with v.database() as c:out=reposts.summary(c,v.profile(c),req['url'])
+                elif cmd=='repost_failure_race':
+                    def unavailable(url):raise v.VRSSError('Unavailable',502)
+                    def delayed(url):
+                        if '/reposts/id-' in url:
+                            try:reposts.read(req['url'],unavailable)
+                            except v.VRSSError:pass
+                        return docs[url]
+                    out=reposts.read(req['url'],delayed)
+                elif cmd=='repost_read_race':
+                    def delayed(url):
+                        if '/reposts/id-' in url:reposts.set_repost(req['url'],False,str(uuid.uuid4()),loader)
+                        return docs[url]
+                    out=reposts.read(req['url'],delayed)
+                elif cmd=='repost_revoke':
+                    denied=[False]
+                    with v.database() as c:before=c.execute('SELECT count(*) FROM vrss_repost_requests').fetchone()[0]
+                    def guard():
+                        if denied[0]:raise v.VRSSError('Cloud revoked',403)
+                    def delayed(url):
+                        if '/reposts' in url:
+                            if req['boundary']=='cloud':denied[0]=True
+                            else:
+                                with v.database() as c:c.execute("UPDATE vrss_social_relations SET state='removed' WHERE actor=? AND direction='out'",(req['actor'],))
+                        return docs[url]
+                    try:
+                        with v.authority_guard(guard):reposts.set_repost(req['url'],True,str(uuid.uuid4()),delayed)
+                    except v.VRSSError as exc:assert exc.status_code==(403 if req['boundary']=='cloud' else 409)
+                    else:raise AssertionError('Revoked repost discovery committed')
+                    finally:
+                        with v.database() as c:c.execute("UPDATE vrss_social_relations SET state='accepted' WHERE actor=? AND direction='out'",(req['actor'],))
+                    with v.database() as c:assert c.execute('SELECT count(*) FROM vrss_repost_requests').fetchone()[0]==before
+                    out=True
+                elif cmd=='repost_fill_history':
+                    with v.database() as c:
+                        if req['kind']=='requests':
+                            total=c.execute('SELECT count(*) FROM vrss_repost_requests').fetchone()[0]
+                            c.executemany('INSERT INTO vrss_repost_requests VALUES(?,?,?)', [('quota-'+str(i),'test','{}') for i in range(10000-total)])
+                        else:
+                            total=c.execute('SELECT count(*) FROM vrss_reposts').fetchone()[0]
+                            c.executemany('INSERT INTO vrss_reposts(id,digest,actor,object,follow_id,enabled) VALUES(?,?,?,?,?,0)', [('quota-'+str(i),'digest-'+str(i),'test','test','test') for i in range(10000-total)])
+                    out=True
+                elif cmd=='repost_failcheck':
+                    def unavailable(url):raise v.VRSSError('Source unavailable',502)
+                    try:reposts.read(req['url'],unavailable)
+                    except v.VRSSError:pass
+                    else:raise AssertionError('Unavailable source succeeded')
+                    with v.database() as c:out=reposts.summary(c,v.profile(c),req['url'])
+                else:raise AssertionError(cmd)
             elif cmd.startswith('comment_'):
                 from app.services import vrss_comments as comments
                 docs=req.get('documents',{})
