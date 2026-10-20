@@ -175,7 +175,7 @@ class FoodMonsterSyncTests(unittest.TestCase):
         self.assertEqual(second["collections"]["recipe"]["removed"],1)
         self.assertEqual(len(self.rows("food_monster_documents",self.first)),22)
         self.assertEqual(len(self.rows("food_monster_documents_fts")),22)
-        self.assertFalse(sync.query_cache(self.first,"House Dough 2","recipe")["results"])
+        self.assertNotIn("gelato:recipe:r2", [r["id"] for r in sync.query_cache(self.first,"Flour","recipe",20)["results"]])
 
     def test_incomplete_sweep_never_tombstones_or_commits_partial_results(self):
         sync.synchronize(self.first)
@@ -184,7 +184,7 @@ class FoodMonsterSyncTests(unittest.TestCase):
             x for x in self.records[self.first]["recipe"] if x["id"]!="gelato:recipe:r3"
         ]
         self.records[self.first]["recipe"][0]["title"]="Changed but incomplete"
-        self.failure=lambda cid,kind,after: cid==self.first and kind=="recipe" and after==20
+        self.failure=lambda cid,kind,after: cid==self.first and kind=="recipe" and after>0
         with self.assertRaises(connector.FoodMonsterLinkError):
             sync.synchronize(self.first)
         current=self.rows("food_monster_documents",self.first)
@@ -249,6 +249,8 @@ class FoodMonsterSyncTests(unittest.TestCase):
             connection.execute("UPDATE food_monster_connections SET scopes_json='[\"menu\"]' WHERE id=?",(self.first,))
         with self.assertRaises(connector.FoodMonsterLinkError):
             sync.query_cache(self.first,"dough","recipe")
+        self.assertEqual([r["kind"] for r in self.rows("food_monster_documents",self.first)],["menu"])
+        self.assertEqual(len(self.rows("food_monster_documents_fts")),1)
 
     def test_stale_references_do_not_go_into_shared_knowledge_index(self):
         schema=(ROOT/"database/food_monster_knowledge_cache.sql").read_text()
