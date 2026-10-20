@@ -45,6 +45,11 @@ class ConnectRequest(BaseModel):
     label: str = Field(min_length=1, max_length=80)
 
 
+class AutoSyncRequest(BaseModel):
+    enabled: bool
+    interval_seconds: int = Field(default=21600)
+
+
 class SearchRequest(BaseModel):
     q: str = Field(min_length=1, max_length=160)
     type: str = Field(default="all")
@@ -359,5 +364,23 @@ def routes_cache_search(local_id: str, payload: SearchRequest) -> dict:
     from . import food_monster_sync
     try:
         return food_monster_sync.query_cache(local_id, payload.q, payload.type, payload.limit)
+    except FoodMonsterLinkError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+
+
+@router.get("/connections/{local_id}/auto-sync")
+def routes_auto_sync_status(local_id: str) -> dict:
+    from . import food_monster_auto_sync
+    try:
+        return food_monster_auto_sync.get_policy(local_id)
+    except FoodMonsterLinkError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from None
+
+
+@router.put("/connections/{local_id}/auto-sync")
+def routes_auto_sync_config(local_id: str, payload: AutoSyncRequest) -> dict:
+    from . import food_monster_auto_sync
+    try:
+        return food_monster_auto_sync.set_policy(local_id, payload.enabled, payload.interval_seconds)
     except FoodMonsterLinkError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from None
