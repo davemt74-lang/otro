@@ -165,6 +165,79 @@ class FoodMonsterConnectorTests(unittest.TestCase):
             with self.assertRaises(fm.FoodMonsterLinkError):
                 fm.connect_instance("https://gelato.vp3.me", "fmlink_" + "Y" * 43, "Gelato")
 
+    def test_disconnect_offline_wipes_local_secret_and_warns_manual_revoke(self):
+        code = "fmlink_" + "C" * 43
+        item = fm.connect_instance("https://gelato.vp3.me", code, "Gelato")["connection"]
+        with patch.object(fm, "_request",
+                          side_effect=fm.FoodMonsterLinkError("No network", 502)):
+            result = fm.disconnect_instance(item["id"])
+        self.assertTrue(result["disconnected"])
+        self.assertFalse(result["remoteRevoked"])
+        self.assertTrue(result["remoteRevocationRequired"])
+        self.assertIn("owner approval page", result["message"])
+        self.assertNotIn(item["id"], fm._vault_read())
+        self.assertEqual(fm.list_connections(), [])
+        self.assertNotIn("fm2_", json.dumps(result))
+
+    def test_disconnect_mismatched_remote_identity_not_verified(self):
+        code = "fmlink_" + "D" * 43
+        item = fm.connect_instance("https://gelato.vp3.me", code, "Gelato")["connection"]
+        with patch.object(fm, "_request", return_value={
+            "ok": True, "schema": "food-monster-vp3-v1", "revoked": True,
+            "instanceId": "00000000-0000-0000-0000-000000000000",
+            "connectionId": "a" * 32,
+        }) as remote:
+            result = fm.disconnect_instance(item["id"])
+        self.assertEqual(remote.call_count, 1)
+        self.assertEqual(remote.call_args.args[0], item["origin"])
+        self.assertEqual(remote.call_args.args[1], {"action": "revoke"})
+        self.assertEqual(remote.call_args.kwargs["token"], "fm2_" + "A" * 43)
+        self.assertFalse(result["remoteRevoked"])
+        self.assertTrue(result["remoteRevocationRequired"])
+        self.assertEqual(fm.list_connections(), [])
+        self.assertEqual(fm._vault_read(), {})
+
+    def test_disconnect_mismatched_remote_connection_not_verified(self):
+        item = fm.connect_instance(
+            "https://gelato.vp3.me", "fmlink_" + "E" * 43, "Gelato"
+        )["connection"]
+        with patch.object(fm, "_request", return_value={
+            "ok": True, "schema": "food-monster-vp3-v1", "revoked": True,
+            "instanceId": item["instanceId"], "connectionId": "b" * 32,
+        }):
+            result = fm.disconnect_instance(item["id"])
+        self.assertFalse(result["remoteRevoked"])
+        self.assertTrue(result["remoteRevocationRequired"])
+        self.assertFalse(fm.list_connections())
+
+    def test_disconnection_is_per_restaurant(self):
+        first = fm.connect_instance("https://gelato.vp3.me",
+                                    "fmlink_" + "F" * 43, "Gelato")["connection"]
+        second = fm.connect_instance("https://other.foodmonster.xyz",
+                                     "fmlink_" + "G" * 43, "Other")["connection"]
+        self.calls.clear()
+        result = fm.disconnect_instance(first["id"])
+        self.assertTrue(result["remoteRevoked"])
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.calls[0][0], first["origin"])
+        self.assertEqual(self.calls[0][1], {"action": "revoke"})
+        self.assertEqual([x["id"] for x in fm.list_connections()], [second["id"]])
+        self.assertNotIn(first["id"], fm._vault_read())
+        self.assertIn(second["id"], fm._vault_read())
+        self.assertEqual(fm.search_instance(second["id"], "pizza", "menu")["count"], 1)
+
+    def test_disconnection_without_local_secret_requires_manual_cleanup(self):
+        item = fm.connect_instance(
+            "https://gelato.vp3.me", "fmlink_" + "H" * 43, "Gelato"
+        )["connection"]
+        fm._vault_write({})
+        self.calls.clear()
+        result = fm.disconnect_instance(item["id"])
+        self.assertEqual(self.calls, [], "Missing credential cannot call remote revoke")
+        self.assertFalse(result["remoteRevoked"])
+        self.assertTrue(result["remoteRevocationRequired"])
+        self.assertEqual(fm.list_connections(), [])
+
     def test_api_routes_are_local_control_only(self):
         self.assertEqual(fm.router.prefix, "/api/v1/control/food-monster")
         self.assertEqual({route.path for route in fm.router.routes}, {
