@@ -285,6 +285,8 @@ jobs:
           python tests/vrss_v2d.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/vrss_v2d_tls.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/vrss_shutdown.py
       - name: Compile Python
         run: python -m compileall app desktop tests
       - name: Interactive capture ownership and Stop acceptance

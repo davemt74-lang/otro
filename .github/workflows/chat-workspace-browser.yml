@@ -37,6 +37,7 @@ jobs:
           python tests/vrss_v2c_tls.py
           python tests/vrss_v2d.py
           python tests/vrss_v2d_tls.py
+          python tests/vrss_shutdown.py
           node tests/vrss_v1_browser.mjs
           node tests/vrss_v2c_browser.mjs
           node tests/vrss_v2d_browser.mjs

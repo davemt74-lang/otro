@@ -37,6 +37,7 @@ _REFRESH_STOP = threading.Event()
 _REFRESH_THREAD = None
 _REFRESH_LOCK = threading.Lock()
 _AUTHORITY_GUARD = ContextVar("vrss_authority_guard", default=None)
+_WORKER_STOP = ContextVar("vrss_worker_stop", default=None)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vrss_profile (
  id INTEGER PRIMARY KEY CHECK(id=1), actor_id TEXT NOT NULL,
@@ -100,7 +101,9 @@ def authority_guard(check):
 
 @contextmanager
 def database():
+    worker_guard()
     running()
+    worker_guard()
     path = homeserver_app_resources.sqlite_path(APP_KEY, "vrss.db")
     connection = sqlite3.connect(path, timeout=30)
     connection.row_factory = sqlite3.Row
@@ -126,8 +129,11 @@ def database():
         connection.execute("INSERT OR IGNORE INTO vrss_profile(id,actor_id) VALUES(1,?)", ("urn:uuid:" + str(uuid.uuid4()),))
         from . import vrss_social
         vrss_social.setup(connection)
+        worker_guard()
         yield connection
+        worker_guard()
         running()
+        worker_guard()
         guard = _AUTHORITY_GUARD.get()
         if guard:
             guard()
@@ -136,12 +142,19 @@ def database():
         siblings = sum(f.stat().st_size for f in path.parent.glob("*.db") if f != path)
         if used + siblings > homeserver_app_resources.limits(APP_KEY)["sqlite_limit_bytes"]:
             raise VRSSError("Feed app storage quota exceeded.", 413)
+        worker_guard()
         connection.commit()
     except Exception:
         connection.rollback()
         raise
     finally:
         connection.close()
+
+
+def worker_guard():
+    stop = _WORKER_STOP.get()
+    if stop is not None and stop.is_set():
+        raise VRSSError('Feed background work is stopping.', 409)
 
 
 def text(value, limit, label, required=False):
@@ -645,6 +658,8 @@ def deliver_notices():
 
 
 def refresh_due(fetcher=None, *, stop_event=None):
+    if stop_event is not None and stop_event.is_set():
+        return []
     with database() as c:
         rows = c.execute("SELECT id FROM vrss_subscriptions WHERE next_check_at<=? AND lease_until<=? ORDER BY next_check_at,id LIMIT 4",
                          (time.time(), time.time())).fetchall()
@@ -656,19 +671,29 @@ def refresh_due(fetcher=None, *, stop_event=None):
             results.append(refresh(row["id"], fetcher, scheduled=True))
         except Exception:
             continue
-    deliver_notices()
+    if stop_event is None or not stop_event.is_set():
+        deliver_notices()
     return results
+
+
+def _refresh_cycle(stop):
+    token = _WORKER_STOP.set(stop)
+    try:
+        if not stop.is_set():
+            refresh_due(stop_event=stop)
+        if not stop.is_set():
+            from . import vrss_social
+            vrss_social.deliver(stop_event=stop)
+    except Exception:
+        # Stopped/uninstalled apps and transient quota/database failures are retried locally.
+        pass
+    finally:
+        _WORKER_STOP.reset(token)
 
 
 def _refresh_loop(stop):
     while not stop.wait(15):
-        try:
-            refresh_due(stop_event=stop)
-            from . import vrss_social
-            vrss_social.deliver(stop_event=stop)
-        except Exception:
-            # Stopped/uninstalled apps and transient quota/database failures are retried locally.
-            continue
+        _refresh_cycle(stop)
 
 
 def start():
@@ -684,8 +709,10 @@ def start():
 def stop():
     with _REFRESH_LOCK:
         _REFRESH_STOP.set()
-        if _REFRESH_THREAD:
-            _REFRESH_THREAD.join(timeout=1)
+        if _REFRESH_THREAD and _REFRESH_THREAD is not threading.current_thread():
+            # A transaction can wait up to 30 seconds for SQLite; do not release
+            # the application lifecycle while that worker still holds its file.
+            _REFRESH_THREAD.join(timeout=40)
 
 
 def agent_invoke(action, arguments):

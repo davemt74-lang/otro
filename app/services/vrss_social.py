@@ -457,6 +457,8 @@ def deliver(sender=None, stop_event=None):
             with v.database() as c:
                 c.execute("UPDATE vrss_social_outbox SET error='Delivery unavailable; retrying automatically.',due=?,lease='',lease_until=0 WHERE id=? AND lease=? AND state='pending'",
                           (time.time()+min(86400,30*2**min(job['attempts'],11)),job['id'],lease))
+    if stop_event is not None and stop_event.is_set():
+        return
     deliver_notices()
     from . import vrss_interactions
     vrss_interactions.deliver_notices()

@@ -46,3 +46,5 @@ The section is complete only when all ten gates pass; the release score describe
 | Release | Existing VRSS/Hosting/Chat regressions, full Windows installer certification, green merged PRs and exact-source verified ZIPs |
 
 `tests/vrss_v2d.py` uses independent subprocesses and production databases/signatures with a controlled document boundary. `tests/vrss_v2d_tls.py` uses two actual HTTPS application servers and unchanged production transport, with a test CA and deterministic DNS/socket mapping. Browser tests drive production APIs and UI with controlled signed external fixtures. These tests do not claim live geographically separate public deployments. Windows executable, browser, restart and installer gates remain required before release.
+
+Worker shutdown drains an active Feed SQLite transaction before lifecycle cleanup. A cancelled worker rolls back rather than committing or opening subsequent database/delivery work, and restart receives a fresh cancellation context. `tests/vrss_shutdown.py` deliberately holds a real transaction past the former one-second stop window, verifies rollback and no further delivery, then checks restart and database-handle release.
