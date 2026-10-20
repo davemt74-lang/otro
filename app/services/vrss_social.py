@@ -62,6 +62,8 @@ def setup(c):
     for name in ('social_enabled', 'social_key_created'):
         if name not in columns:
             c.execute('ALTER TABLE vrss_profile ADD COLUMN ' + name + ' INTEGER NOT NULL DEFAULT 0')
+    from . import vrss_interactions
+    vrss_interactions.setup(c)
 
 
 def ready(c):
@@ -97,7 +99,8 @@ def actor_document():
         key, rotations = identity(c)
         return {'contract': CONTRACT, 'id': actor_url(p), 'identity': p['actor_id'], 'name': p['display_name'],
                 'inbox': p['public_base'] + '/vrss/v1/inbox', 'rss': p['feed_url'],
-                'public_key': key.public_key().public_bytes_raw().hex(), 'rotations': rotations}
+                'public_key': key.public_key().public_bytes_raw().hex(), 'rotations': rotations,
+                'interactions': {'contract': 'vp3.vrss.interactions.v1', 'likes': bool(p['reactions_enabled'])}}
 
 
 def rotate():
@@ -214,7 +217,7 @@ def pin(c, doc):
     return c.execute('SELECT * FROM vrss_social_peers WHERE actor=?', (doc['id'],)).fetchone()
 
 
-def enqueue(c, p, peer, kind, follow_id):
+def enqueue(c, p, peer, kind, follow_id, extra=None):
     if c.execute('SELECT count(*) FROM vrss_social_outbox').fetchone()[0] >= 10000:
         raise v.VRSSError('VRSS delivery history is full.', 409)
     seq = c.execute('SELECT send_seq FROM vrss_social_peers WHERE actor=?', (peer,)).fetchone()[0] + 1
@@ -222,6 +225,8 @@ def enqueue(c, p, peer, kind, follow_id):
     activity = {'contract': CONTRACT, 'id': p['public_base'] + '/vrss/v1/activities/' + str(uuid.uuid4()),
                 'actor': actor_url(p), 'identity': p['actor_id'], 'recipient': peer, 'type': kind,
                 'follow_id': follow_id, 'seq': seq, 'issued_at': time.time()}
+    if extra:
+        activity.update(extra)
     c.execute('INSERT INTO vrss_social_outbox(id,actor,seq,payload) VALUES(?,?,?,?)',
               (activity['id'], peer, seq, canonical(activity).decode()))
     return activity
@@ -302,6 +307,7 @@ def rate_limit(actor):
 
 
 def receive(raw, loader=None):
+    from . import vrss_interactions as interactions
     if len(raw) > MAX_BODY:
         raise v.VRSSError('VRSS activity is too large.', 413)
     try:
@@ -309,8 +315,13 @@ def receive(raw, loader=None):
         a = packet['activity']
         actor = actor_address(a['actor'])
         base = actor[:-len('/vrss/v1/actor')]
-        if (set(a) != {'contract','id','actor','identity','recipient','type','follow_id','seq','issued_at'}
-                or a['contract'] != CONTRACT or a['type'] not in {'Follow','Accept','Undo','Reject'}
+        reaction = a.get('type') in interactions.TYPES
+        fields = {'contract','id','actor','identity','recipient','type','follow_id','seq','issued_at'}
+        if reaction:
+            fields |= {'object','reaction_id'}
+        if (set(a) != fields
+                or a['contract'] != (interactions.CONTRACT if reaction else CONTRACT)
+                or (not reaction and a['type'] not in {'Follow','Accept','Undo','Reject'})
                 or type(a['seq']) is not int or not 0 < a['seq'] < 2**53
                 or type(a['issued_at']) not in {int,float} or not 0 < a['issued_at'] <= time.time() + 300
                 or type(packet['sent_at']) is not int or abs(time.time() - packet['sent_at']) > 300
@@ -321,6 +332,8 @@ def receive(raw, loader=None):
         fid = v.safe_url(a['follow_id'], https_only=True)
         prefix, tail = fid.rsplit('/vrss/v1/follows/', 1)
         uuid.UUID(tail)
+        if reaction:
+            interactions.validate(a)
         signature = bytes.fromhex(packet['signature'])
     except (KeyError, ValueError, TypeError, AttributeError, UnicodeError, RecursionError) as exc:
         raise v.VRSSError('Invalid VRSS activity.', 422) from exc
@@ -353,19 +366,26 @@ def receive(raw, loader=None):
             if receipt:
                 if receipt[0] != digest:
                     raise v.VRSSError('VRSS activity ID was reused with different content.', 409)
-                return {'contract': CONTRACT, 'ok': True, 'replayed': True}
+                result = {'contract': CONTRACT, 'ok': True, 'replayed': True}
+                if reaction:
+                    result['interaction'] = {'object': a['object'], 'actor': actor_url(p),
+                                             'likes': interactions.count(c, p, a['object'])}
+                return result
             if a['seq'] <= peer['receive_seq']:
                 raise v.VRSSError('Stale VRSS activity.', 409)
             if c.execute('SELECT count(*) FROM vrss_social_receipts').fetchone()[0] >= 10000:
                 raise v.VRSSError('VRSS inbox history is full.', 409)
-            direction = 'in' if a['type'] in {'Follow','Undo'} else 'out'
+            direction = 'in' if reaction or a['type'] in {'Follow','Undo'} else 'out'
             expected = base if direction == 'in' else p['public_base']
             if prefix != expected:
                 raise v.VRSSError('VRSS follow owner does not match.', 403)
             relation = c.execute('SELECT * FROM vrss_social_relations WHERE actor=? AND direction=?', (actor,direction)).fetchone()
             if a['type'] in {'Undo','Reject'}:
                 c.execute('INSERT OR IGNORE INTO vrss_social_revoked VALUES(?,?)',(actor,fid))
-            if a['type'] == 'Follow':
+            interaction = None
+            if reaction:
+                interaction = interactions.receive(c, p, peer, a)
+            elif a['type'] == 'Follow':
                 if c.execute('SELECT 1 FROM vrss_social_revoked WHERE actor=? AND follow_id=?',(actor,fid)).fetchone() or a['issued_at'] <= peer['blocked_at']:
                     raise v.VRSSError('This follow predates connection removal.', 409)
                 c.execute("INSERT OR REPLACE INTO vrss_social_relations VALUES(?,'in',?,'accepted',?)", (actor,fid,time.time()))
@@ -386,7 +406,7 @@ def receive(raw, loader=None):
                     c.execute('DELETE FROM vrss_social_notices WHERE actor=? AND delivered=0',(actor,))
             c.execute('INSERT INTO vrss_social_receipts VALUES(?,?,?,?)',(a['id'],digest,actor,time.time()))
             c.execute('UPDATE vrss_social_peers SET receive_seq=? WHERE actor=?',(a['seq'],actor))
-        return {'contract':CONTRACT,'ok':True}
+        return {'contract':CONTRACT,'ok':True, **({'interaction': interaction} if interaction is not None else {})}
     finally:
         _SLOTS.release()
 
@@ -429,12 +449,19 @@ def deliver(sender=None, stop_event=None):
                 raise v.VRSSError('Remote VRSS did not acknowledge the activity.',502)
             with v.database() as c:
                 ready(c)
-                c.execute("UPDATE vrss_social_outbox SET state='delivered',lease='',lease_until=0,error='' WHERE id=? AND lease=? AND state='pending'",(job['id'],lease))
+                updated = c.execute("UPDATE vrss_social_outbox SET state='delivered',lease='',lease_until=0,error='' WHERE id=? AND lease=? AND state='pending'",(job['id'],lease))
+                if updated.rowcount:
+                    from . import vrss_interactions
+                    vrss_interactions.acknowledge(c, a, result)
         except Exception:
             with v.database() as c:
                 c.execute("UPDATE vrss_social_outbox SET error='Delivery unavailable; retrying automatically.',due=?,lease='',lease_until=0 WHERE id=? AND lease=? AND state='pending'",
                           (time.time()+min(86400,30*2**min(job['attempts'],11)),job['id'],lease))
+    if stop_event is not None and stop_event.is_set():
+        return
     deliver_notices()
+    from . import vrss_interactions
+    vrss_interactions.deliver_notices()
 
 
 def deliver_notices():
@@ -457,7 +484,7 @@ def deliver_notices():
 def dismiss_notices(actor):
     from ..database import db
     with db() as c:
-        rows=c.execute("SELECT id,action_json FROM notifications WHERE source_key=? AND event_key='vrss.new_follower'",(v.APP_KEY,)).fetchall()
+        rows=c.execute("SELECT id,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_follower','vrss.new_like')",(v.APP_KEY,)).fetchall()
         for row in rows:
             if json.loads(row['action_json']).get('actor')==actor:
                 c.execute('UPDATE notifications SET dismissed_at=COALESCE(dismissed_at,CURRENT_TIMESTAMP) WHERE id=?',(row['id'],))
@@ -488,6 +515,6 @@ def status(cursor=''):
         blocked=[row['actor'] for row in page if row['blocked']]
         counts={row['direction']:row['n'] for row in c.execute("SELECT direction,count(*) AS n FROM vrss_social_relations r JOIN vrss_social_peers p ON p.actor=r.actor WHERE r.state='accepted' AND p.blocked=0 GROUP BY direction")}
         pending=c.execute("SELECT count(*) FROM vrss_social_outbox WHERE state='pending'").fetchone()[0]
-    return {'enabled':bool(p['social_enabled'] and p['enabled']),'relations':rows,'blocked':blocked,'deliveries':jobs,'pause_reason':pause_reason,
+    return {'enabled':bool(p['social_enabled'] and p['enabled']),'likes_enabled':bool(p['reactions_enabled']),'relations':rows,'blocked':blocked,'deliveries':jobs,'pause_reason':pause_reason,
             'followers':counts.get('in',0),'following':counts.get('out',0),'pending_deliveries':pending,
             'next_cursor':page[-1]['actor'] if len(peers)>25 else ''}

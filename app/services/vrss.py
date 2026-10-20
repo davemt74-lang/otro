@@ -37,6 +37,7 @@ _REFRESH_STOP = threading.Event()
 _REFRESH_THREAD = None
 _REFRESH_LOCK = threading.Lock()
 _AUTHORITY_GUARD = ContextVar("vrss_authority_guard", default=None)
+_WORKER_STOP = ContextVar("vrss_worker_stop", default=None)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vrss_profile (
  id INTEGER PRIMARY KEY CHECK(id=1), actor_id TEXT NOT NULL,
@@ -100,7 +101,9 @@ def authority_guard(check):
 
 @contextmanager
 def database():
+    worker_guard()
     running()
+    worker_guard()
     path = homeserver_app_resources.sqlite_path(APP_KEY, "vrss.db")
     connection = sqlite3.connect(path, timeout=30)
     connection.row_factory = sqlite3.Row
@@ -126,8 +129,11 @@ def database():
         connection.execute("INSERT OR IGNORE INTO vrss_profile(id,actor_id) VALUES(1,?)", ("urn:uuid:" + str(uuid.uuid4()),))
         from . import vrss_social
         vrss_social.setup(connection)
+        worker_guard()
         yield connection
+        worker_guard()
         running()
+        worker_guard()
         guard = _AUTHORITY_GUARD.get()
         if guard:
             guard()
@@ -136,12 +142,19 @@ def database():
         siblings = sum(f.stat().st_size for f in path.parent.glob("*.db") if f != path)
         if used + siblings > homeserver_app_resources.limits(APP_KEY)["sqlite_limit_bytes"]:
             raise VRSSError("Feed app storage quota exceeded.", 413)
+        worker_guard()
         connection.commit()
     except Exception:
         connection.rollback()
         raise
     finally:
         connection.close()
+
+
+def worker_guard():
+    stop = _WORKER_STOP.get()
+    if stop is not None and stop.is_set():
+        raise VRSSError('Feed background work is stopping.', 409)
 
 
 def text(value, limit, label, required=False):
@@ -187,6 +200,7 @@ def profile(connection):
     p = dict(connection.execute("SELECT * FROM vrss_profile WHERE id=1").fetchone())
     p["enabled"] = bool(p["enabled"])
     p["social_enabled"] = bool(p.get("social_enabled", False))
+    p["reactions_enabled"] = bool(p.get("reactions_enabled", False))
     p["address_locked"] = bool(p["address_locked"])
     p["profile_url"] = p["public_base"] + "/vrss/v1/profile" if p["public_base"] else ""
     p["feed_url"] = p["public_base"] + "/vrss/v1/rss" if p["public_base"] else ""
@@ -254,11 +268,15 @@ def update_profile(body):
         if type(social) is not bool:
             raise VRSSError("Choose whether to enable authenticated follows.", 422)
         social = social and enabled
+        reactions = body.get("reactions_enabled", p["reactions_enabled"])
+        if type(reactions) is not bool:
+            raise VRSSError("Choose whether public posts accept VRSS likes.", 422)
         if social:
             from . import vrss_social
             vrss_social.actor_address(base + '/vrss/v1/actor')
             vrss_social.identity(c)
         c.execute("UPDATE vrss_profile SET social_enabled=? WHERE id=1", (int(social),))
+        c.execute("UPDATE vrss_profile SET reactions_enabled=? WHERE id=1", (int(reactions),))
         c.execute("UPDATE vrss_profile SET display_name=?,bio=?,public_base=?,enabled=?,address_locked=?,hosting_site_id=?,revision=revision+1 WHERE id=1",
                   (name, bio, base, int(enabled), int(enabled or p["address_locked"]), hosting_site_id))
         return profile(c)
@@ -304,6 +322,7 @@ def create_post(body):
 
 def post_value(row, p):
     return {"id": row["id"], "body": row["body"], "media": json.loads(row["media"]), "visibility": row["visibility"],
+            "url": p['public_base'] + '/vrss/v1/posts/' + row['id'] if p['enabled'] and row['visibility']=='public' else '',
             "created_at": row["created_at"], "author": {"id": p["actor_id"], "display_name": p["display_name"]}, "can_delete": True}
 
 
@@ -639,6 +658,8 @@ def deliver_notices():
 
 
 def refresh_due(fetcher=None, *, stop_event=None):
+    if stop_event is not None and stop_event.is_set():
+        return []
     with database() as c:
         rows = c.execute("SELECT id FROM vrss_subscriptions WHERE next_check_at<=? AND lease_until<=? ORDER BY next_check_at,id LIMIT 4",
                          (time.time(), time.time())).fetchall()
@@ -650,19 +671,29 @@ def refresh_due(fetcher=None, *, stop_event=None):
             results.append(refresh(row["id"], fetcher, scheduled=True))
         except Exception:
             continue
-    deliver_notices()
+    if stop_event is None or not stop_event.is_set():
+        deliver_notices()
     return results
+
+
+def _refresh_cycle(stop):
+    token = _WORKER_STOP.set(stop)
+    try:
+        if not stop.is_set():
+            refresh_due(stop_event=stop)
+        if not stop.is_set():
+            from . import vrss_social
+            vrss_social.deliver(stop_event=stop)
+    except Exception:
+        # Stopped/uninstalled apps and transient quota/database failures are retried locally.
+        pass
+    finally:
+        _WORKER_STOP.reset(token)
 
 
 def _refresh_loop(stop):
     while not stop.wait(15):
-        try:
-            refresh_due(stop_event=stop)
-            from . import vrss_social
-            vrss_social.deliver(stop_event=stop)
-        except Exception:
-            # Stopped/uninstalled apps and transient quota/database failures are retried locally.
-            continue
+        _refresh_cycle(stop)
 
 
 def start():
@@ -678,8 +709,10 @@ def start():
 def stop():
     with _REFRESH_LOCK:
         _REFRESH_STOP.set()
-        if _REFRESH_THREAD:
-            _REFRESH_THREAD.join(timeout=1)
+        if _REFRESH_THREAD and _REFRESH_THREAD is not threading.current_thread():
+            # A transaction can wait up to 30 seconds for SQLite; do not release
+            # the application lifecycle while that worker still holds its file.
+            _REFRESH_THREAD.join(timeout=40)
 
 
 def agent_invoke(action, arguments):
@@ -726,19 +759,27 @@ def request(body):
             result.update(vrss_social.change(body.get("actor"), command))
         elif command == "rotate":
             result.update(vrss_social.rotate())
+        elif command == "like":
+            from . import vrss_interactions
+            result.update(vrss_interactions.set_like(body.get("url"), body.get("enabled"), body.get("request_id")))
+        elif command == "reactions":
+            from . import vrss_interactions
+            result['reaction'] = vrss_interactions.read(body.get("url"))
         else:
             raise VRSSError("Unknown VRSS social action.", 422)
     elif action == "notices":
+        from . import vrss_interactions
+        vrss_interactions.deliver_notices()
         from ..database import db
         with db() as central:
-            rows = central.execute("SELECT id,title,body,created_at FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
+            rows = central.execute("SELECT id,title,body,created_at,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
         result["notices"] = [dict(row) for row in rows]
     elif action == "notice.read":
         from ..database import db
         if type(body.get("notice_id")) is not int or body["notice_id"] < 1:
             raise VRSSError("A valid notice ID is required.", 422)
         with db() as central:
-            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower')", (body["notice_id"], APP_KEY))
+            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like')", (body["notice_id"], APP_KEY))
     elif action == "profile.update":
         result["profile"] = update_profile(body)
     elif action == "post.create":
@@ -805,6 +846,12 @@ def request(body):
                                   "media": json.loads(row["media"]), "created_at": row["published_at"] or row["received_at"], "sort_at": row["received_at"],
                                   "url": row["url"], "author": {"display_name": row["source_title"], "feed_url": row["feed_url"]}, "visibility": "source", "can_delete": False})
             last = page[19] if len(page) > 20 else None
+            from . import vrss_interactions
+            for item in items:
+                if item.get('url'):
+                    value = vrss_interactions.feed_value(c, p, item['url'], item['author'].get('feed_url',''))
+                    if value is not None:
+                        item['interactions'] = value
             result["feed"] = {"items": items, "has_more": bool(last), "next_cursor": json.dumps([last["sort_at"], last["kind"], last["seq"]]) if last else ""}
     if action in {"bootstrap", "hosting"}:
         result["hosting"] = hosting_options()
@@ -825,10 +872,13 @@ def public_document(kind, post_id=""):
         public = {"contract": CONTRACT, "id": p["actor_id"], "name": p["display_name"], "bio": p["bio"], "url": p["profile_url"], "rss": p["feed_url"], "capabilities": {"rss": True, "social_writes": bool(p["social_enabled"])}, "social": {"contract": "vp3.vrss.follow.v1", "actor": p["public_base"] + "/vrss/v1/actor"} if p["social_enabled"] else None}
         if kind == "profile":
             return public
-        if kind == "post":
+        if kind in {"post", "interactions"}:
             row = c.execute("SELECT * FROM vrss_posts WHERE id=? AND deleted=0 AND visibility='public'", (post_id,)).fetchone()
             if not row:
                 raise VRSSError("Post not found.", 404)
+            if kind == "interactions":
+                from . import vrss_interactions
+                return vrss_interactions.public_view(c, p, p['public_base'] + '/vrss/v1/posts/' + row['id'])
             value = post_value(row, p)
             value.pop("can_delete")
             value["author"] = public

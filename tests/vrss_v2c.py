@@ -33,7 +33,67 @@ def child(data):
             if cmd=='configure':
                 p=v.request({'action':'profile'})['profile']
                 out=v.update_profile({'display_name':req['name'],'bio':'','enabled':True,'social_enabled':True,
-                    'public_base':req['base'],'expected_revision':p['revision']})
+                    'public_base':req['base'],'reactions_enabled':req.get('reactions',False),'expected_revision':p['revision']})
+            elif cmd=='post':out=v.create_post({'body':req.get('body','A public post'),'media':[],'visibility':req.get('visibility','public'),'request_id':str(uuid.uuid4())})
+            elif cmd=='public':out=v.public_document(req.get('kind','interactions'),req['id'])
+            elif cmd in {'reaction','reaction_read','read_race','cancel_like_ack'}:
+                from app.services import vrss_interactions as r
+                docs=req.get('documents',{})
+                loader=lambda url:docs[url]
+                if cmd=='reaction':out=r.set_like(req['url'],req['enabled'],req['request_id'],loader)
+                elif cmd=='reaction_read':out=r.read(req['url'],loader)
+                elif cmd=='read_race':
+                    def delayed(url):
+                        if url.endswith('/interactions'):
+                            r.set_like(req['url'],True,str(uuid.uuid4()),loader)
+                            return {**docs[url],'likes':999}
+                        return docs[url]
+                    out=r.read(req['url'],delayed)
+                else:
+                    stop=threading.Event()
+                    def cancelled_ack(url,packet):
+                        r.set_like(req['url'],False,str(uuid.uuid4()),loader)
+                        stop.set()
+                        return {'contract':s.CONTRACT,'ok':True,'interaction':{'object':req['url'],'actor':packet['activity']['recipient'],'likes':999}}
+                    s.deliver(cancelled_ack,stop_event=stop)
+                    with v.database() as c:out=r.summary(c,v.profile(c),req['url'])
+            elif cmd=='likes_enabled':
+                with v.database() as c:c.execute('UPDATE vrss_profile SET reactions_enabled=?',(int(req['enabled']),))
+                out=True
+            elif cmd=='late_reaction_revoke':
+                from app.services import vrss_interactions as r
+                denied=[False]
+                with v.database() as c:
+                    before=(c.execute('SELECT count(*) FROM vrss_social_outbox').fetchone()[0],c.execute('SELECT count(*) FROM vrss_interaction_requests').fetchone()[0])
+                def guard():
+                    if denied[0]:raise v.VRSSError('Cloud revoked',403)
+                def loader(url):
+                    if url.endswith('/interactions'):
+                        if req['boundary']=='cloud':denied[0]=True
+                        else:
+                            with v.database() as c:c.execute("UPDATE vrss_social_relations SET state='removed' WHERE actor=? AND direction='out'",(req['actor'],))
+                    return req['documents'][url]
+                try:
+                    with v.authority_guard(guard):r.set_like(req['url'],True,str(uuid.uuid4()),loader)
+                except v.VRSSError as exc:assert exc.status_code==(403 if req['boundary']=='cloud' else 409)
+                else:raise AssertionError('Revocation during reaction discovery committed')
+                finally:
+                    with v.database() as c:c.execute("UPDATE vrss_social_relations SET state='accepted' WHERE actor=? AND direction='out'",(req['actor'],))
+                with v.database() as c:
+                    assert before==(c.execute('SELECT count(*) FROM vrss_social_outbox').fetchone()[0],c.execute('SELECT count(*) FROM vrss_interaction_requests').fetchone()[0])
+                out=True
+            elif cmd=='reaction_api':
+                from fastapi.testclient import TestClient
+                from app.runtime import app
+                from app.security import OWNER_CONTROL_TOKEN
+                client=TestClient(app)
+                path='/vrss/v1/posts/'+req['post_id']+'/interactions'
+                response=client.get(path);assert response.status_code==200 and response.json()['likes']==req['likes']
+                assert response.headers['cache-control']=='no-store' and 'secret' not in response.text
+                assert client.post('/api/v1/control/homeserver-apps/vrss/request',json={'action':'social.like'},headers={'X-VRSS-Request':'1'}).status_code==401
+                assert client.post('/__owner/session',headers={'X-HomeServer-Owner':OWNER_CONTROL_TOKEN}).status_code==200
+                assert client.post(path,json={}).status_code==405
+                out=True
             elif cmd=='actor':out=s.actor_document()
             elif cmd=='follow':out=s.follow(req['url'],lambda _:req['doc'])
             elif cmd=='receive':out=s.receive(json.dumps(req['packet']).encode(),lambda _:req['doc'])
