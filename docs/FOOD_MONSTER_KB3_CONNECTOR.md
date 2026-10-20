@@ -43,11 +43,13 @@ corresponding Food Monster owner page `/vp3-connections.php`.
   `{"origin":"https://gelato.vp3.me","pairing_code":"fmlink_...","label":"Gelato"}`
 - `POST /api/v1/control/food-monster/connections/{local_id}/search`: JSON
   `{"q":"pizza","type":"menu","limit":10}`
-- `DELETE /api/v1/control/food-monster/connections/{local_id}`: delete the
-  local connection record and its stored secret. **IMPORTANT: Food Monster
-  KB2 does not yet support authenticated remote self-revocation.** The
-  response explicitly says that the source-side admin must revoke the link
-  separately on the Food Monster owner page.
+- `DELETE /api/v1/control/food-monster/connections/{local_id}`: request
+  exact bearer-bound remote revocation from the Food Monster source first,
+  validate the returned source instance/connection IDs, and then destroy
+  the local credential and registry row. The response reports whether
+  remote revocation was **verified**. If it could not be verified, the
+  local credential is still destroyed and the admin is directed to
+  revoke the remaining grant on Food Monster's owner page.
 
 No new endpoint is added to the paired-app bearer namespace or Remote
 Bridge, and no credentials are placed in Agent Chat prompts, exported
@@ -66,9 +68,10 @@ inventory, SQLite, or ordinary application logs.
   persistent Knowledge index.
 - Owner source revocation immediately makes live queries fail. Existing
   cached knowledge is not imported in this phase.
-- Local disconnect cannot revoke a still-valid source-side credential;
-  always revoke it from the Food Monster owner UI until the follow-up
-  bidirectional revocation protocol is implemented.
+- Source-side revocation is supported by original Gelato KB4B. If
+  Food Monster cannot be reached or sends an unexpected identity, do not
+  assume the remote grant was revoked. Local disconnect still destroys
+  its secret and returns a source-side manual-revocation warning.
 - The first version does not provide a public-cloud pairing redirect,
   SaaS directory or an MCP server.
 
