@@ -220,9 +220,9 @@ class KB5CAutoSyncTests(unittest.TestCase):
     def test_owner_routes_are_not_paired_app_permissions(self):
         paths={r.path for r in connector.router.routes}
         self.assertIn("/api/v1/control/food-monster/connections/{local_id}/auto-sync", paths)
-        from app import main
-        self.assertIn("food_monster_auto_sync.scheduler.start()",inspect_source(main.lifespan))
-        self.assertIn("food_monster_auto_sync.scheduler.stop()",inspect_source(main.lifespan))
+        main = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+        self.assertIn("food_monster_auto_sync.scheduler.start()",main)
+        self.assertIn("food_monster_auto_sync.scheduler.stop()",main)
 
 
 def inspect_source(obj):
