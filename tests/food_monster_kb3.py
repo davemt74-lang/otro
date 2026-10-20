@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from app.services import food_monster_connector as fm
 
-_MIGRATION = Path(__file__).resolve().parents[1] / "database" / "migrations" / "030_food_monster_connections.sql"
+_MIGRATION = Path(__file__).resolve().parents[1] / "database" / "food_monster_connections.sql"
 
 
 class FoodMonsterConnectorTests(unittest.TestCase):
