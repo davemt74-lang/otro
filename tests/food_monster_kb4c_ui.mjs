@@ -77,7 +77,7 @@ const forbidden=['http://gelato.vp3.me','https://127.0.0.1','https://localhost',
   'https://guest:secret@gelato.vp3.me','https://gelato.vp3.me:8443',
   'https://router.local','javascript:alert(1)'];
 for (const value of forbidden) {
-  assert.throws(()=>normalize(value),Error,'Rejected origin '+value);
+  assert.throws(()=>normalize(value),/HTTPS|URL|domain|path|credentials|port/i,'Rejected origin '+value);
 }
 assert.ok(entries.fmLinkForm.listeners.submit, 'Form was wired');
 entries.fmLinkOrigin.value='https://gelato.vp3.me';
