@@ -63,9 +63,12 @@ async def lifespan(_: FastAPI):
     agent_mission_schedules.start()
     from .services import agent_mission_progress
     agent_mission_progress.start()
+    from .services import vrss
+    vrss.start()
     try:
         yield
     finally:
+        vrss.stop()
         agent_mission_progress.stop()
         agent_mission_schedules.stop()
         workspace_sync.stop()

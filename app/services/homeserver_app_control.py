@@ -206,6 +206,14 @@ def _validate_arguments(spec:dict[str,Any],arguments:dict[str,Any])->dict[str,An
 
 
 def _builtin(app_key:str,provider:str,action_key:str,arguments:dict[str,Any])->Any:
+    if provider=="vrss":
+        from . import vrss
+        if app_key != vrss.APP_KEY:
+            raise AppControlError("Builtin action provider does not match the app.",409)
+        try:
+            return vrss.agent_invoke(action_key,arguments)
+        except vrss.VRSSError as exc:
+            raise AppControlError(str(exc),exc.status_code) from exc
     if provider=="video_editor":
         from . import homeserver_video_editor
         if app_key!=homeserver_video_editor.APP_KEY:

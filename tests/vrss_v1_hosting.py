@@ -98,7 +98,7 @@ def main():
         with db() as c:
             c.execute("UPDATE homeserver_apps SET installed_version='1.1.0' WHERE app_key=?", (vrss.APP_KEY,))
         homeserver_app_prebuilt.ensure_defaults()
-        assert homeserver_apps.get(vrss.APP_KEY)['installed_version'] == '1.2.0'
+        assert homeserver_apps.get(vrss.APP_KEY)['installed_version'] == '1.3.0'
         assert homeserver_apps.get(vrss.APP_KEY)['lifecycle_state'] == 'stopped'
         homeserver_apps.transition(vrss.APP_KEY, 'running')
         assert vrss.request({'action': 'bootstrap'})['profile']['actor_id'] == identity

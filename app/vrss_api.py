@@ -53,7 +53,8 @@ def public_html(doc, post=False):
     else:
         title = doc["name"]
         content = "<p>" + e(doc["bio"]).replace("\n", "<br>") + '</p><p><a href="' + e(doc["rss"], quote=True) + '">Follow RSS feed</a></p><p>Copy this feed address into your reader:</p><p style="overflow-wrap:anywhere">' + e(doc["rss"]) + "</p>"
-    return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + e(title) + '</title><style>body{max-width:720px;margin:48px auto;padding:20px;font:17px/1.6 system-ui;color:#18222f}a{color:#315cc5}p{white-space:pre-wrap;overflow-wrap:anywhere}</style><main><h1>' + e(title) + "</h1>" + content + "</main></html>"
+    rss_link = ('<link rel="alternate" type="application/rss+xml" href="' + e(doc['rss'], quote=True) + '">') if not post else ''
+    return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' + rss_link + '<title>' + e(title) + '</title><style>body{max-width:720px;margin:48px auto;padding:20px;font:17px/1.6 system-ui;color:#18222f}a{color:#315cc5}p{white-space:pre-wrap;overflow-wrap:anywhere}</style><main><h1>' + e(title) + "</h1>" + content + "</main></html>"
 
 
 def document_response(kind, post_id="", accept=""):

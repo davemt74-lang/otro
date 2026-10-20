@@ -18,10 +18,26 @@ try{
   await page.getByRole('heading',{name:'Your feed',exact:true}).waitFor();
   assert.equal(await page.title(),'VRSS · HomeServer');
   await page.getByRole('button',{name:'Following',exact:true}).click();
-  await page.getByLabel('RSS or Atom feed URL').fill('https://news.example/rss');await page.getByRole('button',{name:'Follow feed',exact:true}).click();
+  await page.getByLabel('Website, VRSS profile or feed URL').fill('https://news.example/rss');await page.getByRole('button',{name:'Follow feed',exact:true}).click();
   await page.getByRole('button',{name:'Unfollow',exact:true}).waitFor();await page.getByRole('button',{name:'Close',exact:true}).click();
   await page.getByRole('heading',{name:'New album',exact:true}).waitFor();assert.equal(mediaLoads,0);assert.equal(await page.evaluate(()=>Boolean(window.injected)),false);
   if(process.env.VRSS_SCREENSHOT_DIR)await page.screenshot({path:`${process.env.VRSS_SCREENSHOT_DIR}/vrss-feed-${width}.png`,fullPage:true});
+  assert.equal((await context.request.post(origin+'/api/v1/control/vrss-test-new-post')).status(),200);
+  await context.request.post(origin+'/api/v1/control/system/setup',{data:{complete:true}});
+  await page.goto(origin+'/#chat');
+  const updates=page.getByRole('region',{name:'VRSS updates',exact:true});
+  await updates.getByText('New posts in your VRSS feed',{exact:true}).waitFor();
+  if(width<700)await page.getByRole('button',{name:'Open navigation',exact:true}).click();
+  await page.getByRole('button',{name:'Open Agent Brain',exact:true}).click();
+  await page.locator('#agentBrainVRSS').getByRole('heading',{name:'VRSS',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Close Agent Brain',exact:true}).click();
+  const closeNav=page.getByRole('button',{name:'Close navigation',exact:true});if(width<700&&await closeNav.isVisible())await closeNav.click();
+  await updates.getByRole('button',{name:'Mark read',exact:true}).click();
+  await updates.waitFor({state:'hidden'});
+  assert.equal((await context.request.post(endpoint,{headers:{'X-VRSS-Request':'1'},data:{action:'notices'}})).status(),200);
+  await page.goto(origin+'/api/v1/control/homeserver-apps/vp3.feed/preview/');
+  await page.getByRole('heading',{name:'Your feed',exact:true}).waitFor();
+
   await page.getByRole('link',{name:'Create Post',exact:true}).click();
   await page.getByLabel('What would you like to share?').fill('Local draft '+width);await page.reload();await page.getByLabel('What would you like to share?').waitFor();assert.equal(await page.getByLabel('What would you like to share?').inputValue(),'Local draft '+width);
   // Lose the response after the real write commits; retry uses the same receipt.
@@ -56,5 +72,5 @@ try{
   await page.getByRole('link',{name:'Feed',exact:true}).click();await page.getByRole('button',{name:'Following',exact:true}).click();await page.getByRole('button',{name:'Unfollow',exact:true}).click();await page.getByRole('button',{name:'Unfollow',exact:true}).waitFor({state:'detached'});await page.getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('heading',{name:'Your feed',exact:true}).waitFor();await page.getByRole('heading',{name:'New album',exact:true}).waitFor({state:'detached'});
   await context.close();
  }
- console.log('PASS real VRSS API/SQLite/browser at 1440/390/320: local drafts, RSS follow/unfollow, no passive media or XSS, exact lost-response retry, immutable pending form and stale response isolation');
+ console.log('PASS real VRSS API/SQLite/browser at 1440/390/320: local drafts, RSS follow/unfollow, new-post Chat notices and Brain health, no passive media or XSS, exact lost-response retry, immutable pending form and stale response isolation');
 }finally{await browser.close();child.kill('SIGTERM');lines.close();}
