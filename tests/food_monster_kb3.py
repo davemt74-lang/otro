@@ -23,11 +23,13 @@ class FoodMonsterConnectorTests(unittest.TestCase):
         self.database = self.directory / "testing.db"
         with sqlite3.connect(self.database) as conn:
             conn.executescript(_MIGRATION.read_text(encoding="utf-8"))
+            conn.executescript((Path(__file__).resolve().parents[1] / "database" / "food_monster_knowledge_cache.sql").read_text(encoding="utf-8"))
 
         @contextlib.contextmanager
         def testing_db():
             connection = sqlite3.connect(self.database)
             connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
             try:
                 yield connection
                 connection.commit()
