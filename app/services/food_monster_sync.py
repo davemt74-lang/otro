@@ -238,6 +238,7 @@ def synchronize(local_id: str, *, fetch: Callable[..., dict[str, Any]] | None = 
     fetch = fetch or connector._request
     with connector._LOCK:
         entry, token = _principal(local_id)
+        current_kind = sorted(entry["scopes"])[0]
         try:
             discovery = fetch(entry["origin"], None)
             if (discovery.get("schema") != "food-monster-vp3-v1"
@@ -246,19 +247,23 @@ def synchronize(local_id: str, *, fetch: Callable[..., dict[str, Any]] | None = 
                 raise connector.FoodMonsterLinkError("Food Monster instance or capability changed.", 502)
             outcomes = {}
             for kind in sorted(entry["scopes"]):
+                current_kind = kind
                 docs = _pages(entry,token,kind,fetch)
                 outcomes[kind] = _apply_full_sweep(local_id,kind,docs)
             return {"connectionId":local_id, "instanceId":entry["instance_id"],
                     "origin":entry["origin"],"status":"synced","collections":outcomes,
                     "syncedAt":_utc_now()}
         except connector.FoodMonsterLinkError as error:
-            _sync_failure(local_id, sorted(entry["scopes"])[0], error)
+            _sync_failure(local_id, current_kind, error)
             raise
 
 
-def purge(local_id: str) -> None:
+def purge(local_id: str, *, connection_provider=None) -> None:
     """Per-source private-cache destruction; FTS entries cascade via triggers."""
-    with db() as connection:
+    # Connector callers may supply their owner-local test/transaction provider.
+    # Production uses the exact same app.database.db connection factory.
+    provider = connection_provider or db
+    with provider() as connection:
         connection.execute("DELETE FROM food_monster_documents WHERE connection_id=?", (local_id,))
         connection.execute("DELETE FROM food_monster_sync_state WHERE connection_id=?", (local_id,))
 
