@@ -19,7 +19,7 @@ on:
       - 'app/services/brain.py'
       - 'ui/project-knowledge-r6.js'
       - 'app/services/social_feed.py'
-      - 'app/services/vrss.py'
+      - 'app/services/vrss*.py'
       - 'app/vrss_api.py'
       - 'app/bridge.py'
       - 'tests/vrss_*'
@@ -277,6 +277,8 @@ jobs:
           python tests/vrss_v1_hosting.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/vrss_v2b.py
+          python tests/vrss_v2c.py
+          python tests/vrss_v2c_tls.py
       - name: Compile Python
         run: python -m compileall app desktop tests
       - name: Interactive capture ownership and Stop acceptance

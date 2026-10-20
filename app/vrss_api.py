@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from .services import vrss
+from .services import vrss, vrss_social
 
 router = APIRouter(tags=["vrss"])
 HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
@@ -53,31 +53,35 @@ def public_html(doc, post=False):
     else:
         title = doc["name"]
         content = "<p>" + e(doc["bio"]).replace("\n", "<br>") + '</p><p><a href="' + e(doc["rss"], quote=True) + '">Follow RSS feed</a></p><p>Copy this feed address into your reader:</p><p style="overflow-wrap:anywhere">' + e(doc["rss"]) + "</p>"
+    if not post and doc.get("social"):
+        content += '<p>To follow this verified VRSS profile, ask your HomeServer Agent Chat:</p><p>Follow VRSS profile ' + e(doc['url']) + '</p>'
     rss_link = ('<link rel="alternate" type="application/rss+xml" href="' + e(doc['rss'], quote=True) + '">') if not post else ''
     return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' + rss_link + '<title>' + e(title) + '</title><style>body{max-width:720px;margin:48px auto;padding:20px;font:17px/1.6 system-ui;color:#18222f}a{color:#315cc5}p{white-space:pre-wrap;overflow-wrap:anywhere}</style><main><h1>' + e(title) + "</h1>" + content + "</main></html>"
 
 
 def document_response(kind, post_id="", accept=""):
-    doc = vrss.public_document(kind, post_id)
+    doc = vrss_social.actor_document() if kind == "actor" else vrss.public_document(kind, post_id)
     if kind == "rss":
         return Response(doc, media_type="application/rss+xml", headers=HEADERS)
-    if "text/html" in accept:
+    if kind != "actor" and "text/html" in accept:
         return HTMLResponse(public_html(doc, kind == "post"), headers=HEADERS)
     return JSONResponse(doc, headers=HEADERS)
 
 
-def hosted_response(site_id, request_path, method="GET", headers=None):
+def hosted_response(site_id, request_path, method="GET", headers=None, body=b""):
     """Allowlisted public surface, reached after the existing Hosting authority."""
     from .services import hosting_runtime
-    if method not in {"GET", "HEAD"}:
-        raise vrss.VRSSError("VRSS public Hosting is read-only.", 405)
     # Accept only public documents; never fall through to owner app assets or controls.
     path = str(request_path or "")
     if not path.startswith("/"):
         path = "/" + path
+    if method not in {"GET", "HEAD"} and not (method == "POST" and path == "/vrss/v1/inbox"):
+        raise vrss.VRSSError("This VRSS path does not accept writes.", 405)
     post_id = ""
     if path in {"/", "/vrss/v1/profile"}:
         kind = "profile"
+    elif path in {"/vrss/v1/actor", "/vrss/v1/inbox"}:
+        kind = path.rsplit("/", 1)[1]
     elif path == "/vrss/v1/rss":
         kind = "rss"
     elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", path):
@@ -91,6 +95,12 @@ def hosted_response(site_id, request_path, method="GET", headers=None):
     if profile["public_base"] != base or profile["hosting_site_id"] != site_id:
         raise vrss.VRSSError("This Hosting site is not the published VRSS address.", 404)
     headers = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+    if kind == "inbox":
+        if method != "POST":
+            raise vrss.VRSSError("Use signed POST activities for this inbox.", 405)
+        if headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+            raise vrss.VRSSError("A JSON VRSS activity is required.", 415)
+        return JSONResponse(vrss_social.receive(body), status_code=202, headers=HEADERS)
     response = document_response(kind, post_id, "application/json" if "application/json" in headers.get("accept", "") else "text/html")
     if method == "HEAD":
         response.body = b""
@@ -110,3 +120,20 @@ def public_rss():
 @router.get("/vrss/v1/posts/{post_id}")
 def public_post(post_id: str, request: Request):
     return call(document_response, "post", post_id, request.headers.get("accept", ""))
+
+
+@router.get("/vrss/v1/actor")
+def public_actor():
+    return call(document_response, "actor")
+
+
+@router.post("/vrss/v1/inbox")
+async def public_inbox(request: Request):
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, "A JSON VRSS activity is required.", headers=HEADERS)
+    raw = bytearray()
+    async for part in request.stream():
+        raw.extend(part)
+        if len(raw) > vrss_social.MAX_BODY:
+            raise HTTPException(413, "VRSS activity is too large.", headers=HEADERS)
+    return JSONResponse(await run_in_threadpool(call, vrss_social.receive, bytes(raw)), status_code=202, headers=HEADERS)
