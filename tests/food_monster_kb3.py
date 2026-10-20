@@ -54,6 +54,10 @@ class FoodMonsterConnectorTests(unittest.TestCase):
                         "instanceId": identity, "connectionId": "a" * 32,
                         "accessToken": "fm2_" + "A" * 43,
                         "scopes": ["menu"]}
+            if payload["action"] == "revoke":
+                return {"ok": True, "schema": "food-monster-vp3-v1",
+                        "revoked": True, "instanceId": identity,
+                        "connectionId": "a" * 32}
             if payload["action"] == "search":
                 return {"ok": True, "schema": "food-monster-knowledge-v1",
                         "results": [{"type": "menu", "id": "gelato:menu:12",
@@ -128,7 +132,10 @@ class FoodMonsterConnectorTests(unittest.TestCase):
         self.assertNotEqual(item["instanceId"], second["instanceId"])
         removed = fm.disconnect_instance(item["id"])
         self.assertTrue(removed["disconnected"])
-        self.assertTrue(removed["remoteRevocationRequired"])
+        self.assertTrue(removed["remoteRevoked"])
+        self.assertFalse(removed["remoteRevocationRequired"])
+        self.assertTrue(any(call[1] == {"action": "revoke"} and call[0] == item["origin"]
+                            for call in self.calls))
         self.assertNotIn(item["id"], fm._vault_read())
         self.assertEqual(len(fm.list_connections()), 1)
         with self.assertRaises(fm.FoodMonsterLinkError):
