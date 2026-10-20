@@ -1,0 +1,53 @@
+name: KB5B Food Monster Private Knowledge Index
+on:
+  pull_request:
+    paths:
+      - 'database/food_monster_knowledge_cache.sql'
+      - 'app/database.py'
+      - 'app/services/food_monster_sync.py'
+      - 'app/services/food_monster_connector.py'
+      - 'ui/food-monster-connections.js'
+      - 'ui/food-monster-connections.css'
+      - 'tests/food_monster_kb5b.py'
+      - 'tests/food_monster_kb3.py'
+      - 'tests/food_monster_kb4c_ui.mjs'
+      - 'docs/FOOD_MONSTER_KB5B_SYNC.md'
+      - '.github/workflows/food-monster-kb5b.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'database/food_monster_knowledge_cache.sql'
+      - 'app/database.py'
+      - 'app/services/food_monster_sync.py'
+      - 'app/services/food_monster_connector.py'
+      - 'ui/food-monster-connections.js'
+      - 'ui/food-monster-connections.css'
+      - 'tests/food_monster_kb5b.py'
+      - 'tests/food_monster_kb3.py'
+      - 'tests/food_monster_kb4c_ui.mjs'
+      - 'docs/FOOD_MONSTER_KB5B_SYNC.md'
+      - '.github/workflows/food-monster-kb5b.yml'
+jobs:
+  private-sync-and-fts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install minimal connector dependencies
+        run: python -m pip install fastapi==0.115.6 pydantic==2.10.4 httpx==0.28.1
+      - name: Compile source and parse chat controls
+        run: |
+          python -m py_compile app/services/food_monster_sync.py app/services/food_monster_connector.py app/database.py tests/food_monster_kb5b.py
+          node --check ui/food-monster-connections.js
+      - name: Private cache and multi-restaurant acceptance
+        run: |
+          PYTHONPATH=. python tests/food_monster_kb5b.py
+          PYTHONPATH=. python tests/food_monster_kb3.py
+          PYTHONPATH=. python tests/food_monster_kb4a.py
+      - name: Owner chat sync UI, no browser token persistence
+        run: node tests/food_monster_kb4c_ui.mjs
