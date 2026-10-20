@@ -58,7 +58,11 @@ def normalize_origin(value: str) -> str:
         host = (parts.hostname or "").encode("idna").decode("ascii").lower()
     except (ValueError, UnicodeError):
         raise FoodMonsterLinkError("Enter a valid public HTTPS Food Monster hostname.")
-    if (parts.scheme != "https" or not host or parts.port is not None
+    try:
+        port = parts.port
+    except ValueError:
+        raise FoodMonsterLinkError("Invalid HTTPS port.")
+    if (parts.scheme != "https" or not host or port is not None
         or parts.username is not None or parts.password is not None
         or parts.path not in ("", "/") or parts.query or parts.fragment
         or len(host) > 253 or not re.fullmatch(r"[a-z0-9.-]+", host)
