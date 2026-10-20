@@ -48,6 +48,18 @@ def _principal(local_id: str) -> tuple[dict[str, Any], str]:
     token = connector._vault_read().get(local_id)
     if not token:
         raise connector.FoodMonsterLinkError("Connection authorization is missing.", 403)
+    # If the local approved scope set shrank, purge now-inaccessible
+    # categories even when the source is offline. Never retain their data.
+    placeholders = ",".join("?" for _ in scopes)
+    with db() as connection:
+        connection.execute(
+            "DELETE FROM food_monster_documents WHERE connection_id=? "
+            "AND kind NOT IN (" + placeholders + ")", (local_id, *scopes)
+        )
+        connection.execute(
+            "DELETE FROM food_monster_sync_state WHERE connection_id=? "
+            "AND kind NOT IN (" + placeholders + ")", (local_id, *scopes)
+        )
     entry["scopes"] = scopes
     return entry, token
 
