@@ -22,7 +22,7 @@ try{
   await page.getByRole('button',{name:'Connections',exact:true}).click();
   await page.getByLabel('VRSS profile address',{exact:true}).fill('https://bob.example/');
   await page.getByRole('button',{name:'Follow VRSS profile',exact:true}).click();
-  await page.getByText('Follow pending remote acceptance',{exact:true}).waitFor();
+  await page.getByText('Follow pending remote acceptance',{exact:true}).waitFor({timeout:30000}).catch(async e=>{console.error('CONNECTION DEBUG',width,await page.locator('#people').innerText(),JSON.stringify(await api('social.status')));throw e;});
   assert.equal((await api('social.status')).social.following,0);
   assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data:{kind:'Accept'}})).status(),200);
   assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data:{kind:'Follow'}})).status(),200);
@@ -50,7 +50,7 @@ try{
   await page.getByRole('button',{name:'Unblock',exact:true}).waitFor();
   assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data:{kind:'Follow'}})).status(),403);
   assert.equal((await api('social.status')).social.followers,0);
-  await page.getByRole('button',{name:'Unblock',exact:true}).click();
+  await page.getByRole('button',{name:'Unblock',exact:true}).click();await page.getByRole('button',{name:'Unblock',exact:true}).waitFor({state:'hidden'});
   assert.equal((await api('social.status')).social.following,0);
   await ctx.close();
  }

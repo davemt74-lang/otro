@@ -719,7 +719,7 @@ def request(body):
         from . import vrss_social
         command = action.removeprefix("social.")
         if command == "status":
-            result["social"] = vrss_social.status()
+            result["social"] = vrss_social.status(body.get("cursor", ""))
         elif command == "follow":
             result.update(vrss_social.follow(body.get("url")))
         elif command in {"unfollow", "block", "unblock", "remove"}:

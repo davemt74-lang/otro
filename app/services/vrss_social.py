@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS vrss_social_outbox (
  error TEXT NOT NULL DEFAULT '', UNIQUE(actor,seq));
 CREATE TABLE IF NOT EXISTS vrss_social_receipts (
  id TEXT PRIMARY KEY, digest TEXT NOT NULL, actor TEXT NOT NULL, received_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS vrss_social_revoked (
+ actor TEXT NOT NULL, follow_id TEXT NOT NULL, PRIMARY KEY(actor,follow_id));
 CREATE TABLE IF NOT EXISTS vrss_social_notices (
  id TEXT PRIMARY KEY, actor TEXT NOT NULL, created_at TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0);
 """
@@ -269,6 +271,7 @@ def change(target, action):
         for direction in directions:
             row = c.execute('SELECT * FROM vrss_social_relations WHERE actor=? AND direction=?', (target, direction)).fetchone()
             if row and row['state'] in {'pending', 'accepted'}:
+                c.execute('INSERT OR IGNORE INTO vrss_social_revoked VALUES(?,?)',(target,row['follow_id']))
                 c.execute("UPDATE vrss_social_outbox SET state='cancelled',lease='' WHERE actor=? AND state='pending' AND json_extract(payload,'$.follow_id')=?", (target, row['follow_id']))
                 enqueue(c, p, target, 'Undo' if direction == 'out' else 'Reject', row['follow_id'])
                 c.execute("UPDATE vrss_social_relations SET state='removed' WHERE actor=? AND direction=?", (target, direction))
@@ -360,8 +363,10 @@ def receive(raw, loader=None):
             if prefix != expected:
                 raise v.VRSSError('VRSS follow owner does not match.', 403)
             relation = c.execute('SELECT * FROM vrss_social_relations WHERE actor=? AND direction=?', (actor,direction)).fetchone()
+            if a['type'] in {'Undo','Reject'}:
+                c.execute('INSERT OR IGNORE INTO vrss_social_revoked VALUES(?,?)',(actor,fid))
             if a['type'] == 'Follow':
-                if a['issued_at'] <= peer['blocked_at']:
+                if c.execute('SELECT 1 FROM vrss_social_revoked WHERE actor=? AND follow_id=?',(actor,fid)).fetchone() or a['issued_at'] <= peer['blocked_at']:
                     raise v.VRSSError('This follow predates connection removal.', 409)
                 c.execute("INSERT OR REPLACE INTO vrss_social_relations VALUES(?,'in',?,'accepted',?)", (actor,fid,time.time()))
                 enqueue(c,p,actor,'Accept',fid)
@@ -458,7 +463,11 @@ def dismiss_notices(actor):
                 c.execute('UPDATE notifications SET dismissed_at=COALESCE(dismissed_at,CURRENT_TIMESTAMP) WHERE id=?',(row['id'],))
 
 
-def status():
+def status(cursor=''):
+    if not isinstance(cursor,str):
+        raise v.VRSSError('A valid connection cursor is required.',422)
+    if cursor:
+        actor_address(cursor)
     with v.database() as c:
         setup(c)
         p=v.profile(c)
@@ -469,9 +478,16 @@ def status():
                 raise v.VRSSError('Signing key missing; restore the complete Feed backup.',409)
         except v.VRSSError as exc:
             pause_reason = str(exc)
-        rows=[dict(row) for row in c.execute('SELECT r.*,p.name,p.blocked FROM vrss_social_relations r JOIN vrss_social_peers p ON p.actor=r.actor ORDER BY r.created_at DESC')]
-        jobs=[dict(row) for row in c.execute("SELECT id,actor,state,attempts,due,error,json_extract(payload,'$.type') AS type FROM vrss_social_outbox WHERE state='pending' ORDER BY seq LIMIT 50")]
-        blocked=[row[0] for row in c.execute('SELECT actor FROM vrss_social_peers WHERE blocked=1')]
+        # A bounded peer page keeps control responses below the existing 256 KiB bridge limit.
+        peers=c.execute('SELECT actor,blocked FROM vrss_social_peers WHERE actor>? ORDER BY actor LIMIT 26',(cursor,)).fetchall()
+        page=peers[:25]
+        rows=[dict(row) for row in c.execute("""SELECT r.*,p.name,p.blocked FROM vrss_social_relations r
+            JOIN vrss_social_peers p ON p.actor=r.actor WHERE r.actor IN
+            (SELECT actor FROM vrss_social_peers WHERE actor>? ORDER BY actor LIMIT 25) ORDER BY r.actor,r.direction""",(cursor,))]
+        jobs=[dict(row) for row in c.execute("SELECT id,actor,state,attempts,due,error,json_extract(payload,'$.type') AS type FROM vrss_social_outbox WHERE state='pending' ORDER BY seq LIMIT 20")]
+        blocked=[row['actor'] for row in page if row['blocked']]
+        counts={row['direction']:row['n'] for row in c.execute("SELECT direction,count(*) AS n FROM vrss_social_relations r JOIN vrss_social_peers p ON p.actor=r.actor WHERE r.state='accepted' AND p.blocked=0 GROUP BY direction")}
+        pending=c.execute("SELECT count(*) FROM vrss_social_outbox WHERE state='pending'").fetchone()[0]
     return {'enabled':bool(p['social_enabled'] and p['enabled']),'relations':rows,'blocked':blocked,'deliveries':jobs,'pause_reason':pause_reason,
-            'followers':sum(r['direction']=='in' and r['state']=='accepted' and not r['blocked'] for r in rows),
-            'following':sum(r['direction']=='out' and r['state']=='accepted' and not r['blocked'] for r in rows)}
+            'followers':counts.get('in',0),'following':counts.get('out',0),'pending_deliveries':pending,
+            'next_cursor':page[-1]['actor'] if len(peers)>25 else ''}

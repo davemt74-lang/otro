@@ -124,6 +124,16 @@ def child(data):
                 else:raise AssertionError('Late Cloud action committed')
                 assert s.status()==before
                 out=True
+            elif cmd=='pagination':
+                with v.database() as c:
+                    for i in range(55):
+                        actor='https://page-%03d.example/vrss/v1/actor'%i
+                        c.execute('INSERT INTO vrss_social_peers(actor,identity,public_key,name,inbox,rss) VALUES(?,?,?,?,?,?)',(actor,'urn:uuid:'+str(uuid.uuid4()),'a'*64,'page','https://page.example/inbox','https://page.example/rss'))
+                        c.execute("INSERT INTO vrss_social_relations VALUES(?,'in',?,'accepted',?)",(actor,'https://page.example/follows/'+str(uuid.uuid4()),time.time()))
+                first=s.status();second=s.status(first['next_cursor'])
+                assert first['followers']>=55 and first['next_cursor'] and second['relations']
+                assert len(json.dumps(first).encode())<256*1024 and not ({r['actor'] for r in first['relations']}&{r['actor'] for r in second['relations']})
+                out=True
             elif cmd=='api':
                 from fastapi.testclient import TestClient
                 from app.runtime import app
@@ -234,6 +244,8 @@ def main():
             # A new activity ID cannot revive a Follow issued before block/removal.
             stale=copy.deepcopy(follow2['activity']);stale.update(id=stale['id'].rsplit('/',1)[0]+'/'+str(uuid.uuid4()),seq=100)
             b.call('receive',packet=a.call('forge',activity=stale),doc=newad,expect=409)
+            stale['issued_at']=time.time()+1
+            b.call('receive',packet=a.call('forge',activity=stale),doc=newad,expect=409)
             # Revocation during network identity discovery is rechecked before any commit.
             a.call('disable');a.call('receive',packet=accept,doc=bd,expect=409);a.call('enable')
             a.call('stop');a.call('deliver',expect=409);a.call('start')
@@ -244,6 +256,7 @@ def main():
             hosted=copy.deepcopy(follow3['activity']);hosted.update(recipient='https://dave.example.test/vrss/v1/actor',seq=101,id=hosted['id'].rsplit('/',1)[0]+'/'+str(uuid.uuid4()))
             b.call('hosting',packet=a.call('forge',activity=hosted),doc=newad)
             a.call('cancel_inflight',actor=bd['id'])
+            a.call('pagination')
             print('PASS V2C two independent servers: Follow/Accept, real Ed25519 signatures, pinning/rotation, exact retries, restart/backoff, Undo/block/unblock/replay fences, owner API, public signed inbox and existing Hosting isolation')
         finally:a.close();b.close()
     # Production HTTPS transport guards, including POST redirect rejection and DNS pinning.
