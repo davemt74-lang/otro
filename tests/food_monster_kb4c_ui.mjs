@@ -61,6 +61,14 @@ const fetch = async (url, init={}) => {
     }];
     return {ok:true,json:async()=>({connection:{id:'a'.repeat(32)}})};
   }
+  if (path.endsWith('/auto-sync')) {
+    if (init.method === 'PUT') {
+      const body=JSON.parse(init.body);
+      assert.ok([3600,21600,86400].includes(body.interval_seconds));
+      return {ok:true,json:async()=>({enabled:body.enabled,intervalSeconds:body.interval_seconds})};
+    }
+    return {ok:true,json:async()=>({enabled:false,intervalSeconds:21600})};
+  }
   if (path === '/connections/' + 'a'.repeat(32) + '/sync-status' && (!init.method || init.method === 'GET')) {
     return {ok:true,json:async()=>({categories:{menu:{documents:1,lastSyncedAt:'2026-10-20T12:00:00Z',lastError:''}}})};
   }
