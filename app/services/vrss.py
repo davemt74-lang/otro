@@ -187,6 +187,7 @@ def profile(connection):
     p = dict(connection.execute("SELECT * FROM vrss_profile WHERE id=1").fetchone())
     p["enabled"] = bool(p["enabled"])
     p["social_enabled"] = bool(p.get("social_enabled", False))
+    p["reactions_enabled"] = bool(p.get("reactions_enabled", False))
     p["address_locked"] = bool(p["address_locked"])
     p["profile_url"] = p["public_base"] + "/vrss/v1/profile" if p["public_base"] else ""
     p["feed_url"] = p["public_base"] + "/vrss/v1/rss" if p["public_base"] else ""
@@ -254,11 +255,15 @@ def update_profile(body):
         if type(social) is not bool:
             raise VRSSError("Choose whether to enable authenticated follows.", 422)
         social = social and enabled
+        reactions = body.get("reactions_enabled", p["reactions_enabled"])
+        if type(reactions) is not bool:
+            raise VRSSError("Choose whether public posts accept VRSS likes.", 422)
         if social:
             from . import vrss_social
             vrss_social.actor_address(base + '/vrss/v1/actor')
             vrss_social.identity(c)
         c.execute("UPDATE vrss_profile SET social_enabled=? WHERE id=1", (int(social),))
+        c.execute("UPDATE vrss_profile SET reactions_enabled=? WHERE id=1", (int(reactions),))
         c.execute("UPDATE vrss_profile SET display_name=?,bio=?,public_base=?,enabled=?,address_locked=?,hosting_site_id=?,revision=revision+1 WHERE id=1",
                   (name, bio, base, int(enabled), int(enabled or p["address_locked"]), hosting_site_id))
         return profile(c)
@@ -304,6 +309,7 @@ def create_post(body):
 
 def post_value(row, p):
     return {"id": row["id"], "body": row["body"], "media": json.loads(row["media"]), "visibility": row["visibility"],
+            "url": p['public_base'] + '/vrss/v1/posts/' + row['id'] if p['enabled'] and row['visibility']=='public' else '',
             "created_at": row["created_at"], "author": {"id": p["actor_id"], "display_name": p["display_name"]}, "can_delete": True}
 
 
@@ -726,19 +732,27 @@ def request(body):
             result.update(vrss_social.change(body.get("actor"), command))
         elif command == "rotate":
             result.update(vrss_social.rotate())
+        elif command == "like":
+            from . import vrss_interactions
+            result.update(vrss_interactions.set_like(body.get("url"), body.get("enabled"), body.get("request_id")))
+        elif command == "reactions":
+            from . import vrss_interactions
+            result['reaction'] = vrss_interactions.read(body.get("url"))
         else:
             raise VRSSError("Unknown VRSS social action.", 422)
     elif action == "notices":
+        from . import vrss_interactions
+        vrss_interactions.deliver_notices()
         from ..database import db
         with db() as central:
-            rows = central.execute("SELECT id,title,body,created_at FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
+            rows = central.execute("SELECT id,title,body,created_at,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
         result["notices"] = [dict(row) for row in rows]
     elif action == "notice.read":
         from ..database import db
         if type(body.get("notice_id")) is not int or body["notice_id"] < 1:
             raise VRSSError("A valid notice ID is required.", 422)
         with db() as central:
-            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower')", (body["notice_id"], APP_KEY))
+            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like')", (body["notice_id"], APP_KEY))
     elif action == "profile.update":
         result["profile"] = update_profile(body)
     elif action == "post.create":
@@ -805,6 +819,12 @@ def request(body):
                                   "media": json.loads(row["media"]), "created_at": row["published_at"] or row["received_at"], "sort_at": row["received_at"],
                                   "url": row["url"], "author": {"display_name": row["source_title"], "feed_url": row["feed_url"]}, "visibility": "source", "can_delete": False})
             last = page[19] if len(page) > 20 else None
+            from . import vrss_interactions
+            for item in items:
+                if item.get('url'):
+                    value = vrss_interactions.feed_value(c, p, item['url'], item['author'].get('feed_url',''))
+                    if value is not None:
+                        item['interactions'] = value
             result["feed"] = {"items": items, "has_more": bool(last), "next_cursor": json.dumps([last["sort_at"], last["kind"], last["seq"]]) if last else ""}
     if action in {"bootstrap", "hosting"}:
         result["hosting"] = hosting_options()
@@ -825,10 +845,13 @@ def public_document(kind, post_id=""):
         public = {"contract": CONTRACT, "id": p["actor_id"], "name": p["display_name"], "bio": p["bio"], "url": p["profile_url"], "rss": p["feed_url"], "capabilities": {"rss": True, "social_writes": bool(p["social_enabled"])}, "social": {"contract": "vp3.vrss.follow.v1", "actor": p["public_base"] + "/vrss/v1/actor"} if p["social_enabled"] else None}
         if kind == "profile":
             return public
-        if kind == "post":
+        if kind in {"post", "interactions"}:
             row = c.execute("SELECT * FROM vrss_posts WHERE id=? AND deleted=0 AND visibility='public'", (post_id,)).fetchone()
             if not row:
                 raise VRSSError("Post not found.", 404)
+            if kind == "interactions":
+                from . import vrss_interactions
+                return vrss_interactions.public_view(c, p, p['public_base'] + '/vrss/v1/posts/' + row['id'])
             value = post_value(row, p)
             value.pop("can_delete")
             value["author"] = public

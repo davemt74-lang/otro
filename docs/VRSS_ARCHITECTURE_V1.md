@@ -96,3 +96,7 @@ Acceptance: `tests/vrss_v2b.py` exercises real SQLite, parser, conditional HTTP 
 ## V2C — authenticated following
 
 Feed 1.4.0 implements the bounded HomeServer-to-HomeServer follow section described in [VRSS_V2C.md](VRSS_V2C.md). The historical V1/V2A limitations above describe those releases. Public opt-in, Ed25519 identity continuity, Follow/Accept/Undo/Reject, durable delivery, blocks and verified follower notices now have explicit acceptance coverage. General ActivityPub interoperability, remote reactions/comments and address migration remain outside this section.
+
+## V2D signed reactions
+
+The current Feed 1.5.0 reaction extension is documented in [VRSS_V2D.md](VRSS_V2D.md). It adds separately opted-in signed likes/unlikes and author-owned counts through the existing Hosting route and signed inbox, with Chat/Brain controls and durable notices. Earlier foundation sections remain historical scope descriptions.

@@ -86,6 +86,8 @@ def hosted_response(site_id, request_path, method="GET", headers=None, body=b"")
         kind = "rss"
     elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", path):
         kind, post_id = "post", path.rsplit("/", 1)[1]
+    elif re.fullmatch(r"/vrss/v1/posts/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/interactions", path):
+        kind, post_id = "interactions", path.split('/')[-2]
     else:
         raise vrss.VRSSError("Public VRSS document not found.", 404)
     with vrss.database() as c:
@@ -101,7 +103,7 @@ def hosted_response(site_id, request_path, method="GET", headers=None, body=b"")
         if headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
             raise vrss.VRSSError("A JSON VRSS activity is required.", 415)
         return JSONResponse(vrss_social.receive(body), status_code=202, headers=HEADERS)
-    response = document_response(kind, post_id, "application/json" if "application/json" in headers.get("accept", "") else "text/html")
+    response = document_response(kind, post_id, "application/json" if kind == "interactions" or "application/json" in headers.get("accept", "") else "text/html")
     if method == "HEAD":
         response.body = b""
     return response
@@ -120,6 +122,11 @@ def public_rss():
 @router.get("/vrss/v1/posts/{post_id}")
 def public_post(post_id: str, request: Request):
     return call(document_response, "post", post_id, request.headers.get("accept", ""))
+
+
+@router.get("/vrss/v1/posts/{post_id}/interactions")
+def public_interactions(post_id: str):
+    return call(document_response, "interactions", post_id)
 
 
 @router.get("/vrss/v1/actor")

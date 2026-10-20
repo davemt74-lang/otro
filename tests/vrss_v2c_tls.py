@@ -54,7 +54,7 @@ def serve(config,name):
     uvicorn.run(OwnerGateway(api),host='127.0.0.1',port=config['ports'][name],ssl_keyfile=config['key'],ssl_certfile=config['cert'],log_level='error',lifespan='off')
 
 
-def main():
+def main(scenario=None):
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes,serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
@@ -95,6 +95,8 @@ def main():
             assert len(request(a,'subscriptions')['subscriptions'])==1
             assert len(request(b,'notices')['notices'])==1
             assert not request(a,'social.status')['social']['deliveries']
+            if scenario is not None:
+                scenario(a,b,request,ad,bd)
             request(b,'social.block',actor=ad['id']);assert b.post('/api/v1/control/social-test-pump').status_code==200
             assert request(a,'social.status')['social']['following']==0
             assert not request(a,'subscriptions')['subscriptions']
