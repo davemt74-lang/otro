@@ -644,7 +644,11 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                 return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":payload_out}
         if op == "apps.control.invoke":
-            _vp3_system_apps_identity(token)
+            identity = _vp3_system_apps_identity(token)
+            if str(body.get("app_key") or "").strip().lower() == "vp3.feed":
+                from . import app_scopes
+                if not app_scopes.get_scope(identity["id"]).get("cloud_allowed", False):
+                    return {"status":403,"ok":False,"payload":{"detail":"VRSS data stays local under the current Cloud scope."}}
             key=str(body.get("app_key") or "").strip().lower()
             action=str(body.get("action") or "").strip()
             arguments=body.get("arguments") if isinstance(body.get("arguments"),dict) else {}
@@ -653,7 +657,19 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                 spec=homeserver_app_control.action_spec(key,action)
                 if (str(spec.get("risk") or "")!="read" or bool(spec.get("requires_confirmation"))) and not confirmed:
                     return {"status":409,"ok":False,"payload":{"detail":"Cloud-orchestrated app writes require owner confirmation.","confirmation_required":True}}
-                result=homeserver_app_control.invoke(key,action,arguments,confirmed=confirmed,read_only=not confirmed)
+                if key == "vp3.feed":
+                    from . import vrss
+                    def current_feed_authority():
+                        try:
+                            current = _vp3_system_apps_identity(token)
+                            if not app_scopes.get_scope(current["id"]).get("cloud_allowed", False):
+                                raise RemoteBridgeError("VRSS Cloud scope was revoked.")
+                        except RemoteBridgeError as exc:
+                            raise vrss.VRSSError("VRSS Cloud access was revoked while the action was running.",403) from exc
+                    with vrss.authority_guard(current_feed_authority):
+                        result=homeserver_app_control.invoke(key,action,arguments,confirmed=confirmed,read_only=not confirmed)
+                else:
+                    result=homeserver_app_control.invoke(key,action,arguments,confirmed=confirmed,read_only=not confirmed)
             except (homeserver_apps.HomeServerAppError,homeserver_app_control.AppControlError) as exc:
                 return {"status":int(getattr(exc,"status_code",400)),"ok":False,"payload":{"detail":str(exc)}}
             return {"status":200,"ok":True,"payload":result}

@@ -22,7 +22,7 @@ on:
       - 'app/services/vrss.py'
       - 'app/vrss_api.py'
       - 'app/bridge.py'
-      - 'tests/vrss_v1*'
+      - 'tests/vrss_*'
       - 'app/services/homeserver_app_prebuilt.py'
       - 'app/homeserver_apps_api.py'
       - 'app/main.py'
@@ -275,6 +275,8 @@ jobs:
           python tests/vrss_v1.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/vrss_v1_hosting.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/vrss_v2b.py
       - name: Compile Python
         run: python -m compileall app desktop tests
       - name: Interactive capture ownership and Stop acceptance

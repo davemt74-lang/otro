@@ -14,9 +14,12 @@ import socket
 import sqlite3
 import ssl
 import time
+import threading
+import logging
 import uuid
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from email.utils import format_datetime, parsedate_to_datetime
 from html.parser import HTMLParser
@@ -28,6 +31,12 @@ APP_KEY = "vp3.feed"
 CONTRACT = "vp3.vrss.v1"
 MAX_XML = 1024 * 1024
 MAX_ITEMS = 100
+POLL_SECONDS = 15 * 60
+LEASE_SECONDS = 180
+_REFRESH_STOP = threading.Event()
+_REFRESH_THREAD = None
+_REFRESH_LOCK = threading.Lock()
+_AUTHORITY_GUARD = ContextVar("vrss_authority_guard", default=None)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vrss_profile (
  id INTEGER PRIMARY KEY CHECK(id=1), actor_id TEXT NOT NULL,
@@ -48,6 +57,14 @@ CREATE TABLE IF NOT EXISTS vrss_items (
  item_key TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
  url TEXT NOT NULL, media TEXT NOT NULL, published_at TEXT NOT NULL,
  received_at TEXT NOT NULL, UNIQUE(subscription_id,item_key),
+ FOREIGN KEY(subscription_id) REFERENCES vrss_subscriptions(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS vrss_seen (
+ subscription_id TEXT NOT NULL, item_key TEXT NOT NULL,
+ PRIMARY KEY(subscription_id,item_key),
+ FOREIGN KEY(subscription_id) REFERENCES vrss_subscriptions(id) ON DELETE CASCADE);
+CREATE TABLE IF NOT EXISTS vrss_notices (
+ id TEXT PRIMARY KEY, subscription_id TEXT NOT NULL, new_count INTEGER NOT NULL,
+ created_at TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0,
  FOREIGN KEY(subscription_id) REFERENCES vrss_subscriptions(id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS vrss_items_sub ON vrss_items(subscription_id,seq);
 CREATE INDEX IF NOT EXISTS vrss_items_time ON vrss_items(received_at,seq);
@@ -73,6 +90,15 @@ def running():
 
 
 @contextmanager
+def authority_guard(check):
+    token = _AUTHORITY_GUARD.set(check)
+    try:
+        yield
+    finally:
+        _AUTHORITY_GUARD.reset(token)
+
+
+@contextmanager
 def database():
     running()
     path = homeserver_app_resources.sqlite_path(APP_KEY, "vrss.db")
@@ -80,13 +106,29 @@ def database():
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")
     try:
+        had_receipts = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vrss_seen'").fetchone()
         connection.executescript(SCHEMA)
         connection.execute("BEGIN IMMEDIATE")
         if "hosting_site_id" not in {row[1] for row in connection.execute("PRAGMA table_info(vrss_profile)")}:
             connection.execute("ALTER TABLE vrss_profile ADD COLUMN hosting_site_id TEXT NOT NULL DEFAULT ''")
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(vrss_subscriptions)")}
+        for name, declaration in {
+            "etag": "TEXT NOT NULL DEFAULT ''", "last_modified": "TEXT NOT NULL DEFAULT ''",
+            "validator_url": "TEXT NOT NULL DEFAULT ''", "next_check_at": "REAL NOT NULL DEFAULT 0",
+            "lease_until": "REAL NOT NULL DEFAULT 0", "failures": "INTEGER NOT NULL DEFAULT 0",
+            "last_success_at": "TEXT NOT NULL DEFAULT ''", "initialized": "INTEGER NOT NULL DEFAULT 0"
+        }.items():
+            if name not in columns:
+                connection.execute("ALTER TABLE vrss_subscriptions ADD COLUMN " + name + " " + declaration)
+        if not had_receipts:
+            connection.execute("INSERT OR IGNORE INTO vrss_seen(subscription_id,item_key) SELECT subscription_id,item_key FROM vrss_items")
+        # Existing cached subscriptions establish a quiet baseline on their first V2B check.
         connection.execute("INSERT OR IGNORE INTO vrss_profile(id,actor_id) VALUES(1,?)", ("urn:uuid:" + str(uuid.uuid4()),))
         yield connection
         running()
+        guard = _AUTHORITY_GUARD.get()
+        if guard:
+            guard()
         # Check projected database pages before commit, including sibling app databases.
         used = connection.execute("PRAGMA page_count").fetchone()[0] * connection.execute("PRAGMA page_size").fetchone()[0]
         siblings = sum(f.stat().st_size for f in path.parent.glob("*.db") if f != path)
@@ -348,9 +390,15 @@ def parse_feed(blob, base):
     return {"title": title or "Feed", "site_url": site, "items": items}
 
 
-def fetch_feed(url):
-    """Pin a validated public IP before TCP/TLS, including every redirect; no proxies/cookies."""
-    deadline = time.monotonic() + 25
+def _validator(value):
+    value = str(value or "")
+    return value if len(value) <= 500 and all(32 <= ord(c) < 127 for c in value) else ""
+
+
+def fetch_document(url, validators=None, *, deadline=None):
+    """Bounded, pinned transport shared by discovery and refresh. No ambient credentials."""
+    deadline = deadline or time.monotonic() + 25
+    validators = validators or {}
     for _ in range(5):
         if time.monotonic() > deadline:
             raise VRSSError("Feed request timed out.", 504)
@@ -365,17 +413,32 @@ def fetch_feed(url):
                 connection = http.client.HTTPSConnection(p.hostname, timeout=8, context=ssl.create_default_context())
             else:
                 connection = http.client.HTTPConnection(p.hostname, timeout=8)
-            # HTTPSConnection still wraps with the original hostname for SNI and certificate verification.
             connection._create_connection = lambda address, timeout=8, source_address=None: socket.create_connection((ip, address[1]), timeout, source_address)
+            headers = {"Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, application/json",
+                       "Accept-Encoding": "identity", "User-Agent": "VP3-VRSS/1.3"}
+            conditional = validators.get("validator_url") == url
+            if conditional:
+                for key, header in (("etag", "If-None-Match"), ("last_modified", "If-Modified-Since")):
+                    if _validator(validators.get(key)):
+                        headers[header] = validators[key]
             try:
-                connection.request("GET", urlunsplit(("", "", p.path or "/", p.query, "")), headers={"Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml", "Accept-Encoding": "identity", "User-Agent": "VP3-VRSS/1.0"})
+                connection.request("GET", urlunsplit(("", "", p.path or "/", p.query, "")), headers=headers)
                 response = connection.getresponse()
                 if response.status in {301, 302, 303, 307, 308}:
-                    target = safe_url(urljoin(url, response.getheader("Location", "")))
+                    location = response.getheader("Location", "")
+                    if not location:
+                        raise VRSSError("Feed redirect has no destination.", 422)
+                    target = safe_url(urljoin(url, location))
                     if p.scheme == "https" and urlsplit(target).scheme != "https":
                         raise VRSSError("Feed redirected to an insecure address.", 422)
                     url = target
                     continue
+                metadata = {"status": response.status, "url": url,
+                            "etag": _validator(response.getheader("ETag")),
+                            "last_modified": _validator(response.getheader("Last-Modified")),
+                            "content_type": str(response.getheader("Content-Type", ""))[:200]}
+                if response.status == 304 and conditional and any(k in headers for k in ("If-None-Match", "If-Modified-Since")):
+                    return {**metadata, "body": b""}
                 if response.status != 200:
                     raise VRSSError("Feed could not be fetched (HTTP " + str(response.status) + ").", 502)
                 if response.getheader("Content-Encoding", "identity").lower() not in {"", "identity"}:
@@ -389,7 +452,7 @@ def fetch_feed(url):
                         raise VRSSError("Feed request timed out.", 504)
                     chunk = response.read(min(65536, MAX_XML + 1 - len(data)))
                     if not chunk:
-                        return bytes(data), url
+                        return {**metadata, "body": bytes(data)}
                     data.extend(chunk)
                 raise VRSSError("Feed exceeds the 1 MB limit.", 413)
             finally:
@@ -399,56 +462,230 @@ def fetch_feed(url):
     raise VRSSError("Feed redirected too many times.", 422)
 
 
+def fetch_feed(url):
+    doc = fetch_document(url)
+    return doc["body"], doc["url"]
+
+
+class FeedLinks(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if (tag == "link" and "alternate" in values.get("rel", "").lower().split()
+                and values.get("type", "").lower().split(";")[0] in {"application/rss+xml", "application/atom+xml"}
+                and len(self.links) < 5):
+            self.links.append(values.get("href", ""))
+
+
+def discover(url, loader=None):
+    """Follow only declared feeds, with one shared request budget and at most three candidates."""
+    loader = loader or fetch_document
+    deadline = time.monotonic() + 25
+    doc = loader(safe_url(url), deadline=deadline)
+    try:
+        parse_feed(doc["body"], doc["url"])
+        return doc
+    except VRSSError as exc:
+        if exc.status_code != 422:
+            raise
+    candidates = []
+    try:
+        data = json.loads(doc["body"])
+        if isinstance(data, dict) and data.get("contract") == CONTRACT and isinstance(data.get("rss"), str):
+            candidates.append(data["rss"])
+    except (ValueError, UnicodeError):
+        pass
+    try:
+        parser = FeedLinks()
+        parser.feed(doc["body"].decode("utf-8", errors="replace"))
+        candidates.extend(parser.links)
+    except (ValueError, RecursionError):
+        pass
+    visited = {doc["url"]}
+    for candidate in candidates[:3]:
+        try:
+            target = safe_url(urljoin(doc["url"], candidate))
+            if urlsplit(doc["url"]).scheme == "https" and urlsplit(target).scheme != "https":
+                continue
+            if target in visited:
+                continue
+            visited.add(target)
+            feed = loader(target, deadline=deadline)
+            parse_feed(feed["body"], feed["url"])
+            return feed
+        except VRSSError:
+            continue
+    raise VRSSError("No supported RSS or Atom feed was found. Paste a direct feed address.", 422)
+
+
 def subscriptions(c):
     return [dict(r) for r in c.execute("SELECT * FROM vrss_subscriptions ORDER BY title,id")]
 
 
 def subscribe(url, fetcher=None):
     url = safe_url(url)
-    # Subscribe stores first, then imports through the same revision fence used by refresh.
+    with database() as c:
+        old = c.execute("SELECT id FROM vrss_subscriptions WHERE url=?", (url,)).fetchone()
+        if old:
+            return {"subscription_id": old[0], "replayed": True}
+    # Production discovery validates the document before creating the subscription.
+    discovered = discover(url) if fetcher is None else None
+    if discovered:
+        url = discovered["url"]
     with database() as c:
         old = c.execute("SELECT id FROM vrss_subscriptions WHERE url=?", (url,)).fetchone()
         if old:
             return {"subscription_id": old[0], "replayed": True}
         if c.execute("SELECT count(*) FROM vrss_subscriptions").fetchone()[0] >= 100:
-            raise VRSSError("You can follow up to 100 feeds in VRSS v1.", 409)
+            raise VRSSError("You can follow up to 100 feeds.", 409)
         key = str(uuid.uuid4())
         c.execute("INSERT INTO vrss_subscriptions(id,url,title) VALUES(?,?,?)", (key, url, urlsplit(url).hostname))
-    refresh(key, fetcher)
+    refresh(key, (lambda _: discovered) if discovered else fetcher)
     return {"subscription_id": key, "replayed": False}
 
 
-def refresh(key, fetcher=None):
-    fetcher = fetcher or fetch_feed
+def refresh(key, fetcher=None, *, scheduled=False):
+    stamp = time.time()
     with database() as c:
         sub = c.execute("SELECT * FROM vrss_subscriptions WHERE id=?", (key,)).fetchone()
         if not sub:
             raise VRSSError("Feed subscription was removed.", 404)
-        # One active refresh per source; reserve a new generation before leaving the transaction.
-        if sub["checked_at"] and time.time() - datetime.fromisoformat(sub["checked_at"]).timestamp() < 60:
+        if sub["lease_until"] > stamp:
+            raise VRSSError("This feed is already refreshing.", 429)
+        if scheduled and sub["next_check_at"] > stamp:
+            return {"skipped": True}
+        if sub["checked_at"] and stamp - datetime.fromisoformat(sub["checked_at"]).timestamp() < 60:
             raise VRSSError("Wait one minute before refreshing this feed again.", 429)
         revision = sub["revision"] + 1
-        c.execute("UPDATE vrss_subscriptions SET revision=?,checked_at=? WHERE id=?", (revision, now(), key))
-        url = sub["url"]
+        c.execute("UPDATE vrss_subscriptions SET revision=?,checked_at=?,lease_until=?,next_check_at=? WHERE id=?",
+                  (revision, now(), stamp + LEASE_SECONDS, stamp + LEASE_SECONDS, key))
+        sub = dict(sub)
     try:
-        blob, final_url = fetcher(url)
-        parsed = parse_feed(blob, final_url)
-    except VRSSError as exc:
+        doc = fetcher(sub["url"]) if fetcher else fetch_document(sub["url"], sub)
+        if isinstance(doc, tuple):
+            doc = {"body": doc[0], "url": doc[1], "status": 200, "etag": "", "last_modified": ""}
+        parsed = None if doc["status"] == 304 else parse_feed(doc["body"], doc["url"])
         with database() as c:
-            c.execute("UPDATE vrss_subscriptions SET error=? WHERE id=? AND revision=?", (str(exc)[:300], key, revision))
+            current = c.execute("SELECT * FROM vrss_subscriptions WHERE id=? AND revision=?", (key, revision)).fetchone()
+            if not current:
+                raise VRSSError("Subscription changed while the feed was loading.", 409)
+            added = 0
+            if parsed:
+                c.execute("UPDATE vrss_subscriptions SET title=?,site_url=? WHERE id=?", (parsed["title"], parsed["site_url"], key))
+                for item in reversed(parsed["items"]):
+                    exists = c.execute("SELECT 1 FROM vrss_seen WHERE subscription_id=? AND item_key=?", (key, item["key"])).fetchone()
+                    added += int(not exists)
+                    c.execute("INSERT OR IGNORE INTO vrss_seen(subscription_id,item_key) VALUES(?,?)", (key, item["key"]))
+                    c.execute("""INSERT INTO vrss_items(subscription_id,item_key,title,body,url,media,published_at,received_at)
+                        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(subscription_id,item_key) DO UPDATE SET
+                        title=excluded.title,body=excluded.body,url=excluded.url,media=excluded.media,published_at=excluded.published_at""",
+                              (key, item["key"], item["title"], item["body"], item["url"], json.dumps(item["media"]), item["published_at"], now()))
+                c.execute("DELETE FROM vrss_items WHERE subscription_id=? AND seq NOT IN (SELECT seq FROM vrss_items WHERE subscription_id=? ORDER BY seq DESC LIMIT 100)", (key, key))
+            c.execute("""UPDATE vrss_subscriptions SET error='',failures=0,lease_until=0,next_check_at=?,last_success_at=?,initialized=1,
+                      etag=?,last_modified=?,validator_url=? WHERE id=?""",
+                      (time.time() + POLL_SECONDS, now(), doc.get("etag") or (sub["etag"] if parsed is None else ""),
+                       doc.get("last_modified") or (sub["last_modified"] if parsed is None else ""), doc["url"], key))
+            if c.execute("SELECT count(*) FROM vrss_seen WHERE subscription_id=?", (key,)).fetchone()[0] > 10000:
+                raise VRSSError("This feed reached its 10,000 item receipt limit. Unfollow and follow again to reset it.", 409)
+            if added and sub["initialized"]:
+                if c.execute("SELECT count(*) FROM vrss_notices WHERE delivered=0").fetchone()[0] >= 200:
+                    raise VRSSError("Feed notifications are waiting for delivery. Refresh will retry.", 409)
+                c.execute("INSERT INTO vrss_notices(id,subscription_id,new_count,created_at) VALUES(?,?,?,?)",
+                          (key + ":" + str(revision), key, added, now()))
+            # Bound the outbox; delivery errors never roll back imported entries.
+            c.execute("DELETE FROM vrss_notices WHERE delivered=1 AND id NOT IN (SELECT id FROM vrss_notices ORDER BY created_at DESC,id DESC LIMIT 200)")
+        deliver_notices()
+        return {"imported": len(parsed["items"]) if parsed else 0, "new": added, "not_modified": parsed is None}
+    except Exception as exc:
+        # Durable backoff survives restarts; unexpected transport/parser errors cannot kill the worker.
+        delay = min(6 * 3600, POLL_SECONDS * (2 ** min(sub["failures"], 5)))
+        with database() as c:
+            c.execute("UPDATE vrss_subscriptions SET error=?,failures=failures+1,lease_until=0,next_check_at=? WHERE id=? AND revision=?",
+                      (str(exc)[:300] if isinstance(exc, VRSSError) else "Feed refresh failed. Try again later.", time.time() + delay, key, revision))
         raise
+
+
+def deliver_notices():
+    from . import activity_center
+    try:
+        with database() as c:
+            notices = [dict(row) for row in c.execute("SELECT * FROM vrss_notices WHERE delivered=0 ORDER BY created_at,id LIMIT 20")]
+        for notice in notices:
+            with database() as c:
+                if not c.execute("SELECT 1 FROM vrss_notices WHERE id=? AND delivered=0", (notice["id"],)).fetchone():
+                    continue
+                activity_center.emit_notification(source="VRSS", source_kind="app", source_key=APP_KEY,
+                    category="social", event_key="vrss.new_posts", title="New posts in your VRSS feed",
+                    body=str(notice["new_count"]) + " new posts from a followed feed. Open VRSS to read them.",
+                    dedupe_key="vrss:" + notice["id"], action_payload={"type": "open_app", "app_key": APP_KEY})
+                c.execute("UPDATE vrss_notices SET delivered=1 WHERE id=?", (notice["id"],))
+    except Exception:
+        logging.getLogger(__name__).warning("VRSS notification delivery will retry.")
+
+
+def refresh_due(fetcher=None, *, stop_event=None):
     with database() as c:
-        sub = c.execute("SELECT * FROM vrss_subscriptions WHERE id=? AND revision=?", (key, revision)).fetchone()
-        if not sub:
-            raise VRSSError("Subscription changed while the feed was loading.", 409)
-        c.execute("UPDATE vrss_subscriptions SET title=?,site_url=?,error='' WHERE id=?", (parsed["title"], parsed["site_url"], key))
-        for item in reversed(parsed["items"]):
-            c.execute("""INSERT INTO vrss_items(subscription_id,item_key,title,body,url,media,published_at,received_at)
-                VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(subscription_id,item_key) DO UPDATE SET
-                title=excluded.title,body=excluded.body,url=excluded.url,media=excluded.media,published_at=excluded.published_at""",
-                      (key, item["key"], item["title"], item["body"], item["url"], json.dumps(item["media"]), item["published_at"], now()))
-        c.execute("DELETE FROM vrss_items WHERE subscription_id=? AND seq NOT IN (SELECT seq FROM vrss_items WHERE subscription_id=? ORDER BY seq DESC LIMIT 100)", (key, key))
-        return {"imported": len(parsed["items"])}
+        rows = c.execute("SELECT id FROM vrss_subscriptions WHERE next_check_at<=? AND lease_until<=? ORDER BY next_check_at,id LIMIT 4",
+                         (time.time(), time.time())).fetchall()
+    results = []
+    for row in rows:
+        if stop_event is not None and stop_event.is_set():
+            break
+        try:
+            results.append(refresh(row["id"], fetcher, scheduled=True))
+        except Exception:
+            continue
+    deliver_notices()
+    return results
+
+
+def _refresh_loop(stop):
+    while not stop.wait(15):
+        try:
+            refresh_due(stop_event=stop)
+        except Exception:
+            # Stopped/uninstalled apps and transient quota/database failures are retried locally.
+            continue
+
+
+def start():
+    global _REFRESH_THREAD, _REFRESH_STOP
+    with _REFRESH_LOCK:
+        if _REFRESH_THREAD and _REFRESH_THREAD.is_alive() and not _REFRESH_STOP.is_set():
+            return
+        _REFRESH_STOP = threading.Event()
+        _REFRESH_THREAD = threading.Thread(target=_refresh_loop, args=(_REFRESH_STOP,), name="vrss-refresh", daemon=True)
+        _REFRESH_THREAD.start()
+
+
+def stop():
+    with _REFRESH_LOCK:
+        _REFRESH_STOP.set()
+        if _REFRESH_THREAD:
+            _REFRESH_THREAD.join(timeout=1)
+
+
+def agent_invoke(action, arguments):
+    if action == "vrss.status":
+        with database() as c:
+            rows = subscriptions(c)
+        return {"subscriptions": rows, "automatic_refresh": True, "interval_seconds": POLL_SECONDS,
+                "new_post_notifications": True, "remote_followers": False}
+    if action == "vrss.refresh_all":
+        with database() as c:
+            rows = c.execute("SELECT id,checked_at FROM vrss_subscriptions").fetchall()
+            for row in rows:
+                due = max(time.time(), datetime.fromisoformat(row["checked_at"]).timestamp() + 60) if row["checked_at"] else time.time()
+                c.execute("UPDATE vrss_subscriptions SET next_check_at=? WHERE id=?", (due, row["id"]))
+        return {"queued": len(rows)}
+    allowed = {"vrss.feed": "feed", "vrss.follow": "subscribe", "vrss.refresh": "refresh",
+               "vrss.unfollow": "unsubscribe"}
+    if action not in allowed:
+        raise VRSSError("Unknown VRSS Agent action.", 422)
+    return request({"action": allowed[action], **arguments})
 
 
 def request(body):
@@ -461,7 +698,18 @@ def request(body):
         except (ValueError, TypeError, AttributeError) as exc:
             raise VRSSError("A valid item ID is required.", 422) from exc
     result = {}
-    if action == "profile.update":
+    if action == "notices":
+        from ..database import db
+        with db() as central:
+            rows = central.execute("SELECT id,title,body,created_at FROM notifications WHERE source_key=? AND event_key='vrss.new_posts' AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
+        result["notices"] = [dict(row) for row in rows]
+    elif action == "notice.read":
+        from ..database import db
+        if type(body.get("notice_id")) is not int or body["notice_id"] < 1:
+            raise VRSSError("A valid notice ID is required.", 422)
+        with db() as central:
+            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key='vrss.new_posts'", (body["notice_id"], APP_KEY))
+    elif action == "profile.update":
         result["profile"] = update_profile(body)
     elif action == "post.create":
         result.update(create_post(body))
@@ -476,6 +724,9 @@ def request(body):
     elif action == "unsubscribe":
         with database() as c:
             c.execute("DELETE FROM vrss_subscriptions WHERE id=?", (body.get("id"),))
+            from ..database import db
+            with db() as central:
+                central.execute("UPDATE notifications SET dismissed_at=COALESCE(dismissed_at,CURRENT_TIMESTAMP) WHERE source_key=? AND dedupe_key LIKE ?", (APP_KEY, "vrss:" + body["id"] + ":%"))
             result["removed"] = True
     elif action not in {"bootstrap", "profile", "feed", "subscriptions", "hosting"}:
         raise VRSSError("Unknown VRSS action.", 422)
@@ -484,7 +735,7 @@ def request(body):
         if action in {"bootstrap", "profile"}:
             result["profile"] = p
         if action == "bootstrap":
-            result["capabilities"] = {"rss_reader": True, "local_posts": True, "public_rss": True, "social_writes": False, "cloud_required": False}
+            result["capabilities"] = {"rss_reader": True, "local_posts": True, "public_rss": True, "social_writes": False, "cloud_required": False, "discovery": True, "automatic_refresh": True, "new_post_notifications": True, "remote_followers": False}
         if action == "subscriptions":
             result["subscriptions"] = subscriptions(c)
         if action == "feed":

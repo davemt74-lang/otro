@@ -17,8 +17,17 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
     _, hosted_site, _, hosted_route = configure_hosting()
     def fetch(url):
         return b'''<rss version="2.0"><channel><title>Music news</title><link>https://news.example/</link><description>Music</description><item><guid>news:1</guid><title>New album</title><description>&lt;p&gt;Listen today&lt;/p&gt;&lt;script&gt;window.injected=true&lt;/script&gt;</description><link>https://news.example/album</link><enclosure url="https://media.example/music.mp3" length="10" type="audio/mpeg"/></item></channel></rss>''', url
-    vrss.fetch_feed = fetch
+    vrss.fetch_document = lambda url, *args, **kwargs: {"body": fetch(url)[0], "url": url, "status": 200, "etag": "", "last_modified": ""}
     from app.runtime import app
+    @app.inner_app.post('/api/v1/control/vrss-test-new-post')
+    def new_post_fixture():
+        with vrss.database() as c:
+            row=c.execute('SELECT id,url FROM vrss_subscriptions LIMIT 1').fetchone()
+            c.execute("UPDATE vrss_subscriptions SET checked_at='',lease_until=0")
+        if row:
+            blob=fetch(row['url'])[0].replace(b'</channel>',b'<item><guid>new-post-fixture</guid><title>New background post</title></item></channel>')
+            return vrss.refresh(row['id'],lambda _: (blob,row['url']))
+        return {'new':0}
     from app.security import OWNER_CONTROL_TOKEN
     import uvicorn
     sock = socket.socket()

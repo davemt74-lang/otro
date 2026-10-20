@@ -1,10 +1,10 @@
 name: Agent Chat Browser Acceptance
 on:
   pull_request:
-    paths: [ui/**, app/services/vrss.py, app/vrss_api.py, tests/vrss_v1*, tests/chat_workspace_browser.mjs, tests/project_knowledge_context_ui.mjs, tests/chat_action_result_ownership_ui.mjs, tests/social_feed_v1.py, tests/social_feed_v1_browser.mjs, .github/workflows/chat-workspace-browser.yml]
+    paths: [ui/**, app/services/vrss.py, app/vrss_api.py, tests/vrss_*, tests/chat_workspace_browser.mjs, tests/project_knowledge_context_ui.mjs, tests/chat_action_result_ownership_ui.mjs, tests/social_feed_v1.py, tests/social_feed_v1_browser.mjs, .github/workflows/chat-workspace-browser.yml]
   push:
     branches: [main]
-    paths: [ui/**, app/services/vrss.py, app/vrss_api.py, tests/vrss_v1*, tests/chat_workspace_browser.mjs, tests/project_knowledge_context_ui.mjs, tests/chat_action_result_ownership_ui.mjs, tests/social_feed_v1.py, tests/social_feed_v1_browser.mjs, .github/workflows/chat-workspace-browser.yml]
+    paths: [ui/**, app/services/vrss.py, app/vrss_api.py, tests/vrss_*, tests/chat_workspace_browser.mjs, tests/project_knowledge_context_ui.mjs, tests/chat_action_result_ownership_ui.mjs, tests/social_feed_v1.py, tests/social_feed_v1_browser.mjs, .github/workflows/chat-workspace-browser.yml]
 permissions:
   contents: read
 concurrency:
@@ -32,6 +32,7 @@ jobs:
           python tests/social_feed_v1.py
           python tests/vrss_v1.py
           python tests/vrss_v1_hosting.py
+          python tests/vrss_v2b.py
           node tests/vrss_v1_browser.mjs
           node tests/social_feed_v1_browser.mjs
           node tests/chat_action_result_ownership_ui.mjs
