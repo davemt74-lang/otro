@@ -26,7 +26,7 @@ corresponding Food Monster owner page `/vp3-connections.php`.
 4. At the **same** origin, it atomically redeems the one-time code. The
    returned identity must match the discovery identity exactly.
 5. HomeServer persists only the origin, instance ID, remote connection ID,
-   label, scopes and health metadata in SQLite migration 030.
+   label, scopes and health metadata in SQLite feature schema.
 6. The bearer token is stored separately in the security folder under
    Windows DPAPI protection. Other supported local platforms use a
    permission-restricted, atomically replaced file.
@@ -74,7 +74,7 @@ inventory, SQLite, or ordinary application logs.
 
 ## Acceptance
 
-Migration 030; independent-source isolation; strict URL validation; token
+Idempotent feature schema; independent-source isolation; strict URL validation; token
 secrecy; per-source grant validation; scoped search; local disconnect and
 explicit source-side revocation warning. Dedicated CI exercises the tests
 without real restaurant credentials.
