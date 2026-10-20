@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/assets/styles.css">
   <link rel="stylesheet" href="/assets/brain.css">
   <link rel="stylesheet" href="/assets/chat-enhancements.css">
+  <link rel="stylesheet" href="/assets/food-monster-connections.css">
   <link rel="stylesheet" href="/assets/voice-settings.css">
   <link rel="stylesheet" href="/assets/ambient-agent.css">
   <link rel="stylesheet" href="/assets/room-device-automation.css">
@@ -912,7 +913,22 @@
     </div>
     <section id="chatOptionsContext" class="chat-options-panel" role="tabpanel" aria-labelledby="chatOptionsTabContext"><p id="chatContext" class="brain-context"></p><div id="chatPrivateContextPanel"></div><div id="chatKnowledgeControls"></div></section>
     <section id="chatOptionsVoice" class="chat-options-panel" role="tabpanel" aria-labelledby="chatOptionsTabVoice" hidden><div id="chatVoiceControls"></div><div id="chatVoicePreferences"></div><div id="chatAgentVoicePanel"></div></section>
-    <section id="chatOptionsMore" class="chat-options-panel" role="tabpanel" aria-labelledby="chatOptionsTabMore" hidden><div id="chatToolControls"></div><div id="chatConversationDetails"></div><div id="chatMoreActions" class="chat-more-actions"></div></section>
+    <section id="chatOptionsMore" class="chat-options-panel" role="tabpanel" aria-labelledby="chatOptionsTabMore" hidden><div id="chatToolControls"></div><div id="chatConversationDetails"></div><div id="chatMoreActions" class="chat-more-actions"></div>
+      <section id="foodMonsterLinks" class="fm-links-panel" aria-label="Private Food Monster connections">
+        <div class="fm-links-header"><h3>Food Monster connections</h3><button id="fmLinksRefresh" type="button" class="button secondary">Refresh</button></div>
+        <p>Connect one or more restaurants to your private VP3 assistant. Each Food Monster administrator must authorize the link separately.</p>
+        <div id="fmLinksList" role="list" aria-live="polite"><p>Open Tools to see your connected restaurants.</p></div>
+        <details id="fmLinkSetup"><summary>Connect a Food Monster</summary>
+          <p>First sign in to the Food Monster owner's <code>/vp3-connections.php</code> page on that restaurant's HTTPS subdomain. Approve the knowledge scopes and copy its one-time code here. The code expires after 10 minutes.</p>
+          <form id="fmLinkForm" method="post" action="/api/v1/control/food-monster/connections" autocomplete="off">
+            <label>Restaurant URL <input id="fmLinkOrigin" name="origin" type="url" placeholder="https://restaurant.example.com" required maxlength="255" autocomplete="off" spellcheck="false"></label>
+            <label>Connection name <input id="fmLinkLabel" name="label" type="text" placeholder="My Restaurant" required maxlength="80" autocomplete="off"></label>
+            <label>One-time pairing code <input id="fmLinkCode" name="pairing_code" type="password" required minlength="50" maxlength="70" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+            <button id="fmLinkSubmit" type="submit" class="button primary">Authorize private connection</button>
+          </form>
+        </details>
+        <p id="fmLinksStatus" role="status" aria-live="polite"></p>
+      </section></section>
     <p id="chatOptionsStatus" role="status" hidden></p>
   </dialog>
   <script src="/assets/app.js" defer></script>
@@ -935,6 +951,7 @@
   <style>.browser-captures-r4{padding:12px;border:1px solid var(--border-color,#ddd);border-radius:12px;margin:8px 0;overflow-wrap:anywhere}.browser-captures-r4 article{padding:12px;border-top:1px solid var(--border-color,#ddd)}.browser-captures-r4 blockquote{white-space:pre-wrap;max-height:160px;overflow:auto;margin:8px 0}.browser-captures-r4 button{margin:6px}.browser-captures-r4 a{display:inline-block;margin-right:8px}</style>
   <script src="/assets/agent-routing.js" data-agent-routing="v0.47" defer></script>
   <script src="/assets/brain.js?v=a5c7" defer></script>
+  <script src="/assets/food-monster-connections.js" defer></script>
   <script src="/assets/voice-settings.js" defer></script>
   <script src="/assets/ambient-agent.js" defer></script>
   <script src="/assets/room-device-automation.js" defer></script>
