@@ -31,6 +31,7 @@ jobs:
         run: |
           python tests/social_feed_v1.py
           python tests/vrss_v1.py
+          python tests/vrss_v1_hosting.py
           node tests/vrss_v1_browser.mjs
           node tests/social_feed_v1_browser.mjs
           node tests/chat_action_result_ownership_ui.mjs

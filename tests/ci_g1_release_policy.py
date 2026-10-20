@@ -22,7 +22,8 @@ for filename in ("homeserver-v24-release.yml", "homeserver-v24-data-continuity.y
     assert "  workflow_dispatch:" in source, filename
 ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
 assert "branches: [main]" in ci
-assert "cancel-in-progress: false" in ci
+# Superseded PR candidates cancel; merged-main certification is never cancelled.
+assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in ci
 assert "HomeServer-Windows" in ci
 assert "Verify binaries, browser certification and source provenance" in ci
 stonefellow = (WORKFLOWS / "stonefellow-native-84b7.yml").read_text(encoding="utf-8")
