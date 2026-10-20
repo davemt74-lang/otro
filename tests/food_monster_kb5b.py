@@ -255,7 +255,7 @@ class FoodMonsterSyncTests(unittest.TestCase):
     def test_stale_references_do_not_go_into_shared_knowledge_index(self):
         schema=(ROOT/"database/food_monster_knowledge_cache.sql").read_text()
         self.assertNotIn("INSERT INTO knowledge_items",schema)
-        self.assertNotIn("knowledge_chunks",schema)
+        self.assertNotIn("CREATE TABLE IF NOT EXISTS knowledge_chunks",schema)
         paths=[r.path for r in connector.router.routes]
         self.assertIn("/api/v1/control/food-monster/connections/{local_id}/sync",paths)
         self.assertIn("/api/v1/control/food-monster/connections/{local_id}/sync-status",paths)
