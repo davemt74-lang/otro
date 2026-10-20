@@ -920,7 +920,7 @@
         <div id="fmLinksList" role="list" aria-live="polite"><p>Open Tools to see your connected restaurants.</p></div>
         <details id="fmLinkSetup"><summary>Connect a Food Monster</summary>
           <p>First sign in to the Food Monster owner's <code>/vp3-connections.php</code> page on that restaurant's HTTPS subdomain. Approve the knowledge scopes and copy its one-time code here. The code expires after 10 minutes.</p>
-          <form id="fmLinkForm" autocomplete="off">
+          <form id="fmLinkForm" method="post" action="/api/v1/control/food-monster/connections" autocomplete="off">
             <label>Restaurant URL <input id="fmLinkOrigin" name="origin" type="url" placeholder="https://restaurant.example.com" required maxlength="255" autocomplete="off" spellcheck="false"></label>
             <label>Connection name <input id="fmLinkLabel" name="label" type="text" placeholder="My Restaurant" required maxlength="80" autocomplete="off"></label>
             <label>One-time pairing code <input id="fmLinkCode" name="pairing_code" type="password" required minlength="50" maxlength="70" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
