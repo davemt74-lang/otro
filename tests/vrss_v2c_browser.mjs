@@ -19,10 +19,17 @@ try{
   const publishing=page.getByLabel('Publishing address',{exact:true});if(await publishing.isEnabled())await publishing.selectOption(config.hosting_site_id);
   await page.locator('#vrss-public').check();await page.locator('#vrss-social').check();
   await page.getByRole('button',{name:'Save Profile',exact:true}).click();
+  let releaseInitial,finishInitial;const initialGate=new Promise(resolve=>releaseInitial=resolve),initialFinished=new Promise(resolve=>finishInitial=resolve);let holdInitial=true;
+  await page.route('**/api/v1/control/homeserver-apps/vrss/request',async route=>{
+   const data=route.request().postDataJSON();
+   if(data.action==='social.status'&&holdInitial){holdInitial=false;const response=await route.fetch();await initialGate;await route.fulfill({response});finishInitial();}else await route.continue();
+  });
   await page.getByRole('button',{name:'Connections',exact:true}).click();
   await page.getByLabel('VRSS profile address',{exact:true}).fill('https://bob.example/');
   await page.getByRole('button',{name:'Follow VRSS profile',exact:true}).click();
   await page.getByText('Follow pending remote acceptance',{exact:true}).waitFor({timeout:30000}).catch(async e=>{console.error('CONNECTION DEBUG',width,await page.locator('#people').innerText(),JSON.stringify(await api('social.status')));throw e;});
+  releaseInitial();await initialFinished;await page.evaluate(()=>new Promise(requestAnimationFrame));
+  assert.equal(await page.getByText('Follow pending remote acceptance',{exact:true}).isVisible(),true);
   assert.equal((await api('social.status')).social.following,0);
   assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data:{kind:'Accept'}})).status(),200);
   assert.equal((await ctx.request.post(base+'/api/v1/control/vrss-test-social-event',{data:{kind:'Follow'}})).status(),200);
