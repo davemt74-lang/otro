@@ -9,6 +9,8 @@ const source = readFileSync(resolve(base, 'ui/food-monster-connections.js'),'utf
 const html = readFileSync(resolve(base,'ui/index.html'),'utf8');
 
 assert.match(html, /id="chatOptionsMore"[^>]+role="tabpanel"/);
+assert.match(html, /id="fmLinkForm" method="post" action="\/api\/v1\/control\/food-monster\/connections"/,
+  'Without JavaScript, the pairing code must never fall back to a GET URL');
 for (const required of ['foodMonsterLinks','fmLinksList','fmLinkSetup','fmLinkForm','fmLinkOrigin',
   'fmLinkLabel','fmLinkCode','fmLinkSubmit','fmLinksStatus']) {
   assert.ok(html.includes('id="' + required + '"'), required + ' must be in chat modal');
