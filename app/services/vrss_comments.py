@@ -181,15 +181,15 @@ def receipt(c, request_id, payload, apply):
     return {**result, 'replayed': False}
 
 
-def discovery(obj, loader=None):
+def discovery(obj, loader=None, follow_required=True):
     obj, base, _ = r.address(obj)
     target = base + '/vrss/v1/actor'
     with v.database() as c:
         p = s.ready(c)
         rel = r.relation(c, target)
-        if not rel:
+        if not rel and follow_required:
             raise v.VRSSError('Follow this VRSS profile and wait for acceptance before commenting.', 409)
-        fid = rel['follow_id']
+        fid = rel['follow_id'] if rel else ''
     doc = s.peer_document(target, loader)
     cap = doc.get('comments')
     if not isinstance(cap, dict) or cap.get('contract') != CONTRACT or cap.get('enabled') is not True:
@@ -197,14 +197,20 @@ def discovery(obj, loader=None):
     return obj, target, fid, doc
 
 
-def read(obj, after='0', loader=None, parent=''):
+def read(obj, after='0', loader=None, parent='', follow_required=True, allow_leaf=False):
     obj, base, _ = r.address(obj)
     cursor(after)
     with v.database() as c:
         p = v.profile(c)
         if base == p['public_base']:
-            return page(c, p, obj, after, owner=True)
-    obj, target, fid, doc = discovery(obj, loader)
+            result = page(c, p, obj, after, owner=follow_required)
+            if parent:
+                item = c.execute('SELECT * FROM vrss_comments WHERE object=? AND id=?', (obj,parent)).fetchone()
+                if not item or not visible(c,p,item) or (not allow_leaf and item['depth'] >= 4):
+                    raise v.VRSSError('Published comment not found.', 404)
+                return {**result,'items':[value(c,p,item)],'next_cursor':''}
+            return result
+    obj, target, fid, doc = discovery(obj, loader, follow_required)
     suffix = '/id-' + hashlib.sha256(parent.encode()).hexdigest() if parent else ('/' + after if after != '0' else '')
     result = (loader or s.exchange)(obj + '/comments' + suffix)
     if (not isinstance(result, dict) or result.get('contract') != CONTRACT or result.get('object') != obj
@@ -232,10 +238,15 @@ def read(obj, after='0', loader=None, parent=''):
             items.append({k: item[k] for k in ('id','actor','identity','name','parent','body','created_at','depth')})
         except (KeyError, TypeError, ValueError, AttributeError) as exc:
             raise v.VRSSError('Remote comment thread is invalid.', 422) from exc
-    if parent and (len(items) != 1 or items[0]['id'] != parent or items[0]['depth'] >= 4):
+    if parent and (len(items) != 1 or items[0]['id'] != parent or (not allow_leaf and items[0]['depth'] >= 4)):
         raise v.VRSSError('Reply to a published comment in this post, up to four reply levels.', 409)
     with v.database() as c:
-        p = r.verified(c, target, fid, doc)
+        if follow_required:
+            p = r.verified(c, target, fid, doc)
+        else:
+            p = s.ready(c)
+            if s.pin(c, doc)['blocked']:
+                raise v.VRSSError('This profile is blocked.', 403)
         for item in items:
             own = c.execute('SELECT state,operation_id FROM vrss_comment_out WHERE id=?', (item['id'],)).fetchone() if item['actor'] == s.actor_url(p) else None
             item['can_delete'] = bool(own and own['state'] != 'deleted')
@@ -245,7 +256,7 @@ def read(obj, after='0', loader=None, parent=''):
                     item['state'] = 'retraction_pending'
         pending = [dict(row) for row in c.execute("SELECT id,parent,body,state,created_at FROM vrss_comment_out WHERE object=? AND follow_id=? AND state!='deleted' ORDER BY created_at DESC LIMIT 5", (obj, fid))]
     return {'contract': CONTRACT, 'object': obj, 'actor': target, 'identity': doc['identity'],
-            'items': items, 'next_cursor': result['next_cursor'], 'owner': False, 'can_comment': True, 'outgoing': pending}
+            'items': items, 'next_cursor': result['next_cursor'], 'owner': False, 'can_comment': bool(fid), 'outgoing': pending if fid else []}
 
 
 def create(obj, body, parent, request_id, loader=None):
@@ -277,6 +288,8 @@ def create(obj, body, parent, request_id, loader=None):
                 if c.execute('SELECT count(*) FROM vrss_comments').fetchone()[0] >= 10000:
                     raise v.VRSSError('VRSS comment history is full.', 409)
                 c.execute("INSERT INTO vrss_comments(id,digest,actor,object,follow_id,parent,body,state,depth,created_at,notice_delivered) VALUES(?,?,?,?,'',?,?,'approved',?,?,1)", (key, hashlib.sha256(key.encode()).hexdigest(), s.actor_url(p), obj, parent, body, depth, v.now()))
+                from . import vrss_conversations
+                vrss_conversations.schedule(c, p, obj, key)
                 return {'comment': {'id': key, 'object': obj, 'state': 'approved'}}
             _, target, fid, doc = discovered
             p = r.verified(c, target, fid, doc)
@@ -333,6 +346,9 @@ def moderate(obj, key, decision, expected_revision, request_id):
                 parent_depth(c, p, obj, row['parent'])
             state = 'approved' if decision == 'approve' else 'hidden'
             c.execute('UPDATE vrss_comments SET state=?,revision=revision+1,notice_delivered=0 WHERE id=?', (state, key))
+            if state == 'approved':
+                from . import vrss_conversations
+                vrss_conversations.schedule(c, p, obj, key)
             return {'comment': {'id': key, 'object': obj, 'state': state, 'revision': row['revision'] + 1}}
         return receipt(c, request_id, ['moderate', obj, key, decision, expected_revision], apply)
 

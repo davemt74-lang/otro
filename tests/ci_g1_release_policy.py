@@ -26,7 +26,7 @@ assert "branches: [main]" in ci
 assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in ci
 assert "HomeServer-Windows" in ci
 assert "!cancelled() && needs.certified-build.result != 'failure'" in ci, 'Superseded Windows jobs must remain cancellable'
-for test in ('vrss_v1.py','vrss_v1_hosting.py','vrss_v2b.py','vrss_v2c.py','vrss_v2c_tls.py','vrss_v2d.py','vrss_v2d_tls.py','vrss_shutdown.py','vrss_v2e.py','vrss_v2e_tls.py','vrss_v2f.py'):
+for test in ('vrss_v1.py','vrss_v1_hosting.py','vrss_v2b.py','vrss_v2c.py','vrss_v2c_tls.py','vrss_v2d.py','vrss_v2d_tls.py','vrss_shutdown.py','vrss_v2e.py','vrss_v2e_tls.py','vrss_v2f.py','vrss_v2f_tls.py','vrss_v2g.py'):
     assert ('python tests/'+test+'\n          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }') in ci, 'Windows must propagate each VRSS test failure'
 
 assert "Verify binaries, browser certification and source provenance" in ci

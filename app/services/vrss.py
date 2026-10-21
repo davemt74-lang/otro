@@ -203,6 +203,8 @@ def profile(connection):
     p["reactions_enabled"] = bool(p.get("reactions_enabled", False))
     p["comments_enabled"] = bool(p.get("comments_enabled", False))
     p["reposts_enabled"] = bool(p.get("reposts_enabled", False))
+    p["mentions_enabled"] = bool(p.get("mentions_enabled", False))
+    p["thread_notifications_enabled"] = bool(p.get("thread_notifications_enabled", True))
     p["address_locked"] = bool(p["address_locked"])
     p["profile_url"] = p["public_base"] + "/vrss/v1/profile" if p["public_base"] else ""
     p["feed_url"] = p["public_base"] + "/vrss/v1/rss" if p["public_base"] else ""
@@ -287,6 +289,15 @@ def update_profile(body):
         if type(reposts) is not bool:
             raise VRSSError('Choose whether public posts permit VRSS reposts.', 422)
         c.execute('UPDATE vrss_profile SET reposts_enabled=? WHERE id=1', (int(reposts),))
+        for pref in ('mentions_enabled','thread_notifications_enabled'):
+            choice = body.get(pref, p[pref])
+            if type(choice) is not bool:
+                raise VRSSError('Choose your VRSS notification preferences.', 422)
+            c.execute('UPDATE vrss_profile SET '+pref+'=? WHERE id=1', (int(choice),))
+            if pref == 'thread_notifications_enabled' and choice and not p[pref]:
+                c.execute("UPDATE vrss_conversation_watches SET priming=1,cursor='0',revision=revision+1 WHERE enabled=1")
+            if not choice or not social or not enabled:
+                c.execute('UPDATE vrss_conversation_notices SET inactive=1 WHERE kind=?', ('mention' if pref=='mentions_enabled' else 'thread',))
         if reposts != p['reposts_enabled'] or social != p['social_enabled'] or enabled != p['enabled']:
             c.execute('UPDATE vrss_reposts SET notice_delivered=0')
         if comments != p['comments_enabled'] or social != p['social_enabled'] or enabled != p['enabled']:
@@ -331,6 +342,9 @@ def create_post(body):
         post_id = str(uuid.uuid4())
         c.execute("INSERT INTO vrss_posts(id,request_id,fingerprint,body,media,visibility,created_at) VALUES(?,?,?,?,?,?,?)",
                   (post_id, request_id, fingerprint, content, json.dumps(media), visibility, now()))
+        from . import vrss_conversations
+        p = profile(c)
+        vrss_conversations.schedule(c, p, p["public_base"]+"/vrss/v1/posts/"+post_id)
         return {"post_id": post_id, "replayed": False, "deleted": False}
 
 
@@ -776,6 +790,14 @@ def request(body):
         elif command == "like":
             from . import vrss_interactions
             result.update(vrss_interactions.set_like(body.get("url"), body.get("enabled"), body.get("request_id")))
+        elif command in {'conversations', 'conversation', 'thread'}:
+            from . import vrss_conversations
+            if command == 'conversations':
+                result['conversations'] = vrss_conversations.status()
+            elif command == 'thread':
+                result['thread'] = vrss_conversations.thread(body.get('url'), body.get('cursor','0'))
+            else:
+                result.update(vrss_conversations.set_watch(body.get('url'), body.get('enabled'), body.get('muted'), body.get('expected_revision'), body.get('request_id')))
         elif command in {'repost', 'reposts'}:
             from . import vrss_reposts
             if command == 'repost':
@@ -805,16 +827,18 @@ def request(body):
         vrss_comments.deliver_notices()
         from . import vrss_reposts
         vrss_reposts.deliver_notices()
+        from . import vrss_conversations
+        vrss_conversations.deliver_notices(verify=False)
         from ..database import db
         with db() as central:
-            rows = central.execute("SELECT id,title,body,created_at,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
+            rows = central.execute("SELECT id,title,body,created_at,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost','vrss.mention','vrss.thread_reply') AND read_at IS NULL AND dismissed_at IS NULL AND archived_at IS NULL ORDER BY id DESC LIMIT 20", (APP_KEY,)).fetchall()
         result["notices"] = [dict(row) for row in rows]
     elif action == "notice.read":
         from ..database import db
         if type(body.get("notice_id")) is not int or body["notice_id"] < 1:
             raise VRSSError("A valid notice ID is required.", 422)
         with db() as central:
-            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost')", (body["notice_id"], APP_KEY))
+            central.execute("UPDATE notifications SET read_at=COALESCE(read_at,CURRENT_TIMESTAMP) WHERE id=? AND source_key=? AND event_key IN ('vrss.new_posts','vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost','vrss.mention','vrss.thread_reply')", (body["notice_id"], APP_KEY))
     elif action == "profile.update":
         result["profile"] = update_profile(body)
     elif action == "post.create":

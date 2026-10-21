@@ -68,6 +68,8 @@ def setup(c):
     vrss_comments.setup(c)
     from . import vrss_reposts
     vrss_reposts.setup(c)
+    from . import vrss_conversations
+    vrss_conversations.setup(c)
 
 
 def ready(c):
@@ -106,7 +108,8 @@ def actor_document():
                 'public_key': key.public_key().public_bytes_raw().hex(), 'rotations': rotations,
                 'interactions': {'contract': 'vp3.vrss.interactions.v1', 'likes': bool(p['reactions_enabled'])},
                 'comments': {'contract': 'vp3.vrss.comments.v1', 'enabled': bool(p['comments_enabled'])},
-                'reposts': {'contract': 'vp3.vrss.reposts.v1', 'enabled': bool(p['reposts_enabled'])}}
+                'reposts': {'contract': 'vp3.vrss.reposts.v1', 'enabled': bool(p['reposts_enabled'])},
+                'conversations': {'contract':'vp3.vrss.conversations.v1', 'mentions':bool(p['mentions_enabled'])}}
 
 
 def rotate():
@@ -231,6 +234,8 @@ def enqueue(c, p, peer, kind, follow_id, extra=None):
     activity = {'contract': CONTRACT, 'id': p['public_base'] + '/vrss/v1/activities/' + str(uuid.uuid4()),
                 'actor': actor_url(p), 'identity': p['actor_id'], 'recipient': peer, 'type': kind,
                 'follow_id': follow_id, 'seq': seq, 'issued_at': time.time()}
+    if kind == 'Mention':
+        activity.pop('follow_id')
     if extra:
         activity.update(extra)
     c.execute('INSERT INTO vrss_social_outbox(id,actor,seq,payload) VALUES(?,?,?,?)',
@@ -289,6 +294,11 @@ def change(target, action):
         if action in {'block', 'remove'}:
             c.execute('UPDATE vrss_social_peers SET blocked_at=? WHERE actor=?', (time.time(), target))
         if action == 'block':
+            from . import vrss_conversations
+            c.execute('UPDATE vrss_conversation_watches SET enabled=0,revision=revision+1 WHERE actor=?', (target,))
+            c.execute('UPDATE vrss_conversation_notices SET inactive=1 WHERE actor=?', (target,))
+            c.execute("UPDATE vrss_mention_intents SET state='cancelled' WHERE target=?", (target,))
+            c.execute("UPDATE vrss_social_outbox SET state='cancelled',lease='' WHERE actor=? AND state='pending' AND json_extract(payload,'$.type')='Mention'", (target,))
             c.execute('UPDATE vrss_social_peers SET blocked=1,blocked_at=? WHERE actor=?', (time.time(), target))
             c.execute('DELETE FROM vrss_social_notices WHERE actor=? AND delivered=0', (target,))
         if action in {'unfollow', 'block'}:
@@ -317,7 +327,7 @@ def rate_limit(actor):
 def receive(raw, loader=None):
     from . import vrss_interactions as interactions
     from . import vrss_comments as comments
-    from . import vrss_reposts as reposts
+    from . import vrss_reposts as reposts, vrss_conversations as conversations
     if len(raw) > MAX_BODY:
         raise v.VRSSError('VRSS activity is too large.', 413)
     try:
@@ -328,7 +338,11 @@ def receive(raw, loader=None):
         reaction = a.get('type') in interactions.TYPES
         comment = a.get('type') in comments.TYPES
         repost = a.get('type') in reposts.TYPES
+        mention = a.get('type') == 'Mention'
         fields = {'contract','id','actor','identity','recipient','type','follow_id','seq','issued_at'}
+        if mention:
+            fields.remove('follow_id')
+            fields |= {'object','comment_id','mention_id'}
         if reaction:
             fields |= {'object','reaction_id'}
         if repost:
@@ -338,8 +352,8 @@ def receive(raw, loader=None):
             if a['type'] == 'Comment':
                 fields |= {'body','parent'}
         if (set(a) != fields
-                or a['contract'] != (reposts.CONTRACT if repost else comments.CONTRACT if comment else interactions.CONTRACT if reaction else CONTRACT)
-                or (not repost and not reaction and not comment and a['type'] not in {'Follow','Accept','Undo','Reject'})
+                or a['contract'] != (conversations.CONTRACT if mention else reposts.CONTRACT if repost else comments.CONTRACT if comment else interactions.CONTRACT if reaction else CONTRACT)
+                or (not mention and not repost and not reaction and not comment and a['type'] not in {'Follow','Accept','Undo','Reject'})
                 or type(a['seq']) is not int or not 0 < a['seq'] < 2**53
                 or type(a['issued_at']) not in {int,float} or not 0 < a['issued_at'] <= time.time() + 300
                 or type(packet['sent_at']) is not int or abs(time.time() - packet['sent_at']) > 300
@@ -347,9 +361,13 @@ def receive(raw, loader=None):
             raise ValueError()
         uuid.UUID(a['id'].removeprefix(base + '/vrss/v1/activities/'))
         # The Follow ID belongs to the follower, not necessarily the signed sender of Accept/Reject.
-        fid = v.safe_url(a['follow_id'], https_only=True)
-        prefix, tail = fid.rsplit('/vrss/v1/follows/', 1)
-        uuid.UUID(tail)
+        fid, prefix = '', ''
+        if mention:
+            conversations.validate(a)
+        else:
+            fid = v.safe_url(a['follow_id'], https_only=True)
+            prefix, tail = fid.rsplit('/vrss/v1/follows/', 1)
+            uuid.UUID(tail)
         if reaction:
             interactions.validate(a)
         if comment:
@@ -367,6 +385,8 @@ def receive(raw, loader=None):
             p = ready(c)
             if a['recipient'] != actor_url(p) or actor == actor_url(p):
                 raise v.VRSSError('VRSS recipient does not match.', 403)
+            if mention and not p['mentions_enabled']:
+                raise v.VRSSError('Incoming VRSS mentions are disabled.', 403)
             old = c.execute('SELECT * FROM vrss_social_peers WHERE actor=?', (actor,)).fetchone()
             if old and old['blocked']:
                 raise v.VRSSError('This VRSS connection is blocked.', 403)
@@ -376,19 +396,29 @@ def receive(raw, loader=None):
             Ed25519PublicKey.from_public_bytes(bytes.fromhex(doc['public_key'])).verify(signature, canonical(signed))
         except (ValueError, InvalidSignature) as exc:
             raise v.VRSSError('VRSS signature did not verify.', 403) from exc
+        if mention:
+            proof = conversations.verify_source(a['object'], a['comment_id'], a['recipient'], loader)
+            if proof['identity'] != doc['identity'] or proof['public_key'] != doc['public_key']:
+                raise v.VRSSError('Mention source identity changed.', 409)
         with v.database() as c:
             p = ready(c)
+            if mention and not p['mentions_enabled']:
+                raise v.VRSSError('Incoming VRSS mentions are disabled.', 403)
             if a['recipient'] != actor_url(p) or a['identity'] != doc['identity']:
                 raise v.VRSSError('VRSS identity or audience changed.', 403)
             peer = pin(c, doc)
             if peer['blocked']:
                 raise v.VRSSError('This VRSS connection is blocked.', 403)
+            if mention and a['issued_at'] <= peer['blocked_at']:
+                raise v.VRSSError('This mention predates a block or connection removal.', 409)
             digest = hashlib.sha256(canonical(a)).hexdigest()
             receipt = c.execute('SELECT digest FROM vrss_social_receipts WHERE id=?', (a['id'],)).fetchone()
             if receipt:
                 if receipt[0] != digest:
                     raise v.VRSSError('VRSS activity ID was reused with different content.', 409)
                 result = {'contract': CONTRACT, 'ok': True, 'replayed': True}
+                if mention:
+                    result['mention'] = {'id':a['mention_id'],'object':a['object'],'actor':actor_url(p)}
                 if reaction:
                     result['interaction'] = {'object': a['object'], 'actor': actor_url(p),
                                              'likes': interactions.count(c, p, a['object'])}
@@ -404,7 +434,7 @@ def receive(raw, loader=None):
                 raise v.VRSSError('VRSS inbox history is full.', 409)
             direction = 'in' if reaction or comment or repost or a['type'] in {'Follow','Undo'} else 'out'
             expected = base if direction == 'in' else p['public_base']
-            if prefix != expected:
+            if not mention and prefix != expected:
                 raise v.VRSSError('VRSS follow owner does not match.', 403)
             relation = c.execute('SELECT * FROM vrss_social_relations WHERE actor=? AND direction=?', (actor,direction)).fetchone()
             if a['type'] in {'Undo','Reject'}:
@@ -412,7 +442,9 @@ def receive(raw, loader=None):
             interaction = None
             comment_result = None
             repost_result = None
-            if repost:
+            if mention:
+                conversations.receive(c, p, peer, a)
+            elif repost:
                 repost_result = reposts.receive(c, p, peer, a)
             elif comment:
                 comment_result = comments.receive(c, p, peer, a)
@@ -441,7 +473,7 @@ def receive(raw, loader=None):
                 c.execute('UPDATE vrss_reposts SET notice_delivered=0 WHERE actor=?', (actor,))
             c.execute('INSERT INTO vrss_social_receipts VALUES(?,?,?,?)',(a['id'],digest,actor,time.time()))
             c.execute('UPDATE vrss_social_peers SET receive_seq=? WHERE actor=?',(a['seq'],actor))
-        return {'contract':CONTRACT,'ok':True, **({'interaction': interaction} if interaction is not None else {}),
+        return {'contract':CONTRACT,'ok':True, **({'mention':{'id':a['mention_id'],'object':a['object'],'actor':actor_url(p)}} if mention else {}), **({'interaction': interaction} if interaction is not None else {}),
                 **({'comment': comment_result} if comment_result is not None else {}),
                 **({'repost': repost_result} if repost_result is not None else {})}
     finally:
@@ -472,13 +504,19 @@ def deliver(sender=None, stop_event=None):
             if job['blocked'] and a['type'] not in {'Undo','Reject'}:
                 c.execute("UPDATE vrss_social_outbox SET state='cancelled' WHERE id=?",(job['id'],))
                 continue
+            from . import vrss_conversations
+            if not vrss_conversations.can_send(c, v.profile(c), a):
+                c.execute("UPDATE vrss_social_outbox SET state='cancelled',lease='' WHERE id=?", (job['id'],))
+                continue
             delivery_started = time.time()
             c.execute('UPDATE vrss_social_outbox SET lease=?,lease_until=?,attempts=attempts+1 WHERE id=?', (lease,delivery_started+120,job['id']))
             packet=signed(c,a)
         try:
             # A block/unfollow in the gap cancels this lease before sending if it wins this check.
             with v.database() as c:
-                ready(c)
+                current = ready(c)
+                if not vrss_conversations.can_send(c, current, a):
+                    c.execute("UPDATE vrss_social_outbox SET state='cancelled',lease='' WHERE id=?", (job['id'],))
                 live=c.execute("SELECT 1 FROM vrss_social_outbox WHERE id=? AND lease=? AND state='pending'",(job['id'],lease)).fetchone()
                 if not live:
                     continue
@@ -489,6 +527,8 @@ def deliver(sender=None, stop_event=None):
                 ready(c)
                 updated = c.execute("UPDATE vrss_social_outbox SET state='delivered',lease='',lease_until=0,error='' WHERE id=? AND lease=? AND state='pending'",(job['id'],lease))
                 if updated.rowcount:
+                    if a['type'] == 'Mention' and result.get('mention') != {'id':a['mention_id'],'object':a['object'],'actor':a['recipient']}:
+                        raise v.VRSSError('Remote acknowledgement does not match this mention.', 502)
                     from . import vrss_interactions
                     vrss_interactions.acknowledge(c, a, result)
                     from . import vrss_comments
@@ -509,6 +549,10 @@ def deliver(sender=None, stop_event=None):
     from . import vrss_reposts
     vrss_reposts.deliver_notices()
     vrss_reposts.refresh_due(stop_event=stop_event)
+    from . import vrss_conversations
+    if stop_event is None or not stop_event.is_set():
+        vrss_conversations.prepare_mentions()
+        vrss_conversations.refresh_due(stop_event=stop_event)
 
 
 def deliver_notices():
@@ -531,7 +575,7 @@ def deliver_notices():
 def dismiss_notices(actor):
     from ..database import db
     with db() as c:
-        rows=c.execute("SELECT id,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost')",(v.APP_KEY,)).fetchall()
+        rows=c.execute("SELECT id,action_json FROM notifications WHERE source_key=? AND event_key IN ('vrss.new_follower','vrss.new_like','vrss.new_comment','vrss.new_repost','vrss.mention','vrss.thread_reply')",(v.APP_KEY,)).fetchall()
         for row in rows:
             if json.loads(row['action_json']).get('actor')==actor:
                 c.execute('UPDATE notifications SET dismissed_at=COALESCE(dismissed_at,CURRENT_TIMESTAMP) WHERE id=?',(row['id'],))
@@ -566,6 +610,8 @@ def status(cursor=''):
         from . import vrss_reposts
         repost_states=[{**dict(row), **vrss_reposts.summary(c, p, row['object'])} for row in c.execute("SELECT object,enabled,verified_at,checked_at FROM vrss_repost_out ORDER BY created_at DESC,seq DESC LIMIT 5")]
         review=c.execute("SELECT count(*) FROM vrss_comments x JOIN vrss_social_relations r ON r.actor=x.actor AND r.direction='in' JOIN vrss_social_peers p ON p.actor=x.actor JOIN vrss_posts post ON x.object=? || '/vrss/v1/posts/' || post.id WHERE x.state='pending' AND r.state='accepted' AND r.follow_id=x.follow_id AND p.blocked=0 AND post.deleted=0 AND post.visibility='public'", (p['public_base'],)).fetchone()[0]
-    return {'enabled':bool(p['social_enabled'] and p['enabled']),'likes_enabled':bool(p['reactions_enabled']),'relations':rows,'blocked':blocked,'deliveries':jobs,'pause_reason':pause_reason,
+    from . import vrss_conversations
+    conversations = vrss_conversations.status()
+    return {'conversations':conversations,'enabled':bool(p['social_enabled'] and p['enabled']),'likes_enabled':bool(p['reactions_enabled']),'relations':rows,'blocked':blocked,'deliveries':jobs,'pause_reason':pause_reason,
             'followers':counts.get('in',0),'following':counts.get('out',0),'pending_deliveries':pending,'pending_comments':review,'comment_reviews':reviews,'repost_checks':repost_states,
             'next_cursor':page[-1]['actor'] if len(peers)>25 else ''}

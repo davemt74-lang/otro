@@ -46,7 +46,9 @@ def serve(config,name):
     from app.security import OWNER_CONTROL_TOKEN
     api=FastAPI();api.include_router(router)
     @api.post('/api/v1/control/social-test-pump')
-    def pump():s.deliver();return {'ok':True}
+    def pump():
+        with v.database() as c:c.execute('UPDATE vrss_conversation_watches SET due=0')
+        s.deliver();return {'ok':True}
     @api.get('/api/v1/control/social-test-actor')
     def actor():return s.actor_document()
     import uvicorn

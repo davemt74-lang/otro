@@ -22,7 +22,7 @@ def package(body:str)->bytes:
     with zipfile.ZipFile(buffer,"w",zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("vp3-hosting.json",json.dumps({
             "contract":"vp3.hosting.package.v1",
-            "version":"1.7.0",
+            "version":"1.8.0",
             "runtime":"static",
             "entrypoint":"public/index.html",
         }))
