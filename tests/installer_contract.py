@@ -34,3 +34,18 @@ for schema in ("runtime_certification.sql", "governed_recordings.sql", "local_tr
     assert "('database/" + schema + "', 'database')" in spec, schema
 assert "('ui', 'ui')" in spec, "Chat onboarding assets must be bundled"
 print("HomeServer installer upgrade and current schemas contract test passed")
+
+# A stale/unmeasured estimate must not compile into a shipping release.
+assert '#include "SpaceBudget.iss"' in text
+assert '#include "SpaceCheck.iss"' in text
+check = (ROOT_DIR / "installer/SpaceCheck.iss").read_text(encoding="utf-8")
+assert 'function PrepareToInstall' in check and 'CheckSpace(WizardDirValue' in check
+assert 'GetSpaceOnDisk64' in check and 'GetVolumeNameForVolumeMountPointW' in check
+assert '#ifdef PREFLIGHT_TEST_BUILD' in check
+assert 'ExtractTemporaryFile' not in check and 'DelTree' not in check
+assert 'DisableDirPage=yes' in text and 'DisableReadyPage=yes' in text
+assert 'MinVersion=10.0' in text
+ci = (ROOT_DIR / '.github/workflows/ci.yml').read_text(encoding='utf-8')
+assert ci.index('python scripts/installer_space_budget.py') < ci.index("& $compiler 'installer\\HomeServer.iss'")
+assert 'dist/INSTALL_SPACE.json' in ci
+print('Installer computer check, measured budgets and silent-install recheck contract passed')

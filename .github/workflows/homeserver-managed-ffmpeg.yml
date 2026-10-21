@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - 'scripts/stage_ffmpeg_windows.ps1'
-      - 'installer/HomeServer.iss'
+      - 'installer/**'
+      - 'scripts/installer_space_budget.py'
+      - 'tests/installer_space_budget.py'
       - 'tests/installer_contract.py'
       - 'app/services/homeserver_media_tools.py'
       - '.github/workflows/ci.yml'
@@ -13,7 +15,9 @@ on:
     branches: [main]
     paths:
       - 'scripts/stage_ffmpeg_windows.ps1'
-      - 'installer/HomeServer.iss'
+      - 'installer/**'
+      - 'scripts/installer_space_budget.py'
+      - 'tests/installer_space_budget.py'
       - 'tests/installer_contract.py'
       - 'app/services/homeserver_media_tools.py'
       - '.github/workflows/ci.yml'
@@ -56,14 +60,21 @@ jobs:
           if ($ffprobeHash -ne $manifest.ffprobe_sha256) { throw 'ffprobe.exe manifest hash mismatch' }
       - name: Stage required managed browser for complete installer layout
         run: |
-          pip install playwright==1.58.0
+          pip install playwright==1.58.0 pyinstaller==6.11.1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/stage_browser_runtime.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compile installer layout with managed FFmpeg
         shell: pwsh
         run: |
-          New-Item -ItemType File -Force -Path 'dist/HomeServer.exe' | Out-Null
+          # Keep the staged real browser/media runtimes. Only the application
+          # archive is synthetic in this layout-only compilation check.
+          $fixture = Join-Path $env:RUNNER_TEMP 'installer-archive-fixture'
+          python tests/installer_space_budget.py --fixture $fixture
+          if ($LASTEXITCODE -ne 0) { throw 'Archive fixture creation failed' }
+          Copy-Item (Join-Path $fixture 'HomeServer.exe') 'dist/HomeServer.exe'
+          python scripts/installer_space_budget.py
+          if ($LASTEXITCODE -ne 0) { throw 'Installer budget measurement failed' }
           choco install innosetup --no-progress -y
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $iscc)) { throw 'ISCC.exe missing' }
