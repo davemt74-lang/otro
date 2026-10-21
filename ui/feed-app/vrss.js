@@ -42,9 +42,13 @@ function repostControls(initial,s,onChange){
  async function change(){if(busy||!owns(s))return;if(!attempt){attempt={enabled:!(value.reposted||value.can_undo),request_id:crypto.randomUUID()};try{sessionStorage.setItem(storage,JSON.stringify(attempt));}catch{}}busy=true;draw();try{const d=await api('social.repost',{url:value.object,...attempt},s);value=d.repost;attempt=null;try{sessionStorage.removeItem(storage);}catch{}if(box.isConnected){draw();onChange?.(value);}}catch(e){report(e,s);}finally{busy=false;draw();}}
  box.append(refresh,toggle,status);draw();return box;
 }
+const conversationKey=url=>`vp3.vrss.conversation.${owner.actor_id}.${url}`;
+function conversationRetry(url){
+ try{const saved=JSON.parse(sessionStorage.getItem(conversationKey(url))||'null');if(saved&&saved.url===url&&url.length<=400&&url.startsWith('https://')&&safeURL(url)===url&&typeof saved.enabled==='boolean'&&typeof saved.muted==='boolean'&&Number.isSafeInteger(saved.expected_revision)&&saved.expected_revision>=0&&typeof saved.request_id==='string'&&/^[A-Za-z0-9._:-]{16,80}$/.test(saved.request_id))return {url,enabled:saved.enabled,muted:saved.muted,expected_revision:saved.expected_revision,request_id:saved.request_id};}catch{}return null;
+}
 function conversationControls(url,s){
  const panel=node('section',undefined,'row wrap'),status=node('span',undefined,'meta');status.setAttribute('role','status');let value={enabled:0,muted:0,revision:0},busy=false;
- const key=`vp3.vrss.conversation.${owner.actor_id}.${url}`;let attempt=null;try{attempt=JSON.parse(sessionStorage.getItem(key)||'null');}catch{}
+ const key=conversationKey(url);let attempt=conversationRetry(url);
  const discard=button('Discard retry and refresh',()=>{attempt=null;try{sessionStorage.removeItem(key);}catch{}void load();},'quiet');
  const follow=button('Follow conversation',()=>void change('follow'),'quiet'),mute=button('Mute conversation',()=>void change('mute'),'quiet');
  function draw(){discard.hidden=!attempt;discard.disabled=busy;follow.textContent=attempt?'Retry conversation change':value.enabled?'Unfollow conversation':'Follow conversation';mute.textContent=value.muted?'Unmute conversation':'Mute conversation';follow.disabled=mute.disabled=busy;status.textContent=value.error||((value.enabled?'Conversation followed':'Profile follow is not required')+(value.muted?' · muted':value.priming?' · initializing notification baseline':''));}
@@ -89,7 +93,11 @@ function profilePage(){const box=node('section',undefined,'profile'),top=node('d
 async function conversations(){
  dialog.replaceChildren();const s=scope(),top=node('div',undefined,'row spread');top.append(node('h2','Conversations'),button('Close',()=>dialog.close()));dialog.append(top);const form=node('form'),url=field(form,'Public VRSS post URL','conversation-url');url.type='url';url.required=true;form.append(node('button','Open conversation','primary'));const content=node('div');dialog.append(form,content);if(!dialog.open)dialog.showModal();
  form.onsubmit=async e=>{e.preventDefault();lock(form,true);try{const d=await api('social.thread',{url:url.value,cursor:'0'},s);content.replaceChildren(externalLink('Original post',url.value),conversationControls(url.value,s));for(const item of d.thread.items)content.append(node('strong',item.name),node('p',item.body,'body'));if(d.thread.next_cursor)content.append(node('p','Open the original post for the complete conversation.','meta'));}catch(e){report(e,s);}finally{if(owns(s))lock(form,false);}};
- try{const d=await api('social.conversations',{},s);for(const item of d.conversations.items){const box=node('section',undefined,'card');box.append(externalLink('Original conversation',item.object),conversationControls(item.object,s));content.append(box);}}catch(e){report(e,s);}
+ try{const d=await api('social.conversations',{},s);if(!content.isConnected||!dialog.open)return;const urls=new Set(d.conversations.items.map(item=>item.object));
+ // A reload can interrupt a first follow before the server creates its watch.
+ // Restore the owner's saved request too; recovery still requires their click.
+ try{const prefix=conversationKey('');let recovered=0;for(let i=0;i<sessionStorage.length&&recovered<50;i++){const key=sessionStorage.key(i);if(!key?.startsWith(prefix))continue;const url=key.slice(prefix.length);if(conversationRetry(url)){urls.add(url);recovered++;}}}catch{}
+ for(const url of urls){const box=node('section',undefined,'card');box.append(externalLink('Original conversation',url),conversationControls(url,s));content.append(box);}}catch(e){report(e,s);}
 }
 async function connections(){
  dialog.replaceChildren();const s=scope(),head=node('div',undefined,'row spread');head.append(node('h2','VRSS connections'),button('Close',()=>dialog.close()));dialog.append(head);

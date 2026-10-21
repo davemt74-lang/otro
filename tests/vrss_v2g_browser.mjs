@@ -22,12 +22,17 @@ try{
   for(const n of (await api('notices')).notices)await api('notice.read',{notice_id:n.id});
   await reply({reset:true,body:'Baseline reply'});await page.goto(preview);await page.getByRole('button',{name:'Conversations',exact:true}).click();
   await page.getByLabel('Public VRSS post URL',{exact:true}).fill(url);await page.getByRole('button',{name:'Open conversation',exact:true}).click();
-  let lost=false;const attempts=[];
-  await page.route(ep,async route=>{const body=route.request().postDataJSON();if(body.action==='social.conversation'){attempts.push(body);if(!lost){lost=true;await route.fetch();await route.abort();return;}}await route.continue();});
+  for(const committed of [false,true]){
+  let lost=false;const attempts=[];let finishLoss;const responseLost=new Promise(resolve=>finishLoss=resolve);
+  await page.route(ep,async route=>{const body=route.request().postDataJSON();if(body.action==='social.conversation'){attempts.push(body);if(!lost){lost=true;if(committed){const r=await route.fetch();assert.equal(r.status(),200,await r.text());}await route.abort();finishLoss();return;}}await route.continue();});
   await page.getByRole('button',{name:'Follow conversation',exact:true}).click();await page.getByRole('button',{name:'Retry conversation change',exact:true}).waitFor();
-  await page.reload();await page.getByRole('button',{name:'Conversations',exact:true}).click();await page.getByRole('button',{name:'Retry conversation change',exact:true}).click();
-  await page.getByRole('button',{name:'Unfollow conversation',exact:true}).waitFor();assert.equal(attempts.length,2);assert.equal(attempts[0].request_id,attempts[1].request_id);await page.unroute(ep);
+  await responseLost;
+  assert.equal((await api('social.conversations')).conversations.items.find(x=>x.object===url)?.enabled||0,Number(committed));
+  await page.reload();await page.getByRole('button',{name:'Conversations',exact:true}).click();const retry=page.getByRole('button',{name:'Retry conversation change',exact:true});await retry.waitFor();assert.equal(attempts.length,1,'Reload must not replay a write automatically');await retry.click();
+  await page.getByRole('button',{name:'Unfollow conversation',exact:true}).waitFor();assert.equal(attempts.length,2);assert.deepEqual(attempts[0],attempts[1]);assert.equal((await api('social.conversations')).conversations.items.filter(x=>x.object===url).length,1);await page.unroute(ep);
   assert.equal((await api('social.status')).social.following,0);assert.equal((await api('notices')).notices.length,0);
+  if(!committed){await page.getByRole('button',{name:'Unfollow conversation',exact:true}).click();await page.getByRole('button',{name:'Follow conversation',exact:true}).waitFor();}
+  }
   await page.getByRole('button',{name:'Mute conversation',exact:true}).click();await page.getByRole('button',{name:'Unmute conversation',exact:true}).waitFor();
   await reply({body:'Muted reply'});assert.equal((await api('notices')).notices.length,0);
   await page.getByRole('button',{name:'Unmute conversation',exact:true}).click();await page.getByRole('button',{name:'Mute conversation',exact:true}).waitFor();

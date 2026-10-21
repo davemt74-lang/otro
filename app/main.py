@@ -65,9 +65,12 @@ async def lifespan(_: FastAPI):
     agent_mission_progress.start()
     from .services import vrss
     vrss.start()
+    from .services import food_monster_auto_sync
+    food_monster_auto_sync.scheduler.start()
     try:
         yield
     finally:
+        food_monster_auto_sync.scheduler.stop()
         vrss.stop()
         agent_mission_progress.stop()
         agent_mission_schedules.stop()

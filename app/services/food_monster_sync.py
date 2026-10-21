@@ -24,6 +24,11 @@ SOURCE_IDS = {
 MAX_RECORDS_PER_CATEGORY = 2000
 MAX_TEXT_BYTES = 32 * 1024
 MAX_PAGES = 105
+
+
+class FoodMonsterSyncCancelled(connector.FoodMonsterLinkError):
+    """A canceled lease must not mutate cache or mark the source unavailable."""
+    pass
 CACHE_STALE_SECONDS = 3600
 
 
@@ -97,11 +102,14 @@ def _validate_document(raw: Any, kind: str) -> dict[str, Any]:
 def _pages(
     entry: dict[str, Any], token: str, kind: str,
     fetch: Callable[..., dict[str, Any]],
+    guard: Callable[[], None] | None = None,
 ) -> dict[str, dict[str, Any]]:
     after = 0
     seen: dict[str, dict[str, Any]] = {}
     visited: set[int] = set()
     for _ in range(MAX_PAGES):
+        if guard:
+            guard()
         response = fetch(entry["origin"], {"action": "manifest",
             "type": kind, "afterId": after, "limit": 20}, token=token)
         if (response.get("schema") != "food-monster-knowledge-manifest-v1"
@@ -131,11 +139,21 @@ def _pages(
     raise connector.FoodMonsterLinkError("Manifest page count exceeded safe limit.", 502)
 
 
-def _apply_full_sweep(local_id: str, kind: str, docs: dict[str, dict[str, Any]]) -> dict[str, int]:
+def _apply_full_sweep(local_id: str, kind: str, docs: dict[str, dict[str, Any]], *, auto_lease: str | None = None) -> dict[str, int]:
     """Commit one category only after ALL pages were successfully validated."""
     now = _utc_now()
     changes = {"created": 0, "updated": 0, "unchanged": 0, "removed": 0, "pendingRemoval": 0}
     with db() as connection:
+        if auto_lease:
+            # Acquire the SQLite write reservation BEFORE checking the lease.
+            # Without this, another connection can revoke between the lease
+            # SELECT and the first document UPDATE (WAL snapshot upgrade race).
+            # Disabling a schedule then waits for this bounded category commit;
+            # once disable returns no prior lease can make a new write.
+            if not connection.in_transaction:
+                connection.execute("BEGIN IMMEDIATE")
+            from . import food_monster_auto_sync
+            food_monster_auto_sync.assert_lease(local_id, auto_lease, connection=connection)
         # Lock write intent, and require still-active connection before writes.
         connection.execute("UPDATE food_monster_connections SET last_checked_at=? "
                            "WHERE id=? AND status='active'", (now, local_id))
@@ -233,13 +251,19 @@ def _sync_failure(local_id: str, kind: str, error: connector.FoodMonsterLinkErro
         connector._vault_write(tokens)
 
 
-def synchronize(local_id: str, *, fetch: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
+def synchronize(local_id: str, *, fetch: Callable[..., dict[str, Any]] | None = None,
+                auto_lease: str | None = None) -> dict[str, Any]:
     """Manually trigger a bounded owner-only sweep, serialized with disconnect."""
     fetch = fetch or connector._request
     with connector._LOCK:
         entry, token = _principal(local_id)
         current_kind = sorted(entry["scopes"])[0]
+        def check_lease() -> None:
+            if auto_lease:
+                from . import food_monster_auto_sync
+                food_monster_auto_sync.assert_lease(local_id, auto_lease)
         try:
+            check_lease()
             discovery = fetch(entry["origin"], None)
             if (discovery.get("schema") != "food-monster-vp3-v1"
                 or str(discovery.get("instanceId") or "").lower() != entry["instance_id"]
@@ -248,11 +272,13 @@ def synchronize(local_id: str, *, fetch: Callable[..., dict[str, Any]] | None = 
             outcomes = {}
             for kind in sorted(entry["scopes"]):
                 current_kind = kind
-                docs = _pages(entry,token,kind,fetch)
-                outcomes[kind] = _apply_full_sweep(local_id,kind,docs)
+                docs = _pages(entry,token,kind,fetch,guard=check_lease)
+                outcomes[kind] = _apply_full_sweep(local_id,kind,docs,auto_lease=auto_lease)
             return {"connectionId":local_id, "instanceId":entry["instance_id"],
                     "origin":entry["origin"],"status":"synced","collections":outcomes,
                     "syncedAt":_utc_now()}
+        except FoodMonsterSyncCancelled:
+            raise
         except connector.FoodMonsterLinkError as error:
             _sync_failure(local_id, current_kind, error)
             raise

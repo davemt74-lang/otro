@@ -33,3 +33,9 @@
   .fm-link-row { flex-wrap:wrap; }
   .fm-link-remove { margin-left:auto; }
 }
+
+.fm-link-auto-label { display: flex; align-items: center; gap: .45rem; font-size: .82rem; }
+.fm-link-auto-checkbox { width: 17px; height: 17px; accent-color: var(--accent,#5abfae); }
+.fm-link-interval { max-width: 170px; border-radius: 8px; background: var(--surface-bg,#222729); color: inherit; padding: .3rem; }
+.fm-link-row .fm-link-save-policy { flex-shrink: 0; }
+@media(max-width:600px) { .fm-link-row .fm-link-save-policy { margin-left: auto; } }

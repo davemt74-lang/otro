@@ -61,6 +61,14 @@ const fetch = async (url, init={}) => {
     }];
     return {ok:true,json:async()=>({connection:{id:'a'.repeat(32)}})};
   }
+  if (path.endsWith('/auto-sync')) {
+    if (init.method === 'PUT') {
+      const body=JSON.parse(init.body);
+      assert.ok([3600,21600,86400].includes(body.interval_seconds));
+      return {ok:true,json:async()=>({enabled:body.enabled,intervalSeconds:body.interval_seconds})};
+    }
+    return {ok:true,json:async()=>({enabled:false,intervalSeconds:21600})};
+  }
   if (path === '/connections/' + 'a'.repeat(32) + '/sync-status' && (!init.method || init.method === 'GET')) {
     return {ok:true,json:async()=>({categories:{menu:{documents:1,lastSyncedAt:'2026-10-20T12:00:00Z',lastError:''}}})};
   }
@@ -106,6 +114,16 @@ await syncButton.listeners.click();
 assert.ok(requests.some(x=>x.url.endsWith('/sync') && x.init.method==='POST'),
   'Manual sync must use owner-local HomeServer API');
 assert.match(entries.fmLinksStatus.textContent,/Completed private Food Monster snapshot/);
+const policyButton=row.children.find(x=>x.className?.includes('fm-link-save-policy'));
+assert.ok(policyButton?.listeners.click,'Background sync setting is available in chat Tools');
+const details=row.children.find(x=>x.className?.includes('fm-link-information'));
+const toggle=details.children.find(x=>x.className?.includes('fm-link-auto-label'))?.children[0];
+const cadence=details.children.find(x=>x.className?.includes('fm-link-interval'));
+assert.equal(toggle?.checked,false,'Auto sync is off until owner enables it');
+toggle.checked=true;
+cadence.value='3600';
+await policyButton.listeners.click();
+assert.ok(requests.some(x=>x.url.endsWith('/auto-sync') && x.init.method==='PUT'));
 const disconnect = row.children.find(x=>x.tag==='button');
 assert.ok(disconnect?.listeners.click, 'Disconnect button wired');
 await disconnect.listeners.click();
