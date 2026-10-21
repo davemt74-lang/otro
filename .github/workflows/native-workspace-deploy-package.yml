@@ -46,6 +46,11 @@ jobs:
           assert manifest['packaged_browser_certified'] is True
           setup=root/'HomeServerSetup.exe'
           assert hashlib.file_digest(setup.open('rb'),'sha256').hexdigest()==manifest['files']['HomeServerSetup.exe']
+          space=json.loads((root/'INSTALL_SPACE.json').read_text(encoding='utf-8'))
+          assert space['contract']=='vp3.installer.space.v1'
+          assert space['application_sha256']==manifest['files']['HomeServer.exe']
+          assert space['install_budget_bytes']>=space['payload_bytes']>0
+          assert space['temporary_budget_bytes']>=space['runtime_extraction_bytes']>0
           print('Production installer, browser certification and schema verified')
           PY
       - name: Upload complete installer deployment archive
@@ -56,6 +61,7 @@ jobs:
           path: |
             distribution/HomeServerSetup.exe
             distribution/RELEASE.json
+            distribution/INSTALL_SPACE.json
             distribution/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30

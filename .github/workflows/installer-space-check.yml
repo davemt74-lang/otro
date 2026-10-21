@@ -1,0 +1,54 @@
+name: Installer Computer Check
+on:
+  push:
+    branches: [main, 'feat/installer-*']
+    paths: ['installer/**', 'scripts/installer_space_budget.py', 'tests/installer_space*', '.github/workflows/installer-space-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: installer-space-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+jobs:
+  native-installer:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install compiler and archive reader
+        run: |
+          pip install pyinstaller==6.11.1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          choco install innosetup --no-progress -y
+      - name: Measure compressed fixture and certify budget generation
+        run: |
+          python tests/installer_space_budget.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/installer_space_budget.py --fixture dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/installer_space_budget.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/installer_contract.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile production and isolated test installer
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          & $compiler 'installer\HomeServer.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Production installer compilation failed' }
+          Copy-Item dist/HomeServerSetup.exe dist/ProductionSetup.exe
+          & $compiler '/DPREFLIGHT_TEST_BUILD=1' 'installer\HomeServer.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Test installer compilation failed' }
+      - name: Native arithmetic, Windows APIs and interactive one-page installer
+        shell: pwsh
+        run: ./tests/installer_space_windows.ps1
+      - name: Keep UI acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-computer-check-evidence
+          path: ${{ runner.temp }}/homeserver-space-acceptance/**
+          if-no-files-found: ignore
+          retention-days: 7

@@ -34,6 +34,9 @@ on:
       - 'tests/memory_context_freshness.py'
       - 'scripts/stage_browser_runtime.py'
       - 'installer/HomeServer.iss'
+      - 'installer/**'
+      - 'scripts/installer_space_budget.py'
+      - 'tests/installer_space*'
       - '.github/workflows/ci.yml'
   push:
     branches: [main]
@@ -993,6 +996,10 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: |
+          python tests/installer_space_budget.py
+          if ($LASTEXITCODE -ne 0) { throw 'Installer budget tests failed' }
+          python scripts/installer_space_budget.py
+          if ($LASTEXITCODE -ne 0) { throw 'Installer payload measurement failed' }
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler was not found' }
           & $compiler 'installer\HomeServer.iss'
@@ -1125,6 +1132,7 @@ jobs:
             dist/HomeServerSetup.exe
             dist/SHA256SUMS.txt
             dist/RELEASE.json
+            dist/INSTALL_SPACE.json
             dist/tools/browser/**
           if-no-files-found: error
           retention-days: 14
