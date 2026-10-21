@@ -109,7 +109,7 @@ jobs:
           assert manifest['packaged_browser_certified'] is True and manifest['browser_section']=='A5B4'
           assert manifest['mission_lifecycle_section']=='A5C11'
           assert manifest['project_knowledge_section']=='R11'
-          for name in ('HomeServer.exe','HomeServerSetup.exe'):
+          for name in ('HomeServer.exe','HomeServerSetup.exe','HomeServerCoreSetup.exe','COMPONENTS.json','CORE_INSTALL_SPACE.json','INSTALL_SPACE.json'):
               with (root/name).open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==manifest['files'][name],name+' hash mismatch'
           browser_root=root/'tools'/'browser'
           browser=json.loads((browser_root/'manifest.json').read_text())
@@ -1000,10 +1000,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installer budget tests failed' }
           python scripts/installer_space_budget.py
           if ($LASTEXITCODE -ne 0) { throw 'Installer payload measurement failed' }
+          python tests/component_packages.py
+          if ($LASTEXITCODE -ne 0) { throw 'Component tests failed' }
+          python scripts/build_component_packages.py
+          if ($LASTEXITCODE -ne 0) { throw 'Component preparation failed' }
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler was not found' }
           & $compiler 'installer\HomeServer.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+          & $compiler '/DCORE_UPDATE=1' 'installer\HomeServer.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Core installer compilation failed" }
       - name: Verify silent installer upgrade preserves private data
         shell: pwsh
         run: |
@@ -1034,6 +1040,12 @@ jobs:
             throw 'Installer upgrade modified private HomeServer data'
           }
 
+          $runtimeHashes = @{}
+          Get-ChildItem (Join-Path $installDir 'tools') -Recurse -File | ForEach-Object { $runtimeHashes[$_.FullName] = (Get-FileHash $_.FullName).Hash }
+          $core = Start-Process -FilePath (Resolve-Path 'dist/HomeServerCoreSetup.exe') -ArgumentList $args -Wait -PassThru
+          if ($core.ExitCode -ne 0) { throw 'Real core update failed' }
+          foreach ($path in $runtimeHashes.Keys) { if ((Get-FileHash $path).Hash -ne $runtimeHashes[$path]) { throw 'Core update changed runtime' } }
+          if ((Get-Content (Join-Path $privateDir 'upgrade-sentinel.txt') -Raw).Trim() -ne 'preserve-me') { throw 'Core update changed private data' }
           $installedExe = Join-Path $installDir 'HomeServer.exe'
           $browserReport = Join-Path $env:RUNNER_TEMP 'a5b4-installed-browser.json'
           $browserTest = Start-Process -FilePath $installedExe -ArgumentList @('--browser-self-test', $browserReport) -Wait -PassThru
@@ -1077,7 +1089,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not $schema -or [int]$schema -lt 81) {
             throw "HomeServer release manifest cannot verify its current migration version"
           }
-          $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe')
+          $files = @('dist/HomeServer.exe', 'dist/HomeServerSetup.exe', 'dist/HomeServerCoreSetup.exe', 'dist/COMPONENTS.json', 'dist/CORE_INSTALL_SPACE.json', 'dist/INSTALL_SPACE.json')
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { throw "$file was not built" }
           }
@@ -1120,7 +1132,7 @@ jobs:
             managed_browser_runtime = 'tools/browser/manifest.json'
             packaged_browser_certified = $true
             files = $hashMap
-            release_notes = 'R11 conversational document-draft refinement and stable single-review lineage; retains R10 source-cited document creation in Chat, project/folder selection and canonical Knowledge storage; retains R9 ordinary Chat conversational drafts and inline editable reviews; retains R8 Knowledge-backed task/CRM/document actions, exact evidence-bound approvals and canonical sync receipts; retains R7 reviewed source reread and Knowledge refresh; retains R6 conversation project/folder context, multiple source attachments and canonical scoped Knowledge in native answers; retains R5 citations and receipts, R4 capture routing, R3 research and A5C11 diagnostics.'
+            release_notes = 'Independent core updates with verified browser/media reuse and separately versioned runtime packages; R11 conversational document-draft refinement and stable single-review lineage; retains R10 source-cited document creation in Chat, project/folder selection and canonical Knowledge storage; retains R9 ordinary Chat conversational drafts and inline editable reviews; retains R8 Knowledge-backed task/CRM/document actions, exact evidence-bound approvals and canonical sync receipts; retains R7 reviewed source reread and Knowledge refresh; retains R6 conversation project/folder context, multiple source attachments and canonical scoped Knowledge in native answers; retains R5 citations and receipts, R4 capture routing, R3 research and A5C11 diagnostics.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
       - name: Upload Windows distribution
@@ -1133,6 +1145,10 @@ jobs:
             dist/SHA256SUMS.txt
             dist/RELEASE.json
             dist/INSTALL_SPACE.json
+            dist/HomeServerCoreSetup.exe
+            dist/COMPONENTS.json
+            dist/CORE_INSTALL_SPACE.json
+            dist/tools/ffmpeg/**
             dist/tools/browser/**
           if-no-files-found: error
           retention-days: 14

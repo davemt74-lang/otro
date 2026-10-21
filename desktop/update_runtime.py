@@ -144,7 +144,7 @@ $installerArgs = @(
     '/VERYSILENT',
     '/SUPPRESSMSGBOXES',
     '/NORESTART',
-    "/DIR=$InstallDir",
+    "/DIR=`"$InstallDir`"",
     '/TASKS=""'
 )
 

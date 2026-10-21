@@ -22,6 +22,10 @@ var
   RecommendedPath: String;
   ChoicesLoaded: Boolean;
 
+#ifdef CORE_UPDATE
+#include "CoreRuntimeRequirements.iss"
+#endif
+
 function VolumePathName(Path, Buffer: String; Size: Cardinal): Boolean;
   external 'GetVolumePathNameW@kernel32.dll stdcall';
 function VolumeName(Path, Buffer: String; Size: Cardinal): Boolean;
@@ -125,6 +129,9 @@ begin
   ReadRole(Roles[1], 'Temporary setup and startup', ExpandConstant('{tmp}'), StrToInt64(TemporaryBudgetBytes));
   ReadRole(Roles[2], 'Private data headroom', DataLocation, StrToInt64(DataHeadroomBytes));
   Result := Assess(Roles, Details, Problem);
+#ifdef CORE_UPDATE
+  Details := 'Core update reuses verified installed browser and media runtimes.' + #13#10 + Details;
+#endif
   Details := 'Application and included runtimes: ' + Amount(StrToInt64(PayloadBytes)) + #13#10 +
     'Budgets include temporary staging, upgrade and startup headroom.' + #13#10#13#10 + Details;
   if FileExists(AddBackslash(Target) + 'HomeServer.exe') then
@@ -255,6 +262,9 @@ begin
   Result := '';
   // Re-read free space here, including silent upgrades; a prior UI pass is not authority.
   if not CheckSpace(WizardDirValue, Details, Problem) then Result := Problem;
+#ifdef CORE_UPDATE
+  if Result = '' then Result := CoreRuntimeProblem(WizardDirValue);
+#endif
   Log('HomeServer pre-install space check: ' + Details);
 end;
 
