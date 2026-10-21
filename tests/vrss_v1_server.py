@@ -100,5 +100,14 @@ with tempfile.TemporaryDirectory(prefix="vrss-browser-") as data:
     import uvicorn
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
-    print(json.dumps({"url": "http://127.0.0.1:" + str(sock.getsockname()[1]), "owner": OWNER_CONTROL_TOKEN, "hosting_site_id": hosted_site["site_id"], "route_token": hosted_route["route_token"]}), flush=True)
-    uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="off")).run(sockets=[sock])
+    ready_config = {"url": "http://127.0.0.1:" + str(sock.getsockname()[1]), "owner": OWNER_CONTROL_TOKEN, "hosting_site_id": hosted_site["site_id"], "route_token": hosted_route["route_token"]}
+
+    class ReadyFixtureServer(uvicorn.Server):
+        async def startup(self, sockets=None):
+            await super().startup(sockets=sockets)
+            # The browser must not receive the owner session URL before
+            # uvicorn is actually listening on it (ECONNREFUSED race).
+            if self.started:
+                print(json.dumps(ready_config), flush=True)
+
+    ReadyFixtureServer(uvicorn.Config(app, log_level="error", lifespan="off")).run(sockets=[sock])

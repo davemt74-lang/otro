@@ -119,6 +119,66 @@
         }
       });
       row.append(syncButton);
+
+      const autoLabel = create('label', 'fm-link-auto-label');
+      const autoEnabled = create('input', 'fm-link-auto-checkbox');
+      autoEnabled.type = 'checkbox';
+      autoEnabled.setAttribute('aria-label', 'Automatically synchronize ' + String(record.label || 'Food Monster'));
+      const cadence = create('select', 'fm-link-interval');
+      cadence.setAttribute('aria-label', 'Automatic synchronization interval for ' + String(record.label || 'Food Monster'));
+      for (const [seconds, display] of [[3600, 'Every hour'], [21600, 'Every 6 hours'], [86400, 'Daily']]) {
+        const option = create('option', '', display);
+        option.value = String(seconds);
+        cadence.append(option);
+      }
+      cadence.value = '21600';
+      const savePolicy = create('button', 'button secondary fm-link-save-policy', 'Save schedule');
+      savePolicy.type = 'button';
+      autoLabel.append(autoEnabled, create('span', '', 'Automatic sync'));
+      details.append(autoLabel, cadence);
+      row.append(savePolicy);
+      const updatePolicy = async () => {
+        if (busy || !/^[a-f0-9]{32}$/.test(record.id)) return;
+        const enabled = Boolean(autoEnabled.checked);
+        const interval = Number(cadence.value);
+        if (![3600, 21600, 86400].includes(interval)) {
+          notice('Choose a valid synchronization interval.', true);
+          return;
+        }
+        setBusy(true);
+        savePolicy.disabled = true;
+        try {
+          await localApi('/connections/' + encodeURIComponent(record.id) + '/auto-sync', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled, interval_seconds: interval}),
+          });
+          notice(enabled ? 'Automatic Food Monster synchronization enabled for ' +
+                 (record.label || 'restaurant') + '.' :
+                 'Automatic Food Monster synchronization disabled for ' +
+                 (record.label || 'restaurant') + '.');
+        } catch {
+          notice('Schedule could not be updated. The previous setting remains in effect.', true);
+        } finally {
+          setBusy(false);
+          savePolicy.disabled = false;
+        }
+      };
+      savePolicy.addEventListener('click', updatePolicy);
+      if (/^[a-f0-9]{32}$/.test(record.id)) {
+        localApi('/connections/' + encodeURIComponent(record.id) + '/auto-sync')
+          .then(policy => {
+            autoEnabled.checked = policy.enabled === true;
+            if ([3600, 21600, 86400].includes(Number(policy.intervalSeconds))) {
+              cadence.value = String(policy.intervalSeconds);
+            }
+          })
+          .catch(() => {
+            savePolicy.disabled = true;
+            notice('Automatic sync settings could not be loaded.', true);
+          });
+      }
+
       if (/^[a-f0-9]{32}$/.test(record.id)) {
         localApi('/connections/' + encodeURIComponent(record.id) + '/sync-status')
           .then(result => {
