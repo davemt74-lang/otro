@@ -11,3 +11,5 @@ build/
 *.db-wal
 .pytest_cache/
 installer/SpaceBudget.iss
+installer/CoreSpaceBudget.iss
+installer/CoreRuntimeRequirements.iss

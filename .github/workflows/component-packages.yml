@@ -1,0 +1,51 @@
+name: HomeServer Component Packages
+on:
+  push:
+    branches: [main, 'feat/component-*']
+    paths: ['installer/**', 'app/services/component_packages.py', 'app/services/device_rollout.py', 'desktop/update_runtime.py', 'scripts/build_component_packages.py', 'tests/component*', 'tests/installer_space_budget.py', '.github/workflows/component-packages.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: component-packages-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native-components:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies and compiler
+        run: |
+          pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          choco install innosetup --no-progress -y
+      - name: Verify component contracts and existing controlled updater
+        run: |
+          python tests/component_packages.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/vp3_os_rollout_v110.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/installer_space_budget.py --fixture dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/installer_space_budget.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile full and core fixture installers
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          & $compiler '/DPREFLIGHT_TEST_BUILD=1' 'installer\HomeServer.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Full fixture compile failed' }
+          Copy-Item dist/HomeServerSetup.exe dist/FullFixtureSetup.exe
+          Add-Content dist/HomeServer.exe 'core revision two'
+          python scripts/installer_space_budget.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/build_component_packages.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $compiler '/DPREFLIGHT_TEST_BUILD=1' '/DCORE_UPDATE=1' 'installer\HomeServer.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Core fixture compile failed' }
+      - name: Native install and runtime reuse acceptance
+        shell: pwsh
+        run: ./tests/component_installer_windows.ps1

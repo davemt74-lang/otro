@@ -15,7 +15,7 @@ from typing import Any, BinaryIO
 
 from ..config import settings
 from ..database import db, migration_files
-from . import backups, hardware_adapters, release_readiness, system_state, vp3_os
+from . import component_packages, backups, hardware_adapters, release_readiness, system_state, vp3_os
 from .runtime_control import request_runtime_command, runtime_control_available
 
 ROLLOUT_VERSION = "v1.1"
@@ -24,7 +24,7 @@ MAX_PACKAGE_BYTES = 700 * 1024 * 1024
 MAX_PACKAGE_UNCOMPRESSED_BYTES = 1200 * 1024 * 1024
 MAX_PACKAGE_ENTRIES = 12
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-VERSION_RE = re.compile(r"^v\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$")
+VERSION_RE = re.compile(r"^v?\d+\.\d+(?:\.\d+)?(?:[-+][A-Za-z0-9._-]+)?$")
 CHANNELS = {"stable", "beta", "dev"}
 RINGS = {"pilot", "staged", "broad"}
 
@@ -35,6 +35,8 @@ _ALLOWED_PACKAGE_FILES = {
     "HomeServer.exe",
     "HomeServerSetup.exe",
     "SHA256SUMS.txt",
+    "INSTALL_SPACE.json",
+    "COMPONENTS.json",
 }
 
 
@@ -62,7 +64,7 @@ def _read_json(value: Any, default: Any) -> Any:
 
 def _version_key(value: str) -> tuple[int, int, int]:
     text = str(value or "").strip()
-    match = re.match(r"^v(\d+)\.(\d+)(?:\.(\d+))?", text)
+    match = re.match(r"^v?(\d+)\.(\d+)(?:\.(\d+))?", text)
     if match is None:
         raise RolloutError("Release version is invalid.")
     return (
@@ -427,12 +429,20 @@ def _validate_package(path: Path) -> dict[str, Any]:
             files = manifest.get("files")
             if not isinstance(files, dict):
                 raise RolloutError("Release manifest file inventory is invalid.")
+            kind = manifest.get("package_kind", "complete")
+            if kind not in {"complete", "core_update"}:
+                raise RolloutError("Unsupported release package kind.")
+            for name in ("INSTALL_SPACE.json", "COMPONENTS.json"):
+                if name in actual and actual[name].file_size > 1024 * 1024:
+                    raise RolloutError("Component metadata is unexpectedly large.")
             verified: dict[str, str] = {}
-            for name in ("HomeServerSetup.exe", "HomeServer.exe"):
+            for name in ("HomeServerSetup.exe", "HomeServer.exe", "INSTALL_SPACE.json", "COMPONENTS.json"):
                 if name not in actual:
-                    if name == "HomeServer.exe":
+                    if name != "HomeServerSetup.exe":
                         continue
                     raise RolloutError("Release package is missing HomeServerSetup.exe.")
+                if name in {"INSTALL_SPACE.json", "COMPONENTS.json"} and name not in files and kind != "core_update":
+                    continue
                 expected = str(files.get(name) or "").strip().lower()
                 if not SHA256_RE.fullmatch(expected):
                     raise RolloutError(f"Release manifest is missing a valid SHA-256 for {name}.")
@@ -453,7 +463,23 @@ def _validate_package(path: Path) -> dict[str, Any]:
                 if f"{digest}  {name}" not in sums:
                     raise RolloutError(f"SHA256SUMS.txt does not match {name}.")
 
+            components = None
+            if kind == "core_update":
+                if not {"INSTALL_SPACE.json", "COMPONENTS.json"}.issubset(verified):
+                    raise RolloutError("Core update metadata is missing.")
+                try:
+                    components = component_packages.validate(json.loads(archive.read("COMPONENTS.json")))
+                    core = components["components"]["core"]
+                    space = json.loads(archive.read("INSTALL_SPACE.json"))
+                    if (core["version"] != version or core["files"]["HomeServer.exe"]["sha256"] != files.get("HomeServer.exe") or
+                        space.get("application_sha256") != files.get("HomeServer.exe") or space.get("package_kind") != "core_update"):
+                        raise ValueError("Core release identity mismatch")
+                except (ValueError, TypeError, KeyError) as exc:
+                    raise RolloutError("Core update component metadata is invalid.") from exc
             return {
+                "package_kind": kind,
+                "components": components,
+                "version_family": "legacy" if version.startswith("v") else "homeserver",
                 "version": version,
                 "channel": channel,
                 "minimum_schema_version": min_schema,
@@ -478,7 +504,7 @@ def stage_package(source: BinaryIO, original_name: str) -> dict[str, Any]:
                 f"Package channel {metadata['channel']} does not match configured "
                 f"{current['release_channel']} channel."
             )
-        if _version_key(metadata["version"]) < _version_key(vp3_os.VP3_OS_VERSION):
+        if _version_key(metadata["version"]) < _version_key(vp3_os.VP3_OS_VERSION if metadata["version_family"] == "legacy" else settings.version):
             raise RolloutError(
                 "Release package is older than the installed VP3 OS. "
                 "Use the controlled rollback path instead of staging a downgrade."
@@ -633,6 +659,14 @@ def request_apply(package_id: int) -> dict[str, Any]:
         raise RolloutError("Runtime update control is unavailable in this launch mode.", 503)
 
     archive_path = _package_archive_path(package)
+    if _sha256_file(archive_path) != package["package_sha256"]:
+        raise RolloutError("Staged release package changed before apply.")
+    metadata = _validate_package(archive_path)
+    if metadata["package_kind"] == "core_update":
+        try:
+            component_packages.verify_runtimes(Path(sys.executable).resolve().parent, metadata["components"])
+        except (ValueError, OSError) as exc:
+            raise RolloutError(str(exc), 409) from exc
     apply_dir = _updates_root() / f"apply-{int(package_id)}"
     if apply_dir.exists():
         shutil.rmtree(apply_dir, ignore_errors=True)

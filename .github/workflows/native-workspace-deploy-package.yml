@@ -20,6 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: actions/download-artifact@v4
         with:
           name: HomeServer-Windows
@@ -65,9 +68,38 @@ jobs:
             distribution/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+      - name: Assemble certified component packages
+        run: python3 scripts/build_component_packages.py --dist distribution --assemble component-packages
+      - name: Upload core-only update
+        id: core
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeServer-Core-Update-Windows
+          path: component-packages/core-update/**
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload browser runtime
+        id: browser
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeServer-Browser-Runtime
+          path: component-packages/browser/**
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload media runtime
+        id: media
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeServer-Media-Runtime
+          path: component-packages/media/**
+          if-no-files-found: error
+          retention-days: 30
       - name: Write deployment checksums and provenance
         env:
           ZIP_SHA256: ${{ steps.executable.outputs.artifact-digest }}
+          CORE_SHA256: ${{ steps.core.outputs.artifact-digest }}
+          BROWSER_SHA256: ${{ steps.browser.outputs.artifact-digest }}
+          MEDIA_SHA256: ${{ steps.media.outputs.artifact-digest }}
           SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha }}
           SOURCE_RUN: ${{ github.event.workflow_run.id }}
           PACKAGE_RUN: ${{ github.run_id }}
@@ -77,6 +109,9 @@ jobs:
           import hashlib,json,os,pathlib,re
           root=pathlib.Path('distribution'); digest=os.environ['ZIP_SHA256']
           assert re.fullmatch('[a-f0-9]{64}',digest), 'Archive digest is missing'
+          component_release={'contract':'vp3.homeserver.component-release.v1','source_commit':os.environ['SOURCE_COMMIT'],'archives':{key:os.environ[key.upper()+'_SHA256'] for key in ('core','browser','media')}}
+          assert all(re.fullmatch('[a-f0-9]{64}',v) for v in component_release['archives'].values())
+          pathlib.Path('COMPONENT_RELEASE.json').write_text(json.dumps(component_release,indent=2)+'\n',encoding='utf-8')
           exe=hashlib.file_digest((root/'HomeServerSetup.exe').open('rb'),'sha256').hexdigest()
           pathlib.Path('Native-Actions-SHA256SUMS.txt').write_text(digest+'  HomeServer-Native-Actions-Windows.zip\n'+exe+'  HomeServerSetup.exe\n',encoding='ascii')
           provenance={'repository':os.environ['REPOSITORY'],'source_commit':os.environ['SOURCE_COMMIT'],'build_run_id':os.environ['SOURCE_RUN'],'package_run_id':os.environ['PACKAGE_RUN'],'archive_sha256':digest,'installer_sha256':exe,'minimum_edit_queue_schema':69,'minimum_orchestration_schema':71,'minimum_specialist_actions_schema':72,'minimum_specialist_outcomes_schema':73,'minimum_chat_task_schema':74,'minimum_scheduled_task_schema':75,'minimum_automatic_routing_schema':76,'minimum_live_mission_progress_schema':77,'minimum_chat_followup_schema':78,'minimum_browser_source_schema':79,'minimum_project_knowledge_schema':80,'project_knowledge_section':'R11','mission_lifecycle_section':'A5C11','install':'Deploy the matching Cloud release first. Run HomeServerSetup.exe to upgrade the application and managed browser; preserve the existing private data directory.'}
@@ -88,5 +123,6 @@ jobs:
           path: |
             Native-Actions-SHA256SUMS.txt
             NATIVE_ACTIONS_RELEASE.json
+            COMPONENT_RELEASE.json
           if-no-files-found: error
           retention-days: 30

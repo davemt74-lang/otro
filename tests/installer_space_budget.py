@@ -1,5 +1,6 @@
 """Actual CArchive measurements: compression, changing payloads and missing files."""
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -22,6 +23,8 @@ def fixture(root):
         p = root / "tools" / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"fixture")
+    (root / "tools/browser/manifest.json").write_text(json.dumps({"playwright": "1.58.0", "executable": "chrome.exe"}))
+    (root / "tools/ffmpeg/manifest.json").write_text(json.dumps({"version": "fixture-1"}))
 
 
 class SpaceBudgetTests(unittest.TestCase):

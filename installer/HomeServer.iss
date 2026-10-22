@@ -2,7 +2,11 @@
 #define MyAppVersion "2.4"
 #define MyAppPublisher "HomeServer"
 #define MyAppExeName "HomeServer.exe"
+#ifdef CORE_UPDATE
+#include "CoreSpaceBudget.iss"
+#else
 #include "SpaceBudget.iss"
+#endif
 
 [Setup]
 #ifdef PREFLIGHT_TEST_BUILD
@@ -19,7 +23,11 @@ DefaultDirName={localappdata}\Programs\HomeServer
 DefaultGroupName=HomeServer
 PrivilegesRequired=lowest
 OutputDir=..\dist
+#ifdef CORE_UPDATE
+OutputBaseFilename=HomeServerCoreSetup
+#else
 OutputBaseFilename=HomeServerSetup
+#endif
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -41,8 +49,11 @@ Name: "startup"; Description: "Start HomeServer when I sign in to Windows"; Grou
 
 [Files]
 Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+#ifndef CORE_UPDATE
 Source: "..\dist\tools\ffmpeg\*"; DestDir: "{app}\tools\ffmpeg"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dist\tools\browser\*"; DestDir: "{app}\tools\browser"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+#endif
 
 [Icons]
 Name: "{autoprograms}\HomeServer"; Filename: "{app}\{#MyAppExeName}"
