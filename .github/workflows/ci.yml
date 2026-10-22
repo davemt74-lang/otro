@@ -111,6 +111,12 @@ jobs:
           assert manifest['project_knowledge_section']=='R11'
           for name in ('HomeServer.exe','HomeServerSetup.exe','HomeServerCoreSetup.exe','COMPONENTS.json','CORE_INSTALL_SPACE.json','INSTALL_SPACE.json'):
               with (root/name).open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==manifest['files'][name],name+' hash mismatch'
+          catalog=json.loads((root/'COMPONENTS.json').read_text(encoding='utf-8-sig'))
+          for component in catalog['components'].values():
+              for name,identity in component['files'].items():
+                  path=root/name
+                  assert path.is_file() and path.stat().st_size==identity['bytes'],name+' missing or wrong size'
+                  with path.open('rb') as stream:assert hashlib.file_digest(stream,'sha256').hexdigest()==identity['sha256'],name+' component hash mismatch'
           browser_root=root/'tools'/'browser'
           browser=json.loads((browser_root/'manifest.json').read_text())
           executable=(browser_root/browser['executable']).resolve()
@@ -130,6 +136,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HomeServer-Windows
+          include-hidden-files: true
           path: certified/**
           if-no-files-found: error
           retention-days: 30
@@ -1135,10 +1142,16 @@ jobs:
             release_notes = 'Independent core updates with verified browser/media reuse and separately versioned runtime packages; R11 conversational document-draft refinement and stable single-review lineage; retains R10 source-cited document creation in Chat, project/folder selection and canonical Knowledge storage; retains R9 ordinary Chat conversational drafts and inline editable reviews; retains R8 Knowledge-backed task/CRM/document actions, exact evidence-bound approvals and canonical sync receipts; retains R7 reviewed source reread and Knowledge refresh; retains R6 conversation project/folder context, multiple source attachments and canonical scoped Knowledge in native answers; retains R5 citations and receipts, R4 capture routing, R3 research and A5C11 diagnostics.'
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 'dist/RELEASE.json'
+      - name: Verify real component package assembly
+        shell: pwsh
+        run: |
+          python scripts/build_component_packages.py --dist dist --assemble "$env:RUNNER_TEMP/homeserver-component-packages"
+          if ($LASTEXITCODE -ne 0) { throw 'Certified component package assembly failed' }
       - name: Upload Windows distribution
         uses: actions/upload-artifact@v4
         with:
           name: HomeServer-Windows
+          include-hidden-files: true
           path: |
             dist/HomeServer.exe
             dist/HomeServerSetup.exe
