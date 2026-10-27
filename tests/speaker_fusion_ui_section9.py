@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 ROOT=Path(__file__).resolve().parents[1]
 index=(ROOT/'ui'/'index.html').read_text(encoding='utf-8')
@@ -27,7 +28,13 @@ for marker in [
 ]:
     assert marker in fusion, marker
 assert "fetch('/api/v1/control/onboarding/visual/status'" in fusion
-assert 'vp3' not in fusion.lower() and '/cloud' not in fusion.lower(), 'fusion runtime must not send biometric/profile data to Cloud'
+# Product/guard names are not network destinations. Assert the actual transport:
+# this module may only read the local privacy endpoint, with no second fetch.
+fetch_destinations=re.findall(r"\bfetch\(\s*['\"]([^'\"]+)['\"]",fusion)
+assert fetch_destinations==['/api/v1/control/onboarding/visual/status']
+assert len(re.findall(r'\bfetch\s*\(',fusion))==1
+assert all(transport not in fusion for transport in ['sendBeacon','XMLHttpRequest','WebSocket'])
+assert '/cloud' not in fusion.lower(), 'fusion runtime must not send biometric/profile data to Cloud'
 assert 'voiceRecognitionEnabled: input.voiceRecognitionEnabled===true&&voiceProfileReady' in participant
 assert 'class SpeakerEvidence(BaseModel)' in api
 assert 'model_config=ConfigDict(extra="forbid")' in api

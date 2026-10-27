@@ -185,7 +185,8 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('#view-chat .section-intro').count(), 0);
   assert.equal(await page.locator('.topbar').isVisible(), false);
   assert.equal(await page.locator('#chatContextControls').isVisible(), false);
-  assert.equal(await page.locator('#chatForm button:visible').count(), 2);
+  assert.equal(await page.locator('#chatForm button:not([data-orb-chat]):visible').count(), 2);
+  assert.equal(await page.locator('#chatForm button[data-orb-chat]:visible').count(), 1, 'The requested chatbar button is present once');
   await page.waitForFunction(() => document.querySelectorAll('#chatKnowledgeControls>details').length === 4 && document.querySelector('#chatToolControls .vp3-agent-teams-a3'));
   assert.equal(await page.locator('#view-chat .chat-panel>.project-knowledge-r6,#view-chat .chat-panel>.knowledge-actions-r8,#view-chat .chat-panel>.vp3-chat-task-mode,#view-chat .chat-panel>.vp3-agent-teams-a3').count(), 0);
   assert.equal(await page.locator('.project-knowledge-r6').isVisible(), false);

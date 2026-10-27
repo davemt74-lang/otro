@@ -180,7 +180,7 @@ async function acknowledgeRecovery(){
 async function start(){
   if(busy||active||!visible()||!$('trackyAgentEyesConsent')?.checked||
      !$('trackyAgentEyesRecoveryPanel')?.hidden)return;
-  if(window.TrackyOwnerEyes?.isActive()||
+  if(window.VP3AgentEyes?.isActive()||window.TrackyOwnerEyes?.isActive()||
      window.HomeServerVisualEnrollment?.isCapturing()||
      window.TrackyOwnerSelfCheck?.isActive()){
     details('Finish the other browser camera activity before starting Agent Eyes.');return;

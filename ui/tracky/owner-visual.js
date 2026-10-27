@@ -189,10 +189,10 @@ async function scan(engine, generation, session, captures) {
 
 async function start() {
   if(busy || active)return;
-  if(window.TrackyOwnerSelfCheck?.isActive()){
+  if(window.VP3AgentEyes?.isActive()||window.TrackyOwnerSelfCheck?.isActive()){
     message('Finish your local browser self-check before opening the enrollment camera.');return;
   }
-  if(window.TrackyOwnerEyes?.isActive()){
+  if(window.VP3AgentEyes?.isActive()||window.TrackyOwnerEyes?.isActive()){
     message('Finish your one-time Agent Eyes camera test before enrolling your visual profile.');
     return;
   }
