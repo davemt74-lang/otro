@@ -34,6 +34,8 @@ jobs:
         run: |
           node tests/agent-orb-browser.mjs
           node tests/agent-orb-home-browser.mjs
+          node tests/agent-voice-guard-browser.mjs
+          python tests/voice_speaker_context.py
       - name: Complete owner chat browser acceptance
         run: |
           python tests/social_feed_v1.py

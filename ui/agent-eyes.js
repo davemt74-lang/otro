@@ -4,10 +4,12 @@
   async function boot(){
     const adapter=window.VP3_ORB_ADAPTER;if(!adapter||window.VP3AgentEyes||new URLSearchParams(location.search).get('orb_embed')==='1')return;
     const core=window.VP3EyesCore.create(),session=crypto.randomUUID();
-    let generation=0,stream=null,engine=null,timer=0,profiles=[],observations=[],currentRows=[],starting=false,enrolling=false,pending=[],flushing=false,profileVersion=0,profileSignature='';
+    let generation=0,stream=null,engine=null,timer=0,profiles=[],observations=[],currentRows=[],starting=false,enrolling=false,pending=[],flushing=false,profileVersion=0,profileSignature='',introduction=null,savingIntroduction=false,recognitionOffer=null;
     const panel=document.createElement('section');panel.className='vp3-eyes-panel';panel.hidden=true;panel.setAttribute('aria-label','Agent Eyes');
     panel.innerHTML='<header><strong>Agent Eyes</strong><button type="button" data-eyes-close aria-label="Close Agent Eyes">×</button></header><div class="vp3-eyes-content"><p data-eyes-status role="status">Camera is off.</p><div class="vp3-eyes-actions"><button type="button" data-eyes-start>Start camera</button><button type="button" data-eyes-stop disabled>Stop camera</button></div><div class="vp3-eyes-camera"><video muted playsinline></video><div class="vp3-eyes-boxes"></div></div><p data-eyes-people>No participants in view.</p><label><input type="checkbox" data-eyes-greetings checked> Greet arrivals automatically</label><details><summary>Introduce / recognize a participant</summary><p>A tracking ID is temporary. A local visual match is provisional and grants no account access.</p><label>Existing participant<select data-eyes-profile aria-label="Existing participant"></select></label><label>Or introduce someone<input type="text" data-eyes-name maxlength="120" placeholder="Participant name"></label><label><input type="checkbox" data-eyes-consent> This participant agrees to save local visual samples for recognition.</label><div class="vp3-eyes-actions"><button type="button" data-eyes-enroll>Save three local samples</button><button type="button" data-eyes-forget>Forget local samples</button></div></details><details><summary>Recent Agent Eyes activity</summary><ol data-eyes-history></ol></details><p>Frames and visual samples stay in this browser. Only participant event summaries enter your private Agent Brain history.</p></div>';
     document.body.append(panel);const q=s=>panel.querySelector(s),video=q('video'),status=q('[data-eyes-status]');
+    const movement=document.createElement('div');movement.innerHTML='<label><input type="checkbox" data-eyes-follow checked> Follow participant movement</label><label><input type="checkbox" data-eyes-mirror checked> Mirror camera movement</label>';q('[data-eyes-greetings]').closest('label').after(movement);
+    for(const key of ['follow','mirror']){const input=q(`[data-eyes-${key}]`),pref=`vp3:eyes:${key}:${adapter.ownerKey}`;try{input.checked=localStorage.getItem(pref)!=='off';}catch(_){}input.addEventListener('change',()=>{try{localStorage.setItem(pref,input.checked?'on':'off');}catch(_){}draw(currentRows);});}
     const say=text=>{status.textContent=String(text);};
     const history=q('[data-eyes-history]');
     const greetingKey=`vp3:eyes:greetings:${adapter.ownerKey}`;
@@ -28,10 +30,36 @@
     }
     async function loadProfiles(){const token=++profileVersion;const rows=await adapter.loadEyesProfiles();if(token!==profileVersion)return;profiles=rows;const signature=JSON.stringify(rows.map(p=>[String(p.id),p.name]));if(signature===profileSignature)return;profileSignature=signature;const selected=q('[data-eyes-profile]').value;q('[data-eyes-profile]').replaceChildren();const blank=document.createElement('option');blank.value='';blank.textContent='Choose participant';q('[data-eyes-profile]').append(blank);for(const p of profiles){const o=document.createElement('option');o.value=String(p.id);o.textContent=p.name;q('[data-eyes-profile]').append(o);}q('[data-eyes-profile]').value=selected;}
     function draw(rows){
-      q('.vp3-eyes-boxes').replaceChildren();for(const row of rows){const b=document.createElement('div');b.className='vp3-eyes-box';const [x,y,w,h]=row.box;b.style.cssText=`left:${x*100}%;top:${y*100}%;width:${w*100}%;height:${h*100}%`;const tag=document.createElement('span');tag.textContent=row.display_name?`${row.display_name} · provisional`:`Participant ${row.track_id.slice(-5)}`;b.append(tag);q('.vp3-eyes-boxes').append(b);}
+      const mirrored=q('[data-eyes-mirror]').checked;video.style.transform=mirrored?'scaleX(-1)':'';
+      window.VP3AgentOrb?.follow?.(q('[data-eyes-follow]').checked?rows:[],{mirrored});
+      q('.vp3-eyes-boxes').replaceChildren();for(const row of rows){const b=document.createElement('div');b.className='vp3-eyes-box';const [x,y,w,h]=row.box;b.style.cssText=`left:${(mirrored?1-x-w:x)*100}%;top:${y*100}%;width:${w*100}%;height:${h*100}%`;const tag=document.createElement('span');tag.textContent=row.display_name?`${row.display_name} · provisional`:`Participant ${row.track_id.slice(-5)}`;b.append(tag);q('.vp3-eyes-boxes').append(b);}
       q('[data-eyes-people]').textContent=rows.length?rows.map(r=>r.display_name?`${r.display_name} (provisional)`:`Participant ${r.track_id.slice(-5)} · unidentified`).join(' · '):'No participants in view.';
     }
+    async function hear(text){
+      if(recognitionOffer&&stream&&!enrolling&&!savingIntroduction&&currentRows.length===1&&currentRows[0].track_id===recognitionOffer.track&&Date.now()<recognitionOffer.expires){
+        const answer=String(text||'').trim().replace(/[.!]$/,'');
+        if(/^(?:no(?: thanks| thank you)?|do not remember me|don't remember me)$/i.test(answer)){recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');say('Your name is saved. No visual samples were saved.');return true;}
+        if(recognitionOffer.prompted&&/^(?:please )?(?:remember me visually|save my local visual samples|recognize me next time)$/i.test(answer)){q('[data-eyes-profile]').value=recognitionOffer.id;q('[data-eyes-consent]').checked=true;recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');await enroll();return true;}
+      }
+      if(!stream||enrolling||savingIntroduction||!introduction||Date.now()>introduction.expires||currentRows.length!==1||currentRows[0].track_id!==introduction.track)return false;
+      const name=window.VP3EyesCore.introductionName(text,true);if(!name)return false;
+      const token=generation,track=introduction.track;const current=()=>token===generation&&!!stream&&currentRows.length===1&&currentRows[0].track_id===track;
+      savingIntroduction=true;
+      try{
+        const profile=await adapter.introduceEyes({name,isCurrent:current});if(!current())return false;
+        await loadProfiles();if(!current())return false;
+        const event=core.introduce(track,profile);if(!event)return false;
+        introduction=null;currentRows=currentRows.map(row=>({...row,participant_id:profile.id,display_name:profile.name,identity_source:'self_introduction'}));draw(currentRows);log(event);
+        q('[data-eyes-profile]').value=String(profile.id);q('[data-eyes-name]').value='';q('[data-eyes-consent]').checked=false;
+        recognitionOffer={id:String(profile.id),track,expires:Date.now()+90000,prompted:false};
+        const message=`Thanks, ${profile.name}. Your name is saved. Say “remember me visually” to allow local visual samples so I can recognize you next time on this device.`;
+        recognitionOffer.message=message;
+        window.VP3AgentOrb?.bubble(message);say(message);return true;
+      }catch(error){if(current())say(String(error.message||'Your name could not be saved. Please try again.'));return false;}
+      finally{savingIntroduction=false;}
+    }
     async function stop(reason='Camera is off.'){
+      introduction=null;recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');
       generation++;starting=false;enrolling=false;cameraIndicator(false);q('[data-eyes-consent]').checked=false;clearTimeout(timer);timer=0;
       if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}video.srcObject=null;observations=[];currentRows=[];core.clear().forEach(log);draw([]);say(reason);q('[data-eyes-start]').disabled=false;q('[data-eyes-stop]').disabled=true;
     }
@@ -48,8 +76,15 @@
         if(token!==generation||!stream)return;
         observations=(result.face||[]).slice(0,8).map(f=>({box:[f.box[0]/video.videoWidth,f.box[1]/video.videoHeight,f.box[2]/video.videoWidth,f.box[3]/video.videoHeight],embedding:f.embedding?Array.from(f.embedding):null}));
         const update=core.update(observations,profiles);currentRows=update.rows;draw(update.rows);update.events.forEach(log);
+        if(introduction&&(currentRows.length!==1||currentRows[0].track_id!==introduction.track||currentRows[0].participant_id)){introduction=null;window.VP3AgentOrb?.setIntroductionMode?.('');}
+        if(recognitionOffer&&(Date.now()>recognitionOffer.expires||currentRows.length!==1||currentRows[0].track_id!==recognitionOffer.track)){recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');}
+        if(recognitionOffer&&!recognitionOffer.prompted&&!adapter.busy()){
+          const offer=recognitionOffer;offer.prompted=true;window.VP3AgentOrb?.setIntroductionMode?.('visual-consent');window.VP3AgentOrb?.bubble(offer.message);
+          void Promise.resolve(adapter.greet(offer.message,()=>recognitionOffer===offer&&token===generation&&!!stream)).catch(()=>{});
+        }
         const greeting=q('[data-eyes-greetings]').checked&&!enrolling&&!adapter.busy()?core.greeting():null;
         if(greeting){
+          if(!greeting.participant_id){introduction={track:greeting.track_id,expires:Date.now()+90000};window.VP3AgentOrb?.setIntroductionMode?.('name');}
           // No approval click: show immediately and speak through the existing voice owner.
           window.VP3AgentOrb?.bubble(greeting.text);log(core.acknowledge(greeting.track_id));
           void Promise.resolve(adapter.greet(greeting.text,()=>token===generation&&!!stream&&q('[data-eyes-greetings]').checked)).catch(()=>{});
@@ -83,14 +118,14 @@
       if(enrolling)return;if(!stream||currentRows.length!==1||observations.length!==1)return say('Start the camera with exactly one participant in view.');
       if(!q('[data-eyes-consent]').checked)return say('The participant must agree to local recognition samples.');
       const id=q('[data-eyes-profile]').value,name=q('[data-eyes-name]').value.trim();if(!id&&!name)return say('Choose a participant or enter their name.');
-      enrolling=true;const token=generation,track=currentRows[0].track_id,samples=[];
+      enrolling=true;const token=generation,track=currentRows[0].track_id,reference=observations[0].embedding,samples=[];
       try{
         for(let i=0;i<3;i++){
           if(i)await new Promise(resolve=>setTimeout(resolve,700));
           if(token!==generation||!stream||!q('[data-eyes-consent]').checked||!await adapter.cameraAllowed())throw Error('Enrollment stopped.');
           const result=await engine.detect(video);
           if(token!==generation||!stream||!q('[data-eyes-consent]').checked||result.face?.length!==1||currentRows[0]?.track_id!==track||currentRows.length!==1)throw Error('Keep the same participant alone in view.');
-          const embedding=Array.from(result.face[0].embedding||[]);if(window.VP3EyesCore.similarity(embedding,embedding)<.99)throw Error('Visual sample unavailable.');if(samples.length&&window.VP3EyesCore.similarity(embedding,samples[0])<.8)throw Error('Keep the same participant alone in view.');samples.push(embedding);
+          const embedding=Array.from(result.face[0].embedding||[]);if(window.VP3EyesCore.similarity(embedding,reference)<.8)throw Error('Keep the same participant alone in view.');if(window.VP3EyesCore.similarity(embedding,embedding)<.99)throw Error('Visual sample unavailable.');if(samples.length&&window.VP3EyesCore.similarity(embedding,samples[0])<.8)throw Error('Keep the same participant alone in view.');samples.push(embedding);
         }
         if(token!==generation||!q('[data-eyes-consent]').checked)throw Error('Enrollment stopped.');
         await adapter.enrollEyes({id,name,embeddings:samples,isCurrent:()=>token===generation&&!!stream&&q('[data-eyes-consent]').checked});await loadProfiles();q('[data-eyes-consent]').checked=false;q('[data-eyes-name]').value='';say('Local samples saved. Future visual matches remain provisional.');
@@ -101,7 +136,7 @@
     const hide=()=>{if(document.hidden)void stop('Camera stopped while this page is hidden.');};document.addEventListener('visibilitychange',hide);
     const retry=setInterval(()=>void flush(),5000);
     window.addEventListener('pagehide',()=>{void stop();clearInterval(retry);document.removeEventListener('visibilitychange',hide);},{once:true});
-    window.VP3AgentEyes={toggle:()=>{panel.hidden=!panel.hidden;if(!panel.hidden)void loadProfiles().catch(()=>say('Participant list unavailable.'));},stop,isActive:()=>!!stream};
+    window.VP3AgentEyes={toggle:()=>{panel.hidden=!panel.hidden;if(!panel.hidden)void loadProfiles().catch(()=>say('Participant list unavailable.'));},stop,hear,expectingIntroduction:()=>!!stream&&!!introduction&&Date.now()<introduction.expires&&currentRows.length===1&&currentRows[0].track_id===introduction.track,isActive:()=>!!stream};
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>void boot(),{once:true});else void boot();
 })();

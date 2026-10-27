@@ -3,9 +3,12 @@
   const boot=()=>{
     const adapter=window.VP3_ORB_ADAPTER;if(!adapter||window.VP3AgentOrb)return;
     const $=id=>document.getElementById(id),embed=new URLSearchParams(location.search).get('orb_embed')==='1'&&parent!==window;
-    const origin=location.origin;let lastState='',disposed=false,timer=0,pendingText='',pendingListen=false,ready=false,frame=null,returnFocus=null,restorePanel=null;
+    const origin=location.origin;let lastState='',disposed=false,timer=0,pendingText='',pendingListen=false,pendingVoiceEnrollment='',introductionMode='',ready=false,frame=null,returnFocus=null,restorePanel=null;
     const state=()=>window.VP3EyesCore.visualState(adapter.state());
+    const userTurn=event=>{if(event.target?.id!=='chatForm')return;const text=String($('chatInput')?.value||'').slice(0,240);if(embed)parent.postMessage({channel:'vp3-orb',kind:'user-turn',text},origin);else void window.VP3AgentEyes?.hear?.(text);};
+    document.addEventListener('submit',userTurn,true);window.addEventListener('pagehide',()=>document.removeEventListener('submit',userTurn,true),{once:true});
     if(embed){
+      let queuedEnrollment='',queuedIntroduction='';window.addEventListener('vp3:voice-guard-ready',()=>{if(queuedEnrollment){void window.VP3VoiceGuard.beginEnrollment(queuedEnrollment);queuedEnrollment='';}window.VP3VoiceGuard.inviteIntroduction(queuedIntroduction);});
       document.documentElement.dataset.vp3OrbEmbed='1';
       const announce=()=>{if(!disposed)parent.postMessage({channel:'vp3-orb',kind:'state',state:state()},origin);};
       const commands=async event=>{
@@ -19,8 +22,12 @@
         }
         if(event.data.kind==='stop')adapter.stop();
         if(event.data.kind==='listen')adapter.listen();
+        if(event.data.kind==='voice-enroll'){if(window.VP3VoiceGuard)void window.VP3VoiceGuard.beginEnrollment(String(event.data.id||''));else queuedEnrollment=String(event.data.id||'');}
+        if(event.data.kind==='voice-enroll-cancel'){queuedEnrollment='';window.VP3VoiceGuard?.cancelEnrollment();}
+        if(event.data.kind==='introduction-window'){queuedIntroduction=['name','visual-consent'].includes(event.data.mode)?event.data.mode:'';window.VP3VoiceGuard?.inviteIntroduction(queuedIntroduction);}
       };
       window.addEventListener('message',commands);timer=setInterval(announce,250);
+      window.addEventListener('vp3:voice-filter-status',event=>parent.postMessage({channel:'vp3-orb',kind:'voice-filter-status',message:String(event.detail?.message||'').slice(0,300)},origin));
       parent.postMessage({channel:'vp3-orb',kind:'ready'},origin);
       window.addEventListener('pagehide',()=>{disposed=true;clearInterval(timer);window.removeEventListener('message',commands);},{once:true});
       return;
@@ -67,24 +74,45 @@
     }
     function message(event){
       if(event.origin!==origin||event.source!==frame?.contentWindow||event.data?.channel!=='vp3-orb')return;
-      const data=event.data;if(data.kind==='ready'){ready=true;if(pendingListen){pendingListen=false;command('listen');}if(pendingText)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'compose',text:pendingText},origin);}
+      const data=event.data;if(data.kind==='ready'){ready=true;if(pendingListen){pendingListen=false;command('listen');}if(pendingText)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'compose',text:pendingText},origin);if(pendingVoiceEnrollment){frame.contentWindow.postMessage({channel:'vp3-orb',kind:'voice-enroll',id:pendingVoiceEnrollment},origin);pendingVoiceEnrollment='';}}
+      if(data.kind==='voice-filter-status')window.dispatchEvent(new CustomEvent('vp3:voice-filter-remote-status',{detail:{message:String(data.message||'').slice(0,300)}}));
+      if(data.kind==='user-turn')void window.VP3AgentEyes?.hear?.(String(data.text||'').slice(0,240));
+      if(data.kind==='ready')frame.contentWindow.postMessage({channel:'vp3-orb',kind:'introduction-window',mode:introductionMode},origin);
       if(data.kind==='state')render(data.state);
       if(data.kind==='draft-accepted'){const input=bar?.querySelector('input');if(input&&input.value===pendingText){input.value='';try{sessionStorage.removeItem(draftKey);}catch(_){}}pendingText='';}
       if(data.kind==='draft-blocked'){pendingText='';bubble('Your existing draft is in the chat popup. Your chatbar message is still here.');}
     }
     function render(raw){const s=window.VP3EyesCore.visualState(raw);root.dataset.state=s.state;root.dataset.recording=String(s.recording);label.textContent=(s.recording?'Recording · ':'')+({idle:'Ready',listening:'Listening',thinking:'Thinking',speaking:'Speaking',connecting:'Connecting',error:'Needs attention'}[s.state]||'Ready');ball.setAttribute('aria-label',`Agent: ${label.textContent}. Open chat`);}
     function bubble(text){const node=root.querySelector('.vp3-orb-bubble');node.textContent=String(text).slice(0,600);node.hidden=false;clearTimeout(bubbleTimer);bubbleTimer=setTimeout(()=>{node.hidden=true;},14000);}
-    let bubbleTimer=0,drag=null,dragged=false;
+    let bubbleTimer=0,drag=null,dragged=false,motionFrame=0,followTarget=null,manualUntil=0;
+    const reduced=matchMedia('(prefers-reduced-motion: reduce)');
+    function move(at){
+      motionFrame=0;if(disposed||!followTarget)return;
+      if(!reduced.matches&&!drag&&at>manualUntil&&panel.hidden&&!root.matches(':hover,:focus-within')){
+        const r=root.getBoundingClientRect(),margin=12,maxX=Math.max(margin,innerWidth-r.width-margin);
+        let maxY=innerHeight-r.height-90;const composer=$('chatForm')?.getBoundingClientRect();
+        if(composer&&composer.top>0&&composer.top<innerHeight)maxY=Math.min(maxY,composer.top-r.height-16);
+        maxY=Math.max(70,maxY);let x=margin+followTarget.x*(maxX-margin),y=70+followTarget.y*(maxY-70);
+        x=Math.max(margin,Math.min(maxX,x+Math.sin(at/2100)*5));y=Math.max(70,Math.min(maxY,y+Math.sin(at/1500)*5));
+        const eyes=document.querySelector('.vp3-eyes-panel:not([hidden])')?.getBoundingClientRect();
+        if(eyes&&eyes.left<r.width+margin+16){motionFrame=requestAnimationFrame(move);return;}
+        if(eyes&&x+r.width>eyes.left-12&&x<eyes.right+12&&y+r.height>eyes.top&&y<eyes.bottom)x=Math.max(margin,eyes.left-r.width-16);
+        const step=(from,to)=>from+Math.max(-18,Math.min(18,(to-from)*.065));
+        root.style.left=`${step(r.left,x)}px`;root.style.top=`${step(r.top,y)}px`;root.style.right='auto';root.style.bottom='auto';
+      }
+      motionFrame=requestAnimationFrame(move);
+    }
+    function follow(rows,{mirrored=true}={}){followTarget=window.VP3EyesCore.followPoint(rows,mirrored);root.dataset.following=String(!!followTarget);if(followTarget&&!motionFrame)motionFrame=requestAnimationFrame(move);if(!followTarget&&motionFrame){cancelAnimationFrame(motionFrame);motionFrame=0;}}
     function save(){const r=root.getBoundingClientRect();try{localStorage.setItem(key,JSON.stringify({x:r.left,y:r.top,small:root.dataset.small==='true'}));}catch(_){}}
-    ball.addEventListener('pointerdown',event=>{if(event.button!==0)return;dragged=false;const r=root.getBoundingClientRect();drag={id:event.pointerId,x:event.clientX,y:event.clientY,left:r.left,top:r.top};ball.setPointerCapture(event.pointerId);});
+    ball.addEventListener('pointerdown',event=>{if(event.button!==0)return;manualUntil=performance.now()+15000;dragged=false;const r=root.getBoundingClientRect();drag={id:event.pointerId,x:event.clientX,y:event.clientY,left:r.left,top:r.top};ball.setPointerCapture(event.pointerId);});
     ball.addEventListener('pointermove',event=>{if(drag?.id!==event.pointerId)return;const dx=event.clientX-drag.x,dy=event.clientY-drag.y;if(Math.hypot(dx,dy)>5)dragged=true;if(!dragged)return;root.style.left=`${Math.max(0,Math.min(innerWidth-root.offsetWidth,drag.left+dx))}px`;root.style.top=`${Math.max(0,Math.min(innerHeight-root.offsetHeight-80,drag.top+dy))}px`;root.style.right='auto';root.style.bottom='auto';});
     ball.addEventListener('pointerup',()=>{drag=null;if(dragged)save();});ball.addEventListener('pointercancel',()=>{drag=null;});
     const resize=()=>{const r=root.getBoundingClientRect();if(r.left>innerWidth-80||r.top>innerHeight-140){root.style.left='auto';root.style.top='auto';root.style.right='12px';root.style.bottom='94px';}};
     const escape=event=>{if(event.key==='Escape'&&!panel.hidden)close();};
     window.addEventListener('message',message);window.addEventListener('resize',resize);document.addEventListener('keydown',escape);
     timer=setInterval(()=>{if(!frame){const next=state(),json=JSON.stringify(next);if(json!==lastState){render(next);lastState=json;}}},200);
-    window.VP3AgentOrb={open,close,toggle,bubble,state,stop:()=>command('stop')};
-    window.addEventListener('pagehide',()=>{disposed=true;clearInterval(timer);clearTimeout(bubbleTimer);window.removeEventListener('message',message);window.removeEventListener('resize',resize);document.removeEventListener('keydown',escape);adapter.stop?.();},{once:true});
+    window.VP3AgentOrb={open,close,toggle,bubble,state,follow,setIntroductionMode:mode=>{introductionMode=mode;window.VP3VoiceGuard?.inviteIntroduction(mode);frame?.contentWindow?.postMessage({channel:'vp3-orb',kind:'introduction-window',mode},origin);},startVoiceEnrollment:id=>{if(adapter.attachChat||adapter.isMainChat?.())return false;open();if(ready)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'voice-enroll',id},origin);else pendingVoiceEnrollment=id;return true;},cancelVoiceEnrollment:()=>{pendingVoiceEnrollment='';frame?.contentWindow?.postMessage({channel:'vp3-orb',kind:'voice-enroll-cancel'},origin);},stop:()=>command('stop')};
+    window.addEventListener('pagehide',()=>{disposed=true;clearInterval(timer);clearTimeout(bubbleTimer);cancelAnimationFrame(motionFrame);window.removeEventListener('message',message);window.removeEventListener('resize',resize);document.removeEventListener('keydown',escape);adapter.stop?.();},{once:true});
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();

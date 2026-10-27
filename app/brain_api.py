@@ -20,6 +20,7 @@ class ChatRequest(BaseModel):
     read_only: bool = False
     project_knowledge_r6: dict | None = None
     knowledge_revision: dict | None = None
+    speaker_context: dict | None = None
     max_context_chars: int | None = Field(default=None, ge=2000, le=24000)
 
 
@@ -174,6 +175,7 @@ def _chat_or_http(
                 read_only=True,
                 **({"knowledge_revision": payload.knowledge_revision} if payload.knowledge_revision is not None else {}),
                 **({"project_knowledge_r6": payload.project_knowledge_r6} if payload.project_knowledge_r6 is not None else {}),
+                **({"speaker_context": payload.speaker_context} if source == "owner" and payload.speaker_context is not None else {}),
             )
         return context_chat.chat(
             source,
@@ -188,6 +190,7 @@ def _chat_or_http(
             owner_tools=owner_tools,
             **({"knowledge_revision": payload.knowledge_revision} if payload.knowledge_revision is not None else {}),
             **({"project_knowledge_r6": payload.project_knowledge_r6} if payload.project_knowledge_r6 is not None else {}),
+            **({"speaker_context": payload.speaker_context} if source == "owner" and payload.speaker_context is not None else {}),
         )
     except (agent_routing.AgentRoutingError, brain.BrainError, context_engine.ContextError) as exc:
         status_code = getattr(exc, "status_code", 422)
