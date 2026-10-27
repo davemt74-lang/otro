@@ -15,7 +15,7 @@ jobs:
   acceptance:
     # Drafts get focused tests; full suite runs for the ready candidate and on main.
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4

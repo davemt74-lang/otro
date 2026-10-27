@@ -39,7 +39,7 @@ uvicorn.run(app,host='127.0.0.1',port=${port},log_level='error')
 `],{cwd:process.cwd(),env:{...process.env,HOMESERVER_DATA_DIR:directory,NO_PROXY:'localhost,127.0.0.1'}});
   child.stderr.on('data',chunk=>{log=(log+chunk).slice(-5000);});
   const token=await new Promise((resolve,reject)=>{let output='';const timeout=setTimeout(()=>reject(Error(log||'Startup timed out')),30000);child.stdout.on('data',chunk=>{output+=chunk;const match=output.match(/OWNER_TOKEN ([^\r\n]+)/);if(match){clearTimeout(timeout);resolve(match[1]);}});child.once('exit',code=>{clearTimeout(timeout);reject(Error('HomeServer exited '+code+': '+log));});});
-  browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+  browser=await chromium.launch({headless:true,args:['--no-sandbox'],...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH}:{})});
   const context=await browser.newContext({viewport:{width:1440,height:900}});
   for(let attempt=0;;attempt++){try{if((await context.request.get(base+'/api/v1/health')).ok())break;}catch{}if(attempt>100)throw Error('No server: '+log);await new Promise(resolve=>setTimeout(resolve,100));}
   assert.ok((await context.request.post(base+'/__owner/session',{headers:{'X-HomeServer-Owner':token}})).ok());
@@ -56,6 +56,22 @@ uvicorn.run(app,host='127.0.0.1',port=${port},log_level='error')
   await page.locator('#view-native-calendar button').filter({hasText:'Details & original files'}).click();
   await page.locator('#nativeWorkspaceDetail dd').first().waitFor();
   assert.equal(await page.locator('#nativeWorkspaceDetail a').first().getAttribute('href'),'/api/v1/control/workspace-sync/source/calendar?key=user_calendar_events%3A75');
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:/^Edit here$/}).click();
+  const repeat=page.locator('#nativeWorkspaceDetail select[name="recurrence"]');
+  assert.equal(await repeat.inputValue(),'none');
+  assert.deepEqual(await repeat.locator('option').allTextContents(),['One time','Every week']);
+  await repeat.selectOption('weekly');
+  await page.locator('#nativeWorkspaceDetail input[name="agent_notifications"]').check();
+  await page.setViewportSize({width:390,height:844});
+  const calendarSize=await page.locator('#nativeWorkspaceDetail').evaluate(el=>({scroll:el.scrollWidth,client:el.clientWidth}));
+  assert.ok(calendarSize.scroll<=calendarSize.client+1);
+  const saveRequest=page.waitForRequest(req=>req.method()==='POST'&&req.url().endsWith('/workspace-sync/edits'));
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:/^Save to Cloud$/}).click();
+  const calendarPayload=(await saveRequest).postDataJSON();
+  assert.deepEqual(calendarPayload.fields,{recurrence:'weekly',agent_notifications:true});
+  await page.locator('#nativeWorkspaceDetail button').filter({hasText:'Refresh record & status'}).waitFor();
+  assert.ok((await context.request.post(base+'/api/v1/control/workspace-sync/edits/'+calendarPayload.mutation_id+'/cancel',{headers:{'X-Requested-With':'XMLHttpRequest'}})).ok());
+  await page.setViewportSize({width:1440,height:900});
   await page.locator('#nativeWorkspaceDetail button').filter({hasText:'Close'}).click();
   await page.locator('[data-view="contacts"]').first().click();
   await page.locator('#contactsList .contact-card').first().waitFor();

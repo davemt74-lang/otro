@@ -22,7 +22,7 @@ from .https_bridge_session import SESSION_LOCK, load_https_session
 FIELDS = {
     'crm_contacts': {'display_name':120, 'organization':190, 'email':190, 'phone':80, 'relationship':80},
     'knowledge_items': {'title':190, 'description':10000, 'content_text':50000},
-    'user_calendar_events': {'title':190, 'description':10000, 'location':500, 'date':10, 'start_time':5, 'end_date':10, 'end_time':5, 'timezone':80, 'all_day':0},
+    'user_calendar_events': {'title':190, 'description':10000, 'location':500, 'date':10, 'start_time':5, 'end_date':10, 'end_time':5, 'timezone':80, 'all_day':0, 'recurrence':16, 'agent_notifications':0},
 }
 DATASET_TABLE = {'contacts':'crm_contacts', 'knowledge':'knowledge_items', 'calendar':'user_calendar_events'}
 ACTIVE = ('queued', 'sending', 'applied')
@@ -82,11 +82,13 @@ def normalize(arguments: dict, *, capture_binding: bool = True) -> dict:
     if not isinstance(fields, dict) or not fields or set(fields) - limits.keys():
         raise WorkspaceActionError('Supply supported changed fields only.')
     for field, value in fields.items():
-        if field == 'all_day':
+        if field in ('all_day','agent_notifications'):
             if type(value) is not bool:
                 raise WorkspaceActionError('All-day must be true or false.')
         elif not isinstance(value, str) or len(value) > limits[field]:
             raise WorkspaceActionError('Workspace field value is invalid or too long.')
+    if 'recurrence' in fields and fields['recurrence'] not in ('none','weekly'):
+        raise WorkspaceActionError('Choose One time or Every week.')
     if len(json.dumps(fields, ensure_ascii=False).encode()) > 65536:
         raise WorkspaceActionError('Keep each workspace change under 64 KB.')
     result = {'dataset':dataset, 'key':key, 'expected_revision':expected, 'mutation_id':mutation, 'fields':fields}
@@ -177,6 +179,7 @@ def editable(dataset: str, key: str) -> dict:
             start=(start if start.tzinfo else start.replace(tzinfo=timezone.utc)).astimezone(zone)
             end=(end if end.tzinfo else end.replace(tzinfo=timezone.utc)).astimezone(zone)
             all_day=bool(data.get('all_day'))
+            values.update(recurrence=data.get('recurrence') or 'none',agent_notifications=data.get('agent_notifications') in (True,1,'1'))
             values.update(date=start.strftime('%Y-%m-%d'),start_time=start.strftime('%H:%M'),end_date=(end-timedelta(days=1) if all_day else end).strftime('%Y-%m-%d'),end_time=end.strftime('%H:%M'),all_day=all_day,timezone=str(zone))
         except (ValueError,KeyError):
             raise WorkspaceActionError('Calendar timing is unavailable. Use its Cloud editor.',409)

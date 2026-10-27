@@ -119,6 +119,18 @@ with tempfile.TemporaryDirectory(prefix='workspace-actions-') as directory:
     denied(lambda:actions.editable('contacts','crm_contacts:1'),403)
     assert native.search('Source')==[]
     actions.agent_datasets.reset(token)
+    # Calendar options use the same source-qualified, revision-checked delivery.
+    calendar_row={'table':'user_calendar_events','source_id':'7','record_revision':'3'*64,'data':{'title':'Weekly review','status':'active','timezone':'America/Phoenix','start_at_utc':'2026-10-26 16:00:00','end_at_utc':'2026-10-26 17:00:00','recurrence':'weekly','agent_notifications':1}}
+    raw=json.dumps({'contract':sync.CONTRACT,'source':'cloud','dataset':'calendar','records':[calendar_row],'files':[]}).encode()
+    sync.apply_snapshot(peer,'calendar',raw,hashlib.sha256(raw).hexdigest())
+    values=actions.editable('calendar','user_calendar_events:7')['editable_values']
+    assert values['recurrence']=='weekly' and values['agent_notifications'] is True
+    assert native.items('calendar')['items'][0]['agent_notifications'] is True
+    calendar_edit={'dataset':'calendar','key':'user_calendar_events:7','expected_revision':'3'*64,'mutation_id':'calendar-options-001','fields':{'recurrence':'none','agent_notifications':False}}
+    assert actions.enqueue(calendar_edit)['action']['state']=='queued'
+    actions.cancel('calendar-options-001')
+    denied(lambda:actions.normalize({**calendar_edit,'fields':{'recurrence':'daily'}},capture_binding=False),422)
+    denied(lambda:actions.normalize({**calendar_edit,'fields':{'agent_notifications':'yes'}},capture_binding=False),422)
     # API owner authentication and request-origin protection, including offline drafts.
     from fastapi.testclient import TestClient
     from app.runtime import app
