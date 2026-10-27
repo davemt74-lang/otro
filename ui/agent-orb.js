@@ -55,7 +55,7 @@
     sizeLabel();
     function button(){const b=document.createElement('button');b.type='button';b.dataset.orbChat='1';b.textContent='Chat';b.setAttribute('aria-controls',panel.id);b.setAttribute('aria-expanded','false');b.addEventListener('click',toggle);return b;}
     const composer=$('chatForm');
-    if(composer){composer.insertBefore(button(),composer.firstChild);}
+    if(composer){const actions=composer.querySelector('.chat-composer-actions')||composer;actions.insertBefore(button(),actions.firstChild);}
     if(!composer||adapter.alwaysBar){
       bar=document.createElement('form');bar.className='vp3-orb-bar';bar.setAttribute('aria-label','Agent chatbar');bar.append(button());
       const input=document.createElement('input');input.type='text';input.maxLength=6000;input.placeholder='Message your agent…';input.setAttribute('aria-label','Message your agent');try{input.value=sessionStorage.getItem(draftKey)||'';}catch(_){}bar.append(input);

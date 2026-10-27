@@ -27,3 +27,7 @@ html[data-vp3-orb-embed] .sidebar,html[data-vp3-orb-embed] .topbar,html[data-vp3
 .vp3-orb-chat-host #chatOnboardingCanvas:not([hidden]){flex:1;min-height:0;overflow:auto}
 
 .vp3-orb-root[data-eyes-active=true] .vp3-orb-state::after{content:" · Eyes on"}
+
+/* Keep the default HomeServer Agent clear of the sticky composer while scrolling. */
+body:has(#view-chat.active)>.vp3-orb-root{top:70px;bottom:auto}
+#chatForm .chat-composer-actions [data-orb-chat]{font:inherit;font-size:12px;cursor:pointer;border:1px solid #d8dadd;background:transparent;color:inherit;border-radius:18px;padding:8px 12px;margin-right:auto}
