@@ -265,6 +265,10 @@ export function participantRecord(input = {}) {
           trackingEnabled:false,cloudSync:false,
           contactCreation:'requires_owner_approval'}
       : null,
+    agentEyesEnrollment: input.agentEyesEnrollment?.scope === 'participant-local'
+      && typeof input.agentEyesEnrollment.consentedAt === 'string'
+      && !Number.isNaN(Date.parse(input.agentEyesEnrollment.consentedAt))
+      ? {scope:'participant-local',consentedAt:input.agentEyesEnrollment.consentedAt} : null,
     voiceEmbeddings,
     voiceRecognitionEnabled: input.voiceRecognitionEnabled===true&&voiceProfileReady,
     voiceProfileSamples: cleanVoiceSamples(input.voiceProfileSamples),

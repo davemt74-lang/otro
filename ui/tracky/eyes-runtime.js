@@ -66,10 +66,10 @@ async function test() {
   if(started||live)return;
   const consent=$('onboardEyesConsent');
   if(!consent?.checked){report('Approve this separate one-time test before using your camera.');return;}
-  if(window.TrackyOwnerSelfCheck?.isActive()){
+  if(window.VP3AgentEyes?.isActive()||window.TrackyOwnerSelfCheck?.isActive()){
     report('Stop the local self-check before starting Agent Eyes.');return;
   }
-  if(window.HomeServerVisualEnrollment?.isCapturing()){
+  if(window.VP3AgentEyes?.isActive()||window.HomeServerVisualEnrollment?.isCapturing()){
     report('Finish or stop visual profile enrollment before running Agent Eyes.');return;
   }
   if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){

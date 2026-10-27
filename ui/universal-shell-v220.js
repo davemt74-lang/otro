@@ -146,6 +146,14 @@
 
   function boot(){
     wrapStandalone();
+    if(!document.querySelector('[data-vp3-orb-loader]')){
+      const css=document.createElement('link');css.rel='stylesheet';css.href='/assets/agent-orb.css?v=eyes-v1342';document.head.append(css);
+      const modules=document.getElementById('chatForm')?[]:['voice-settings.js','chat-enhancements.js'];
+      modules.push('agent-eyes-core.js','agent-orb-adapter.js','agent-orb.js','agent-eyes.js');
+      for(const name of modules){
+        const script=document.createElement('script');script.src='/assets/'+name+'?v=eyes-v1342';script.async=false;script.dataset.vp3OrbLoader='1';document.head.append(script);
+      }
+    }
     enhanceIndexShell();
     document.addEventListener('click',event=>{
       if(event.target.closest('#hsV220Menu,#hsV220IndexMenu')){setNav(true);return;}

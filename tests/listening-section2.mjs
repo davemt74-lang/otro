@@ -208,5 +208,18 @@ if(cloud){
  await test('voice Stop cancels its owned turn and navigation prevents late completion',async()=>{
   const b=browser();clock(b);const waiting=deferred();let signal;b.window.fetch=(_url,init)=>{signal=init.signal;return waiting.promise;};const owner=brain(b),api=voice(b);api.seed();b.element('chatForm').requestSubmit=()=>owner.submitChatTurn(submitEvent(b));api.autoSubmitSpeech('hello');assert(api.state().awaitingAgent);api.stopConversationMode('');assert(signal.aborted);await flush();assert.equal(owner.state().pendingChatTurn,null);waiting.resolve(response({reply:'late',conversation_id:'old'}));await flush();assert.equal(owner.state().activeConversationId,null);
  });
+
+ await test('automatic greeting can speak without starting microphone capture',async()=>{
+  const b=browser();clock(b);const spoken=[];b.window.fetch=async()=>response({tts:{available:false}});b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);
+  assert.equal(await b.window.HomeServerConversationVoice.announce('Welcome back.'),true);assert.equal(spoken.length,1);assert.equal(api.state().conversationMode,false);spoken[0].onstart?.();spoken[0].onend();assert.equal(api.state().speaking,false);
+ });
+ await test('Stop cancels greeting setup before delayed settings finish',async()=>{
+  const b=browser();clock(b);const settings=deferred(),spoken=[];b.window.HomeServerVoiceSettings={load:()=>settings.promise};b.window.fetch=async()=>response({tts:{available:false}});b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);
+  const greeting=b.window.HomeServerConversationVoice.announce('Welcome.');api.stopConversationMode('');settings.resolve();assert.equal(await greeting,false);assert.equal(spoken.length,0);
+ });
+ await test('Strict Local greeting cannot use browser speech fallback',async()=>{
+  const b=browser();clock(b);const spoken=[];b.element('strictLocalVoice').checked=true;b.window.fetch=async()=>response({tts:{available:false}});b.window.speechSynthesis.speak=u=>spoken.push(u);voice(b);
+  assert.equal(await b.window.HomeServerConversationVoice.announce('Welcome.'),false);assert.equal(spoken.length,0);
+ });
 }
 console.log(`LISTENING_SECTION2=PASS (${checks.length} behavioral cases, ${cloud?'Cloud':'HomeServer'})`);

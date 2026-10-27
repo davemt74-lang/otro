@@ -27,6 +27,12 @@ jobs:
           pip install -r requirements.txt
           npm install --no-save --ignore-scripts playwright@1.51.1
           npx playwright install --with-deps chromium
+      - name: Agent Eyes participant lifecycle
+        run: node tests/agent-eyes-core.mjs
+      - name: Floating Agent and Agent Eyes browser acceptance
+        run: |
+          node tests/agent-orb-browser.mjs
+          node tests/agent-orb-home-browser.mjs
       - name: Complete owner chat browser acceptance
         run: |
           python tests/social_feed_v1.py

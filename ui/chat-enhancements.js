@@ -23,6 +23,7 @@
   let conversationStarting = false;
   let awaitingAgent = false;
   let speaking = false;
+  let proactiveSpeech = false;
   let pendingTranscript = '';
   let voiceRouteId = '';
   let waitingRequestId = null;
@@ -246,7 +247,9 @@
   }
 
   function strictLocalEnabled() {
-    return Boolean(byId('strictLocalVoice')?.checked);
+    const control=byId('strictLocalVoice');if(control)return Boolean(control.checked);
+    try{const saved=localStorage.getItem('homeserver.strictLocalVoice');if(saved!==null)return saved==='1';}catch(_){}
+    return window.HomeServerVoiceSettings?.getPreferences?.().strict_local_default!==false;
   }
 
   function captureTiming() {
@@ -285,9 +288,12 @@
 
   function setVoiceState(state) {
     const button = byId('voiceInputButton');
-    if (!button) return;
+    if (!button) {
+      window.dispatchEvent(new CustomEvent('homeserver:voice-state',{detail:{state:(conversationMode||proactiveSpeech)?state:'idle'}}));
+      return;
+    }
     button.classList.remove('listening', 'transcribing', 'thinking', 'speaking');
-    button.dataset.voiceState = conversationStarting ? 'connecting' : conversationMode ? state : 'idle';
+    button.dataset.voiceState = conversationStarting ? 'connecting' : (conversationMode || proactiveSpeech) ? state : 'idle';
     window.dispatchEvent(new CustomEvent('homeserver:voice-state',{detail:{state:button.dataset.voiceState}}));
     const engaged = conversationMode || conversationStarting;
     button.setAttribute('aria-pressed', engaged ? 'true' : 'false');
@@ -373,6 +379,8 @@
     clearTimeout(speechWatchdog);clearTimeout(resumeTimer);clearTimeout(browserStartTimer);
     if(requestId !== null)window.HomeServerChatTurn?.cancel?.(requestId);
     speaking = false;
+    proactiveSpeech = false;
+    window.dispatchEvent(new CustomEvent('homeserver:voice-playback',{detail:{active:false}}));
     voicePath = {stt: null, tts: null};
     captureGeneration += 1;
     transcribeController?.abort();transcribeController=null;
@@ -743,7 +751,7 @@
     flash(err.message || 'Local Whisper transcription failed.', true);
   }
 
-  function currentOutput(generation){return conversationMode && generation===outputGeneration;}
+  function currentOutput(generation){return (conversationMode || proactiveSpeech) && generation===outputGeneration;}
   function failPlayback(generation) {
     if(!currentOutput(generation))return;
     stopConversationMode('');
@@ -754,9 +762,12 @@
     outputGeneration+=1;
     clearTimeout(speechWatchdog);ttsController?.abort();ttsController=null;
     speaking = false;
+    proactiveSpeech = false;
+    window.dispatchEvent(new CustomEvent('homeserver:voice-playback',{detail:{active:false}}));
     cleanupPlayback();
     try{window.speechSynthesis?.cancel();}catch(_){}
     resumeListening();
+    if(!conversationMode)setVoiceState('idle');
   }
 
   function speakBrowserReply(text,generation) {
@@ -770,6 +781,7 @@
     utterance.lang = navigator.language || document.documentElement.lang || 'en-US';
     utterance.rate = Number(window.HomeServerVoiceSettings?.getPreferences?.().speaking_rate || 1);
     utterance.pitch = 1;
+    utterance.onstart = ()=>{if(currentOutput(generation))window.dispatchEvent(new CustomEvent('homeserver:voice-playback',{detail:{active:true}}));};
     utterance.onend = ()=>finishSpeaking(generation);
     utterance.onerror = ()=>failPlayback(generation);
     clearTimeout(speechWatchdog);
@@ -805,6 +817,7 @@
     clearTimeout(speechWatchdog);
     speechWatchdog=setTimeout(()=>failPlayback(generation),Math.max(10000,Number(decoded.duration || 0)*1000+5000));
     source.start(0);
+    window.dispatchEvent(new CustomEvent('homeserver:voice-playback',{detail:{active:true}}));
   }
 
   function handleLocalTtsFailure(err,generation,text) {
@@ -823,7 +836,7 @@
 
   function speakAgentReply(text) {
     const message=String(text || '').trim();
-    if (!conversationMode || !message) {if(conversationMode)resumeListening();return;}
+    if ((!conversationMode && !proactiveSpeech) || !message) {if(conversationMode)resumeListening();return;}
     const generation=++outputGeneration;
     ttsController?.abort();cleanupPlayback();clearTimeout(speechWatchdog);
     lastSpokenText=message;speaking=true;setVoiceState('speaking');
@@ -923,6 +936,8 @@
     conversationMode = true;
     awaitingAgent = false;
     speaking = false;
+    proactiveSpeech = false;
+    window.dispatchEvent(new CustomEvent('homeserver:voice-playback',{detail:{active:false}}));
     lastSpokenText = '';
     const route = `${voicePath.stt === 'local' ? 'Whisper' : 'browser STT'} + ${voicePath.tts === 'local' ? 'Piper' : 'browser TTS'}`;
     flash(`Conversation mode on · ${route}. Speak naturally; speech sends automatically and listening resumes after the reply.`);
@@ -961,13 +976,13 @@
   document.addEventListener('change', event => {
     if (!event.target.closest('#strictLocalVoice')) return;
     try { localStorage.setItem('homeserver.strictLocalVoice', event.target.checked ? '1' : '0'); } catch (_) {}
-    if (conversationMode) stopConversationMode('Conversation mode stopped because the local voice privacy setting changed.');
+    if (conversationMode || proactiveSpeech) stopConversationMode('Conversation mode stopped because the local voice privacy setting changed.');
   });
 
   window.addEventListener('homeserver:voice-settings-changed', () => {
     localVoiceStatus = null;
     refreshLocalVoiceStatus().catch(() => null);
-    if (conversationMode || conversationStarting) stopConversationMode('Conversation mode stopped because Voice Settings changed.');
+    if (conversationMode || conversationStarting || proactiveSpeech) stopConversationMode('Conversation mode stopped because Voice Settings changed.');
   });
 
   document.addEventListener('keydown', event => {
@@ -989,6 +1004,26 @@
 
   window.HomeServerConversationVoice = Object.freeze({
     isEnabled: () => Boolean(conversationMode),
+    announce: async (text,isCurrent=()=>true) => {
+      const message=String(text||'').trim();
+      if(!message||!isCurrent()||awaitingAgent||speaking||proactiveSpeech||conversationStarting||window.HomeServerChatTurn?.isBusy?.())return false;
+      if(conversationMode){speakAgentReply(message);return true;}
+      const token=++outputGeneration;
+      proactiveSpeech=true;setVoiceState('thinking');unlockLocalAudio();
+      const cancelled=()=>{
+        if(token===outputGeneration&&isCurrent()&&!conversationMode&&!awaitingAgent)return false;
+        if(token===outputGeneration&&!conversationMode){proactiveSpeech=false;setVoiceState('idle');}
+        return true;
+      };
+      try{
+        await window.HomeServerVoiceSettings?.load?.();if(cancelled())return false;
+        const status=await refreshLocalVoiceStatus();if(cancelled())return false;
+        if(status?.tts?.available && AudioContextCtor())voicePath.tts='local';
+        else if(strictLocalEnabled()){proactiveSpeech=false;setVoiceState('idle');return false;}
+        else voicePath.tts='browser';
+        speakAgentReply(message);return true;
+      }catch(_){if(token===outputGeneration){proactiveSpeech=false;setVoiceState('idle');}return false;}
+    },
     pendingVoiceSubmit: () => Boolean(conversationMode && awaitingAgent && waitingRequestId === null),
     speakStatus: text => {
       const message = String(text || '').trim();

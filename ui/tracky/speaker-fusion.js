@@ -203,7 +203,7 @@ async function cameraScan(token){
 export async function startCameraCorroboration(videoElement=null){
   if(cameraStream)return true;
   if(cameraStarting)return false;
-  if(window.TrackyOwnerSelfCheck?.isActive()||window.HomeServerVisualEnrollment?.isCapturing?.()||
+  if(window.VP3AgentEyes?.isActive()||window.TrackyOwnerSelfCheck?.isActive()||window.HomeServerVisualEnrollment?.isCapturing?.()||
      window.TrackyOwnerEyes?.isActive()||window.TrackyNativeCamera?.isActive?.())
     throw new Error('Stop the other Tracky camera surface before starting transcription corroboration.');
   if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)throw new Error('A secure browser and camera permission are required.');

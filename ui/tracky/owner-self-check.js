@@ -99,7 +99,7 @@ async function start(){
   if(!el('onboardSelfCheckConsent').checked){
     say('Explicitly consent to a one-time browser-only self-comparison.');return;
   }
-  if(window.HomeServerVisualEnrollment?.isCapturing()||window.TrackyOwnerEyes?.isActive()||window.TrackyNativeCamera?.isActive?.()) {
+  if(window.VP3AgentEyes?.isActive()||window.HomeServerVisualEnrollment?.isCapturing()||window.TrackyOwnerEyes?.isActive()||window.TrackyNativeCamera?.isActive?.()) {
     say('Finish the active camera test or enrollment first.');return;
   }
   if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){
