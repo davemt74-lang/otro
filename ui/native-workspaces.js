@@ -34,9 +34,13 @@
       const feedback=element('p','','muted');feedback.setAttribute('role','status');dialog.append(feedback);
       for(const action of data.actions||[])feedback.textContent=action.state+' · '+(action.error||'Updated '+stamp(action.updated_at));
       for(const [field,limit] of Object.entries(data.editable_fields)){
-        const label=element('label',field.replaceAll('_',' '),'native-edit-field');
-        const input=document.createElement(limit>500?'textarea':'input');input.name=field;
-        if(field==='all_day'){input.type='checkbox';input.checked=Boolean(data.editable_values[field]);}
+        const label=element('label',({recurrence:'Repeat event',agent_notifications:'Include agent notifications'})[field]||field.replaceAll('_',' '),'native-edit-field');
+        const input=document.createElement(field==='recurrence'?'select':(limit>500?'textarea':'input'));input.name=field;
+        if(field==='recurrence'){
+          for(const [value,text] of [['none','One time'],['weekly','Every week']]){const option=element('option',text);option.value=value;input.append(option);}
+          input.value=data.editable_values[field]||'none';
+        }
+        else if(field==='all_day'||field==='agent_notifications'){input.type='checkbox';input.checked=Boolean(data.editable_values[field]);}
         else{
           if(field==='date'||field==='end_date')input.type='date';
           else if(field==='start_time'||field==='end_time')input.type='time';
@@ -48,6 +52,7 @@
         }
         label.append(input);form.append(label);inputs.set(field,input);
       }
+      if(dataset==='calendar')form.append(element('p','Weekly events keep their local weekday and time. Changes apply to the whole series. Agent notifications mark this event as a priority in Agent Chat and Agent Brain. Cloud manages reminders so a synchronized copy does not send duplicates.','muted'));
       const save=element('button','Save to Cloud','button primary');save.type='submit';
       const close=element('button','Close','button secondary');close.type='button';close.onclick=()=>dialog.close();
       form.append(save,close);dialog.append(form);
@@ -55,7 +60,7 @@
         event.preventDefault();
         if(!retryPayload){
           const fields={};
-          for(const [field,input] of inputs){if(input.disabled)continue;const value=field==='all_day'?input.checked:input.value;if(value!==data.editable_values[field])fields[field]=value;}
+          for(const [field,input] of inputs){if(input.disabled)continue;const value=(field==='all_day'||field==='agent_notifications')?input.checked:input.value;if(value!==data.editable_values[field])fields[field]=value;}
           if(!Object.keys(fields).length){feedback.textContent='No fields changed.';return;}
           const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);
           const mutation=Array.from(bytes,value=>value.toString(16).padStart(2,'0')).join('');
@@ -120,6 +125,8 @@
       s.host.replaceChildren();
       for(const row of data.items){
         const card=element('article','','panel');card.append(element('h3',row.title),element('p',row.snippet||row.location||row.sku||row.table));
+        if(row.recurrence==='weekly')card.append(element('p','Every week','muted'));
+        if(row.agent_notifications)card.append(element('p','Agent priority','muted'));
         if(row.start_at_utc)card.append(element('p',stamp(row.start_at_utc)+' – '+stamp(row.end_at_utc)));
         const button=element('button','Details & original files','button secondary');button.type='button';button.onclick=()=>details(dataset,row.record_key);card.append(button);
         if(row.source_route)card.append(sourceLink(dataset,row.record_key));

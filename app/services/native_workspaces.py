@@ -55,6 +55,8 @@ def items(dataset: str, query: str = '', offset: int = 0, limit: int = 50) -> di
         content = '\n'.join(str(data[k]) for k in ('description', 'content_text', 'content', 'text', 'summary', 'notes') if data.get(k))
         source_route = '/api/v1/control/workspace-sync/source/' + dataset + '?' + urlencode({'key': key}) if row['table'] in SOURCE_TABLES else None
         fields = {k: str(data[k])[:2000] for k in ('display_name', 'first_name', 'last_name', 'email', 'phone', 'organization', 'company', 'relationship', 'location', 'start_at_utc', 'end_at_utc', 'status', 'price_cents', 'sku', 'file_type', 'created_at', 'updated_at') if data.get(k) is not None}
+        if row['table']=='user_calendar_events':
+            fields.update(recurrence=data.get('recurrence') or 'none',agent_notifications=data.get('agent_notifications') in (True,1,'1'))
         projected.append({**fields, 'id': 'cloud:' + dataset + ':' + key, 'table': row['table'], 'source_id': row['source_id'], 'record_key': key,
                           'dataset': dataset, 'title': str(title)[:240], 'content': content[:2000], 'snippet': content[:900],
                           'authority_source': 'vp3_cloud', 'source_label': 'VP3 Cloud', 'read_only': True,
