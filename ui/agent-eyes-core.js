@@ -29,7 +29,8 @@
         const t=previous||{id:id(),first:at,seen:at,box:bounds,arrived:false,person:null,candidate:'',streak:0,greeted:false};
         const person=match(observation.embedding,profiles);
         if(t.candidate===(person?.id||''))t.streak++;else{t.candidate=person?.id||'';t.streak=1;}
-        const resolved=person&&t.streak>=3?person:null;
+        const introduced=t.introducedId&&profiles.find(p=>String(p.id)===t.introducedId);
+        const resolved=person&&t.streak>=3?person:introduced?{id:String(introduced.id),name:String(introduced.name).slice(0,120),introduced:true}:null;
         const changed=t.person?.id!==(resolved?.id);
         t.seen=at;t.box=bounds;t.embedding=vector(observation.embedding)?observation.embedding.slice():null;t.person=resolved;used.add(t.id);tracks.set(t.id,t);rows.push(t);
         if(!t.arrived&&at-t.first>=3000){t.arrived=true;events.push(event(t,'arrival'));}
@@ -42,7 +43,7 @@
       for(const e of events){const t=tracks.get(e.track_id);if(t)Object.assign(e,identity(t));}
       return {rows:rows.map(t=>({track_id:t.id,box:t.box,...identity(t)})),events};
     }
-    function identity(t){return {participant_id:t.person?.id||'',display_name:t.person?.name||'',identity_source:t.person?'local_visual_similarity':'unidentified',authentication_authority:false};}
+    function identity(t){return {participant_id:t.person?.id||'',display_name:t.person?.name||'',identity_source:t.person?(t.person.introduced?'self_introduction':'local_visual_similarity'):'unidentified',authentication_authority:false};}
     function event(t,type){return {event_id:id(),event_type:type,track_id:t.id,...identity(t)};}
     function greeting(){
       const at=now();if(at-lastGreeting<30000)return null;
@@ -52,8 +53,18 @@
     }
     function acknowledge(trackId){const t=tracks.get(trackId);if(!t)return null;t.greeted=true;lastGreeting=now();if(t.person)greeted.set(t.person.id,now());return event(t,'greeting');}
     function clear(){const events=[...tracks.values()].filter(t=>t.arrived).map(t=>event(t,'departure'));tracks.clear();return events;}
-    return {update,greeting,acknowledge,clear};
+    function introduce(trackId,profile){const t=tracks.get(trackId),active=[...tracks.values()].filter(p=>now()-p.seen<2000);if(!t||active.length!==1||active[0]!==t||!profile?.id||!profile.name)return null;t.introducedId=String(profile.id);t.person={id:String(profile.id),name:String(profile.name).slice(0,120),introduced:true};return event(t,'identity_changed');}
+    return {update,greeting,acknowledge,clear,introduce};
   }
+  function introductionName(text,awaiting=false){
+    const value=String(text||'').normalize('NFKC').trim();
+    const explicit=/^(?:(?:hi|hello|hey)[,!.]?\s+)?(?:my name is|i am|i['’]m|call me|it['’]s|it is)\s+(.+?)[.!]?$/iu.exec(value);
+    const name=(explicit?explicit[1]:awaiting?value:'').replace(/[.!]$/u,'').trim();
+    if(!name||name.length>80||!/^\p{L}[\p{L}\p{M}'’.-]*(?:\s+\p{L}[\p{L}\p{M}'’.-]*){0,3}$/u.test(name))return '';
+    if(/\b(?:yes|no|okay|ok|fine|good|great|thanks|thank|you|hello|hey|stop|listening|recording|help|what|who|where|when|why|how|can|could|would|please|tell|show|doing|looking|going|ready|happy|sorry)\b/iu.test(name))return '';
+    return name.replace(/\s+/g,' ');
+  }
+  function followPoint(rows,mirrored=true){if(!Array.isArray(rows)||rows.length!==1)return null;const b=box(rows[0].box);if(!b)return null;const x=b[0]+b[2]/2;return {x:mirrored?1-x:x,y:b[1]+b[3]/2};}
   function visualState({state='idle',recording=false}={}){return {state:({processing:'thinking',transcribing:'thinking',starting:'connecting'})[state]||(['listening','thinking','speaking','error','connecting'].includes(state)?state:'idle'),recording:recording===true};}
-  return {create,match,similarity,box,visualState};
+  return {create,match,similarity,box,visualState,introductionName,followPoint};
 });

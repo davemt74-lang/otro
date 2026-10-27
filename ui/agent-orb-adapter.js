@@ -6,10 +6,10 @@
   async function api(url,body,keepalive=false){const r=await fetch(url,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',keepalive,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.detail||'HomeServer request failed.');return data;}
   const store=()=>import('/assets/tracky/src/participant-store.js');
   const recording=()=>window.HomeServerDictation?.isTranscribing?.()===true;
-  const state=()=>{let value=audible?'speaking':$('voiceInputButton')?.dataset.voiceState||voiceState;if(value==='speaking'&&!audible)value='thinking';if(window.HomeServerChatTurn?.isBusy?.())value='thinking';return {state:value,recording:recording()};};
-  const adapter={ownerKey:'homeserver-local-owner',chatUrl:'/#chat',alwaysBar:true,state,
+  const state=()=>{let value=audible?'speaking':$('voiceInputButton')?.dataset.voiceState||voiceState;if(value==='speaking'&&!audible)value='thinking';if(!audible&&window.HomeServerChatTurn?.isBusy?.())value='thinking';return {state:value,recording:recording()};};
+  const adapter={ownerKey:'homeserver-local-owner',chatUrl:'/#chat',alwaysBar:true,state,voiceFeatureUrl:'/assets/tracky/src/voice-profile-core.js',
     busy:()=>Boolean(window.HomeServerChatTurn?.isBusy?.()||['thinking','speaking','connecting'].includes(state().state)||recording()||$('chatInput')?.value.trim()),
-    listen:()=>$('voiceInputButton')?.click(),
+    listen:()=>{if(!window.HomeServerConversationVoice?.isEnabled?.())$('voiceInputButton')?.click();},
     stop:()=>{window.HomeServerConversationVoice?.stop();window.HomeServerDictation?.stopTranscription();window.HomeServerChatTurn?.cancel();},
     greet:(text,isCurrent)=>window.HomeServerConversationVoice?.announce(text,isCurrent)||false,
     attachChat:host=>{
@@ -27,6 +27,13 @@
     loadEyesProfiles:async()=>{
       const rows=await (await store()).listParticipants();return rows.map(p=>({...p,recognitionEnabled:p.recognitionEnabled!==false&&!!p.agentEyesEnrollment?.consentedAt}));
     },
+    introduceEyes:async({name,isCurrent=()=>true})=>{
+      const data=await store(),rows=await data.listParticipants();if(!isCurrent())throw Error('Introduction stopped.');
+      const existing=rows.filter(p=>p.name.normalize('NFKC').toLocaleLowerCase()===name.normalize('NFKC').toLocaleLowerCase());
+      if(existing.length>1)throw Error('More than one participant has that name. Choose the participant in Eyes.');
+      if(existing.length)return {id:String(existing[0].id),name:existing[0].name};
+      const p=await data.saveParticipant({name,embeddings:[],recognitionEnabled:false});return {id:String(p.id),name:p.name};
+    },
     enrollEyes:async({id,name,embeddings,isCurrent=()=>true})=>{
       const data=await store();
       if(!isCurrent()||!await adapter.cameraAllowed())throw Error('Enrollment stopped.');
@@ -34,9 +41,12 @@
         await data.patchParticipant(id,p=>{if(!isCurrent())throw Error('Enrollment stopped.');return {...p,embeddings,recognitionEnabled:true,agentEyesEnrollment:{consentedAt:new Date().toISOString(),scope:'participant-local'}};});
       }else await data.saveParticipant({name,embeddings,recognitionEnabled:true,agentEyesEnrollment:{consentedAt:new Date().toISOString(),scope:'participant-local'}});
     },
+    loadVoiceProfiles:async()=>await (await store()).listParticipants(),
+    saveVoiceSample:async({id,embedding,isCurrent})=>{const data=await store();if(!isCurrent())throw Error('Voice enrollment stopped.');return await data.patchParticipant(id,p=>{if(!isCurrent())throw Error('Voice enrollment stopped.');const voiceEmbeddings=[...(p.voiceEmbeddings||[]),embedding].slice(-5);return {...p,voiceEmbeddings,voiceRecognitionEnabled:true,voiceProfileReady:voiceEmbeddings.length>=3};},isCurrent);},
+    forgetVoice:async id=>{const data=await store();await data.patchParticipant(id,p=>({...p,voiceEmbeddings:[],voiceProfileSamples:[],voiceRecognitionEnabled:false,voiceProfileReady:false}));},
     forgetEyes:async id=>{const data=await store();await data.patchParticipant(id,p=>({...p,embeddings:[],visualEnrollment:null,agentEyesEnrollment:null,recognitionEnabled:false}));},
     recordEyes:event=>{
-      const labels={arrival:'arrived',departure:'left view',identity_changed:'visual attribution changed',greeting:'received an automatic greeting'};
+      const labels={arrival:'arrived',departure:'left view',identity_changed:'visual attribution changed',greeting:'received an automatic greeting',voice_turn:'spoke in Agent chat'};
       return api('/api/v1/control/cognition/events',{
         event_id:`eyes:${event.session_id}:${event.event_id}`,event_type:`agent_eyes.${event.event_type}`,
         summary:`${event.display_name||'Unidentified participant'} · ${labels[event.event_type]}. Browser-reported context; visual matches are provisional and grant no authentication authority.`,

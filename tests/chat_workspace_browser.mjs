@@ -159,7 +159,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   let microphoneCalls = 0;
   await page.exposeFunction('countMicrophoneCall', () => {microphoneCalls++;});
   await page.addInitScript(() => {
-    window.voiceFixture = {recognizers: [], spoken: [], inputWrites: []};
+    window.voiceFixture = {recognizers: [], spoken: [], inputWrites: [], captureIntents: []};
     const value=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');
     Object.defineProperty(HTMLTextAreaElement.prototype,'value',{...value,set(text){
       if(this.id==='chatInput'){window.voiceFixture.inputWrites.push({text,stack:new Error().stack});window.voiceFixture.inputWrites.splice(0,Math.max(0,window.voiceFixture.inputWrites.length-12));}
@@ -177,7 +177,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
       speak(utterance) { window.voiceFixture.spoken.push(utterance.text); queueMicrotask(() => {utterance.onstart?.(); utterance.onend?.();}); },
     }});
     const original = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
-    if (original) navigator.mediaDevices.getUserMedia = (...args) => {window.countMicrophoneCall(); return original(...args);};
+    if (original) navigator.mediaDevices.getUserMedia = (...args) => {window.voiceFixture.captureIntents.push({voiceActive:document.getElementById('voiceInputButton')?.getAttribute('aria-pressed')==='true',audio:args[0]?.audio,video:args[0]?.video===true});window.countMicrophoneCall(); return original(...args);};
   });
   await page.goto(base + '/#chat');
   await page.waitForFunction(() => window.HomeServerChatOptions && document.querySelector('#chatOptionsVoice #dictateInputButton')).catch(error => {throw new Error(error.message + '\nBrowser errors: ' + JSON.stringify(errors));});
@@ -559,7 +559,9 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.locator('#chatCaptureStop').waitFor({state: 'visible'});
   await page.locator('#chatCaptureStop').click();
   assert.equal(await page.locator('#chatCaptureStop').isVisible(), false);
-  assert.equal(microphoneCalls, 0);
+  assert.ok(microphoneCalls > 0, 'Explicit listening opens the processed voice filter monitor');
+  assert.ok(await page.evaluate(()=>voiceFixture.captureIntents.every(c=>c.voiceActive&&c.audio.echoCancellation&&c.audio.noiseSuppression&&!c.video)), 'Microphone monitoring requires active listening and noise suppression');
+  const stoppedMicrophoneCalls=microphoneCalls;await delay(100);assert.equal(microphoneCalls,stoppedMicrophoneCalls,'Stop cannot reopen the microphone');
 
   for (const view of ['agent', 'tools', 'contacts', 'members', 'ambient', 'automation', 'tracky', 'federation', 'physical-world', 'apps', 'homeserver-apps', 'backups', 'storage', 'health', 'activity']) {
     const nav = page.locator(`.primary-sidebar-nav [data-view="${view}"]`);

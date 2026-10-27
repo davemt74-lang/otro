@@ -264,6 +264,7 @@
     const base = {channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true};
     return window.HomeServerVoiceSettings?.captureConstraints?.(base) || {audio: base};
   }
+  let browserMonitorPending=false;
 
   async function refreshLocalVoiceStatus() {
     try {
@@ -369,6 +370,7 @@
   }
 
   function stopConversationMode(message = 'Conversation mode stopped.') {
+    window.VP3VoiceGuard?.detach();
     conversationStarting = false;
     conversationMode = false;
     pendingTranscript = '';
@@ -396,11 +398,15 @@
     if (message) flash(message);
   }
 
-  function autoSubmitSpeech(transcript) {
+  async function autoSubmitSpeech(transcript) {
     const input = byId('chatInput');
     const form = byId('chatForm');
     if (!conversationMode || !input || !form || !transcript.trim()) return;
     if(window.HomeServerChatTurn?.isBusy?.()){flash('Wait for the current chat turn to finish.');resumeListening();return;}
+    const filterGeneration=captureGeneration;
+    let decision={allowed:true};if(window.VP3VoiceGuard)try{decision=await window.VP3VoiceGuard.check(transcript,()=>conversationMode&&filterGeneration===captureGeneration)||decision;}catch(_){decision.allowed=!window.VP3VoiceGuard?.isKnownOnly();}
+    if(!conversationMode||filterGeneration!==captureGeneration)return;
+    if(!decision.allowed){pendingTranscript='';if(input.value.trim()===transcript.trim())input.value='';setVoiceState('listening');resumeListening();return;}
     waitingRequestId=null;waitingGeneration=captureGeneration;
     awaitingAgent = true;
     pendingTranscript = '';
@@ -419,8 +425,8 @@
     resumeTimer=setTimeout(()=>{if(!conversationMode||generation!==captureGeneration)return;if(voicePath.stt==='local')startLocalListening();else startBrowserListening();},250);
   }
 
-  function startBrowserListening() {
-    if (!conversationMode || awaitingAgent || speaking || recognition) return;
+  async function startBrowserListening() {
+    if (!conversationMode || awaitingAgent || speaking || recognition || browserMonitorPending) return;
     const Recognition = recognitionConstructor();
     const input = byId('chatInput');
     if(input?.value.trim()){stopConversationMode('Your draft is kept. Send or clear it before listening again.');return;}
@@ -430,6 +436,15 @@
       return;
     }
 
+    const monitorGeneration=captureGeneration;
+    if(window.VP3VoiceGuard?.isEnabled()&&AudioContextCtor()&&!mediaStream){
+      browserMonitorPending=true;
+      setVoiceState('connecting');
+      try{const acquired=await navigator.mediaDevices.getUserMedia(localCaptureConstraints());if(!conversationMode||monitorGeneration!==captureGeneration||(captureTicket&&!captureTicket.isCurrent())){acquired.getTracks().forEach(t=>t.stop());return;}mediaStream=acquired;captureTicket?.ownStream(acquired);for(const track of acquired.getAudioTracks())track.addEventListener('ended',()=>{if(conversationMode&&monitorGeneration===captureGeneration){stopConversationMode('Microphone disconnected. Select Voice to reconnect.');}},{once:true});captureAudioContext=new (AudioContextCtor())();window.VP3VoiceGuard.attach(acquired,captureAudioContext);}
+      catch(_){if(window.VP3VoiceGuard?.isKnownOnly()){stopConversationMode('Voice profile matching needs microphone access.');return;}}
+      finally{browserMonitorPending=false;if(conversationMode&&monitorGeneration!==captureGeneration&&voicePath.stt==='browser')setTimeout(()=>startBrowserListening(),0);}
+    }
+    if(!conversationMode||monitorGeneration!==captureGeneration)return;
     pendingTranscript = '';
     input.value = '';
     input.dispatchEvent(new Event('input', {bubbles: true}));
@@ -552,6 +567,7 @@
       for(const track of acquired.getAudioTracks())track.addEventListener('ended',()=>{if(conversationMode&&generation===captureGeneration){stopConversationMode('');flash('Microphone disconnected. Select Voice to reconnect.',true);}} ,{once:true});
       captureTicket?.ownStream(acquired);
       captureAudioContext = new Context();
+      window.VP3VoiceGuard?.attach(mediaStream,captureAudioContext);
       const source = captureAudioContext.createMediaStreamSource(mediaStream);
       captureAnalyser = captureAudioContext.createAnalyser();
       captureAnalyser.fftSize = 1024;
@@ -835,6 +851,7 @@
   }
 
   function speakAgentReply(text) {
+    window.VP3VoiceGuard?.reset();
     const message=String(text || '').trim();
     if ((!conversationMode && !proactiveSpeech) || !message) {if(conversationMode)resumeListening();return;}
     const generation=++outputGeneration;

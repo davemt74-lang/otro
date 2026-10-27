@@ -548,7 +548,7 @@
       const data = await new Promise((resolve,reject)=>{
         const abort=()=>reject(new DOMException('Chat turn cancelled or timed out.','AbortError'));
         turn.controller.signal.addEventListener('abort',abort,{once:true});
-        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value(),knowledge_revision:window.VP3KnowledgeRevisionsR11?.value(message)})})
+        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, speaker_context:window.VP3VoiceGuard?.takeContext(message),conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value(),knowledge_revision:window.VP3KnowledgeRevisionsR11?.value(message)})})
           .then(resolve,reject).finally(()=>turn.controller.signal.removeEventListener('abort',abort));
       });
       if(pendingChatTurn !== turn || turn.revision !== conversationRevision || turn.controller.signal.aborted)return;

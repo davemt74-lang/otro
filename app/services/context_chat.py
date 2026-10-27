@@ -149,6 +149,7 @@ def chat(
     cancellation_token: CancellationToken | None = None,
     project_knowledge_r6: dict | None = None,
     knowledge_revision: dict | None = None,
+    speaker_context: dict | None = None,
 ) -> dict[str, Any]:
     if cancellation_token is not None:
         cancellation_token.raise_if_cancelled()
@@ -283,6 +284,11 @@ def chat(
         {"role": "system", "content": canonical_context.system_prompt(agent, canonical)},
         *history,
     ]
+    if speaker_context:
+        from . import voice_speaker_context
+        speaker_text = voice_speaker_context.context(speaker_context, owner=source_app_key == "owner" and owner_tools)
+        if speaker_text:
+            messages[0]["content"] += "\n\n" + speaker_text
     if food_monster_packet["context"]:
         messages[0]["content"] += chr(10) * 2 + food_monster_packet["context"]
     if research_text:
