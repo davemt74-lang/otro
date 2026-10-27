@@ -68,6 +68,46 @@ class ComponentTests(unittest.TestCase):
             for name, record in manifest['files'].items():
                 self.assertEqual(components.digest(out / key / 'payload' / name), record['sha256'])
 
+    def test_hidden_runtime_files_survive_distribution_and_component_round_trips(self):
+        hidden_name = 'tools/browser/.links/playwright-build'
+        hidden = self.root / hidden_name
+        hidden.parent.mkdir(); hidden.write_bytes(b'certified-playwright-link')
+        budget.write(self.root, Path(self.tmp.name) / 'SpaceBudget.iss', self.root / 'INSTALL_SPACE.json')
+        self.catalog = builder.prepare(self.root, Path(self.tmp.name) / 'installer')
+        self.assertIn(hidden_name, self.catalog['components']['browser']['files'])
+        requirements = (Path(self.tmp.name) / 'installer/CoreRuntimeRequirements.iss').read_text()
+        self.assertIn(hidden_name.replace('/', '\\'), requirements)
+        self.release()
+        original_catalog = (self.root / 'COMPONENTS.json').read_bytes()
+        archive_path = Path(self.tmp.name) / 'distribution.zip'
+        with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for path in self.root.rglob('*'):
+                if path.is_file():
+                    archive.write(path, path.relative_to(self.root).as_posix())
+        restored = Path(self.tmp.name) / 'downloaded'
+        with zipfile.ZipFile(archive_path) as archive:
+            archive.extractall(restored)
+        self.assertEqual((restored / 'COMPONENTS.json').read_bytes(), original_catalog)
+        packages = Path(self.tmp.name) / 'round-trip-packages'
+        builder.assemble(restored, packages)
+        browser = packages / 'browser'
+        browser_zip = Path(self.tmp.name) / 'browser.zip'
+        with zipfile.ZipFile(browser_zip, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for path in browser.rglob('*'):
+                if path.is_file():
+                    archive.write(path, path.relative_to(browser).as_posix())
+        with zipfile.ZipFile(browser_zip) as archive:
+            manifest = json.loads(archive.read('COMPONENT.json'))
+            for name, record in manifest['files'].items():
+                data = archive.read('payload/' + name)
+                self.assertEqual(len(data), record['bytes'])
+                self.assertEqual(hashlib.sha256(data).hexdigest(), record['sha256'])
+        # Artifact loss must still fail; never rewrite a certified catalog to fit it.
+        (restored / hidden_name).unlink()
+        with self.assertRaisesRegex(ValueError, 'Certified staged component changed: tools/browser/.links/'):
+            builder.assemble(restored, Path(self.tmp.name) / 'missing-hidden-packages')
+        self.assertEqual((restored / 'COMPONENTS.json').read_bytes(), original_catalog)
+
     def test_missing_changed_dependencies_block_and_private_files_survive(self):
         sentinel = self.root / 'private.txt'; sentinel.write_text('keep')
         components.verify_runtimes(self.root, self.catalog)

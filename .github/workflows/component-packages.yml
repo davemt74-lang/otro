@@ -31,6 +31,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/installer_space_budget.py --fixture dist
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Path 'dist/tools/browser/.links' -Force | Out-Null
+          Set-Content 'dist/tools/browser/.links/playwright-build' 'certified-playwright-link'
           python scripts/installer_space_budget.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compile full and core fixture installers

@@ -131,6 +131,7 @@ jobs:
         with:
           name: HomeServer-Windows
           path: certified/**
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
   test:
@@ -1150,5 +1151,6 @@ jobs:
             dist/CORE_INSTALL_SPACE.json
             dist/tools/ffmpeg/**
             dist/tools/browser/**
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
