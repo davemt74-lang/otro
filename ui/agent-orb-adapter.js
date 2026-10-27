@@ -25,7 +25,7 @@
       return data.privacy_engaged===false&&native.privacy_engaged===false&&native.active!==true;
     },
     loadEyesProfiles:async()=>{
-      const rows=await (await store()).listParticipants();return rows.map(p=>({...p,recognitionEnabled:p.recognitionEnabled!==false&&!!(p.visualEnrollment?.consentedAt||p.agentEyesEnrollment?.consentedAt)}));
+      const rows=await (await store()).listParticipants();return rows.map(p=>({...p,recognitionEnabled:p.recognitionEnabled!==false&&!!p.agentEyesEnrollment?.consentedAt}));
     },
     enrollEyes:async({id,name,embeddings,isCurrent=()=>true})=>{
       const data=await store();

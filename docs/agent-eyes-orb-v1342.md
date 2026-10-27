@@ -46,7 +46,9 @@ participant consent control. An introduction can create an ordinary existing
 Studio/Tracky participant; it creates no website user account or automatic
 contact. Cloud names/consent use existing owner-scoped Studio profiles, while
 samples use an account-scoped browser IndexedDB. HomeServer reuses its existing
-Tracky participant store and atomic patches. Enrolling/forgetting visual samples
+Tracky participant store and atomic patches. A previous one-time owner self-check
+enrollment does not enable continuous recognition; new Agent Eyes consent is required.
+Enrolling/forgetting visual samples
 preserves voice samples, voice binding/clone preferences and participant notes.
 
 Greetings are automatic, with no per-arrival approval. Three seconds of stable
