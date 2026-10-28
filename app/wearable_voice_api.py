@@ -5,6 +5,7 @@ revocable VP3 paired-app bearer token, never the HomeServer owner secret.
 """
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -29,7 +30,11 @@ def _guard_transport(request: Request) -> None:
     # Trust only the actual ASGI scheme set by a *trusted* reverse proxy.
     # Never infer TLS from arbitrary X-Forwarded-Proto request headers.
     host = request.client.host if request.client else ""
-    if request.url.scheme != "https" and host not in _LOCAL_CLIENTS:
+    local_dev_override = (
+        os.environ.get("VP3_WEARABLE_AUDIO_ALLOW_LOCAL_HTTP", "") == "1"
+        and host in _LOCAL_CLIENTS
+    )
+    if request.url.scheme != "https" and not local_dev_override:
         raise HTTPException(status_code=426, detail="Wearable audio requires HTTPS.")
 
 

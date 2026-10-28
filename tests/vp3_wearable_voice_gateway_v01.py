@@ -45,6 +45,7 @@ def run() -> None:
     with tempfile.TemporaryDirectory(prefix="vp3-wearable-voice-") as root:
         os.environ["HOMESERVER_DATA_DIR"] = root
         os.environ["VP3_WEARABLE_AUDIO_ENABLED"] = "1"
+        os.environ["VP3_WEARABLE_AUDIO_ALLOW_LOCAL_HTTP"] = "1"  # TestClient only.
         os.environ["VP3_OS_HARDWARE_ADAPTER"] = "disabled"
 
         from app.database import initialize_database
@@ -229,6 +230,15 @@ def run() -> None:
         ).status_code == 401
         assert start().status_code == 401
         voice.registry.stop(device, revoke_id)  # Remove stale in-memory fixture.
+
+        # Plaintext HTTP is rejected even on loopback unless explicitly opted in.
+        os.environ["VP3_WEARABLE_AUDIO_ALLOW_LOCAL_HTTP"] = "0"
+        assert client.post(
+            "/api/v1/wearable/audio/start",
+            headers=headers(token_other),
+            json={"device_id": "vp3-wearable-lab02", "intent": "press"},
+        ).status_code == 426
+        os.environ["VP3_WEARABLE_AUDIO_ALLOW_LOCAL_HTTP"] = "1"
 
         # HTTP on a non-local network is rejected even with valid pairing.
         class RemoteRequest:

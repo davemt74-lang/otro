@@ -23,11 +23,13 @@ The route is registered but **disabled by default**. Only a deliberately
 configured OTRO test instance with VP3_WEARABLE_AUDIO_ENABLED=1 can serve
 audio requests. It is not enabled on the user's deployed HomeServer.
 
-Requests from non-local clients require the *actual trusted ASGI HTTPS
-scheme*. Never trust a client-supplied X-Forwarded-Proto. HostGator shared
-hosting and the existing subdomain route have NOT been verified as a
-suitable TLS reverse proxy for this new API. That is an independent
-deployment acceptance gate.
+All requests require HTTPS by default. TestClient or explicit loopback
+development may set VP3_WEARABLE_AUDIO_ALLOW_LOCAL_HTTP=1, but that
+exception must stay OFF in production. The actual trusted ASGI HTTPS scheme
+must be configured at ingress; never trust a client-supplied
+X-Forwarded-Proto. HostGator shared hosting and the existing subdomain
+route have NOT been verified as a suitable TLS reverse proxy for this API.
+That is an independent deployment acceptance gate.
 
 ## Pairing and least privilege
 
@@ -78,8 +80,15 @@ subdomain ingress and authentication are tested.
 - No raw audio is uploaded to VP3 Cloud by this gateway. The HomeServer
   local Whisper provider may use its established temporary files, governed
   by the pre-existing local voice cleanup path.
-- No server-side permanent recording, log of transcript, or token storage.
-  Stop, timeout, token revocation and reconnect must invalidate turns.
+- The new gateway does not create permanent recordings or a new transcript
+  log, but the **existing canonical Agent Chat persists transcript text and
+  replies in OTRO conversation history**. Depending on the user's selected
+  model and chat privacy settings, the transcript text may be processed by a
+  cloud LLM provider. Choose OTRO Private/local inference if transcripts must
+  stay on the HomeServer. This is **not** a zero-retention voice mode.
+- No new device-token database is created; existing pairing holds only
+  a hash of the revocable claim token. Stop, timeout, revocation and reconnect
+  must invalidate turns.
 - If local Whisper/Piper or Agent Chat are unavailable, the request fails
   explicitly; it must not silently fall back to Windows microphone or
   unauthorized Cloud processing.
