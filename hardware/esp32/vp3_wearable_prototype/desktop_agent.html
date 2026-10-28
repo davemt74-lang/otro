@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0a1527">
+  <title>VP3 · Desktop Floating Agent Preview</title>
+  <style>
+    :root{color-scheme:dark;font:16px system-ui,-apple-system,"Segoe UI",sans-serif;background:#0a1527;color:#e8f5ff}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100dvh;background:radial-gradient(ellipse at 15% 10%,#253f63 0,transparent 46%),linear-gradient(130deg,#0d1e36,#050912);overflow:hidden}
+    .desk{position:fixed;inset:0;padding:clamp(16px,4vw,60px)}
+    .desktop-note{max-width:530px}
+    h1{margin:0 0 8px;font-size:clamp(1.45rem,3vw,2.3rem);letter-spacing:-.02em}
+    h1 span{color:#81a7c9}
+    p{line-height:1.5;color:#a3bcd4;font-size:.9rem}
+    .chip{display:inline-block;border:1px solid #48728d;border-radius:999px;color:#9dc4e4;font-size:.7rem;letter-spacing:.09em;padding:6px 10px;margin-bottom:16px}
+    .sample{margin-top:35px;width:min(460px,100%);border-radius:20px;background:#ffffff0c;border:1px solid #ffffff1f;padding:20px}
+    .sample>div{height:11px;border-radius:8px;background:#ffffff20;margin:12px 0}
+    .sample>div:nth-child(1){width:50%}.sample>div:nth-child(2){width:92%}.sample>div:nth-child(3){width:74%}
+    .dock{position:fixed;right:28px;bottom:25px;z-index:3;display:flex;flex-direction:column;align-items:flex-end;gap:12px;touch-action:none}
+    .orb{appearance:none;border:2px solid #90d1fd;cursor:pointer;display:grid;place-items:center;color:#fff;width:86px;height:86px;border-radius:50%;font-size:1rem;font-weight:800;letter-spacing:.08em;background:radial-gradient(circle at 35% 30%,#bff7ff,#4bace6 30%,#1b548e 64%,#10223d);box-shadow:0 0 26px #4398e477,0 10px 22px #000b;transition:transform .14s,box-shadow .2s}
+    .orb:hover{transform:scale(1.04)}.orb:active{transform:scale(.96)}
+    .orb:focus-visible{outline:3px solid white;outline-offset:5px}
+    .orb::after{content:"";position:absolute;width:11px;height:11px;right:7px;bottom:7px;border-radius:50%;background:#45e9b6;box-shadow:0 0 10px #3be8a1}
+    .orb[data-mode="thinking"]{background:radial-gradient(circle at 35% 30%,#d3ffe7,#53e49b 30%,#137b6b 64%,#0c3032);border-color:#78efb4;box-shadow:0 0 27px #48efa577}
+    .orb[data-mode="speaking"]{animation:breathe .85s ease-in-out infinite}
+    .orb[data-mode="privacy"],.orb[data-mode="off"]{filter:grayscale(1) brightness(.65)}
+    .orb[data-event="press"],.orb[data-event="hold"]{outline:3px solid #fff9;outline-offset:5px}
+    @keyframes breathe{50%{transform:scale(1.10);box-shadow:0 0 45px #7bbfffcc}}
+    .panel{width:min(346px,calc(100vw - 30px));max-height:min(610px,calc(100dvh - 138px));overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:14px;padding:17px;border:1px solid #6587a5aa;border-radius:20px;background:#101e32ef;box-shadow:0 15px 50px #000a;backdrop-filter:blur(22px)}
+    .panel[hidden]{display:none}
+    .panelhead{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .panelhead strong{letter-spacing:.07em} .panelhead button{border:1px solid #54718a;border-radius:9px;background:#ffffff0b;color:#edf6ff;cursor:pointer;padding:5px 10px}
+    .state{display:flex;gap:10px;align-items:center;font-size:.82rem;color:#d7ecfb}
+    .dot{height:10px;width:10px;border-radius:50%;background:#52edb6;box-shadow:0 0 10px #52edb6}
+    .conversation{border-radius:14px;min-height:130px;background:#071326;border:1px solid #2d4662;padding:15px;display:flex;flex-direction:column;gap:9px}
+    .bubble{border-radius:12px;padding:10px;font-size:.85rem;line-height:1.4;background:#143354;color:#ddecff}
+    .bubble.muted{background:#17263a;color:#99b4cc}
+    .controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    .controls button{background:#203b5c;color:#e7f8ff;border:1px solid #486986;padding:9px;border-radius:10px;cursor:pointer}
+    .controls button[aria-pressed="true"]{background:#28668e;border-color:#6dbbff}
+    .legal{font-size:.73rem;color:#98aec2;margin:0}
+    .voicepreview{border:1px solid #46607d;border-radius:12px;padding:12px;background:#08172c}
+    .voicepreview h2{font-size:.85rem;margin:0 0 9px}
+    .voicepreview button{background:#2d4564;color:#f1f8ff;border:1px solid #6485a6;border-radius:8px;padding:8px;cursor:pointer;margin:5px 6px 5px 0}
+    .voicepreview .vstate{font-size:.78rem;color:#98d3fa}
+    a{color:#8dd6ff}
+    .status{position:absolute;left:-9999px}
+    @media(max-width:540px){.dock{right:14px;bottom:16px}.panel{max-height:calc(100dvh - 128px)}.desk{padding:24px}}
+    @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+  <main class="desk">
+    <div class="desktop-note">
+      <span class="chip">LOCAL PROTOTYPE · NO LIVE VP3 CONNECTION</span>
+      <h1>VP3 <span>Floating Agent</span></h1>
+      <p>This previews the Windows desktop agent. Open the <a href="/">round touchscreen simulator</a> in another window and press its orb. The desktop orb below reflects those events via the same local bridge.</p>
+      <div class="sample" aria-hidden="true"><div></div><div></div><div></div></div>
+      <p>Tap the floating VP3 orb to open its event and state panel. This web preview is not an always-on-top Windows overlay.</p>
+    </div>
+  </main>
+  <div class="dock">
+    <section id="panel" class="panel" aria-label="VP3 floating agent control preview">
+      <div class="panelhead"><strong>VP3 · AGENT</strong><button id="close" type="button" aria-label="Close panel">×</button></div>
+      <div class="state"><span id="dot" class="dot"></span><span id="connection">Connecting to local simulator…</span></div>
+      <div class="conversation" aria-live="polite" aria-atomic="false">
+        <div class="bubble muted">Prototype only. No voice recording and no AI requests.</div>
+        <div id="event" class="bubble">Waiting for a touch on the round display.</div>
+        <div id="mode" class="bubble muted">Agent state: idle</div>
+      </div>
+      <div class="controls" role="group" aria-label="Mock HomeServer mode commands">
+        <button class="modebtn" data-mode="idle" type="button">Idle</button>
+        <button class="modebtn" data-mode="listening" type="button">Listening</button>
+        <button class="modebtn" data-mode="thinking" type="button">Thinking</button>
+        <button class="modebtn" data-mode="speaking" type="button">Speaking</button>
+      </div>
+      <div class="voicepreview">
+        <h2>Developer Voice · UI simulation</h2>
+        <p class="legal">This only tests push-to-talk interactions. It never starts a microphone, records audio, or grants HomeServer permissions.</p>
+        <button id="voice-toggle" type="button">Enable PTT preview</button>
+        <button id="voice-stop" type="button">Stop</button>
+        <div id="voice-state" class="vstate" role="status">Preview disabled</div>
+      </div>
+      <p class="legal">These buttons send simulated status_light.set frames to the round-screen preview. No microphone or live HomeServer is accessed.</p>
+      <a href="/">Open round display</a>
+    </section>
+    <button id="orb" class="orb" type="button" aria-expanded="true" aria-controls="panel" aria-label="Toggle VP3 floating agent" data-mode="idle">VP3</button>
+  </div>
+  <script>
+    (function(){
+      "use strict";
+      const orb=document.getElementById("orb"),panel=document.getElementById("panel");
+      const event=document.getElementById("event"),mode=document.getElementById("mode");
+      const dot=document.getElementById("dot"),connection=document.getElementById("connection");
+      const voiceState=document.getElementById("voice-state");
+      const voiceToggle=document.getElementById("voice-toggle");
+      let voiceEnabled=false;
+      let lastEventKey="";
+      let lastConnected=false;
+      let polling=false;
+      function toggle(show){panel.hidden=!show;orb.setAttribute("aria-expanded",String(show));}
+      orb.addEventListener("click",()=>toggle(panel.hidden));
+      document.getElementById("close").addEventListener("click",()=>toggle(false));
+      async function sendMode(value){
+        const result=await fetch("/api/mode",{
+          method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:value})
+        });
+        if(!result.ok)throw new Error("Mode update unavailable");
+        return result.json();
+      }
+      document.querySelectorAll(".modebtn").forEach(button=>button.addEventListener("click",()=>{
+        sendMode(button.dataset.mode).then(refresh).catch(e=>event.textContent=e.message);
+      }));
+      async function voiceCommand(action){
+        const r=await fetch("/api/voice-preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action})});
+        if(!r.ok)throw new Error("PTT preview control unavailable");
+        return r.json();
+      }
+      voiceToggle.addEventListener("click",()=>voiceCommand(voiceEnabled?"disable":"enable").then(refresh).catch(e=>voiceState.textContent=e.message));
+      document.getElementById("voice-stop").addEventListener("click",()=>voiceCommand("stop").then(refresh).catch(e=>voiceState.textContent=e.message));
+      function render(data){
+        const connected=Boolean(data.connected&&data.simulated);
+        connection.textContent=connected?"Paired to round display simulator":"Simulator disconnected";
+        dot.style.background=connected?"#52edb6":"#e57883";
+        orb.dataset.mode=data.mode||"off";
+        const dev=data.developer_voice||{};
+        voiceEnabled=dev.preview_enabled===true;
+        voiceToggle.textContent=voiceEnabled?"Disable PTT preview":"Enable PTT preview";
+        voiceState.textContent=voiceEnabled?("Simulated PTT: "+(dev.state||"idle")+" · AUDIO OFF"):"Preview disabled · AUDIO OFF";
+        mode.textContent="Agent state: "+(data.mode||"unknown");
+        document.querySelectorAll(".modebtn").forEach(b=>
+          b.setAttribute("aria-pressed",String(b.dataset.mode===data.mode)));
+        const events=(data.frames||[]).filter(entry=>
+          entry.direction==="device-to-home"&&entry.frame&&entry.frame.type==="event"&&entry.frame.event==="agent_button");
+        const latest=events.length?events[events.length-1].frame:null;
+        const key=latest?String(latest.seq):"";
+        if(latest&&(!lastConnected||key!==lastEventKey)){
+          const labels={press:"Touch pressed on wearable",hold:"Wearable held for 900 ms",release:"Wearable touch released"};
+          event.textContent=labels[latest.action]||"Wearable event received";
+        }else if(!latest&&!lastConnected){
+          event.textContent="Waiting for a touch on the round display.";
+        }
+        lastEventKey=key;
+        lastConnected=connected;
+        orb.dataset.event=latest?latest.action:"";
+      }
+      async function refresh(){
+        if(polling)return;
+        polling=true;
+        try{
+          const r=await fetch("/api/state",{cache:"no-store"});
+          if(!r.ok)throw new Error("Bridge unavailable");
+          render(await r.json());
+        }catch(e){
+          connection.textContent="Start the local simulator bridge first";
+          dot.style.background="#e57883";
+          lastConnected=false;
+        }finally{polling=false;}
+      }
+      refresh();
+      setInterval(refresh,350);
+    })();
+  </script>
+</body>
+</html>
