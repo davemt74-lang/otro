@@ -8,7 +8,17 @@ Target: **Waveshare ESP32-S3-Touch-LCD-1.46**, 412×412 capacitive round screen.
 
 The original OTRO firmware at hardware/esp32/vp3_node_controller targets a different devkit: its GPIO4–7 assignments conflict with the Waveshare touch/backlight/power controls. This folder is additive. **Do not flash the existing node-controller firmware to the Waveshare board.** No original controller, service, OTRO deployment, or SOFTWARE file was changed.
 
-## 1. Run the local simulator before the board arrives
+## 1. Windows: double-click to open both previews (no Bash required)
+
+1. Open the isolated [prototype branch](https://github.com/davemt74-lang/otro/tree/feature/vp3-wearable-prototype-v01) on GitHub.
+2. Click **Code → Download ZIP**. In Windows File Explorer, right-click the ZIP and choose **Extract All**.
+3. Open the extracted folder, then open **hardware → esp32 → vp3_wearable_prototype**.
+4. **Double-click START-VP3-PREVIEW.bat**. It starts the local simulator and opens both previews automatically in your default browser. Leave the black preview window open while using the two browser windows. Close it to stop.
+5. If Python 3.10+ is not installed, the launcher opens the official Python downloads page and explains what to do. After installing Python, double-click the launcher again. If Windows security software blocks the script, do not bypass it; verify the source and ask for help.
+
+The local bridge does not require any third-party Python packages. Nothing is installed to OTRO, HostGator or Windows services.
+
+### Developer alternative (optional)
 
 From the OTRO repository root (Python 3.10+; no third-party packages needed for the mock server):
 

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
+import webbrowser
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -197,6 +199,10 @@ def serve() -> None:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print("VP3 wearable simulator: http://127.0.0.1:8765/")
     print("Local-only protocol test fixture; no microphone or HomeServer connection.")
+    if "--open" in sys.argv:
+        # The Windows double-click launcher opens both browser previews.
+        webbrowser.open(f"http://{HOST}:{PORT}/")
+        webbrowser.open(f"http://{HOST}:{PORT}/desktop_agent.html")
     try:
         server.serve_forever(poll_interval=0.3)
     except KeyboardInterrupt:

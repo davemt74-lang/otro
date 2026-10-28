@@ -200,6 +200,15 @@ def run() -> None:
             service.server_close()
             worker.join(timeout=3)
 
+        # Windows launch is an explicit opt-in, not automatic on import.
+        launch = (WEARABLE / "START-VP3-PREVIEW.bat").read_text(encoding="utf-8")
+        assert "simulator_bridge.py" in launch
+        assert "--open" in launch
+        assert "python.org/downloads/windows/" in launch
+        bridge = (WEARABLE / "simulator_bridge.py").read_text(encoding="utf-8")
+        assert 'if "--open" in sys.argv:' in bridge
+        assert 'webbrowser.open(f"http://{HOST}:{PORT}/desktop_agent.html")' in bridge
+
         vp3_os.clear_reported_hardware()
         print("VP3 wearable v0.2 protocol simulator and privacy checks: PASS")
 
