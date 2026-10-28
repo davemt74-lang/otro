@@ -36,6 +36,7 @@ jobs:
           node tests/agent-orb-home-browser.mjs
           node tests/agent-voice-guard-browser.mjs
           node tests/participant-continuity-browser.mjs
+          node tests/participant-tracking-browser.mjs
           node tests/participant-memory-sync-browser.mjs
           node tests/trained-voice-core.mjs
           node tests/trained-voice-real-browser.mjs

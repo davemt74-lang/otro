@@ -80,15 +80,17 @@
     }
     function updatePresence(value, remote = false) {
       const rows = Array.isArray(value?.rows)
-          ? value.rows.slice(0, 8).map(safePerson)
+          ? value.rows.slice(0, 8).map(safePerson).sort((a,b)=>a.track_id.localeCompare(b.track_id))
           : [],
         active = value?.active === true;
+      if(!active)rows.length=0;
       const next = JSON.stringify([active, rows]);
       presence = { active, rows, at: Date.now() };
       if (next !== signature) {
         signature = next;
         revision++;
         speaker = null;
+        announceSpeaker();
         clearSelection();
         window.VP3VoiceGuard?.clear();
         say(
@@ -110,7 +112,8 @@
         at = Date.now();
       for (const [id, until] of rejected) if (until <= at) rejected.delete(id);
       let reason = 'voice';
-      if (rejected.has(person.participant_id)) reason = 'corrected';
+      if (!person.participant_id) reason = 'unassigned';
+      else if (rejected.has(person.participant_id)) reason = 'corrected';
       else if (presence.active && at - presence.at > 3500)
         reason = 'stale-camera';
       else if (presence.active) {
@@ -124,7 +127,9 @@
       }
       const accepted = ['voice', 'camera-and-voice'].includes(reason);
       if (notify) {
-        speaker = accepted ? { ...person, at, revision } : null;
+        const visible=presence.rows.filter(r=>r.participant_id===person.participant_id);
+        speaker = accepted ? { ...person, track_id:visible.length===1?visible[0].track_id:'', at, expires_at:at+3000, revision } : null;
+        announceSpeaker();
         say(
           accepted
             ? `Speaking with ${person.display_name || 'a participant'} · ${reason === 'camera-and-voice' ? 'camera and voice agree' : 'local voice match'} · provisional.`
@@ -134,7 +139,7 @@
                 ? 'Camera evidence is stale. No participant assigned.'
                 : 'Camera and voice disagree. Who is speaking? No participant assigned.',
         );
-        if (accepted) signal('speaker', person);
+        if (accepted) signal('speaker', {...person,matched_at:at,presence_key:signature});
         else {
           signal('speaker', null);
           if (
@@ -150,10 +155,20 @@
       }
       return { accepted, reason, revision };
     }
+    function activeSpeaker(){
+      if(!speaker||speaker.revision!==revision||document.hidden||Date.now()-presence.at>3500||!presence.active)return null;
+      return window.VP3EyesCore.speakerTrack(presence.rows,speaker)?{...speaker}:null;
+    }
+    function announceSpeaker(){window.dispatchEvent(new CustomEvent('vp3:active-speaker',{detail:activeSpeaker()}));}
+    function clearSpeaker(remote=false){speaker=null;announceSpeaker();if(!remote)signal('speaker',null);}
     function receiveSpeaker(value) {
-      speaker = value
-        ? { ...safePerson(value), at: Date.now(), revision }
-        : null;
+      // A delayed popup match belongs only to the exact camera snapshot it saw.
+      // Recheck the parent's correction and camera evidence, without echoing it.
+      const at=Date.now(),matched=value?.matched_at;
+      const valid=value&&value.presence_key===signature&&Number.isFinite(matched)&&matched<=at&&at-matched<3000&&assessVoice(value,{notify:false}).accepted;
+      const person=safePerson(value),visible=presence.rows.filter(r=>r.participant_id===person.participant_id);
+      speaker = valid?{...person,track_id:visible.length===1?visible[0].track_id:'',at:matched,expires_at:matched+3000,revision}:null;
+      announceSpeaker();
       say(
         speaker
           ? `Speaking with ${speaker.display_name} · provisional local voice match.`
@@ -244,6 +259,7 @@
       const participantId = String(id || current?.participant_id || '');
       if (participantId) rejected.set(participantId, Date.now() + 120000);
       speaker = null;
+      announceSpeaker();
       revision++;
       clearSelection();
       window.VP3VoiceGuard?.clear();
@@ -331,6 +347,7 @@
         editing = false;
         revision++;
         speaker = null;
+        announceSpeaker();
         clearSelection();
         window.VP3VoiceGuard?.clear();
         signal('invalidate', {});
@@ -394,20 +411,20 @@
         (Date.now() - speaker.at > 10000 || speaker.revision !== revision)
       ) {
         speaker = null;
+        announceSpeaker();
         say(selectedParticipant
           ? `${selectedParticipant.display_name} selected for typed Chat.`
           : 'No participant assigned to this conversation turn.');
       }
     }, 1000);
-    window.addEventListener(
-      'stonefellow:chat-context-changing',
-      clearSelection,
-    );
-    window.addEventListener('homeserver:chat-context-changing', clearSelection);
+    const changeConversation=()=>{clearSelection();revision++;clearSpeaker();window.VP3VoiceGuard?.clear();};
+    window.addEventListener('stonefellow:chat-context-changing',changeConversation);
+    window.addEventListener('homeserver:chat-context-changing',changeConversation);
     window.addEventListener('vp3:participant-forgotten', (event) => {
       clearSelection();
       revision++;
       speaker = null;
+      announceSpeaker();
       window.VP3VoiceGuard?.clear();
       signal('invalidate', {});
       log('recognition_forgotten', {
@@ -422,6 +439,7 @@
       if (document.hidden) {
         clearSelection();
         speaker = null;
+        announceSpeaker();
         presence = { active: false, rows: [], at: 0 };
         revision++;
         window.VP3VoiceGuard?.clear();
@@ -434,6 +452,7 @@
         clearInterval(timer);
         loadToken++;
         speaker = null;
+        announceSpeaker();
       },
       { once: true },
     );
@@ -441,6 +460,8 @@
       updatePresence,
       assessVoice,
       receiveSpeaker,
+      activeSpeaker,
+      clearSpeaker,
       rejectCurrent,
       selectedContext,
       setSelection,
@@ -449,6 +470,7 @@
       invalidate: () => {
         revision++;
         speaker = null;
+        announceSpeaker();
         window.VP3VoiceGuard?.clear();
       },
       hear: (text) => {
