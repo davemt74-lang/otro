@@ -43,6 +43,7 @@ DEFAULT_PERMISSIONS = {
     "tools.execute",
     "usage.read",
     "usage.write",
+    "wearable.audio",
 }
 
 

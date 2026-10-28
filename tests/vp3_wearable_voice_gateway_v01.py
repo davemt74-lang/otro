@@ -64,8 +64,8 @@ def run() -> None:
             assert approved is not None
             return pending["claim_token"]
 
-        token = pair(device, ["devices.control", "agent.chat"])
-        token_other = pair("vp3-wearable-lab02", ["devices.control", "agent.chat"])
+        token = pair(device, ["wearable.audio"])
+        token_other = pair("vp3-wearable-lab02", ["wearable.audio"])
         token_underprivileged = pair("vp3-wearable-readonly", ["agent.chat"])
 
         def headers(t: str, *, wav_body: bool = False) -> dict:

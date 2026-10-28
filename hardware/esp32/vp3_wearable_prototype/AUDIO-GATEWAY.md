@@ -35,7 +35,8 @@ That is an independent deployment acceptance gate.
 
 - Owner approves a normal VP3 paired application using the existing claim-v1
   pairing flow. Its app_key must identify exactly one wearable in the form
-  vp3-wearable-..., with approved agent.chat AND devices.control permissions.
+  vp3-wearable-..., with **only the dedicated wearable.audio permission**.
+  No general paired-app agent.chat or devices.control grant is needed.
 - The wearable sends its own revocable pairing token using the Authorization:
   Bearer header over HTTPS. **Never store the HomeServer owner bootstrap
   token or Cloud API keys in the wearable.**

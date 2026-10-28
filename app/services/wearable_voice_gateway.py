@@ -24,7 +24,7 @@ MAX_SECONDS = 20
 MAX_WAV_BYTES = SAMPLE_RATE * 2 * MAX_SECONDS + 4096
 MAX_REPLY_BYTES = 8 * 1024 * 1024
 MAX_SESSIONS = 8
-_REQUIRED_PERMISSIONS = frozenset({"devices.control", "agent.chat"})
+_REQUIRED_PERMISSIONS = frozenset({"wearable.audio"})
 _DEVICE_ID = re.compile(r"^vp3-wearable-[a-z0-9-]{1,64}$")
 _COMPUTE_SLOT = threading.BoundedSemaphore(1)
 
