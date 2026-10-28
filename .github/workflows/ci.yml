@@ -38,6 +38,17 @@ on:
       - 'scripts/installer_space_budget.py'
       - 'tests/installer_space*'
       - '.github/workflows/ci.yml'
+      - 'ui/voice-trained*.js'
+      - 'ui/agent-trained-voice.js'
+      - 'ui/agent-voice-guard.js'
+      - 'ui/agent-orb-adapter.js'
+      - 'ui/tracky/src/participant-core.js'
+      - 'ui/tracky/speaker-fusion.js'
+      - 'tests/speaker_fusion_lifecycle_section9.mjs'
+      - 'app/local_voice_api.py'
+      - 'app/services/local_app_catalog.py'
+      - 'app/services/local_apps.py'
+      - 'tests/trained*'
   push:
     branches: [main]
   workflow_dispatch:
@@ -207,6 +218,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/workspace_sync_v1.py
           python tests/participant_memory_sync.py
+          python tests/trained_voice_assets.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_v050.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

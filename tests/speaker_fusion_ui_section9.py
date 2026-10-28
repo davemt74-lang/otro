@@ -20,7 +20,7 @@ for marker in [
 for marker in ['enrichSpeakerTurns','speaker_evidence:Array.isArray(turn.speaker_evidence)','HomeServerSpeakerFusion']:
     assert marker in capture, marker
 for marker in [
-    "from './src/participant-store.js?participant=v1345'","bestVoiceParticipantMatch","bestParticipantMatch",
+    "from './src/participant-store.js?participant=v1346'","bestVoiceParticipantMatch","bestParticipantMatch",
     "voiceEmbeddingFromPcm","voiceProfileSamples","rawAudioStored:false",
     "if(embedding&&!evidence[0].overlap)","source:'verified_voice'","source:'visual_corroboration'",
     "VISUAL_MAX_AGE_MS=1600","privacyClear()","faces.length===1","pagehide",

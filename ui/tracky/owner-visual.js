@@ -4,7 +4,7 @@
  */
 import { autoEnrollmentDecision, AUTO_ENROLLMENT_TARGET } from './src/auto-enrollment-core.js';
 import { faceQuality, normalizeBox } from './src/participant-core.js';
-import { listParticipants, saveParticipant, deleteParticipant } from './src/participant-store.js?participant=v1345';
+import { listParticipants, saveParticipant, deleteParticipant } from './src/participant-store.js?participant=v1346';
 import { HUMAN_ESM_URL, HUMAN_MODEL_BASE } from './src/model-config.js';
 
 const el = id => document.getElementById(id);

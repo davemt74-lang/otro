@@ -1,4 +1,4 @@
-import { participantRecord, cryptoRandomId } from './participant-core.js?participant=v1344';
+import { participantRecord, cryptoRandomId } from './participant-core.js?participant=v1346';
 export { participantRecord };
 
 const DB_NAME = 'tracky-participants-v1';

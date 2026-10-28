@@ -271,6 +271,7 @@ export function participantRecord(input = {}) {
       && !Number.isNaN(Date.parse(input.agentEyesEnrollment.consentedAt))
       ? {scope:'participant-local',consentedAt:input.agentEyesEnrollment.consentedAt} : null,
     voiceEmbeddings,
+    voiceTrainedProfile: cleanTrainedVoiceProfile(input.voiceTrainedProfile),
     voiceRecognitionEnabled: input.voiceRecognitionEnabled===true&&voiceProfileReady,
     voiceProfileSamples: cleanVoiceSamples(input.voiceProfileSamples),
     voiceProfileReady,
@@ -287,3 +288,4 @@ export function cryptoRandomId() {
   return 'p-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
 
+import {cleanProfile as cleanTrainedVoiceProfile} from '../../voice-trained-core.js';

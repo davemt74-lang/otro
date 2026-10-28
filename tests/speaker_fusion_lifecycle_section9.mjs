@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {FEATURE,REVISION,cleanProfile,profileMatch} from '../ui/voice-trained-core.js';
 import {participantRecord} from '../ui/tracky/src/participant-core.js';
 
 const source=fs.readFileSync(new URL('../ui/tracky/speaker-fusion.js',import.meta.url),'utf8');
@@ -16,7 +17,7 @@ function wav(){
  return {arrayBuffer:async()=>bytes};
 }
 async function runtime(options={}){
- let rows=[{id:'owner',name:'Owner',recognitionEnabled:true,embeddings:[vector,vector,vector],voiceEmbeddings:[vector,vector],voiceProfileReady:false,voiceRecognitionEnabled:false}];
+ let rows=options.rows||[{id:'owner',name:'Owner',recognitionEnabled:true,embeddings:[vector,vector,vector],voiceEmbeddings:[vector,vector],voiceProfileReady:false,voiceRecognitionEnabled:false}];
  let stopped=0,writes=0,privacyChecks=0,faces=options.faces||[];
  const events=[],handlers=new Map(),docHandlers=new Map();
  const listen=(map,name,fn)=>{const list=map.get(name)||[];list.push(fn);map.set(name,list);};
@@ -45,6 +46,20 @@ async function runtime(options={}){
   './src/voice-profile-core.js':{VOICE_FEATURE_VERSION:'tracky-acoustic-v1',VOICE_PROFILE_MIN_SAMPLES:3,VOICE_PROFILE_MAX_SAMPLES:12,
    voiceEmbeddingFromPcm:()=>vector,bestVoiceParticipantMatch:(_,participants)=>({matched:true,participant:participants[0],similarity:.95})},
   'human-fixture':{Human:class{async load(){}async detect(){return {face:faces};}}}};
+ if(options.trained){
+  context.window.VP3TrainedVoice={enabled:()=>options.enabled!==false,
+   extract:async(samples,rate,flags)=>{options.flags=flags;if(options.inference)await options.inference.promise;return {embedding:new Array(512).fill(1)};},
+   match:async(embedding,people)=>{if(options.matchGate)await options.matchGate.promise;return profileMatch(embedding,people);},
+   readyProfile:p=>(cleanProfile(p.voiceTrainedProfile)?.embeddings.length||0)>=3,clear:()=>{}};
+  context.window.VP3_ORB_ADAPTER={saveTrainedVoiceSample:async({id,embedding,isCurrent})=>{
+   if(options.writeGate)await options.writeGate.promise;
+   if(!isCurrent()){const e=Error('cancelled');e.name='AbortError';throw e;}
+   const person=rows.find(p=>p.id===id),embeddings=[...(person.voiceTrainedProfile?.embeddings||[]),embedding].slice(-5);
+   const profile=cleanProfile({feature:FEATURE,revision:REVISION,consentedAt:new Date().toISOString(),embeddings});
+   rows=[participantRecord({...person,voiceTrainedProfile:profile})];writes++;
+   return {...rows[0],voiceEmbeddings:profile.embeddings,voiceProfileReady:profile.embeddings.length>=3};
+  }};
+ }
  const modules=new Map();
  async function link(name){
   name=name.split('?')[0];
@@ -124,5 +139,38 @@ await check('one unambiguous camera match emits a valid local corroboration row'
  const output=await r.api.analyzeChunk(wav(),[turn],0);r.api.stopCameraCorroboration();
  const visual=output[0].speaker_evidence.find(e=>e.source==='visual_corroboration');
  assert.equal(visual?.participant_identity,'tracky:owner');assert.equal(visual?.confidence,.95);
+});
+const trainedPerson=(count=3)=>({id:'owner',name:'Owner',notes:'Keep notes',recognitionEnabled:true,embeddings:[vector,vector,vector],voiceEmbeddings:[vector,vector],
+ voiceTrainedProfile:cleanProfile({feature:FEATURE,revision:REVISION,consentedAt:new Date().toISOString(),embeddings:Array.from({length:count},()=>new Array(512).fill(1))})});
+await check('trained transcription uses the selected model and separates stored legacy features',async()=>{
+ const options={trained:true,rows:[trainedPerson(2)]},r=await runtime(options);
+ assert.equal((await r.api.profileSummary())[0].voiceReady,false);
+ await r.api.beginVoiceEnrollment('owner');const out=await r.api.analyzeChunk(wav(),[turn],0);
+ assert.equal(options.flags.enrollment,true);assert.equal(r.writes(),1);
+ assert.equal(r.rows()[0].voiceTrainedProfile.embeddings.length,3);assert.equal(r.rows()[0].voiceEmbeddings.length,2);
+ assert.equal(r.rows()[0].notes,'Keep notes');assert.equal((await r.api.profileSummary())[0].voiceReady,true);
+ assert.ok(out[0].speaker_evidence.some(e=>e.source==='verified_voice'));assert.equal(r.api.enrollmentState(),null);
+});
+await check('trained transcription never labels or enrolls reported overlap',async()=>{
+ const options={trained:true,rows:[trainedPerson()]},r=await runtime(options);await r.api.beginVoiceEnrollment('owner');
+ const out=await r.api.analyzeChunk(wav(),[{...turn,overlap:true}],0);
+ assert.equal(options.flags.overlap,true);assert.equal(options.flags.enrollment,false);assert.equal(r.writes(),0);
+ assert.ok(!out[0].speaker_evidence.some(e=>e.source==='verified_voice'));
+});
+await check('Stop during trained inference fences enrollment and identity',async()=>{
+ const inference=deferred(),r=await runtime({trained:true,inference,rows:[trainedPerson()]});await r.api.beginVoiceEnrollment('owner');
+ const pending=r.api.analyzeChunk(wav(),[turn],0);await tick();r.api.cancelVoiceEnrollment();inference.resolve();const out=await pending;
+ assert.equal(r.writes(),0);assert.ok(!out[0].speaker_evidence.some(e=>e.source==='verified_voice'));
+});
+await check('clearing a trained profile fences an already pending identity match',async()=>{
+ const matchGate=deferred(),r=await runtime({trained:true,matchGate,rows:[trainedPerson()]});
+ const pending=r.api.analyzeChunk(wav(),[turn],0);await tick();await r.api.clearVoiceProfile('owner');matchGate.resolve();const out=await pending;
+ assert.equal(r.rows()[0].voiceTrainedProfile,null);assert.equal(r.rows()[0].notes,'Keep notes');assert.equal(r.rows()[0].embeddings.length,3);
+ assert.ok(!out[0].speaker_evidence.some(e=>e.source==='verified_voice'));
+ assert.ok(r.events.some(e=>e.type==='vp3:participant-forgotten'));
+});
+await check('changing matching engines cancels an armed enrollment',async()=>{
+ const options={trained:true,rows:[trainedPerson(2)]},r=await runtime(options);await r.api.beginVoiceEnrollment('owner');
+ options.enabled=false;await r.api.analyzeChunk(wav(),[turn],0);assert.equal(r.api.enrollmentState(),null);assert.equal(r.writes(),0);
 });
 console.log(`SPEAKER_FUSION_LIFECYCLE_SECTION9C=PASS (${cases.length} behavioral cases)`);

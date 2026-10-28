@@ -3,7 +3,7 @@ from __future__ import annotations
 # v0.43 keeps Local Apps and voice packs in one embedded, owner-reviewed
 # catalog. Remote callers cannot add arbitrary URLs or commands; each voice
 # model is pinned by size and SHA-256 like every other managed artifact.
-CATALOG_VERSION = "2026.09.10.3"
+CATALOG_VERSION = "2026.10.28.voice1"
 
 _PIPER_VOICE_BASE = (
     "https://huggingface.co/rhasspy/piper-voices/resolve/"
@@ -82,6 +82,23 @@ def _piper_voice_pack(
 
 
 CATALOG = {
+    "voice-speaker-wavlm": {
+        "key":"voice-speaker-wavlm","name":"Trained voice profiles — WavLM",
+        "version":"e61029603001-q8-v1","category":"Voice",
+        "description":"Optional 124 MB voice model and inference runtime. Runs locally in a browser worker; raw enrollment audio is not retained.",
+        "runtime":"Browser ONNX/WASM","source_label":"Xenova/wavlm-base-plus-sv e61029603001",
+        "license":"Apache-2.0","capabilities":["voice.profile.trained"],
+        "requirements":{"os":["windows","linux","darwin"],"arch":["amd64","arm64"],"gpu":False,"python":False},
+        "artifacts":[
+            {**_file("speaker-config","config.json","75efe37fb015f22d82af367dcef974c39119fa4c6505d16a82d86f604a431f4e",58609),"url":"https://huggingface.co/Xenova/wavlm-base-plus-sv/resolve/e61029603001bd11295c36d878698708bf59190f/config.json"},
+            {**_file("speaker-preprocessor","preprocessor_config.json","99272fe8ccfab114b68b478681ea47ee3a1ce62bb788cb92dd6e4f69fb1f1da2",215),"url":"https://huggingface.co/Xenova/wavlm-base-plus-sv/resolve/e61029603001bd11295c36d878698708bf59190f/preprocessor_config.json"},
+            {**_file("speaker-q8","onnx/model_quantized.onnx","576bf6017796bdd179824d801b3a355a1dda2451559c6a398562175e33589f68",101683453),"url":"https://huggingface.co/Xenova/wavlm-base-plus-sv/resolve/e61029603001bd11295c36d878698708bf59190f/onnx/model_quantized.onnx"},
+            {**_file("speaker-runtime","runtime/transformers.min.js","aa5002b70e789798da263f5f99c62bd3e8fcd0c119258a493c40c180648365fa",888173),"url":"https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js"},
+            {**_file("speaker-wasm-loader","runtime/ort-wasm-simd-threaded.jsep.mjs","08fb86ec433c78bfb032c5d84a68b8e8e5a8d81268fa39e24314179a5767a5b9",44484),"url":"https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.mjs"},
+            {**_file("speaker-wasm","runtime/ort-wasm-simd-threaded.jsep.wasm","c46655e8a94afc45338d4cb2b840475f88e5012d524509916e505079c00bfa39",21596019),"url":"https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/ort-wasm-simd-threaded.jsep.wasm"},
+        ],
+        "required_paths":["config.json","preprocessor_config.json","onnx/model_quantized.onnx","runtime/transformers.min.js","runtime/ort-wasm-simd-threaded.jsep.mjs","runtime/ort-wasm-simd-threaded.jsep.wasm"],
+    },
     "piper-tts": {
         "key": "piper-tts",
         "name": "Piper TTS",
