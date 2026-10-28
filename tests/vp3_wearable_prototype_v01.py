@@ -174,6 +174,7 @@ def run() -> None:
             device_audio.device_audio.start_capture = forbidden_capture
             actor = physical_agent.PhysicalAgentRuntime()
             actor._started = True  # no service / event handler or microphone started
+            actor._state = "idle"  # exercise the microphone gate, not disabled state
             attempt = actor.begin_listening()
             assert attempt["started"] is False
             assert "Microphone hardware is unavailable" in attempt["reason"]
