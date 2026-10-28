@@ -47,6 +47,7 @@ async function runtime(options={}){
   'human-fixture':{Human:class{async load(){}async detect(){return {face:faces};}}}};
  const modules=new Map();
  async function link(name){
+  name=name.split('?')[0];
   if(modules.has(name))return modules.get(name);
   const exports=values[name];assert.ok(exports,name);
   const module=new vm.SyntheticModule(Object.keys(exports),function(){for(const [key,value] of Object.entries(exports))this.setExport(key,value);},{context});

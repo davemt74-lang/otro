@@ -26,6 +26,45 @@
       say = (t) => {
         q('[data-participant-status]').textContent = t;
       };
+    const syncPanel=document.createElement('div');
+    syncPanel.innerHTML='<p data-participant-sync-status role="status"></p><div data-participant-sync-link hidden><label>Cloud participant<select data-participant-cloud aria-label="Cloud participant to link"></select></label><button type="button" data-participant-link>Link selected Cloud participant</button><button type="button" data-participant-separate>Sync as a separate participant</button></div><div data-participant-sync-conflict hidden><p>Saved local details:</p><pre data-participant-local-version></pre><p>Cloud details:</p><pre data-participant-cloud-version></pre><button type="button" data-participant-use-cloud>Use Cloud details</button><button type="button" data-participant-keep-local>Keep local details</button></div><button type="button" data-participant-remove>Remove participant</button>';
+    panel.append(syncPanel);let syncToken=0;
+    async function syncStatus(){
+      const id=q('[data-participant-select]').value,token=++syncToken;
+      q('[data-participant-sync-link]').hidden=true;q('[data-participant-sync-conflict]').hidden=true;
+      q('[data-participant-remove]').hidden=!id||!adapter.removeParticipant;
+      if(!adapter.participantSyncStatus){q('[data-participant-sync-status]').textContent='';return;}
+      try{
+        const state=await adapter.participantSyncStatus(id);if(token!==syncToken||q('[data-participant-select]').value!==id)return;
+        q('[data-participant-sync-status]').textContent=state.text;
+        if(id&&state.canLink){
+          const options=(state.options||[]).map(p=>{const o=document.createElement('option');o.value=p.key;o.textContent=p.label;return o;});
+          q('[data-participant-cloud]').replaceChildren(...options);q('[data-participant-link]').disabled=!options.length;q('[data-participant-sync-link]').hidden=false;
+        }
+        if(id&&state.conflict){
+          const describe=p=>!p?'Unavailable':p.deleted?'Participant removed':p.name+'\n'+(p.note||'(No conversation note)');
+          q('[data-participant-local-version]').textContent=describe(state.local);q('[data-participant-cloud-version]').textContent=describe(state.remote);
+          q('[data-participant-sync-conflict]').hidden=false;q('[data-participant-keep-local]').disabled=state.protected===true;
+          q('[data-participant-keep-local]').textContent=state.remote?.deleted?'Keep local as a separate participant':'Keep local details';
+        }
+      }catch(error){if(token===syncToken)q('[data-participant-sync-status]').textContent=String(error.message||'Participant sync unavailable.');}
+    }
+    async function syncAction(action){
+      const id=q('[data-participant-select]').value;if(!id)return;
+      const buttons=Array.from(syncPanel.querySelectorAll('button'));buttons.forEach(b=>b.disabled=true);
+      try{await action(id);clearSelection();window.VP3VoiceGuard?.clear();await window.VP3AgentEyes?.refreshProfiles?.();await refresh();}
+      catch(error){q('[data-participant-save-status]').textContent=String(error.message||'Participant update unavailable.');}
+      finally{buttons.forEach(b=>b.disabled=false);await syncStatus();}
+    }
+    q('[data-participant-link]').addEventListener('click',()=>void syncAction(id=>adapter.linkParticipant(id,q('[data-participant-cloud]').value)));
+    q('[data-participant-separate]').addEventListener('click',()=>void syncAction(id=>adapter.linkParticipant(id,'')));
+    q('[data-participant-use-cloud]').addEventListener('click',()=>void syncAction(id=>adapter.resolveParticipantSync(id,'cloud')));
+    q('[data-participant-keep-local]').addEventListener('click',()=>void syncAction(id=>adapter.resolveParticipantSync(id,'local')));
+    q('[data-participant-remove]').addEventListener('click',()=>{
+      if(confirm('Remove this participant and their saved conversation note? A linked deletion also syncs to Cloud or HomeServer.'))void syncAction(id=>adapter.removeParticipant(id));
+    });
+    window.addEventListener('vp3:participant-sync-status',()=>{if(panel.open)void syncStatus();});
+    window.addEventListener('vp3:participant-memory-changed',()=>{clearSelection();if(panel.open&&!editing)void refresh();});
     function signal(kind, value) {
       window.VP3AgentOrb?.participantSignal?.(kind, value);
     }
@@ -222,6 +261,7 @@
       const token = ++loadToken,
         id = q('[data-participant-select]').value;
       q('[data-participant-save-status]').textContent = '';
+      void syncStatus();
       if (!id) {
         q('[data-participant-name]').value = '';
         q('[data-participant-note]').value = '';
@@ -245,12 +285,12 @@
       const token = ++loadToken,
         selected = q('[data-participant-select]').value;
       try {
-        const rows = await adapter.loadEyesProfiles();
+        const rows = await (adapter.loadConversationParticipants?.()||adapter.loadEyesProfiles());
         if (token !== loadToken) return;
         const options = rows.map((p) => {
           const o = document.createElement('option');
           o.value = p.id;
-          o.textContent = p.name;
+          o.textContent = p.name+(rows.filter(r=>r.name===p.name).length>1?' · #'+p.id:'');
           return o;
         });
         const blank = document.createElement('option');

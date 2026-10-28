@@ -206,6 +206,7 @@ jobs:
           python tests/native_workspaces.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/workspace_sync_v1.py
+          python tests/participant_memory_sync.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_v050.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,10 +1,12 @@
 import { participantRecord, cryptoRandomId } from './participant-core.js?participant=v1344';
+export { participantRecord };
 
 const DB_NAME = 'tracky-participants-v1';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const PARTICIPANTS = 'participants';
 const PENDING = 'pending-captures';
 const DIALOGUE = 'dialogue-turns';
+const MEMORY = 'participant-memory-links';
 
 export const PENDING_CAPTURE_TTL_MS = 24 * 60 * 60 * 1000;
 export const MAX_DIALOGUE_TURNS = 500;
@@ -51,6 +53,7 @@ export async function openParticipantDb() {
 
     request.onupgradeneeded = () => {
       const db = request.result;
+      if (!db.objectStoreNames.contains(MEMORY)) db.createObjectStore(MEMORY, {keyPath:'id'});
       if (!db.objectStoreNames.contains(PARTICIPANTS)) {
         const participants = db.createObjectStore(PARTICIPANTS, { keyPath: 'id' });
         participants.createIndex('name', 'name', { unique: false });
@@ -140,15 +143,18 @@ export function patchParticipant(id, patch, guard = () => true) {
   });
 }
 
-export async function deleteParticipant(id) {
+export async function deleteParticipant(id, {remote = false, guard = () => true} = {}) {
   const db = await openParticipantDb();
   try {
-    const tx = db.transaction([PARTICIPANTS, DIALOGUE], 'readwrite');
+    const tx = db.transaction([PARTICIPANTS, DIALOGUE, MEMORY], 'readwrite');
     const done = transactionToPromise(tx);
     const participants = tx.objectStore(PARTICIPANTS);
     const dialogue = tx.objectStore(DIALOGUE);
 
     const participant = await requestToPromise(participants.get(id));
+    const memory=tx.objectStore(MEMORY),link=await requestToPromise(memory.get(id));
+    if(!guard(participant,link)){await done;return false;}
+    if(link) await requestToPromise(memory.put({...link,deleted:true,remoteDeleted:remote}));
     await requestToPromise(participants.delete(id));
 
     const rows = await requestToPromise(dialogue.getAll());
@@ -179,6 +185,18 @@ export async function deleteParticipant(id) {
   } finally {
     db.close();
   }
+}
+
+/** Atomic participant/link operations. Callbacks may await only IndexedDB requests. */
+export async function participantMemoryAction(action) {
+  const db=await openParticipantDb();
+  try {
+    const tx=db.transaction([PARTICIPANTS,MEMORY],'readwrite'),done=transactionToPromise(tx);
+    try {
+      const result=await action({participants:tx.objectStore(PARTICIPANTS),links:tx.objectStore(MEMORY),request:requestToPromise});
+      await done;return result;
+    }catch(error){try{tx.abort();}catch(_){}await done.catch(()=>{});throw error;}
+  }finally{db.close();}
 }
 
 export async function prunePendingCaptures(now = Date.now()) {

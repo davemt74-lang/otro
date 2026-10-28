@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
-import {chromium} from 'playwright';
+import {createRequire} from 'node:module';
+const {chromium}=createRequire(import.meta.url)(process.env.VP3_PLAYWRIGHT_MODULE||'playwright');
 const root=process.cwd();
 const server=http.createServer(async(req,res)=>{
  try {
@@ -22,8 +23,12 @@ try {
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto(`http://127.0.0.1:${server.address().port}/`);
  const cases=await page.evaluate(async()=>{
+  // Start from the actual previous database version, including existing samples.
+  await new Promise((resolve,reject)=>{const r=indexedDB.open('tracky-participants-v1',2);r.onupgradeneeded=()=>{const d=r.result;d.createObjectStore('participants',{keyPath:'id'});d.createObjectStore('pending-captures',{keyPath:'id'});d.createObjectStore('dialogue-turns',{keyPath:'id'});};r.onsuccess=()=>{const d=r.result,t=d.transaction('participants','readwrite');t.objectStore('participants').put({id:'before-upgrade',name:'Existing v1344',embeddings:[[1,2,3]],notes:'Keep existing data'});t.oncomplete=()=>{d.close();resolve();};t.onerror=()=>reject(t.error);};r.onerror=()=>reject(r.error);});
   const s=await import('/ui/tracky/src/participant-store.js');
   const checks=[];const ok=(v,name)=>{if(!v)throw Error(name);checks.push(name);};
+  const prior=await s.getParticipant('before-upgrade');ok(prior.name==='Existing v1344'&&prior.embeddings[0][2]===3&&prior.notes==='Keep existing data','v2 to v3 upgrade preserves existing participants and samples');
+  await s.deleteParticipant('before-upgrade');
   await s.saveParticipant({id:'a',name:'Same',notes:'initial'});
   await Promise.all([s.patchParticipant('a',{nickname:'updated'}),s.patchParticipant('a',{notes:'new notes'})]);
   let a=await s.getParticipant('a');ok(a.nickname==='updated'&&a.notes==='new notes','concurrent patches preserve independent changes');
@@ -45,6 +50,7 @@ try {
   await Promise.all([s.saveDialogueTurn({id:'race-turn',participantId:'c',text:'race'}),s.deleteParticipant('c')]);
   ok(!(await s.listDialogueTurns()).some(t=>t.participantId==='c'),'dialogue write and deletion share one transaction boundary');
   await s.saveParticipant({id:'voice',name:'Voice',notes:'unchanged'});
+  ok(await s.deleteParticipant('voice',{remote:true,guard:p=>p.notes==='outdated'})===false&&(await s.getParticipant('voice')).notes==='unchanged','remote deletion guard preserves a newer local edit');
   const cancelled=await s.patchParticipant('voice',{notes:'must not commit'},()=>false).then(()=>false,e=>e.name==='AbortError');
   ok(cancelled&&(await s.getParticipant('voice')).notes==='unchanged','cancelled guarded patch does not commit');
   let guardCalls=0;

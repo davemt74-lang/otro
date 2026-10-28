@@ -1,5 +1,5 @@
 import {bestParticipantMatch} from './src/participant-core.js';
-import {getParticipant,listParticipants,patchParticipant} from './src/participant-store.js';
+import {getParticipant,listParticipants,patchParticipant} from './src/participant-store.js?participant=v1345';
 import {HUMAN_ESM_URL,HUMAN_MODEL_BASE} from './src/model-config.js';
 import {
   VOICE_FEATURE_VERSION,VOICE_PROFILE_MIN_SAMPLES,VOICE_PROFILE_MAX_SAMPLES,

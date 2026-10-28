@@ -357,6 +357,8 @@ def sync_once(client: httpx.Client | None = None) -> dict:
         remote_deliveries={row['dataset']:row['revision'] for row in catalog.get('homeserver',[]) if isinstance(row,dict) and row.get('dataset') in DATASETS}
         from . import workspace_actions
         workspace_actions.deliver(client,session)
+        from . import participant_memory_sync
+        participant_memory_sync.deliver(client,session,peer)
         for dataset in DATASETS:
             manifest=_request(client,session,{'action':'prepare','dataset':dataset})
             revision=manifest.get('revision');total=manifest.get('byte_count')
