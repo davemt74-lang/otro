@@ -2,7 +2,7 @@
  * No new participant, no server recognition report, no photo/embedding export.
  * A similarity result is not identity proof or HomeServer certification.
  */
-import {listParticipants,getParticipant} from './src/participant-store.js';
+import {listParticipants,getParticipant} from './src/participant-store.js?participant=v1345';
 import {HUMAN_ESM_URL,HUMAN_MODEL_BASE} from './src/model-config.js';
 import {evaluateOwnerSelfCheck,OWNER_SELF_CHECK_DURATION_MS} from './src/owner-self-check-core.js';
 

@@ -1,5 +1,6 @@
 """Integrated Tracky owner visual onboarding: auth, consent, recovery and honest verification."""
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -11,7 +12,7 @@ js=(ROOT/"ui/tracky/owner-visual.js").read_text(encoding="utf-8")
 html=(ROOT/"ui/index.html").read_text(encoding="utf-8")
 assert 'id="onboardVisual"' in html
 assert 'id="onboardVisualConsent"' in html
-assert 'type="module" src="/assets/tracky/owner-visual.js"' in html
+assert re.search(r'type="module" src="/assets/tracky/owner-visual\.js(?:\?[^"\s]*)?"',html)
 assert "getUserMedia" in js and "window.confirm" in js
 assert "saveParticipant" in js and "deleteParticipant" in js
 assert "enrollment_verified" in (ROOT/"app/services/onboarding_visual.py").read_text(encoding="utf-8")

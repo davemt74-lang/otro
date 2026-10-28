@@ -11,8 +11,8 @@ for(const id of ['onboardVisualLink','onboardVisualLinkTarget',
                  'onboardVisualLinkRevoke','onboardVisualLinkState']){
   assert.match(html,new RegExp('id="'+id+'"'));
 }
-assert.match(html,/type="module" src="\/assets\/tracky\/owner-contact-link\.js"/);
-assert.match(link,/from '\.\/src\/participant-store\.js'/);
+assert.match(html,/type="module" src="\/assets\/tracky\/owner-contact-link\.js(?:\?[^"\s]*)?"/);
+assert.match(link,/from '\.\/src\/participant-store\.js(?:\?[^'\s]*)?'/);
 assert.match(link,/report\.local_participant_id/);
 assert.match(link,/owner\.embeddings\?\.length >= 3/);
 assert.match(link,/window\.confirm\('Attribute your browser-reported self-profile/);

@@ -7,6 +7,42 @@ from .services import browser_captures_r4, project_knowledge_r5, project_knowled
 
 router=APIRouter(prefix='/api/v1/control/workspace-sync',tags=['workspace-sync'])
 
+@router.get('/participants')
+def participant_memory(response:Response,after:str=Query(default='',max_length=32))->dict:
+    from .services import participant_memory_sync
+    response.headers['Cache-Control']='no-store'
+    try:return participant_memory_sync.page(after)
+    except workspace_sync.WorkspaceSyncError as exc:raise HTTPException(exc.status_code,detail=str(exc)) from exc
+
+@router.post('/participants')
+async def participant_changes(request:Request,response:Response,x_requested_with:str|None=Header(default=None))->dict:
+    mutation(request,x_requested_with);response.headers['Cache-Control']='no-store'
+    raw=await request.body()
+    if len(raw)>131072:raise HTTPException(413,detail='Participant batch is too large.')
+    import json
+    from .services import participant_memory_sync
+    try:
+        body=json.loads(raw)
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(participant_memory_sync.stage,body)
+    except (ValueError,TypeError) as exc:raise HTTPException(422,detail='Invalid participant changes.') from exc
+    except workspace_sync.WorkspaceSyncError as exc:raise HTTPException(exc.status_code,detail=str(exc)) from exc
+
+@router.post('/participants/use-cloud')
+async def participant_use_cloud(request:Request,x_requested_with:str|None=Header(default=None))->dict:
+    mutation(request,x_requested_with)
+    raw=await request.body()
+    if len(raw)>2048:raise HTTPException(413,detail='Participant resolution is too large.')
+    import json
+    from .services import participant_memory_sync
+    try:
+        body=json.loads(raw)
+        if not isinstance(body,dict):raise ValueError()
+        from starlette.concurrency import run_in_threadpool
+        return await run_in_threadpool(participant_memory_sync.discard,body)
+    except (ValueError,TypeError) as exc:raise HTTPException(422,detail='Invalid participant resolution.') from exc
+    except workspace_sync.WorkspaceSyncError as exc:raise HTTPException(exc.status_code,detail=str(exc)) from exc
+
 @router.get('/browser-captures')
 def browser_captures(response:Response,local_conversation:str=Query(default='',max_length=100),agent_id:int=Query(default=0,ge=0))->dict:
     response.headers['Cache-Control']='no-store'

@@ -2,7 +2,7 @@
  * to an EXISTING local HomeServer contact. No camera, embeddings, portrait,
  * automatic contact creation, Cloud identity assertion or biometric transport.
  */
-import { listParticipants } from './src/participant-store.js';
+import { listParticipants } from './src/participant-store.js?participant=v1345';
 
 const el = id => document.getElementById(id);
 const BASE = '/api/v1/control/onboarding/visual/contact-link/';

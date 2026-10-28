@@ -4,15 +4,22 @@
   window.addEventListener('homeserver:voice-state',event=>{voiceState=String(event.detail?.state||'idle');});
   window.addEventListener('homeserver:voice-playback',event=>{audible=event.detail?.active===true;});
   async function api(url,body,keepalive=false){const r=await fetch(url,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',keepalive,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.detail||'HomeServer request failed.');return data;}
-  const store=()=>import('/assets/tracky/src/participant-store.js?participant=v1344');
+  const store=()=>import('/assets/tracky/src/participant-store.js?participant=v1345');
+  const memory=import('/assets/participant-memory-sync.js?v=v1345').then(async module=>module.createParticipantMemorySync(await store()));
+  memory.catch(()=>{});
   const recording=()=>window.HomeServerDictation?.isTranscribing?.()===true;
   const state=()=>{let value=audible?'speaking':$('voiceInputButton')?.dataset.voiceState||voiceState;if(value==='speaking'&&!audible)value='thinking';if(!audible&&window.HomeServerChatTurn?.isBusy?.())value='thinking';return {state:value,recording:recording()};};
   const adapter={ownerKey:'homeserver-local-owner',chatUrl:'/#chat',alwaysBar:true,state,voiceFeatureUrl:'/assets/tracky/src/voice-profile-core.js',
     conversationRef:()=>window.HomeServerChatTurn?.isReady?.()===false?null:({id:window.HomeServerChatTurn?.conversationId?.()||''}),
     conversationUrl:ref=>{const u=new URL('/#chat',location.href);if(/^[a-f0-9]{32}$/.test(String(ref?.id||'')))u.searchParams.set('conversation_id',ref.id);return u.href;},
     focusChat:()=>{document.querySelector('[data-view="chat"]')?.click();$('chatInput')?.focus();},
-    participantDetails:async id=>{const p=await (await store()).getParticipant(id);if(!p)throw Error('Participant unavailable.');return {id:p.id,name:p.name,note:p.agentConversationNote||''};},
+    participantDetails:async id=>(await memory).details(id),
+    loadConversationParticipants:async()=>(await memory).list(),
     voiceParticipantNote:async id=>(await adapter.participantDetails(id)).note,
+    participantSyncStatus:async id=>(await memory).status(id),
+    linkParticipant:async(id,key)=>(await memory).link(id,key),
+    resolveParticipantSync:async(id,choice)=>(await memory).resolve(id,choice),
+    removeParticipant:async id=>(await memory).remove(id),
     saveParticipantDetails:async({id,name,note,isCurrent})=>{if(!name.trim()||name.length>120||note.length>1000)throw Error('Enter a name up to 120 characters and note up to 1000 characters.');const p=await (await store()).patchParticipant(id,p=>({...p,name:name.trim(),agentConversationNote:note.trim()}),isCurrent);return {id:p.id,name:p.name,note:p.agentConversationNote};},
     busy:()=>Boolean(window.HomeServerChatTurn?.isBusy?.()||['thinking','speaking','connecting'].includes(state().state)||recording()||$('chatInput')?.value.trim()),
     listen:()=>{if(!window.HomeServerConversationVoice?.isEnabled?.())$('voiceInputButton')?.click();},
@@ -31,10 +38,10 @@
       return data.privacy_engaged===false&&native.privacy_engaged===false&&native.active!==true;
     },
     loadEyesProfiles:async()=>{
-      const rows=await (await store()).listParticipants();return rows.map(p=>({...p,recognitionEnabled:p.recognitionEnabled!==false&&!!p.agentEyesEnrollment?.consentedAt}));
+      const rows=await (await memory).people();return rows.map(p=>({...p,recognitionEnabled:p.recognitionEnabled!==false&&!!p.agentEyesEnrollment?.consentedAt}));
     },
     introduceEyes:async({name,isCurrent=()=>true})=>{
-      const data=await store(),rows=await data.listParticipants();if(!isCurrent())throw Error('Introduction stopped.');
+      const data=await store(),rows=await (await memory).people();if(!isCurrent())throw Error('Introduction stopped.');
       const existing=rows.filter(p=>p.name.normalize('NFKC').toLocaleLowerCase()===name.normalize('NFKC').toLocaleLowerCase());
       if(existing.length>1)throw Error('More than one participant has that name. Choose the participant in Eyes.');
       if(existing.length)return {id:String(existing[0].id),name:existing[0].name};
@@ -47,7 +54,7 @@
         await data.patchParticipant(id,p=>{if(!isCurrent())throw Error('Enrollment stopped.');return {...p,embeddings,recognitionEnabled:true,agentEyesEnrollment:{consentedAt:new Date().toISOString(),scope:'participant-local'}};});
       }else await data.saveParticipant({name,embeddings,recognitionEnabled:true,agentEyesEnrollment:{consentedAt:new Date().toISOString(),scope:'participant-local'}});
     },
-    loadVoiceProfiles:async()=>await (await store()).listParticipants(),
+    loadVoiceProfiles:async()=>await (await memory).people(),
     saveVoiceSample:async({id,embedding,isCurrent})=>{const data=await store();if(!isCurrent())throw Error('Voice enrollment stopped.');return await data.patchParticipant(id,p=>{if(!isCurrent())throw Error('Voice enrollment stopped.');const voiceEmbeddings=[...(p.voiceEmbeddings||[]),embedding].slice(-5);return {...p,voiceEmbeddings,voiceRecognitionEnabled:true,voiceProfileReady:voiceEmbeddings.length>=3};},isCurrent);},
     forgetVoice:async id=>{const data=await store();await data.patchParticipant(id,p=>({...p,voiceEmbeddings:[],voiceProfileSamples:[],voiceRecognitionEnabled:false,voiceProfileReady:false}));},
     forgetEyes:async id=>{const data=await store();await data.patchParticipant(id,p=>({...p,embeddings:[],visualEnrollment:null,agentEyesEnrollment:null,recognitionEnabled:false}));},

@@ -35,7 +35,7 @@ for(const id of ['onboardSelfCheck','onboardSelfCheckStart','onboardSelfCheckSto
  'onboardSelfCheckConsent','onboardSelfCheckState','onboardSelfCheckVideo','onboardSelfCheckPreview']){
  assert.match(html,new RegExp('id="'+id+'"'));
 }
-assert.match(html,/type="module" src="\/assets\/tracky\/owner-self-check\.js"/);
+assert.match(html,/type="module" src="\/assets\/tracky\/owner-self-check\.js(?:\?[^"\s]*)?"/);
 assert.match(code,/listParticipants\(\)/);
 assert.match(code,/evaluateOwnerSelfCheck/);
 assert.match(code,/state\.privacy_engaged===false/);
