@@ -30,6 +30,11 @@ On that same computer, open **http://127.0.0.1:8765/**.
 
 This preview is **not** a new desktop agent stack: it does not invoke the cognitive runtime, chat, microphone, Cloud, or the production floating-agent service. Later, the actual OTRO floating agent will subscribe to the existing hardware events after the real device handshake.
 
+### Developer Voice preview v0.3 (no audio)
+
+In the desktop panel, click **Enable PTT preview** before touching the round orb. The UI now demonstrates press/release/hold, a Stop control, a 30-second timeout and reconnect reset. **It does not initialize a microphone or record a single audio byte.** The word Preview is intentional. Read [the Developer Voice safety contract](DEVELOPER-VOICE.md) before enabling actual device capture. The critical integration gap is explicit audio-source binding: OTRO currently records from a configured **Windows microphone**, not from the ESP32, so blindly marking the wearable microphone ready could select the wrong microphone.
+
+
 The round touch UI can be used with mouse, touch or keyboard. Press/release/hold sends simulated agent_button events. State controls simulate OTRO status_light.set commands. The protocol log exposes the same JSON frames the real USB serial board will use. Reconnect simulates a new handshake.
 
 **Important:** This is an in-memory, loopback-only fixture. It **does not** talk to actual OTRO services, VP3 Cloud, HostGator, or your remote HomeServer subdomain. It does not capture audio, access a microphone, or store credentials. It's safe to use while another agent works on OTRO.
@@ -87,7 +92,7 @@ Only a **USB serial link** is implemented in v0.1, even though the ESP32-S3 has 
 
 ## Definition of ready for a later integration PR
 
-- [x] Simulator UI, paired desktop floating preview and in-memory protocol frames authored
+- [x] Simulator UI, paired desktop floating preview, PTT state machine and in-memory protocol frames authored
 - [x] Isolated firmware source and adapter regression test authored
 - [ ] Focused CI green on the draft PR
 - [ ] Official Waveshare driver toolchain compiles the overlay sketch

@@ -41,6 +41,10 @@
     .controls button{background:#203b5c;color:#e7f8ff;border:1px solid #486986;padding:9px;border-radius:10px;cursor:pointer}
     .controls button[aria-pressed="true"]{background:#28668e;border-color:#6dbbff}
     .legal{font-size:.73rem;color:#98aec2;margin:0}
+    .voicepreview{border:1px solid #46607d;border-radius:12px;padding:12px;background:#08172c}
+    .voicepreview h2{font-size:.85rem;margin:0 0 9px}
+    .voicepreview button{background:#2d4564;color:#f1f8ff;border:1px solid #6485a6;border-radius:8px;padding:8px;cursor:pointer;margin:5px 6px 5px 0}
+    .voicepreview .vstate{font-size:.78rem;color:#98d3fa}
     a{color:#8dd6ff}
     .status{position:absolute;left:-9999px}
     @media(max-width:540px){.dock{right:14px;bottom:16px}.panel{max-height:calc(100dvh - 128px)}.desk{padding:24px}}
@@ -72,6 +76,13 @@
         <button class="modebtn" data-mode="thinking" type="button">Thinking</button>
         <button class="modebtn" data-mode="speaking" type="button">Speaking</button>
       </div>
+      <div class="voicepreview">
+        <h2>Developer Voice · UI simulation</h2>
+        <p class="legal">This only tests push-to-talk interactions. It never starts a microphone, records audio, or grants HomeServer permissions.</p>
+        <button id="voice-toggle" type="button">Enable PTT preview</button>
+        <button id="voice-stop" type="button">Stop</button>
+        <div id="voice-state" class="vstate" role="status">Preview disabled</div>
+      </div>
       <p class="legal">These buttons send simulated status_light.set frames to the round-screen preview. No microphone or live HomeServer is accessed.</p>
       <a href="/">Open round display</a>
     </section>
@@ -83,6 +94,9 @@
       const orb=document.getElementById("orb"),panel=document.getElementById("panel");
       const event=document.getElementById("event"),mode=document.getElementById("mode");
       const dot=document.getElementById("dot"),connection=document.getElementById("connection");
+      const voiceState=document.getElementById("voice-state");
+      const voiceToggle=document.getElementById("voice-toggle");
+      let voiceEnabled=false;
       let lastEventKey="";
       let lastConnected=false;
       let polling=false;
@@ -99,11 +113,22 @@
       document.querySelectorAll(".modebtn").forEach(button=>button.addEventListener("click",()=>{
         sendMode(button.dataset.mode).then(refresh).catch(e=>event.textContent=e.message);
       }));
+      async function voiceCommand(action){
+        const r=await fetch("/api/voice-preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action})});
+        if(!r.ok)throw new Error("PTT preview control unavailable");
+        return r.json();
+      }
+      voiceToggle.addEventListener("click",()=>voiceCommand(voiceEnabled?"disable":"enable").then(refresh).catch(e=>voiceState.textContent=e.message));
+      document.getElementById("voice-stop").addEventListener("click",()=>voiceCommand("stop").then(refresh).catch(e=>voiceState.textContent=e.message));
       function render(data){
         const connected=Boolean(data.connected&&data.simulated);
         connection.textContent=connected?"Paired to round display simulator":"Simulator disconnected";
         dot.style.background=connected?"#52edb6":"#e57883";
         orb.dataset.mode=data.mode||"off";
+        const dev=data.developer_voice||{};
+        voiceEnabled=dev.preview_enabled===true;
+        voiceToggle.textContent=voiceEnabled?"Disable PTT preview":"Enable PTT preview";
+        voiceState.textContent=voiceEnabled?("Simulated PTT: "+(dev.state||"idle")+" · AUDIO OFF"):"Preview disabled · AUDIO OFF";
         mode.textContent="Agent state: "+(data.mode||"unknown");
         document.querySelectorAll(".modebtn").forEach(b=>
           b.setAttribute("aria-pressed",String(b.dataset.mode===data.mode)));

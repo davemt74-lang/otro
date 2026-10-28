@@ -126,6 +126,60 @@ def run() -> None:
         assert vp3_os.hardware_inventory()["display"]["ready"] is True
         assert manager.handle_message(simulated.touch("press"))["duplicate"] is False
 
+        # Developer Voice profile: explicit local UI acknowledgement only.
+        # All states are simulated; no microphone is opened or audio emitted.
+        from dev_voice_preview import MAX_PTT_SECONDS, VoicePreview
+
+        now = [100.0]
+        voice = VoicePreview(clock=lambda: now[0])
+        assert voice.snapshot()["state"] == "disabled"
+        voice.action("press")
+        assert voice.snapshot()["state"] == "disabled"
+        voice.configure(True)
+        voice.action("press")
+        assert voice.snapshot()["state"] == "ptt_requested"
+        for flag in ("capture_capable", "microphone_ready", "recording", "physical_mute_verified"):
+            assert voice.snapshot()[flag] is False
+        assert voice.snapshot()["audio_bytes"] == 0
+        assert voice.snapshot()["audio_transport"] == "unbound"
+        voice.action("release")
+        assert voice.snapshot()["state"] == "turn_finished"
+        voice.action("press")
+        voice.action("hold")
+        assert voice.snapshot()["state"] == "cancelled"
+        voice.action("release")
+        assert voice.snapshot()["state"] == "cancelled"
+        voice.action("press")
+        now[0] += MAX_PTT_SECONDS
+        assert voice.snapshot()["state"] == "timed_out"
+        voice.stop()
+        assert voice.snapshot()["state"] == "cancelled"
+        voice.reset()
+        assert voice.snapshot()["state"] == "disabled"
+        assert voice.snapshot()["preview_enabled"] is False
+        try:
+            voice.configure("true")
+            raise AssertionError("non-boolean preview enable accepted")
+        except ValueError:
+            pass
+
+        # The unmodified OTRO Physical Agent cannot accidentally switch to a
+        # Windows microphone when this wearable has no real audio transport.
+        from app.services import device_audio, physical_agent
+
+        original_capture = device_audio.device_audio.start_capture
+        try:
+            def forbidden_capture():
+                raise AssertionError("unexpected Windows microphone capture")
+            device_audio.device_audio.start_capture = forbidden_capture
+            actor = physical_agent.PhysicalAgentRuntime()
+            actor._started = True  # no service / event handler or microphone started
+            attempt = actor.begin_listening()
+            assert attempt["started"] is False
+            assert "Microphone hardware is unavailable" in attempt["reason"]
+        finally:
+            device_audio.device_audio.start_capture = original_capture
+
         # The firmware must advertise only safe non-audio components.
         firmware = (WEARABLE / "VP3_Wearable.ino").read_text(encoding="utf-8")
         assert r'\"components\":[\"agent_button\",\"status_light\",\"display\"]' in firmware
@@ -165,6 +219,38 @@ def run() -> None:
             with urlopen(url + "/api/state", timeout=3) as response:
                 assert json.loads(response.read())["mode"] == "speaking"
 
+            # HTTP preview can be enabled only by explicit local action;
+            # it remains a non-recording UI exercise.
+            enable = Request(
+                url + "/api/voice-preview",
+                data=b'{"action":"enable"}',
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(enable, timeout=3) as response:
+                enabled = json.loads(response.read())["state"]["developer_voice"]
+                assert enabled["preview_enabled"] is True
+                assert enabled["microphone_ready"] is False
+            press = Request(
+                url + "/api/touch",
+                data=b'{"action":"press"}',
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(press, timeout=3) as response:
+                active = json.loads(response.read())["state"]["developer_voice"]
+                assert active["state"] == "ptt_requested"
+                assert active["recording"] is False
+                assert active["audio_bytes"] == 0
+            stop = Request(
+                url + "/api/voice-preview",
+                data=b'{"action":"stop"}',
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(stop, timeout=3) as response:
+                assert json.loads(response.read())["state"]["developer_voice"]["state"] == "cancelled"
+
             reconnect = Request(
                 url + "/api/reconnect",
                 data=b"{}",
@@ -174,7 +260,9 @@ def run() -> None:
             with urlopen(reconnect, timeout=3) as response:
                 assert json.loads(response.read())["ok"] is True
             with urlopen(url + "/api/state", timeout=3) as response:
-                frames = json.loads(response.read())["frames"]
+                snapshot = json.loads(response.read())
+                frames = snapshot["frames"]
+                assert snapshot["developer_voice"]["preview_enabled"] is False
                 assert not any(
                     row["frame"]["type"] == "event"
                     for row in frames if row["direction"] == "device-to-home"

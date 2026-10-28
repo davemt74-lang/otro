@@ -20,6 +20,6 @@ jobs:
       - name: Install OTRO runtime dependencies
         run: python -m pip install -r requirements.txt
       - name: Check Python syntax
-        run: python -m py_compile hardware/esp32/vp3_wearable_prototype/simulator_bridge.py tests/vp3_wearable_prototype_v01.py
+        run: python -m py_compile hardware/esp32/vp3_wearable_prototype/dev_voice_preview.py hardware/esp32/vp3_wearable_prototype/simulator_bridge.py tests/vp3_wearable_prototype_v01.py
       - name: Run isolated hardware protocol regression
         run: python tests/vp3_wearable_prototype_v01.py

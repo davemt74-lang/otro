@@ -92,7 +92,7 @@
     mode.textContent=String(data.mode||"error").toUpperCase();
     connection.textContent=data.connected?"Local simulator connected":"Disconnected";
     dot.style.background=data.connected?"#4dedb1":"#ee6d7b";
-    summary.textContent=data.simulated?"Mock controller: "+data.controller+" · MIC disabled":"Unexpected device mode";
+    summary.textContent=data.simulated?"Mock controller: "+data.controller+" · Developer PTT: "+(data.developer_voice?.state||"disabled")+" · NO AUDIO":"Unexpected device mode";
     document.querySelectorAll(".modebtn").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.mode===data.mode)));
     frames.replaceChildren();
     data.frames.slice(-12).reverse().forEach(row=>{

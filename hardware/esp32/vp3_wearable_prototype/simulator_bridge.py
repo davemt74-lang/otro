@@ -11,6 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from dev_voice_preview import VoicePreview
+
 ROOT = Path(__file__).resolve().parent
 HOST = "127.0.0.1"
 PORT = 8765
@@ -33,6 +35,7 @@ class SimulatedDevice:
         self.mode = "idle"
         self.pressed = False
         self.connected = False
+        self.voice = VoicePreview()
         self.connect()
 
     def _record(self, direction: str, frame: dict) -> None:
@@ -70,6 +73,7 @@ class SimulatedDevice:
             self.state_seq = 0
             self.pressed = False
             self.mode = "idle"
+            self.voice.reset()
             self.log.clear()  # Re-handshake invalidates stale simulated events.
             self._record("home-to-device", {
                 "type": "hello", "protocol": PROTOCOL, "client": "vp3-os", "version": "v0.20"
@@ -88,6 +92,7 @@ class SimulatedDevice:
                 "event": "agent_button", "action": action
             }
             self._record("device-to-home", event)
+            self.voice.action(action)  # UI-only: never starts microphone capture.
             self._record("device-to-home", self._state())
             return event
 
@@ -105,6 +110,18 @@ class SimulatedDevice:
             self._record("device-to-home", ack)
             return ack
 
+    def voice_preview_command(self, action: str) -> dict:
+        with self.lock:
+            if action == "enable":
+                self.voice.configure(True)
+            elif action == "disable":
+                self.voice.configure(False)
+            elif action == "stop":
+                self.voice.stop()
+            else:
+                raise ValueError("invalid_voice_preview_action")
+            return self.voice.snapshot()
+
     def snapshot(self) -> dict:
         with self.lock:
             return {
@@ -114,6 +131,7 @@ class SimulatedDevice:
                 "controller": CONTROLLER,
                 "simulated": True,
                 "microphone_enabled": False,
+                "developer_voice": self.voice.snapshot(),
                 "frames": list(self.log),
             }
 
@@ -183,6 +201,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/reconnect":
                 DEVICE.connect()
                 result = {"type": "hello", "ok": True}
+            elif path == "/api/voice-preview":
+                result = DEVICE.voice_preview_command(str(data.get("action", "")))
             else:
                 self._json(404, {"error": "not_found"})
                 return
