@@ -31,7 +31,7 @@ export function profileMatch(vector,people){
   const ranked=[];
   for(const person of people||[]){
     const p=cleanProfile(person.voiceTrainedProfile);if(!p||p.embeddings.length<MIN_SAMPLES)continue;
-    const scores=p.embeddings.map(r=>r.reduce((s,x,i)=>s+x*v[i],0)).sort((a,b)=>b-a).slice(0,3);
+    const scores=p.embeddings.map(r=>Math.max(-1,Math.min(1,r.reduce((s,x,i)=>s+x*v[i],0)))).sort((a,b)=>b-a).slice(0,3);
     ranked.push({person,similarity:scores.reduce((s,x)=>s+x,0)/scores.length});
   }
   ranked.sort((a,b)=>b.similarity-a.similarity);const best=ranked[0],margin=best?best.similarity-(ranked[1]?.similarity||0):0;

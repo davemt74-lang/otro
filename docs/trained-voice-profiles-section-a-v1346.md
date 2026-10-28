@@ -11,13 +11,13 @@ The implementation score measures these ten acceptance criteria, not recognition
 3. Real native and real Chromium/WASM inference produce valid normalized 512-dimensional speaker embeddings.
 4. Trained profiles have explicit enrollment provenance, a model revision and bounded samples, and persist separately from existing acoustic/visual profiles and ordinary participant notes.
 5. Enrollment rejects too-short, silent, clipped and steady-noise captures. Caller-reported overlap is rejected. This quality gate is not presented as automatic overlap detection.
-6. Three current samples, a conservative similarity threshold and a runner-up margin are required. Unknown, ambiguous, malformed or wrong-model profiles remain unassigned. Similarity is never described as percentage accuracy.
+6. Three current samples, a conservative similarity threshold and a runner-up margin are required. Unknown, ambiguous, malformed or wrong-model profiles remain unassigned. Similarity is bounded to its valid numerical range and is never described as percentage accuracy.
 7. Stop cancels inference promptly; timeouts, page hiding, Disable and interrupted installation fence late results. No cancelled operation can enable matching or write a profile.
 8. Existing owner/account boundaries remain in place. No enrollment audio is retained, no second microphone is opened, no audio is posted for remote inference, and biometric features do not enter participant text synchronization.
 9. The canonical voice guard uses the trained engine only when selected and preserves one-use participant context. A slow uncertain result remains marked as a voice turn, preventing fallback to a manually selected typed participant.
 10. Existing Chat, listening, participant storage/synchronization, voice, Local Apps and speaker-fusion regressions remain green.
 
-Local functional acceptance: **10/10**. The 14-case real-model browser suite, 16-case transcription lifecycle suite, 17 owner/asset route cases, core validation, both account adapters, and the existing Cloud/HomeServer regression baselines pass. This score does not replace the remaining PR, main-branch and deployment artifact gates.
+Local functional acceptance: **10/10**. The 14-case real-model browser suite, 16-case transcription lifecycle suite, 17 owner/asset route cases, 11 core validation cases, both account adapters, and the existing Cloud/HomeServer regression baselines pass. This score does not replace the remaining PR, main-branch and deployment artifact gates.
 
 ## Model and optional runtime
 
