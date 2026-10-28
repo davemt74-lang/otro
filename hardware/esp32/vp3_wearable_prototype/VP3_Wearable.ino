@@ -68,8 +68,8 @@ static void sendEvent(const char *action) {
 }
 
 static uint32_t colorForMode(const String &value) {
-  if (value == "listening") return 0x36DCC0;
-  if (value == "thinking") return 0xB18DFF;
+  if (value == "listening") return 0x359FE8;
+  if (value == "thinking") return 0x39C58C;
   if (value == "speaking") return 0x52B8FF;
   if (value == "privacy") return 0xE8B967;
   if (value == "error") return 0xFF6B7A;

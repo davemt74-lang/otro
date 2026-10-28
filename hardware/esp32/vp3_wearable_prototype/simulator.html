@@ -21,8 +21,8 @@
     .orb::before{content:"";position:absolute;top:14%;left:21%;width:28%;height:17%;border-radius:50%;background:#efffff88;filter:blur(8px);transform:rotate(-28deg)}
     .orb:active{transform:scale(.95)}
     .orb:focus-visible{outline:3px solid #d5faff}
-    .face[data-mode="listening"] .orb{background:radial-gradient(circle at 37% 30%,#efffff,#83ffcc 20%,#0fba97 60%,#116671);box-shadow:0 0 25px #30e8b1aa;animation:pulse 1.1s ease-in-out infinite}
-    .face[data-mode="thinking"] .orb{background:radial-gradient(circle at 32% 29%,#efffff,#c4acff 20%,#735edc 58%,#352871);animation:pulse .7s ease-in-out infinite}
+    .face[data-mode="listening"] .orb{background:radial-gradient(circle at 37% 30%,#efffff,#8bdfff 20%,#1b8ed9 60%,#12527a);box-shadow:0 0 25px #438fffaa;animation:pulse 1.1s ease-in-out infinite}
+    .face[data-mode="thinking"] .orb{background:radial-gradient(circle at 32% 29%,#efffff,#9effcf 20%,#2ba873 58%,#104c43);animation:pulse .7s ease-in-out infinite}
     .face[data-mode="speaking"] .orb{background:radial-gradient(circle at 34% 30%,#fff7db,#ffc66b 22%,#ef8d49 60%,#7c3a2c);animation:pulse .55s ease-in-out infinite}
     .face[data-mode="privacy"] .orb,.face[data-mode="off"] .orb{filter:grayscale(1) brightness(.43)}
     .face[data-mode="error"] .orb{filter:hue-rotate(120deg)}
@@ -43,7 +43,7 @@
   </style>
 </head>
 <body>
-  <header><h1>VP3 <span class="muted">/ WEARABLE</span></h1><span class="badge">SIMULATOR · v0.1</span></header>
+  <header><h1>VP3 <span class="muted">/ WEARABLE</span></h1><span class="badge">SIMULATOR · v0.2</span></header>
   <main>
     <div class="wearable" aria-label="Simulated 412 by 412 round VP3 touchscreen">
       <div id="face" class="face" data-mode="idle">
@@ -53,7 +53,7 @@
         <span class="connection"><span id="dot" class="dot"></span><span id="connection">Local simulator connected</span></span>
       </div>
     </div>
-    <p class="hint">Press the orb to simulate a VP3 agent-button event. No microphone recording occurs. This is not connected to your live HomeServer.</p>
+    <p class="hint">Press the orb to simulate a VP3 agent-button event. <a href="/desktop_agent.html" target="_blank" rel="noopener">Open desktop floating-agent preview</a> in another window to watch it react. No microphone recording or live HomeServer connection.</p>
     <section>
       <div class="row"><h2>Agent state preview</h2><button id="reconnect" class="reconnect">Reconnect test</button></div>
       <div class="modes" role="group" aria-label="Simulate HomeServer status commands">
@@ -130,6 +130,7 @@
   document.querySelectorAll(".modebtn").forEach(b=>b.addEventListener("click",()=>post("/api/mode",{mode:b.dataset.mode}).catch(e=>summary.textContent=e.message)));
   document.getElementById("reconnect").addEventListener("click",()=>post("/api/reconnect",{}).catch(e=>summary.textContent=e.message));
   refresh();
+  setInterval(refresh,350); // Mirror desktop mode changes without page reload.
 })();
 </script>
 </body>

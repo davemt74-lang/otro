@@ -134,8 +134,74 @@ def run() -> None:
         for required in ("Lvgl_Init()", "Lvgl_Loop()", "status_light.set", 'sendEvent("hold")'):
             assert required in firmware, required
 
+        # Both preview windows must be served by the same loopback-only bridge.
+        # The desktop view controls the same in-memory device as the round UI.
+        from http.server import ThreadingHTTPServer
+        from threading import Thread
+        from urllib.error import HTTPError
+        from urllib.request import Request, urlopen
+        from simulator_bridge import Handler
+
+        service = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        worker = Thread(target=service.serve_forever, daemon=True)
+        worker.start()
+        try:
+            url = f"http://127.0.0.1:{service.server_port}"
+            for route, title in (
+                ("/", "VP3 Wearable"),
+                ("/desktop_agent.html", "Desktop Floating Agent"),
+            ):
+                with urlopen(url + route, timeout=3) as response:
+                    assert response.status == 200
+                    assert title in response.read().decode("utf-8")
+            req = Request(
+                url + "/api/mode",
+                data=json.dumps({"mode": "speaking"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=3) as response:
+                assert json.loads(response.read())["ok"] is True
+            with urlopen(url + "/api/state", timeout=3) as response:
+                assert json.loads(response.read())["mode"] == "speaking"
+
+            reconnect = Request(
+                url + "/api/reconnect",
+                data=b"{}",
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(reconnect, timeout=3) as response:
+                assert json.loads(response.read())["ok"] is True
+            with urlopen(url + "/api/state", timeout=3) as response:
+                frames = json.loads(response.read())["frames"]
+                assert not any(
+                    row["frame"]["type"] == "event"
+                    for row in frames if row["direction"] == "device-to-home"
+                )
+
+            # A cross-origin page must not be able to send control frames.
+            cross_origin = Request(
+                url + "/api/mode",
+                data=json.dumps({"mode": "listening"}).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": "https://untrusted.example",
+                },
+                method="POST",
+            )
+            try:
+                urlopen(cross_origin, timeout=3)
+                raise AssertionError("cross-origin state mutation accepted")
+            except HTTPError as exc:
+                assert exc.code == 403
+        finally:
+            service.shutdown()
+            service.server_close()
+            worker.join(timeout=3)
+
         vp3_os.clear_reported_hardware()
-        print("VP3 wearable v0.1 protocol simulator and privacy checks: PASS")
+        print("VP3 wearable v0.2 protocol simulator and privacy checks: PASS")
 
 
 if __name__ == "__main__":

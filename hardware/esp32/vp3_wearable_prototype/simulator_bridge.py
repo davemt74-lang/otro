@@ -68,6 +68,7 @@ class SimulatedDevice:
             self.state_seq = 0
             self.pressed = False
             self.mode = "idle"
+            self.log.clear()  # Re-handshake invalidates stale simulated events.
             self._record("home-to-device", {
                 "type": "hello", "protocol": PROTOCOL, "client": "vp3-os", "version": "v0.20"
             })
@@ -135,8 +136,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/state":
             self._json(200, DEVICE.snapshot())
-        elif path in {"/", "/simulator.html"}:
-            body = (ROOT / "simulator.html").read_bytes()
+        elif path in {"/", "/simulator.html", "/desktop_agent.html"}:
+            page = "desktop_agent.html" if path == "/desktop_agent.html" else "simulator.html"
+            body = (ROOT / page).read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Cache-Control", "no-store")

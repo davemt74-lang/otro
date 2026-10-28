@@ -1,4 +1,4 @@
-# VP3 round wearable — isolated prototype v0.1
+# VP3 round wearable — isolated prototype (desktop preview v0.2 / firmware v0.1)
 
 **Status:** software-only prototype ready for protocol tests; physical board compilation, touchscreen, USB handshake and power behavior are **not yet verified**. No production rollout or merge is authorized.
 
@@ -15,6 +15,10 @@ From the OTRO repository root (Python 3.10+; no third-party packages needed for 
     python hardware/esp32/vp3_wearable_prototype/simulator_bridge.py
 
 On that same computer, open **http://127.0.0.1:8765/**.
+
+**Paired desktop preview v0.2:** in a second browser window open **http://127.0.0.1:8765/desktop_agent.html**. The page contains a floating VP3 orb and a collapsible event/status panel. Press/hold/release the round-screen orb in the first window and watch the second window react. Mode buttons in the desktop panel immediately change the state of the round-screen preview because they share the same local in-memory controller. Colors follow VP3's existing intent (blue listening, green thinking; active speaking pulses). The red recording state is intentionally absent until microphone privacy is independently verified. This is a browser visualization; it cannot float above unrelated Windows applications.
+
+This preview is **not** a new desktop agent stack: it does not invoke the cognitive runtime, chat, microphone, Cloud, or the production floating-agent service. Later, the actual OTRO floating agent will subscribe to the existing hardware events after the real device handshake.
 
 The round touch UI can be used with mouse, touch or keyboard. Press/release/hold sends simulated agent_button events. State controls simulate OTRO status_light.set commands. The protocol log exposes the same JSON frames the real USB serial board will use. Reconnect simulates a new handshake.
 
@@ -73,13 +77,13 @@ Only a **USB serial link** is implemented in v0.1, even though the ESP32-S3 has 
 
 ## Definition of ready for a later integration PR
 
-- [x] Simulator UI and in-memory protocol frames authored
+- [x] Simulator UI, paired desktop floating preview and in-memory protocol frames authored
 - [x] Isolated firmware source and adapter regression test authored
 - [ ] Focused CI green on the draft PR
 - [ ] Official Waveshare driver toolchain compiles the overlay sketch
 - [ ] Actual 412×412 touchscreen shows UI and touch events
 - [ ] USB COM handshakes correctly with a **test** OTRO adapter
-- [ ] HomeServer floating agent response to agent_button is observed
+- [ ] Actual Windows HomeServer floating agent response to agent_button is observed
 - [ ] Battery polarity/charging/heat tests completed safely
 - [ ] No privacy claims or audio activation without verified hardware design
 
