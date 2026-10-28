@@ -37,6 +37,9 @@ jobs:
           node tests/agent-voice-guard-browser.mjs
           node tests/participant-continuity-browser.mjs
           node tests/participant-memory-sync-browser.mjs
+          node tests/trained-voice-core.mjs
+          node tests/trained-voice-real-browser.mjs
+          python tests/trained_voice_assets.py
           python tests/participant_memory_sync.py
           python tests/voice_speaker_context.py
       - name: Complete owner chat browser acceptance

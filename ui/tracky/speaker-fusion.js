@@ -1,5 +1,5 @@
 import {bestParticipantMatch} from './src/participant-core.js';
-import {getParticipant,listParticipants,patchParticipant} from './src/participant-store.js?participant=v1345';
+import {getParticipant,listParticipants,patchParticipant} from './src/participant-store.js?participant=v1346';
 import {HUMAN_ESM_URL,HUMAN_MODEL_BASE} from './src/model-config.js';
 import {
   VOICE_FEATURE_VERSION,VOICE_PROFILE_MIN_SAMPLES,VOICE_PROFILE_MAX_SAMPLES,
@@ -71,11 +71,12 @@ function nearestVisual(targetAt){
   return best&&!best.ambiguous&&best.participantIdentity&&Number.isFinite(best.confidence)?best:null;
 }
 async function enrollEmbedding(embedding,durationMs,selected){
-  const current=()=>Boolean(selected&&enrollment===selected&&selected.generation===enrollmentGeneration&&!document.hidden);
+  const current=()=>Boolean(selected&&enrollment===selected&&selected.generation===enrollmentGeneration&&!document.hidden&&!!selected.trained===(window.VP3TrainedVoice?.enabled()===true));
   if(!current())return null;
   let saved;
   try{
-    saved=await patchParticipant(selected.participantId,participant=>{
+    if(selected.trained)saved=await window.VP3_ORB_ADAPTER.saveTrainedVoiceSample({id:selected.participantId,embedding,isCurrent:current});
+    else saved=await patchParticipant(selected.participantId,participant=>{
       const existing=(participant.voiceEmbeddings||[]).filter(Array.isArray).slice(-(VOICE_PROFILE_MAX_SAMPLES-1));
       const embeddings=[...existing,Array.from(embedding)].slice(-VOICE_PROFILE_MAX_SAMPLES);
       const samples=[...(participant.voiceProfileSamples||[]),{
@@ -105,22 +106,26 @@ export async function beginVoiceEnrollment(participantIdValue){
   if(generation!==enrollmentGeneration||document.hidden)return null;
   const participant=rows.find(p=>String(p.id)===String(participantIdValue));
   if(!participant)throw new Error('Choose an existing local Tracky participant.');
-  enrollment={participantId:participant.id,generation,remaining:Math.max(1,VOICE_PROFILE_MIN_SAMPLES-(participant.voiceEmbeddings||[]).length)};
+  const trained=window.VP3TrainedVoice?.enabled()===true;
+  enrollment={participantId:participant.id,generation,trained,remaining:Math.max(1,VOICE_PROFILE_MIN_SAMPLES-(trained?participant.voiceTrainedProfile?.embeddings||[]:participant.voiceEmbeddings||[]).length)};
   emit('enrolling',`Voice enrollment armed for ${participant.name||'participant'} · speak alone for the next clean transcription chunks.`,{participantId:participant.id,remaining:enrollment.remaining});
   return {participantId:participant.id,remaining:enrollment.remaining};
 }
-export function cancelVoiceEnrollment(){enrollmentGeneration+=1;if(enrollment){enrollment=null;emit('stopped','Voice enrollment cancelled. No raw audio was stored.');}}
+export function cancelVoiceEnrollment(){enrollmentGeneration+=1;window.VP3TrainedVoice?.clear?.();if(enrollment){enrollment=null;emit('stopped','Voice enrollment cancelled. No raw audio was stored.');}}
 export async function clearVoiceProfile(participantIdValue){
   // Also invalidate a begin operation still awaiting its participant read.
   cancelVoiceEnrollment();
   const current=await getParticipant(participantIdValue);if(!current)throw new Error('Participant not found.');
-  const saved=await patchParticipant(current.id,{voiceEmbeddings:[],voiceProfileSamples:[],voiceProfileReady:false,voiceRecognitionEnabled:false,voiceUpdatedAt:new Date().toISOString()});
+  const saved=await patchParticipant(current.id,{voiceTrainedProfile:null,voiceEmbeddings:[],voiceProfileSamples:[],voiceProfileReady:false,voiceRecognitionEnabled:false,voiceUpdatedAt:new Date().toISOString()});
   if(enrollment?.participantId===current.id)enrollment=null;
   participantsLoadedAt=0;await refreshParticipants(true);
   emit('cleared',`${saved.name||'Participant'} voice profile cleared.`,{participantId:saved.id});
+  window.dispatchEvent(new CustomEvent('vp3:participant-forgotten',{detail:{id:saved.id,name:saved.name||''}}));
   return saved;
 }
 export async function analyzeChunk(wav,turns,capturedAt=performance.now()){
+  const trained=window.VP3TrainedVoice?.enabled()===true,analysisGeneration=enrollmentGeneration;
+  if(enrollment&&!!enrollment.trained!==trained)cancelVoiceEnrollment();
   const selectedEnrollment=enrollment;
   const rows=await refreshParticipants();
   const cleanTurns=Array.isArray(turns)?turns:[];
@@ -133,13 +138,16 @@ export async function analyzeChunk(wav,turns,capturedAt=performance.now()){
     let embedding=null,durationMs=0;
     try{
       const pcm=await pcmSlice(wav,start,end);durationMs=pcm.durationMs;
-      embedding=voiceEmbeddingFromPcm(pcm.samples,pcm.rate);
+      if(trained){
+        const result=await window.VP3TrainedVoice.extract(pcm.samples,pcm.rate,{enrollment:enrollmentEligible,overlap:baseEvidence(turn).overlap});
+        if(analysisGeneration===enrollmentGeneration&&window.VP3TrainedVoice?.enabled())embedding=result.embedding||null;
+      }else embedding=voiceEmbeddingFromPcm(pcm.samples,pcm.rate);
     }catch(_){embedding=null;}
     if(enrollmentEligible&&embedding)await enrollEmbedding(embedding,durationMs,selectedEnrollment);
     const evidence=[baseEvidence(turn)];
     if(embedding&&!evidence[0].overlap){
-      const match=bestVoiceParticipantMatch(embedding,await refreshParticipants());
-      if(match.matched&&match.participant){
+      const match=trained?await window.VP3TrainedVoice.match(embedding,await refreshParticipants()):bestVoiceParticipantMatch(embedding,await refreshParticipants());
+      if(match.matched&&match.participant&&(!trained||(analysisGeneration===enrollmentGeneration&&!document.hidden&&window.VP3TrainedVoice?.enabled()))){
         evidence.push({source:'verified_voice',speaker_label:String(turn.speaker_label||'Speaker 1').slice(0,80),
           confidence:match.similarity,participant_identity:trackyIdentity(match.participant),observed_at:new Date().toISOString()});
       }
@@ -255,9 +263,10 @@ export function stopCameraCorroboration(){
 }
 export async function profileSummary(){
   const rows=await refreshParticipants(true);
+  const trained=window.VP3TrainedVoice?.enabled()===true;
   return rows.map(p=>({id:p.id,name:p.name||p.nickname||'Unnamed participant',
-    voiceReady:p.voiceRecognitionEnabled===true&&p.voiceProfileReady===true&&(p.voiceEmbeddings||[]).length>=VOICE_PROFILE_MIN_SAMPLES,
-    voiceSamples:(p.voiceEmbeddings||[]).length,visualReady:p.recognitionEnabled!==false&&(p.embeddings||[]).length>=3}));
+    voiceReady:trained?window.VP3TrainedVoice.readyProfile(p):p.voiceRecognitionEnabled===true&&p.voiceProfileReady===true&&(p.voiceEmbeddings||[]).length>=VOICE_PROFILE_MIN_SAMPLES,
+    voiceSamples:(trained?p.voiceTrainedProfile?.embeddings||[]:p.voiceEmbeddings||[]).length,visualReady:p.recognitionEnabled!==false&&(p.embeddings||[]).length>=3}));
 }
 export function isCameraActive(){return Boolean(cameraStream||cameraStarting);}
 export function resolveParticipantName(identity){return cachedName(identity);}
@@ -269,5 +278,6 @@ window.HomeServerSpeakerFusion=Object.freeze({
 });
 window.dispatchEvent(new CustomEvent('homeserver:speaker-fusion-ready'));
 window.addEventListener('tracky:visual-state-changed',()=>{participantsLoadedAt=0;});
+window.addEventListener('vp3:participant-forgotten',()=>{participantsLoadedAt=0;cancelVoiceEnrollment();});
 window.addEventListener('pagehide',()=>{cancelVoiceEnrollment();stopCameraCorroboration();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelVoiceEnrollment();stopCameraCorroboration();}});

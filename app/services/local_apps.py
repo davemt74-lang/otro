@@ -29,6 +29,7 @@ _ERROR_LIMIT = 1200
 _TRUSTED_HOSTS = {
     "github.com",
     "huggingface.co",
+    "cdn.jsdelivr.net",
     "release-assets.githubusercontent.com",
     "objects.githubusercontent.com",
 }

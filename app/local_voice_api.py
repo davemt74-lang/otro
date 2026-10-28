@@ -2,13 +2,41 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile, Header
+from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .services import agent_voice_profiles, local_apps, local_voice, speaker_diarization, voice_settings
 
 router = APIRouter(prefix="/api/v1/control/voice", tags=["local-voice"])
+
+@router.post('/profile-model/install')
+def install_trained_voice(request:Request,x_requested_with:str|None=Header(default=None)):
+    import shutil
+    from .services.local_app_catalog import CATALOG
+    if x_requested_with!='XMLHttpRequest' or request.headers.get('origin','').rstrip('/') not in ('',str(request.base_url).rstrip('/')):
+        raise HTTPException(403,detail='Owner UI request required.')
+    package=CATALOG['voice-speaker-wavlm'];row=local_apps._installed_row(package['key'])
+    current=bool(row and row['status']=='installed' and row['installed_version']==package['version'] and local_apps._active_health(package)[0])
+    required=sum(a['size_bytes'] for a in package['artifacts'])*2+64*1024*1024
+    if not current and shutil.disk_usage(local_apps._apps_root()).free<required:
+        raise HTTPException(409,detail=f'Free at least {(required+999999)//1000000} MB on HomeServer for the optional voice component.')
+    try:return local_apps.install(package['key'])
+    except local_apps.LocalAppError as exc:raise HTTPException(exc.status_code,detail=str(exc)) from exc
+
+@router.get('/profile-model/{asset_path:path}')
+def trained_voice_asset(asset_path:str):
+    # Fixed model assets only. Owner gateway protects this control route.
+    from .services.local_app_catalog import CATALOG
+    package=CATALOG['voice-speaker-wavlm']
+    if asset_path not in package['required_paths']:
+        raise HTTPException(404,detail='Unknown trained voice asset.')
+    managed=local_apps._apps_root().resolve();root=managed/'voice-speaker-wavlm'
+    path=root/asset_path
+    if not root.resolve().is_relative_to(managed) or not path.resolve().is_relative_to(root.resolve()) or not local_apps._active_health(package)[0] or not path.is_file():
+        raise HTTPException(409,detail='Install the trained voice model component first.')
+    mime='text/javascript' if asset_path.endswith(('.js','.mjs')) else 'application/wasm' if asset_path.endswith('.wasm') else 'application/json' if asset_path.endswith('.json') else 'application/octet-stream'
+    return FileResponse(path,media_type=mime,headers={'Cache-Control':'no-store'})
 
 
 class SpeechRequest(BaseModel):
