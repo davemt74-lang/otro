@@ -463,6 +463,15 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await recoveryPage.reload();
   await recoveryPage.waitForFunction(({id,agent}) => window.HomeServerChatTurn?.conversationId()===id && window.HomeServerAgentRouting?.getSelectedAgentId()===agent,{id:newer.conversation_id,agent:secondary.agent.id});
   assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'Specialist draft');
+  // A Full Chat handoff overrides another persisted selection without replay.
+  await recoveryPage.goto(base+'/?conversation_id='+selectedConversation+'#chat');
+  await recoveryPage.waitForFunction(id=>window.HomeServerChatTurn?.conversationId()===id,selectedConversation);
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'Keep this failed provider message');
+  assert.equal(new URL(recoveryPage.url()).searchParams.has('conversation_id'),false,'A consumed handoff cannot override later explicit conversation changes');
+  await recoveryPage.goto(base+'/?conversation_id='+newer.conversation_id+'#chat');
+  await recoveryPage.waitForFunction(({id,agent})=>window.HomeServerChatTurn?.conversationId()===id&&window.HomeServerAgentRouting?.getSelectedAgentId()===agent,{id:newer.conversation_id,agent:secondary.agent.id});
+  assert.equal(await recoveryPage.locator('#chatInput').inputValue(),'Specialist draft');
+  assert.equal(recoverySends,1,'Handoffs never resend a saved draft');
   // An older binding response must not override a newer conversation's Agent.
   let releaseBinding,oldBindingRequested=false;
   const bindingGate=new Promise(resolve=>{releaseBinding=resolve;});

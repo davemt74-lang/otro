@@ -192,6 +192,10 @@ if(cloud){
   for(let i=0;i<3;i++){const current=api.recognition();current.onerror({error:'network'});current.onend();await flush();await timer.advance(250);}
   assert.equal(api.state().conversationMode,false);assert.equal(api.recognition(),null);
  });
+ await test('canonical Chat attaches the selected note only to typed turns or a current matching voice',async()=>{
+  const selected={participant_id:'7',display_name:'David',source:'manual_selection',conversation_note:'Prefers brief replies',authentication_authority:false};
+  for(const [wasVoice,matched,expected] of [[false,null,selected],[true,{...selected,source:'local_voice_similarity',confidence:.95},{...selected,source:'local_voice_similarity',confidence:.95}],[true,null,null]]){const b=browser();clock(b);let payload;b.window.VP3ParticipantContinuity={selectedContext:()=>selected};b.window.VP3VoiceGuard={takeContext:()=>matched,wasVoiceTurn:()=>wasVoice};b.window.fetch=async(url,init)=>{if(url==='/api/v1/control/chat'){payload=JSON.parse(init.body);return response({reply:'Answer',conversation_id:'c1'});}throw Error('history offline');};const owner=brain(b);b.element('chatInput').value='hello';await owner.submitChatTurn(submitEvent(b));assert.deepEqual(payload.speaker_context,expected);assert.equal(payload.message,'hello');}
+ });
  await test('canonical owner emits actual reply despite failed history refresh',async()=>{
   const b=browser();clock(b);const spoken=[];b.window.speechSynthesis.speak=u=>spoken.push(u);b.window.fetch=async url=>url==='/api/v1/control/chat'?response({reply:'actual answer',conversation_id:'c1',run_id:'r1'}):Promise.reject(Error('history offline'));
   const requestOwner=brain(b),api=voice(b);api.seed();b.element('chatForm').requestSubmit=()=>requestOwner.submitChatTurn(submitEvent(b));api.autoSubmitSpeech('hello');await flush();assert.equal(spoken[0].text,'actual answer');assert.equal(requestOwner.state().pendingChatTurn,null);assert.equal(api.state().awaitingAgent,false);assert.equal(b.element('chatInput').disabled,false);assert.equal(b.events.filter(e=>e.type==='homeserver:chat-turn'&&e.detail.status==='failed').length,0);api.stopConversationMode('');

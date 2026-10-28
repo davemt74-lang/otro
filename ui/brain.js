@@ -70,11 +70,12 @@
     return true;
   }
   function leaveConversation(){
+    window.dispatchEvent(new Event('homeserver:chat-context-changing'));
     if(!pendingChatTurn)saveDraft(byId('chatInput')?.value);
     conversationRevision+=1;cancelChatTurn(null,false);
     window.HomeServerConversationVoice?.stop?.();
   }
-  window.HomeServerChatTurn=Object.freeze({isBusy:()=>Boolean(pendingChatTurn),conversationId:()=>activeConversationId,cancel:cancelChatTurn,usePreparedConversation:id=>{
+  window.HomeServerChatTurn=Object.freeze({isReady:()=>contextReady&&restoreLoads===0,isBusy:()=>Boolean(pendingChatTurn),conversationId:()=>activeConversationId,cancel:cancelChatTurn,usePreparedConversation:id=>{
     if(pendingChatTurn||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return false;
     const previous=scopeKey();activeConversationId=id;
     const old=drafts()[previous];if(old&&previous!==id){saveDraft(old.text,id,old.state);saveDraft('',previous);}
@@ -255,6 +256,8 @@
     list.innerHTML = data.items.length ? data.items.map(conversationMarkup).join('') : '<div class="empty-state">No conversations yet.</div>';
     if (activeConversationId && data.items.some(item => item.id === activeConversationId)) return;
     if (selectFirst) {
+      const requested=new URLSearchParams(location.search).get('conversation_id');
+      if(validId(requested)){try{await loadConversation(requested);return;}catch(error){if(error.status!==404)throw error;}finally{const url=new URL(location.href);url.searchParams.delete('conversation_id');history.replaceState(null,'',url.pathname+url.search+url.hash);}}
       const saved=readStore('localStorage',ACTIVE_KEY,null);
       if(saved && Number.isFinite(saved.at) && saved.at<=Date.now() && Date.now()-saved.at<2592000000){
         if(saved.id === null){
@@ -548,7 +551,7 @@
       const data = await new Promise((resolve,reject)=>{
         const abort=()=>reject(new DOMException('Chat turn cancelled or timed out.','AbortError'));
         turn.controller.signal.addEventListener('abort',abort,{once:true});
-        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, speaker_context:window.VP3VoiceGuard?.takeContext(message),conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value(),knowledge_revision:window.VP3KnowledgeRevisionsR11?.value(message)})})
+        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, speaker_context:window.VP3VoiceGuard?.takeContext(message)||(!window.VP3VoiceGuard?.wasVoiceTurn?.(message)?window.VP3ParticipantContinuity?.selectedContext():null),conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value(),knowledge_revision:window.VP3KnowledgeRevisionsR11?.value(message)})})
           .then(resolve,reject).finally(()=>turn.controller.signal.removeEventListener('abort',abort));
       });
       if(pendingChatTurn !== turn || turn.revision !== conversationRevision || turn.controller.signal.aborted)return;

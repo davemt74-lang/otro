@@ -26,8 +26,8 @@
         const candidates=[...tracks.values()].filter(t=>!used.has(t.id)&&at-t.seen<2500).map(t=>({t,d:separation(bounds,t.box),appearance:similarity(observation.embedding,t.embedding)})).filter(x=>x.d<.16&&(x.appearance<0||x.appearance>=.65)).sort((a,b)=>a.d-b.d);
         // Ambiguous geometry starts a fresh track rather than transferring a name.
         const previous=candidates[0]&&(!candidates[1]||candidates[1].d-candidates[0].d>.025)?candidates[0].t:null;
-        const t=previous||{id:id(),first:at,seen:at,box:bounds,arrived:false,person:null,candidate:'',streak:0,greeted:false};
-        const person=match(observation.embedding,profiles);
+        const t=previous||{id:id(),first:at,seen:at,box:bounds,arrived:false,person:null,candidate:'',streak:0,greeted:false,rejected:new Set()};
+        const matched=match(observation.embedding,profiles),person=matched&&!t.rejected?.has(matched.id)?matched:null;
         if(t.candidate===(person?.id||''))t.streak++;else{t.candidate=person?.id||'';t.streak=1;}
         const introduced=t.introducedId&&profiles.find(p=>String(p.id)===t.introducedId);
         const resolved=person&&t.streak>=3?person:introduced?{id:String(introduced.id),name:String(introduced.name).slice(0,120),introduced:true}:null;
@@ -54,7 +54,8 @@
     function acknowledge(trackId){const t=tracks.get(trackId);if(!t)return null;t.greeted=true;lastGreeting=now();if(t.person)greeted.set(t.person.id,now());return event(t,'greeting');}
     function clear(){const events=[...tracks.values()].filter(t=>t.arrived).map(t=>event(t,'departure'));tracks.clear();return events;}
     function introduce(trackId,profile){const t=tracks.get(trackId),active=[...tracks.values()].filter(p=>now()-p.seen<2000);if(!t||active.length!==1||active[0]!==t||!profile?.id||!profile.name)return null;t.introducedId=String(profile.id);t.person={id:String(profile.id),name:String(profile.name).slice(0,120),introduced:true};return event(t,'identity_changed');}
-    return {update,greeting,acknowledge,clear,introduce};
+    function reject(trackId){const t=tracks.get(trackId);if(!t)return null;const previous=t.person?.id;if(previous)(t.rejected||(t.rejected=new Set())).add(previous);t.introducedId='';t.person=null;t.candidate='';t.streak=0;t.greeted=true;return event(t,'identity_changed');}
+    return {update,greeting,acknowledge,clear,introduce,reject};
   }
   function introductionName(text,awaiting=false){
     const value=String(text||'').normalize('NFKC').trim();
