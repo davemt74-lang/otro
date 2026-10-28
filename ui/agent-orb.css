@@ -35,3 +35,5 @@ body:has(#view-chat.active)>.vp3-orb-root{top:70px;bottom:auto}
 .vp3-orb-root[data-state=speaking] .vp3-orb-ball::before{content:'';position:absolute;inset:-13px;border:2px solid #76caff;border-radius:50%;pointer-events:none;animation:vp3-orb-voice-wave 1.1s ease-out infinite}
 @keyframes vp3-orb-voice-wave{from{transform:scale(.92);opacity:.75}to{transform:scale(1.3);opacity:0}}
 @media(prefers-reduced-motion:reduce){.vp3-orb-ball::before{animation:none!important;opacity:.5}}
+
+.vp3-eyes-content textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #536b85;border-radius:8px;background:#172b3f;color:#ecf4ff;font:inherit;resize:vertical}.vp3-participant-continuity{display:grid;gap:8px}.vp3-participant-continuity:not([open])>:not(summary){display:none}.vp3-participant-continuity>summary{cursor:pointer}

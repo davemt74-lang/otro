@@ -251,6 +251,7 @@ export function participantRecord(input = {}) {
     name: String(input.name || '').trim(),
     nickname: String(input.nickname || '').trim(),
     notes: String(input.notes || '').trim(),
+    agentConversationNote: String(input.agentConversationNote || '').trim().slice(0,1000),
     primaryPhoto: input.primaryPhoto || null,
     latestPhoto: input.latestPhoto || null,
     embeddings: Array.isArray(input.embeddings) ? input.embeddings.map((v) => Array.from(v)) : [],

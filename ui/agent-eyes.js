@@ -30,12 +30,14 @@
     }
     async function loadProfiles(){const token=++profileVersion;const rows=await adapter.loadEyesProfiles();if(token!==profileVersion)return;profiles=rows;const signature=JSON.stringify(rows.map(p=>[String(p.id),p.name]));if(signature===profileSignature)return;profileSignature=signature;const selected=q('[data-eyes-profile]').value;q('[data-eyes-profile]').replaceChildren();const blank=document.createElement('option');blank.value='';blank.textContent='Choose participant';q('[data-eyes-profile]').append(blank);for(const p of profiles){const o=document.createElement('option');o.value=String(p.id);o.textContent=p.name;q('[data-eyes-profile]').append(o);}q('[data-eyes-profile]').value=selected;}
     function draw(rows){
+      window.dispatchEvent(new CustomEvent('vp3:participant-presence',{detail:{active:!!stream,rows:rows.map(({track_id,participant_id,display_name,identity_source})=>({track_id,participant_id,display_name,identity_source}))}}));
       const mirrored=q('[data-eyes-mirror]').checked;video.style.transform=mirrored?'scaleX(-1)':'';
       window.VP3AgentOrb?.follow?.(q('[data-eyes-follow]').checked?rows:[],{mirrored});
       q('.vp3-eyes-boxes').replaceChildren();for(const row of rows){const b=document.createElement('div');b.className='vp3-eyes-box';const [x,y,w,h]=row.box;b.style.cssText=`left:${(mirrored?1-x-w:x)*100}%;top:${y*100}%;width:${w*100}%;height:${h*100}%`;const tag=document.createElement('span');tag.textContent=row.display_name?`${row.display_name} · provisional`:`Participant ${row.track_id.slice(-5)}`;b.append(tag);q('.vp3-eyes-boxes').append(b);}
       q('[data-eyes-people]').textContent=rows.length?rows.map(r=>r.display_name?`${r.display_name} (provisional)`:`Participant ${r.track_id.slice(-5)} · unidentified`).join(' · '):'No participants in view.';
     }
     async function hear(text){
+      if(window.VP3ParticipantContinuity?.hear(text))return true;
       if(recognitionOffer&&stream&&!enrolling&&!savingIntroduction&&currentRows.length===1&&currentRows[0].track_id===recognitionOffer.track&&Date.now()<recognitionOffer.expires){
         const answer=String(text||'').trim().replace(/[.!]$/,'');
         if(/^(?:no(?: thanks| thank you)?|do not remember me|don't remember me)$/i.test(answer)){recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');say('Your name is saved. No visual samples were saved.');return true;}
@@ -132,11 +134,13 @@
       }catch(error){say(String(error.message||'Enrollment could not be saved.'));}finally{enrolling=false;}
     }
     q('[data-eyes-start]').addEventListener('click',()=>void start());q('[data-eyes-stop]').addEventListener('click',()=>void stop());q('[data-eyes-close]').addEventListener('click',()=>{panel.hidden=true;});q('[data-eyes-enroll]').addEventListener('click',()=>void enroll());
-    q('[data-eyes-forget]').addEventListener('click',async()=>{const id=q('[data-eyes-profile]').value;if(!id)return say('Choose a participant.');try{await adapter.forgetEyes(id);await loadProfiles();core.clear().forEach(log);draw([]);say('Local visual samples removed.');}catch(_){say('Local samples could not be removed.');}});
+    q('[data-eyes-forget]').addEventListener('click',async()=>{const id=q('[data-eyes-profile]').value;if(!id)return say('Choose a participant.');try{await adapter.forgetEyes(id);window.dispatchEvent(new CustomEvent('vp3:participant-forgotten',{detail:{id,name:profiles.find(p=>String(p.id)===id)?.name||''}}));await loadProfiles();core.clear().forEach(log);currentRows=[];observations=[];introduction=null;recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');draw([]);window.VP3VoiceGuard?.clear();say('Local visual samples removed.');}catch(_){say('Local samples could not be removed.');}});
     const hide=()=>{if(document.hidden)void stop('Camera stopped while this page is hidden.');};document.addEventListener('visibilitychange',hide);
     const retry=setInterval(()=>void flush(),5000);
     window.addEventListener('pagehide',()=>{void stop();clearInterval(retry);document.removeEventListener('visibilitychange',hide);},{once:true});
-    window.VP3AgentEyes={toggle:()=>{panel.hidden=!panel.hidden;if(!panel.hidden)void loadProfiles().catch(()=>say('Participant list unavailable.'));},stop,hear,expectingIntroduction:()=>!!stream&&!!introduction&&Date.now()<introduction.expires&&currentRows.length===1&&currentRows[0].track_id===introduction.track,isActive:()=>!!stream};
+    function rejectCurrent(){introduction=null;recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');if(!stream||currentRows.length!==1)return;const track=currentRows[0].track_id;core.reject(track);currentRows=currentRows.map(row=>({...row,participant_id:'',display_name:'',identity_source:'unidentified'}));draw(currentRows);introduction={track,expires:Date.now()+90000};window.VP3AgentOrb?.setIntroductionMode?.('name');window.VP3AgentOrb?.bubble('Thanks for correcting me. What is your name?');}
+    async function refreshProfiles(){await loadProfiles();currentRows=currentRows.map(row=>{const p=profiles.find(p=>String(p.id)===String(row.participant_id));return p?{...row,display_name:p.name}:row;});draw(currentRows);}
+    window.VP3AgentEyes={rejectCurrent,refreshProfiles,toggle:()=>{panel.hidden=!panel.hidden;if(!panel.hidden)void loadProfiles().catch(()=>say('Participant list unavailable.'));},stop,hear,expectingIntroduction:()=>!!stream&&!!introduction&&Date.now()<introduction.expires&&currentRows.length===1&&currentRows[0].track_id===introduction.track,isActive:()=>!!stream};
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>void boot(),{once:true});else void boot();
 })();

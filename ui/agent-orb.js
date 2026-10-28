@@ -10,7 +10,7 @@
     if(embed){
       let queuedEnrollment='',queuedIntroduction='';window.addEventListener('vp3:voice-guard-ready',()=>{if(queuedEnrollment){void window.VP3VoiceGuard.beginEnrollment(queuedEnrollment);queuedEnrollment='';}window.VP3VoiceGuard.inviteIntroduction(queuedIntroduction);});
       document.documentElement.dataset.vp3OrbEmbed='1';
-      const announce=()=>{if(!disposed)parent.postMessage({channel:'vp3-orb',kind:'state',state:state()},origin);};
+      const announce=()=>{if(!disposed)parent.postMessage({channel:'vp3-orb',kind:'state',state:state(),conversation:adapter.conversationRef?.()},origin);};
       const commands=async event=>{
         if(event.origin!==origin||event.source!==parent||event.data?.channel!=='vp3-orb')return;
         if(event.data.kind==='compose'){
@@ -20,6 +20,10 @@
           parent.postMessage({channel:'vp3-orb',kind:'draft-accepted'},origin);
           $('chatForm')?.requestSubmit();
         }
+        if(event.data.kind==='participant-selection')window.VP3ParticipantContinuity?.setSelection(event.data.value,true);
+        if(event.data.kind==='participant-presence')window.VP3ParticipantContinuity?.updatePresence(event.data.value,true);
+        if(event.data.kind==='participant-reject')window.VP3ParticipantContinuity?.rejectCurrent(true,String(event.data.value?.participant_id||''));
+        if(event.data.kind==='participant-invalidate')window.VP3ParticipantContinuity?.invalidate();
         if(event.data.kind==='stop')adapter.stop();
         if(event.data.kind==='listen')adapter.listen();
         if(event.data.kind==='voice-enroll'){if(window.VP3VoiceGuard)void window.VP3VoiceGuard.beginEnrollment(String(event.data.id||''));else queuedEnrollment=String(event.data.id||'');}
@@ -28,6 +32,7 @@
       };
       window.addEventListener('message',commands);timer=setInterval(announce,250);
       window.addEventListener('vp3:voice-filter-status',event=>parent.postMessage({channel:'vp3-orb',kind:'voice-filter-status',message:String(event.detail?.message||'').slice(0,300)},origin));
+      window.VP3AgentOrb={participantSignal:(kind,value)=>{if(['speaker','reject','selection'].includes(kind))parent.postMessage({channel:'vp3-orb',kind:'participant-'+kind,value},origin);}};
       parent.postMessage({channel:'vp3-orb',kind:'ready'},origin);
       window.addEventListener('pagehide',()=>{disposed=true;clearInterval(timer);window.removeEventListener('message',commands);},{once:true});
       return;
@@ -40,7 +45,10 @@
     const host=panel.querySelector('.vp3-orb-chat-host'),ball=root.querySelector('.vp3-orb-ball'),label=root.querySelector('.vp3-orb-state');
     const key=`vp3:orb:${adapter.ownerKey}`,draftKey=`${key}:draft:${location.pathname}`;
     try{const p=JSON.parse(localStorage.getItem(key)||'null');if(p){root.style.left=`${Math.max(0,Math.min(innerWidth-100,Number(p.x)||0))}px`;root.style.top=`${Math.max(0,Math.min(innerHeight-150,Number(p.y)||0))}px`;root.style.right='auto';root.style.bottom='auto';root.dataset.small=p.small?'true':'false';}}catch(_){}
-    let bar=null;
+    let bar=null,conversationRef=null;const fullLink=panel.querySelector('a'),handoffKey=`${key}:conversation`;
+    function rememberRef(ref){if(!adapter.conversationUrl||!ref||typeof ref!=='object')return;const url=adapter.conversationUrl(ref);if(!url)return;if(conversationRef&&(String(conversationRef.id)!==String(ref.id)||String(conversationRef.agent)!==String(ref.agent)))window.VP3ParticipantContinuity?.clearSelection();conversationRef={id:ref.id,agent:ref.agent};fullLink.href=url;try{sessionStorage.setItem(handoffKey,JSON.stringify({ref:conversationRef,at:Date.now()}));}catch(_){}}
+    try{const saved=JSON.parse(sessionStorage.getItem(handoffKey)||'null');if(saved&&Number.isFinite(saved.at)&&saved.at<=Date.now()&&Date.now()-saved.at<1800000)rememberRef(saved.ref);}catch(_){}
+    fullLink.addEventListener('click',event=>{if(adapter.attachChat){event.preventDefault();close();adapter.focusChat?.();}});
     function command(kind){if(frame?.contentWindow)frame.contentWindow.postMessage({channel:'vp3-orb',kind},origin);else adapter[kind]?.();}
     function close(){panel.hidden=true;root.dataset.popupOpen='false';restorePanel?.();restorePanel=null;document.querySelectorAll('[data-orb-chat]').forEach(b=>b.setAttribute('aria-expanded','false'));returnFocus?.focus?.();}
     function open(){
@@ -48,7 +56,7 @@
       if(adapter.isMainChat?.()){adapter.focusChat?.();return;}
       if(adapter.attachChat)restorePanel=restorePanel||adapter.attachChat(host);
       else if(!frame){
-        frame=document.createElement('iframe');frame.title='VP3 Agent Chat';frame.allow='microphone; camera';const url=new URL(adapter.chatUrl,location.href);url.searchParams.set('orb_embed','1');frame.src=url.href;host.append(frame);
+        frame=document.createElement('iframe');frame.title='VP3 Agent Chat';frame.allow='microphone; camera';const url=new URL(adapter.conversationUrl&&conversationRef?adapter.conversationUrl(conversationRef):adapter.chatUrl,location.href);url.searchParams.set('orb_embed','1');frame.src=url.href;host.append(frame);
       }
       panel.hidden=false;root.dataset.popupOpen='true';document.querySelectorAll('[data-orb-chat]').forEach(b=>b.setAttribute('aria-expanded','true'));panel.querySelector('button').focus();
     }
@@ -77,7 +85,11 @@
       const data=event.data;if(data.kind==='ready'){ready=true;if(pendingListen){pendingListen=false;command('listen');}if(pendingText)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'compose',text:pendingText},origin);if(pendingVoiceEnrollment){frame.contentWindow.postMessage({channel:'vp3-orb',kind:'voice-enroll',id:pendingVoiceEnrollment},origin);pendingVoiceEnrollment='';}}
       if(data.kind==='voice-filter-status')window.dispatchEvent(new CustomEvent('vp3:voice-filter-remote-status',{detail:{message:String(data.message||'').slice(0,300)}}));
       if(data.kind==='user-turn')void window.VP3AgentEyes?.hear?.(String(data.text||'').slice(0,240));
-      if(data.kind==='ready')frame.contentWindow.postMessage({channel:'vp3-orb',kind:'introduction-window',mode:introductionMode},origin);
+      if(data.kind==='ready'){frame.contentWindow.postMessage({channel:'vp3-orb',kind:'introduction-window',mode:introductionMode},origin);frame.contentWindow.postMessage({channel:'vp3-orb',kind:'participant-presence',value:window.VP3ParticipantContinuity?.snapshot()},origin);frame.contentWindow.postMessage({channel:'vp3-orb',kind:'participant-selection',value:window.VP3ParticipantContinuity?.selectedContext()},origin);}
+      if(data.kind==='participant-selection')window.VP3ParticipantContinuity?.setSelection(data.value,true);
+      if(data.kind==='participant-speaker')window.VP3ParticipantContinuity?.receiveSpeaker(data.value);
+      if(data.kind==='participant-reject')window.VP3ParticipantContinuity?.rejectCurrent(false,String(data.value?.participant_id||''));
+      if(data.kind==='state'&&data.conversation)rememberRef(data.conversation);
       if(data.kind==='state')render(data.state);
       if(data.kind==='draft-accepted'){const input=bar?.querySelector('input');if(input&&input.value===pendingText){input.value='';try{sessionStorage.removeItem(draftKey);}catch(_){}}pendingText='';}
       if(data.kind==='draft-blocked'){pendingText='';bubble('Your existing draft is in the chat popup. Your chatbar message is still here.');}
@@ -110,8 +122,8 @@
     const resize=()=>{const r=root.getBoundingClientRect();if(r.left>innerWidth-80||r.top>innerHeight-140){root.style.left='auto';root.style.top='auto';root.style.right='12px';root.style.bottom='94px';}};
     const escape=event=>{if(event.key==='Escape'&&!panel.hidden)close();};
     window.addEventListener('message',message);window.addEventListener('resize',resize);document.addEventListener('keydown',escape);
-    timer=setInterval(()=>{if(!frame){const next=state(),json=JSON.stringify(next);if(json!==lastState){render(next);lastState=json;}}},200);
-    window.VP3AgentOrb={open,close,toggle,bubble,state,follow,setIntroductionMode:mode=>{introductionMode=mode;window.VP3VoiceGuard?.inviteIntroduction(mode);frame?.contentWindow?.postMessage({channel:'vp3-orb',kind:'introduction-window',mode},origin);},startVoiceEnrollment:id=>{if(adapter.attachChat||adapter.isMainChat?.())return false;open();if(ready)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'voice-enroll',id},origin);else pendingVoiceEnrollment=id;return true;},cancelVoiceEnrollment:()=>{pendingVoiceEnrollment='';frame?.contentWindow?.postMessage({channel:'vp3-orb',kind:'voice-enroll-cancel'},origin);},stop:()=>command('stop')};
+    timer=setInterval(()=>{if(!frame){const ref=adapter.conversationRef?.();if(ref)rememberRef(ref);const next=state(),json=JSON.stringify(next);if(json!==lastState){render(next);lastState=json;}}},200);
+    window.VP3AgentOrb={open,close,toggle,bubble,state,follow,participantSignal:(kind,value)=>{if(['presence','reject','invalidate','selection'].includes(kind))frame?.contentWindow?.postMessage({channel:'vp3-orb',kind:'participant-'+kind,value},origin);},setIntroductionMode:mode=>{introductionMode=mode;window.VP3VoiceGuard?.inviteIntroduction(mode);frame?.contentWindow?.postMessage({channel:'vp3-orb',kind:'introduction-window',mode},origin);},startVoiceEnrollment:id=>{if(adapter.attachChat||adapter.isMainChat?.())return false;open();if(ready)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'voice-enroll',id},origin);else pendingVoiceEnrollment=id;return true;},cancelVoiceEnrollment:()=>{pendingVoiceEnrollment='';frame?.contentWindow?.postMessage({channel:'vp3-orb',kind:'voice-enroll-cancel'},origin);},stop:()=>command('stop')};
     window.addEventListener('pagehide',()=>{disposed=true;clearInterval(timer);clearTimeout(bubbleTimer);cancelAnimationFrame(motionFrame);window.removeEventListener('message',message);window.removeEventListener('resize',resize);document.removeEventListener('keydown',escape);adapter.stop?.();},{once:true});
   };
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();

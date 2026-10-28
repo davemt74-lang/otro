@@ -18,4 +18,9 @@ with patch('app.brain_api.context_chat.chat',return_value={'reply':'ok'}) as cha
     assert chat.call_args.kwargs['speaker_context']==hint
     _chat_or_http('app:test',payload,owner_tools=False)
     assert 'speaker_context' not in chat.call_args.kwargs
+assert 'owner_saved_conversation_note' in voice_speaker_context.context({**hint,'conversation_note':'Prefers brief answers'},owner=True)
+assert 'Prefers brief answers' in voice_speaker_context.context({**hint,'conversation_note':'Prefers brief answers'},owner=True)
+assert 'owner_saved_conversation_note' not in voice_speaker_context.context({**hint,'conversation_note':'Private'},owner=False)
+assert 'David' in voice_speaker_context.context({'source':'manual_selection','display_name':'David','conversation_note':'Prefers short replies','authentication_authority':False},owner=True)
+assert voice_speaker_context.context({'source':'manual_selection','display_name':'David'},owner=False)==''
 print('VOICE_SPEAKER_CONTEXT=PASS')

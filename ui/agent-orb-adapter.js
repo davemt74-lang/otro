@@ -4,10 +4,16 @@
   window.addEventListener('homeserver:voice-state',event=>{voiceState=String(event.detail?.state||'idle');});
   window.addEventListener('homeserver:voice-playback',event=>{audible=event.detail?.active===true;});
   async function api(url,body,keepalive=false){const r=await fetch(url,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',keepalive,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const data=await r.json();if(!r.ok)throw Error(data.detail||'HomeServer request failed.');return data;}
-  const store=()=>import('/assets/tracky/src/participant-store.js');
+  const store=()=>import('/assets/tracky/src/participant-store.js?participant=v1344');
   const recording=()=>window.HomeServerDictation?.isTranscribing?.()===true;
   const state=()=>{let value=audible?'speaking':$('voiceInputButton')?.dataset.voiceState||voiceState;if(value==='speaking'&&!audible)value='thinking';if(!audible&&window.HomeServerChatTurn?.isBusy?.())value='thinking';return {state:value,recording:recording()};};
   const adapter={ownerKey:'homeserver-local-owner',chatUrl:'/#chat',alwaysBar:true,state,voiceFeatureUrl:'/assets/tracky/src/voice-profile-core.js',
+    conversationRef:()=>window.HomeServerChatTurn?.isReady?.()===false?null:({id:window.HomeServerChatTurn?.conversationId?.()||''}),
+    conversationUrl:ref=>{const u=new URL('/#chat',location.href);if(/^[a-f0-9]{32}$/.test(String(ref?.id||'')))u.searchParams.set('conversation_id',ref.id);return u.href;},
+    focusChat:()=>{document.querySelector('[data-view="chat"]')?.click();$('chatInput')?.focus();},
+    participantDetails:async id=>{const p=await (await store()).getParticipant(id);if(!p)throw Error('Participant unavailable.');return {id:p.id,name:p.name,note:p.agentConversationNote||''};},
+    voiceParticipantNote:async id=>(await adapter.participantDetails(id)).note,
+    saveParticipantDetails:async({id,name,note,isCurrent})=>{if(!name.trim()||name.length>120||note.length>1000)throw Error('Enter a name up to 120 characters and note up to 1000 characters.');const p=await (await store()).patchParticipant(id,p=>({...p,name:name.trim(),agentConversationNote:note.trim()}),isCurrent);return {id:p.id,name:p.name,note:p.agentConversationNote};},
     busy:()=>Boolean(window.HomeServerChatTurn?.isBusy?.()||['thinking','speaking','connecting'].includes(state().state)||recording()||$('chatInput')?.value.trim()),
     listen:()=>{if(!window.HomeServerConversationVoice?.isEnabled?.())$('voiceInputButton')?.click();},
     stop:()=>{window.HomeServerConversationVoice?.stop();window.HomeServerDictation?.stopTranscription();window.HomeServerChatTurn?.cancel();},
@@ -46,10 +52,10 @@
     forgetVoice:async id=>{const data=await store();await data.patchParticipant(id,p=>({...p,voiceEmbeddings:[],voiceProfileSamples:[],voiceRecognitionEnabled:false,voiceProfileReady:false}));},
     forgetEyes:async id=>{const data=await store();await data.patchParticipant(id,p=>({...p,embeddings:[],visualEnrollment:null,agentEyesEnrollment:null,recognitionEnabled:false}));},
     recordEyes:event=>{
-      const labels={arrival:'arrived',departure:'left view',identity_changed:'visual attribution changed',greeting:'received an automatic greeting',voice_turn:'spoke in Agent chat'};
+      const labels={arrival:'arrived',departure:'left view',identity_changed:'visual attribution changed',greeting:'received an automatic greeting',voice_turn:'spoke in Agent chat',attribution_corrected:'had a conversational match dismissed',participant_updated:'participant details updated',recognition_forgotten:'local recognition samples removed'};
       return api('/api/v1/control/cognition/events',{
         event_id:`eyes:${event.session_id}:${event.event_id}`,event_type:`agent_eyes.${event.event_type}`,
-        summary:`${event.display_name||'Unidentified participant'} · ${labels[event.event_type]}. Browser-reported context; visual matches are provisional and grant no authentication authority.`,
+        summary:`${event.display_name||'Unidentified participant'} · ${labels[event.event_type]}. Browser-reported context; participant attribution is provisional and grant no authentication authority.`,
         entity_type:'participant_presence',entity_key:event.track_id,correlation_id:event.session_id,importance:.15,privacy_scope:'private',
         payload:{session_id:event.session_id,track_id:event.track_id,participant_id:event.participant_id,identity_source:event.identity_source,authentication_authority:false},
       },true);
