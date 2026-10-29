@@ -5,7 +5,7 @@
   function similarity(a,b){
     if(!vector(a)||!vector(b)||a.length!==b.length)return -1;
     const ma=Math.max(...a.map(Math.abs)),mb=Math.max(...b.map(Math.abs));if(!ma||!mb)return -1;
-    let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){const x=a[i]/ma,y=b[i]/mb;dot+=x*y;aa+=x*x;bb+=y*y;}return dot/Math.sqrt(aa*bb);
+    let dot=0,aa=0,bb=0;for(let i=0;i<a.length;i++){const x=a[i]/ma,y=b[i]/mb;dot+=x*y;aa+=x*x;bb+=y*y;}return Math.max(-1,Math.min(1,dot/Math.sqrt(aa*bb)));
   }
   function match(embedding,profiles){
     const ranked=(profiles||[]).filter(p=>p.recognitionEnabled!==false&&p.embeddings?.filter(vector).length>=3).map(p=>{
@@ -19,20 +19,36 @@
   function create({now=()=>Date.now(),id=()=>crypto.randomUUID(),cooldown=600000}={}){
     const tracks=new Map(),greeted=new Map();let lastGreeting=-Infinity;
     function update(observations,profiles=[]){
-      const at=now(),events=[],used=new Set(),rows=[];
+      const at=now(),events=[],rows=[];
       for(const [key,t] of tracks)if(at-t.seen>=8000){if(t.arrived)events.push(event(t,'departure'));tracks.delete(key);}
-      for(const observation of (observations||[]).slice(0,8)){
-        const bounds=box(observation.box);if(!bounds)continue;
-        const candidates=[...tracks.values()].filter(t=>!used.has(t.id)&&at-t.seen<2500).map(t=>({t,d:separation(bounds,t.box),appearance:similarity(observation.embedding,t.embedding)})).filter(x=>x.d<.16&&(x.appearance<0||x.appearance>=.65)).sort((a,b)=>a.d-b.d);
-        // Ambiguous geometry starts a fresh track rather than transferring a name.
-        const previous=candidates[0]&&(!candidates[1]||candidates[1].d-candidates[0].d>.025)?candidates[0].t:null;
+      const inputs=(Array.isArray(observations)?observations:[]).slice(0,8).filter(o=>o&&box(o.box));
+      const edges=[];
+      for(const observation of inputs)for(const t of tracks.values()){
+        const gap=at-t.seen;if(gap<0||gap>=4500)continue;
+        const bounds=observation.box,appearance=similarity(observation.embedding,t.embedding);
+        if(appearance>=0&&appearance<.65)continue;
+        const ratio=bounds[2]*bounds[3]/(t.box[2]*t.box[3]);if(ratio<.4||ratio>2.5)continue;
+        const predicted=t.box.slice();for(let axis=0;axis<2;axis++)predicted[axis]+=Math.max(-.18,Math.min(.18,(t.velocity?.[axis]||0)*Math.min(gap,2000)));
+        const d=separation(bounds,predicted),limit=.16+Math.min(.06,Math.max(0,gap-1000)*.00002);
+        if(d>=limit||separation(bounds,t.box)>=.38)continue;
+        edges.push({observation,t,cost:d+(appearance<0?0:(1-appearance)*.12)});
+      }
+      // Decide the entire frame before mutating tracks. Both ends must have a
+      // unique best candidate, so detector ordering cannot steal a track/name.
+      const uniqueBest=list=>{list.sort((a,b)=>a.cost-b.cost);return list[0]&&(!list[1]||list[1].cost-list[0].cost>.025)?list[0]:null;};
+      const assignments=new Map();
+      for(const observation of inputs){const best=uniqueBest(edges.filter(e=>e.observation===observation));if(best&&uniqueBest(edges.filter(e=>e.t===best.t))===best)assignments.set(observation,best.t);}
+      for(const observation of inputs){
+        const bounds=observation.box,previous=assignments.get(observation);
         const t=previous||{id:id(),first:at,seen:at,box:bounds,arrived:false,person:null,candidate:'',streak:0,greeted:false,rejected:new Set()};
+        const gap=at-t.seen;if(previous&&!t.arrived&&gap>2000)t.first=at;t.tracking=previous?(gap>2000?'reacquired':'tracked'):'new';
+        if(previous&&gap>0){t.velocity=[0,1].map(axis=>{const displacement=bounds[axis]+bounds[axis+2]/2-t.box[axis]-t.box[axis+2]/2;const measured=Math.max(-.00035,Math.min(.00035,displacement/gap));return .5*measured+.5*(t.velocity?.[axis]||0);});}
         const matched=match(observation.embedding,profiles),person=matched&&!t.rejected?.has(matched.id)?matched:null;
         if(t.candidate===(person?.id||''))t.streak++;else{t.candidate=person?.id||'';t.streak=1;}
         const introduced=t.introducedId&&profiles.find(p=>String(p.id)===t.introducedId);
         const resolved=person&&t.streak>=3?person:introduced?{id:String(introduced.id),name:String(introduced.name).slice(0,120),introduced:true}:null;
         const changed=t.person?.id!==(resolved?.id);
-        t.seen=at;t.box=bounds;t.embedding=vector(observation.embedding)?observation.embedding.slice():null;t.person=resolved;used.add(t.id);tracks.set(t.id,t);rows.push(t);
+        t.seen=at;t.box=bounds.slice();t.embedding=vector(observation.embedding)?observation.embedding.slice():null;t.person=resolved;tracks.set(t.id,t);rows.push(t);
         if(!t.arrived&&at-t.first>=3000){t.arrived=true;events.push(event(t,'arrival'));}
         else if(t.arrived&&changed)events.push(event(t,'identity_changed'));
       }
@@ -41,7 +57,7 @@
       for(const t of rows)if(t.person&&counts.get(t.person.id)>1){t.person=null;t.streak=0;}
       // Rewrite pre-ambiguity event labels from the final frame decision.
       for(const e of events){const t=tracks.get(e.track_id);if(t)Object.assign(e,identity(t));}
-      return {rows:rows.map(t=>({track_id:t.id,box:t.box,...identity(t)})),events};
+      return {rows:rows.map(t=>({track_id:t.id,box:t.box.slice(),tracking_state:t.tracking,...identity(t)})),events};
     }
     function identity(t){return {participant_id:t.person?.id||'',display_name:t.person?.name||'',identity_source:t.person?(t.person.introduced?'self_introduction':'local_visual_similarity'):'unidentified',authentication_authority:false};}
     function event(t,type){return {event_id:id(),event_type:type,track_id:t.id,...identity(t)};}
@@ -66,6 +82,11 @@
     return name.replace(/\s+/g,' ');
   }
   function followPoint(rows,mirrored=true){if(!Array.isArray(rows)||rows.length!==1)return null;const b=box(rows[0].box);if(!b)return null;const x=b[0]+b[2]/2;return {x:mirrored?1-x:x,y:b[1]+b[3]/2};}
+  function speakerTrack(rows,speaker,at=Date.now()){
+    if(!speaker?.participant_id||!Number.isFinite(speaker.at)||!Number.isFinite(speaker.expires_at)||speaker.at>at||speaker.expires_at<=at||speaker.expires_at-speaker.at>3000)return '';
+    const same=(Array.isArray(rows)?rows:[]).filter(r=>r?.participant_id===speaker.participant_id);
+    return same.length===1&&same[0].track_id===speaker.track_id?same[0].track_id:'';
+  }
   function visualState({state='idle',recording=false}={}){return {state:({processing:'thinking',transcribing:'thinking',starting:'connecting'})[state]||(['listening','thinking','speaking','error','connecting'].includes(state)?state:'idle'),recording:recording===true};}
-  return {create,match,similarity,box,visualState,introductionName,followPoint};
+  return {create,match,similarity,box,visualState,introductionName,followPoint,speakerTrack};
 });

@@ -39,3 +39,7 @@ body:has(#view-chat.active)>.vp3-orb-root{top:70px;bottom:auto}
 .vp3-eyes-content textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #536b85;border-radius:8px;background:#172b3f;color:#ecf4ff;font:inherit;resize:vertical}.vp3-participant-continuity{display:grid;gap:8px}.vp3-participant-continuity:not([open])>:not(summary){display:none}.vp3-participant-continuity>summary{cursor:pointer}
 .vp3-participant-continuity pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;max-height:12rem;overflow:auto;padding:.5rem;background:rgba(127,127,127,.12);border-radius:.4rem}
 .vp3-participant-continuity [hidden]{display:none!important}
+.vp3-eyes-box{transition:left .16s linear,top .16s linear,width .16s linear,height .16s linear}
+.vp3-eyes-box.vp3-eyes-speaker{border:3px solid #55e59b;box-shadow:0 0 0 2px #082e23,0 0 14px #55e59b88}
+.vp3-eyes-box.vp3-eyes-speaker span{background:#12633f;border-radius:3px;font-weight:600}
+@media(prefers-reduced-motion:reduce){.vp3-eyes-box{transition:none}}

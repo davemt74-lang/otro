@@ -3,7 +3,7 @@
   'use strict';
   const boot=()=>{
     const adapter=window.VP3_ORB_ADAPTER;if(!adapter||window.VP3VoiceGuard)return;
-    let processor=null,source=null,high=null,low=null,mute=null,rate=0,chunks=[],length=0,lastAudio=0,noise=.004,epoch=0,learning=null,pendingContext=null,features=null,featureApi=null,cachedProfiles=[],cachedAt=0,attachment=null,refreshing=false,lastChecked=null;
+    let processor=null,source=null,high=null,low=null,mute=null,rate=0,chunks=[],length=0,lastAudio=0,noise=.004,epoch=0,turn=0,learning=null,pendingContext=null,features=null,featureApi=null,cachedProfiles=[],cachedAt=0,attachment=null,refreshing=false,lastChecked=null;
     const voiceSession=crypto.randomUUID();const prefs=`vp3:voice-filter:${adapter.ownerKey}`;let enabled=true,knownOnly=false,invitation='',invitationUntil=0;
     try{const p=JSON.parse(localStorage.getItem(prefs)||'{}');enabled=p.enabled!==false;knownOnly=p.knownOnly===true;}catch(_){}
     const module=()=>features||(features=import(adapter.voiceFeatureUrl).then(lib=>featureApi=lib));
@@ -24,7 +24,7 @@
     async function beginEnrollment(id){await refresh();const p=(await profiles()).find(p=>String(p.id)===String(id));if(!p)return say('Choose an existing participant.');q('[data-voice-person]').value=String(id);q('[data-voice-consent]').checked=true;enabled=true;q('[data-voice-filter]').checked=true;persist();learning={id:String(id),epoch};say(window.VP3TrainedVoice?.enabled()?'Speak three clean phrases of at least three seconds each, alone and without music.':'Speak three short phrases, alone and without music. Each clean phrase adds one local sample.');adapter.listen();}
     q('[data-voice-learn]').addEventListener('click',()=>{const id=q('[data-voice-person]').value;if(!id||!q('[data-voice-consent]').checked)return say('Choose a participant and allow local voice features first.');if(window.VP3AgentOrb?.startVoiceEnrollment?.(id)){q('[data-voice-consent]').checked=false;say('Voice learning opened in the existing chat. Speak three clean phrases.');return;}void beginEnrollment(id).catch(()=>say('Voice enrollment is unavailable.'));});
     q('[data-voice-forget]').addEventListener('click',async()=>{const id=q('[data-voice-person]').value;if(!id)return;clear();learning=null;window.VP3AgentOrb?.cancelVoiceEnrollment?.();try{const p=(await profiles()).find(p=>String(p.id)===id);await adapter.forgetVoice(id);window.dispatchEvent(new CustomEvent('vp3:participant-forgotten',{detail:{id,name:p?.name||''}}));await refresh();say('Local voice features removed. Participant names and visual samples are preserved.');}catch(_){say('Voice features could not be removed.');}});
-    function clear(){chunks=[];length=0;lastAudio=0;pendingContext=null;epoch++;window.VP3TrainedVoice?.clear();}
+    function clear(){chunks=[];length=0;lastAudio=0;pendingContext=null;epoch++;window.VP3TrainedVoice?.clear();window.VP3ParticipantContinuity?.clearSpeaker?.();}
     function detach(keepLearning=false){clear();attachment=null;if(keepLearning&&learning)learning.epoch=epoch;else learning=null;for(const n of [processor,source,high,low,mute])try{n?.disconnect();}catch(_){}if(processor)processor.onaudioprocess=null;processor=source=high=low=mute=null;}
     function attach(stream,context){
       detach(true);if(!enabled||!stream||!context?.createScriptProcessor)return false;
@@ -34,10 +34,12 @@
       }catch(_){detach();say('Local voice filtering is unavailable in this browser.');return false;}
     }
     async function evaluateVoice(text,isCurrent=()=>true){
+      const turnSerial=++turn;
+      window.VP3ParticipantContinuity?.clearSpeaker?.();
       lastChecked={text:String(text),at:Date.now()};
       if(Date.now()<invitationUntil&&((invitation==='name'&&window.VP3EyesCore?.introductionName(text,true))||(invitation==='visual-consent'&&/^(?:please )?(?:remember me visually|save my local visual samples|recognize me next time)[.!]?$/i.test(String(text).trim())))){invitation='';pendingContext=null;return {allowed:true,reason:'invited-introduction'};}
       pendingContext=null;if(/^(?:that['’]s not me|that is not me|you have the wrong person)[.!]?$/i.test(String(text).trim()))return {allowed:true,reason:'participant-correction'};if(/^(?:stop|cancel|pause|stop listening|stop the microphone)[.!]?$/i.test(String(text).trim()))return {allowed:true};if(window.VP3AgentEyes?.expectingIntroduction?.()&&window.VP3EyesCore?.introductionName(text,true))return {allowed:true,reason:'invited-introduction'};if(!enabled)return {allowed:true};const token=epoch;
-      const current=()=>token===epoch&&isCurrent();
+      const current=()=>token===epoch&&turnSerial===turn&&isCurrent();
       const captured=chunks;chunks=[];length=0;
       if(!rate||!captured.length||performance.now()-lastAudio>2200){if(knownOnly)say('Speech ignored: voice matching has no current microphone evidence.');return {allowed:!knownOnly,reason:'unavailable'};}
       const clean=captured.filter(c=>c.rms>=Math.max(.008,noise*2.5));const count=clean.reduce((n,c)=>n+c.data.length,0);
@@ -45,6 +47,7 @@
       const pcm=new Float32Array(count);let offset=0;for(const c of clean){pcm.set(c.data,offset);offset+=c.data.length;}
       const trained=window.VP3TrainedVoice?.enabled()===true,lib=await module();if(!current())return {allowed:false,reason:'cancelled'};
       const result=trained?await window.VP3TrainedVoice.extract(pcm,rate,{enrollment:!!learning}):null;
+      if(!current())return {allowed:false,reason:'cancelled'};
       if(trained&&!result.embedding){say(result.quality?.message||'No trained voice match is available.');return {allowed:!knownOnly,reason:result.quality?.reason||'unavailable'};}
       const embedding=trained?result.embedding:lib.voiceEmbeddingFromPcm(pcm,rate),rows=await profiles();if(!current())return {allowed:false,reason:'cancelled'};
       if(learning&&learning.epoch===token&&embedding&&q('[data-voice-consent]').checked){
@@ -54,12 +57,16 @@
         return {allowed:true,learning:true};
       }
       const match=trained?await window.VP3TrainedVoice.match(embedding,rows):lib.bestVoiceParticipantMatch(embedding,rows);
+      if(!current())return {allowed:false,reason:'cancelled'};
       if(!match.matched){say((match.ambiguous||match.reason==='ambiguous')?'Speaker is ambiguous. No participant was assigned.':knownOnly?'Unknown voice ignored. Listening continues.':'Unrecognized speaker. No participant was assigned.');return {allowed:!knownOnly,reason:match.ambiguous?'ambiguous':'unknown'};}
       // Recheck consent after matching and immediately before exposing a name.
       const fresh=(await profiles()).find(p=>p.id===match.participant.id&&(trained?window.VP3TrainedVoice.readyProfile(p):p.voiceRecognitionEnabled&&p.voiceProfileReady));if(!current()||!fresh)return {allowed:!knownOnly,reason:'revoked'};
-      const attribution=window.VP3ParticipantContinuity?.assessVoice({participant_id:String(fresh.id),display_name:fresh.name});
+      const person={participant_id:String(fresh.id),display_name:fresh.name};
+      const attribution=window.VP3ParticipantContinuity?.assessVoice(person,{notify:false});
       if(attribution&&!attribution.accepted){say('Speaker attribution is uncertain. No participant assigned.');return {allowed:!knownOnly,reason:attribution.reason};}
       const note=adapter.voiceParticipantNote?await adapter.voiceParticipantNote(String(fresh.id)).catch(()=>''):'';if(!current())return {allowed:false,reason:'cancelled'};
+      const finalAttribution=window.VP3ParticipantContinuity?.assessVoice(person);
+      if(finalAttribution&&!finalAttribution.accepted)return {allowed:!knownOnly,reason:finalAttribution.reason};
       pendingContext={text:String(text),at:Date.now(),value:{conversation_note:String(note).slice(0,1000),participant_id:String(fresh.id),display_name:String(fresh.name).slice(0,120),source:'local_voice_similarity',confidence:match.similarity,authentication_authority:false}};
       void Promise.resolve(adapter.recordEyes?.({event_id:crypto.randomUUID(),session_id:voiceSession,track_id:crypto.randomUUID(),event_type:'voice_turn',participant_id:String(fresh.id),display_name:fresh.name,identity_source:'local_voice_similarity',authentication_authority:false})).catch(()=>{});say(`Listening to ${fresh.name} · provisional ${trained?'trained':'local'} voice match.`);return {allowed:true,participant:pendingContext.value};
     }
