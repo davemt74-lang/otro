@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import sys
 import time
+import types
 import unittest
 from contextlib import contextmanager
 from unittest.mock import patch
@@ -13,7 +15,13 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app import phone_api
+# Isolate the phone transport contract from full HomeServer knowledge parsing,
+# model providers and optional desktop dependencies. The existing HomeServer
+# integration workflows exercise the real canonical runtime separately.
+_chat_stub = types.ModuleType("app.services.context_chat")
+_chat_stub.chat = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("not mocked"))
+with patch.dict(sys.modules, {"app.services.context_chat": _chat_stub}):
+    from app import phone_api
 from telephony.security import signed_envelope
 
 
