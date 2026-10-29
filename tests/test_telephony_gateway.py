@@ -237,6 +237,14 @@ class PhoneGatewayTests(unittest.TestCase):
         self.assertFalse(valid_envelope("secret", str(old), msg, signed_envelope("secret", old, msg)))
         self.assertFalse(twilio_valid("", "https://voice.example.test", {}, "fake"))
 
+    def test_platform_signing_secrets_are_independent(self):
+        cfg = Settings(service_secret="outbound", vp3_callback_secret="vp3-only",
+                       stonefellow_callback_secret="music-only", gelato_callback_secret="gelato-only")
+        self.assertEqual(cfg.platform_secret("vp3"), "vp3-only")
+        self.assertEqual(cfg.platform_secret("stonefellow"), "music-only")
+        self.assertEqual(cfg.platform_secret("gelato"), "gelato-only")
+        self.assertNotEqual(cfg.platform_secret("gelato"), cfg.service_secret)
+
 
 if __name__ == "__main__":
     unittest.main()

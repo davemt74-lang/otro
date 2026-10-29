@@ -58,7 +58,10 @@ export VP3_PHONE_PUBLIC_BASE=https://phone.example.com
 export VP3_PHONE_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 export VP3_PHONE_AUTH_TOKEN=your_twilio_auth_token
 export VP3_PHONE_OWNER_TOKEN=a_distinct_long_owner_token
-export VP3_PHONE_SERVICE_SECRET=a_distinct_long_service_hmac_secret
+export VP3_PHONE_SERVICE_SECRET=a_distinct_long_outbound_request_hmac_secret
+export VP3_PHONE_VP3_CALLBACK_SECRET=a_distinct_vp3_callback_secret
+export VP3_PHONE_STONEFELLOW_CALLBACK_SECRET=a_distinct_stonefellow_callback_secret
+export VP3_PHONE_GELATO_CALLBACK_SECRET=a_distinct_gelato_callback_secret
 export VP3_PHONE_DATABASE=/var/lib/vp3-phone/phone.sqlite3
 export VP3_PHONE_GELATO_CALLBACK=https://restaurant.example.com/api/public-agent.php
 uvicorn telephony.app:app --host 127.0.0.1 --port 8081
@@ -108,7 +111,10 @@ The HMAC expires after five minutes. A signed request **does not** grant an
 approval by itself. An approval can only be consumed once. An unconfirmed
 carrier send must receive a fresh owner approval to retry.
 
-The gateway-to-platform callback uses the same signing envelope and a JSON
+The gateway-to-platform callback uses the same signing algorithm, but **not the
+same secret**. Each connected platform receives a different configured
+`VP3_PHONE_<PLATFORM>_CALLBACK_SECRET` so a compromised restaurant or music
+site cannot sign another platform's events or outbound operations. A JSON
 payload with `event_id`, `agent_id`, `channel`, `from`, `to`, `message`, `text`,
 `conversation_id`, `history`, `caller_verified:false`, `allow_actions:false`.
 The platform must verify the HMAC and independently enforce its Agent permissions.

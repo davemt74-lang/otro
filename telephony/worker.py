@@ -19,8 +19,9 @@ def agent_response(event: dict, config: Settings) -> tuple[str, str]:
     parsed = urlparse(callback)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
         raise ValueError("The platform phone adapter must use a configured HTTPS URL")
-    if not config.service_secret:
-        raise ValueError("Service signing is not configured")
+    callback_secret = config.platform_secret(event["platform"])
+    if not callback_secret:
+        raise ValueError("Platform callback signing is not configured")
     body = json_bytes({
         "event_id": event["event_id"], "channel": "sms",
         "from": event["sender"], "to": event["number"],
@@ -33,7 +34,7 @@ def agent_response(event: dict, config: Settings) -> tuple[str, str]:
     req = Request(callback, method="POST", data=body, headers={
         "Content-Type": "application/json",
         "X-VP3-Timestamp": str(stamp),
-        "X-VP3-Signature": signed_envelope(config.service_secret, stamp, body),
+        "X-VP3-Signature": signed_envelope(callback_secret, stamp, body),
     })
     try:
         with urlopen(req, timeout=15) as result:

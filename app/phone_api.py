@@ -38,7 +38,7 @@ class PhoneAgentMessage(BaseModel):
 async def phone_agent_message(request: Request,
                               x_vp3_timestamp: str = Header(default=""),
                               x_vp3_signature: str = Header(default="")) -> dict:
-    secret = os.environ.get("VP3_PHONE_SERVICE_SECRET", "")
+    secret = os.environ.get("VP3_PHONE_VP3_CALLBACK_SECRET", "")
     raw = await request.body()
     if len(raw) > 8192 or not valid_envelope(secret, x_vp3_timestamp, raw, x_vp3_signature):
         raise HTTPException(401, "Invalid phone service signature")

@@ -27,6 +27,9 @@ class Settings:
     auth_token: str = ""
     owner_token: str = ""
     service_secret: str = ""
+    vp3_callback_secret: str = ""
+    stonefellow_callback_secret: str = ""
+    gelato_callback_secret: str = ""
     database: str = "./phone-data/phone.sqlite3"
     vp3_callback: str = ""
     stonefellow_callback: str = ""
@@ -36,7 +39,8 @@ class Settings:
     def from_environment(cls) -> "Settings":
         values = {field: os.getenv("VP3_PHONE_" + field.upper(), "")
                   for field in ("public_base", "account_sid", "auth_token", "owner_token",
-                                "service_secret", "vp3_callback", "stonefellow_callback", "gelato_callback")}
+                                "service_secret", "vp3_callback_secret", "stonefellow_callback_secret",
+                                "gelato_callback_secret", "vp3_callback", "stonefellow_callback", "gelato_callback")}
         values["database"] = os.getenv("VP3_PHONE_DATABASE", "./phone-data/phone.sqlite3")
         return cls(**values)
 
@@ -49,6 +53,10 @@ class Settings:
     def platform_callback(self, platform: str) -> str:
         return {"vp3": self.vp3_callback, "stonefellow": self.stonefellow_callback,
                 "gelato": self.gelato_callback}.get(platform, "")
+
+    def platform_secret(self, platform: str) -> str:
+        return {"vp3": self.vp3_callback_secret, "stonefellow": self.stonefellow_callback_secret,
+                "gelato": self.gelato_callback_secret}.get(platform, "")
 
 
 class RouteRequest(BaseModel):

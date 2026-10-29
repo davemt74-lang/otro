@@ -41,7 +41,7 @@ class PhoneAdapterTests(unittest.TestCase):
         self.db_patch = patch.object(phone_api, "db", fake_db)
         self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
-        self.env_patch = patch.dict(os.environ, {"VP3_PHONE_SERVICE_SECRET": "test-secret"})
+        self.env_patch = patch.dict(os.environ, {"VP3_PHONE_VP3_CALLBACK_SECRET": "test-secret"})
         self.env_patch.start()
         self.addCleanup(self.env_patch.stop)
         app = FastAPI()
