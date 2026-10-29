@@ -64,6 +64,7 @@ from .services.local_files_remote import install as install_local_files_remote_o
 from .services.pairing import DEFAULT_PERMISSIONS, pairing_status
 from .system_api import router as system_router
 from .onboarding_api import router as onboarding_router
+from .phone_api import router as phone_router
 from .tasks_api import router as tasks_router
 from .team_orchestration_api import router as team_orchestration_router
 from .team_planning_api import router as team_planning_router
@@ -127,6 +128,7 @@ app.include_router(cognition_router)
 app.include_router(backups_router)
 app.include_router(system_router)
 app.include_router(onboarding_router)
+app.include_router(phone_router)
 app.include_router(remote_bridge_router)
 app.include_router(usage_router)
 app.include_router(connected_apps_router)

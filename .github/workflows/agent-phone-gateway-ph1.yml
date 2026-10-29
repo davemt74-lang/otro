@@ -1,0 +1,41 @@
+name: Agent Phone Gateway PH1
+
+on:
+  pull_request:
+    paths:
+      - 'telephony/**'
+      - 'app/phone_api.py'
+      - 'app/bridge.py'
+      - 'database/migrations/083_agent_phone_receipts.sql'
+      - 'tests/test_telephony_*.py'
+      - '.github/workflows/agent-phone-gateway-ph1.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'telephony/**'
+      - 'app/phone_api.py'
+      - 'app/bridge.py'
+      - 'database/migrations/083_agent_phone_receipts.sql'
+      - 'tests/test_telephony_*.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phone-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install minimal phone test dependencies
+        run: python -m pip install fastapi==0.115.6 httpx==0.28.1
+      - name: Check Python syntax
+        run: python -B -c "import ast,pathlib; [ast.parse(p.read_text()) for p in list(pathlib.Path('telephony').glob('*.py'))+[pathlib.Path('app/phone_api.py')]]"
+      - name: Phone security and adapter tests
+        env:
+          VP3_PHONE_DATABASE: /tmp/vp3_phone_ci.sqlite3
+        run: python -B -m unittest discover -s tests -p 'test_telephony_*.py' -v
