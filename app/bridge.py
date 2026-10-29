@@ -1,4 +1,5 @@
 from __future__ import annotations
+from .tv_watching_api import router as tv_watching_router
 
 from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,6 +94,7 @@ install_local_file_agent_tools()
 install_local_file_action_agent_tools()
 install_local_file_action_registry()
 
+app.include_router(tv_watching_router)
 app.include_router(agent_mission_router)
 app.include_router(agent_mission_tools_router)
 app.include_router(agent_mission_control_router)

@@ -5,7 +5,7 @@
     const $=id=>document.getElementById(id),embed=new URLSearchParams(location.search).get('orb_embed')==='1'&&parent!==window;
     const origin=location.origin;let lastState='',disposed=false,timer=0,pendingText='',pendingListen=false,pendingVoiceEnrollment='',introductionMode='',ready=false,frame=null,returnFocus=null,restorePanel=null;
     const state=()=>window.VP3EyesCore.visualState(adapter.state());
-    const userTurn=event=>{if(event.target?.id!=='chatForm')return;const text=String($('chatInput')?.value||'').slice(0,240);if(embed)parent.postMessage({channel:'vp3-orb',kind:'user-turn',text},origin);else void window.VP3AgentEyes?.hear?.(text);};
+    const userTurn=event=>{if(event.target?.id!=='chatForm')return;const text=String($('chatInput')?.value||'').slice(0,240);const context={voice:window.VP3VoiceGuard?.wasVoiceTurn?.(text)===true,known_voice:window.VP3VoiceGuard?.hasRecognizedTurn?.(text)===true};if(embed)parent.postMessage({channel:'vp3-orb',kind:'user-turn',text,...context},origin);else void window.VP3AgentEyes?.hear?.(text,context);};
     document.addEventListener('submit',userTurn,true);window.addEventListener('pagehide',()=>document.removeEventListener('submit',userTurn,true),{once:true});
     if(embed){
       let queuedEnrollment='',queuedIntroduction='';window.addEventListener('vp3:voice-guard-ready',()=>{if(queuedEnrollment){void window.VP3VoiceGuard.beginEnrollment(queuedEnrollment);queuedEnrollment='';}window.VP3VoiceGuard.inviteIntroduction(queuedIntroduction);});
@@ -84,7 +84,7 @@
       if(event.origin!==origin||event.source!==frame?.contentWindow||event.data?.channel!=='vp3-orb')return;
       const data=event.data;if(data.kind==='ready'){ready=true;if(pendingListen){pendingListen=false;command('listen');}if(pendingText)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'compose',text:pendingText},origin);if(pendingVoiceEnrollment){frame.contentWindow.postMessage({channel:'vp3-orb',kind:'voice-enroll',id:pendingVoiceEnrollment},origin);pendingVoiceEnrollment='';}}
       if(data.kind==='voice-filter-status')window.dispatchEvent(new CustomEvent('vp3:voice-filter-remote-status',{detail:{message:String(data.message||'').slice(0,300)}}));
-      if(data.kind==='user-turn')void window.VP3AgentEyes?.hear?.(String(data.text||'').slice(0,240));
+      if(data.kind==='user-turn')void window.VP3AgentEyes?.hear?.(String(data.text||'').slice(0,240),{voice:data.voice===true,known_voice:data.known_voice===true});
       if(data.kind==='ready'){frame.contentWindow.postMessage({channel:'vp3-orb',kind:'introduction-window',mode:introductionMode},origin);frame.contentWindow.postMessage({channel:'vp3-orb',kind:'participant-presence',value:window.VP3ParticipantContinuity?.snapshot()},origin);frame.contentWindow.postMessage({channel:'vp3-orb',kind:'participant-selection',value:window.VP3ParticipantContinuity?.selectedContext()},origin);}
       if(data.kind==='participant-selection')window.VP3ParticipantContinuity?.setSelection(data.value,true);
       if(data.kind==='participant-speaker')window.VP3ParticipantContinuity?.receiveSpeaker(data.value);
