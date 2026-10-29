@@ -216,6 +216,8 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
             "tasks.delete",
             "tasks.list",
             "tasks.update",
+            "tv.history",
+            "tv.interests",
             "workspace.get",
             "workspace.search",
             "workspace.update",
@@ -224,6 +226,7 @@ with tempfile.TemporaryDirectory(prefix="homeserver-smoke-") as data_dir:
         owner_skills = client.get("/api/v1/control/skills")
         assert owner_skills.status_code == 200
         assert [item["key"] for item in owner_skills.json()["items"]] == [
+            "tv.watching",
             "local.research",
             "local.files",
             "relationship.context",
