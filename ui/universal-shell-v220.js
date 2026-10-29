@@ -147,11 +147,11 @@
   function boot(){
     wrapStandalone();
     if(!document.querySelector('[data-vp3-orb-loader]')){
-      const css=document.createElement('link');css.rel='stylesheet';css.href='/assets/agent-orb.css?v=eyes-v1348';document.head.append(css);
+      const css=document.createElement('link');css.rel='stylesheet';css.href='/assets/agent-orb.css?v=eyes-v1348r1';document.head.append(css);
       const modules=document.getElementById('chatForm')?[]:['voice-settings.js','chat-enhancements.js'];
       modules.push('agent-eyes-core.js','agent-orb-adapter.js','agent-participant-continuity.js','agent-orb.js','agent-eyes.js','agent-tv-watching.js','agent-trained-voice.js','agent-voice-guard.js');
       for(const name of modules){
-        const script=document.createElement('script');script.src='/assets/'+name+'?v=eyes-v1348';script.async=false;script.dataset.vp3OrbLoader='1';document.head.append(script);
+        const script=document.createElement('script');script.src='/assets/'+name+'?v=eyes-v1348r1';script.async=false;script.dataset.vp3OrbLoader='1';document.head.append(script);
       }
     }
     enhanceIndexShell();
