@@ -1,4 +1,4 @@
-/* Camera processing is browser-local; only bounded lifecycle summaries leave it. */
+/* Participant recognition stays local; TV Watching separately opts into screen crops. */
 (() => {
   'use strict';
   async function boot(){
@@ -6,7 +6,7 @@
     const core=window.VP3EyesCore.create(),session=crypto.randomUUID();
     let generation=0,stream=null,engine=null,timer=0,profiles=[],observations=[],currentRows=[],starting=false,enrolling=false,pending=[],flushing=false,profileVersion=0,profileSignature='',introduction=null,savingIntroduction=false,recognitionOffer=null;
     const panel=document.createElement('section');panel.className='vp3-eyes-panel';panel.hidden=true;panel.setAttribute('aria-label','Agent Eyes');
-    panel.innerHTML='<header><strong>Agent Eyes</strong><button type="button" data-eyes-close aria-label="Close Agent Eyes">×</button></header><div class="vp3-eyes-content"><p data-eyes-status role="status">Camera is off.</p><div class="vp3-eyes-actions"><button type="button" data-eyes-start>Start camera</button><button type="button" data-eyes-stop disabled>Stop camera</button></div><div class="vp3-eyes-camera"><video muted playsinline></video><div class="vp3-eyes-boxes"></div></div><p data-eyes-people>No participants in view.</p><label><input type="checkbox" data-eyes-greetings checked> Greet arrivals automatically</label><details><summary>Introduce / recognize a participant</summary><p>A tracking ID is temporary. A local visual match is provisional and grants no account access.</p><label>Existing participant<select data-eyes-profile aria-label="Existing participant"></select></label><label>Or introduce someone<input type="text" data-eyes-name maxlength="120" placeholder="Participant name"></label><label><input type="checkbox" data-eyes-consent> This participant agrees to save local visual samples for recognition.</label><div class="vp3-eyes-actions"><button type="button" data-eyes-enroll>Save three local samples</button><button type="button" data-eyes-forget>Forget local samples</button></div></details><details><summary>Recent Agent Eyes activity</summary><ol data-eyes-history></ol></details><p>Frames and visual samples stay in this browser. Only participant event summaries enter your private Agent Brain history.</p></div>';
+    panel.innerHTML='<header><strong>Agent Eyes</strong><button type="button" data-eyes-close aria-label="Close Agent Eyes">×</button></header><div class="vp3-eyes-content"><p data-eyes-status role="status">Camera is off.</p><div class="vp3-eyes-actions"><button type="button" data-eyes-start>Start camera</button><button type="button" data-eyes-stop disabled>Stop camera</button></div><div class="vp3-eyes-camera"><video muted playsinline></video><div class="vp3-eyes-boxes"></div></div><p data-eyes-people>No participants in view.</p><label><input type="checkbox" data-eyes-greetings checked> Greet arrivals automatically</label><details><summary>Introduce / recognize a participant</summary><p>A tracking ID is temporary. A local visual match is provisional and grants no account access.</p><label>Existing participant<select data-eyes-profile aria-label="Existing participant"></select></label><label>Or introduce someone<input type="text" data-eyes-name maxlength="120" placeholder="Participant name"></label><label><input type="checkbox" data-eyes-consent> This participant agrees to save local visual samples for recognition.</label><div class="vp3-eyes-actions"><button type="button" data-eyes-enroll>Save three local samples</button><button type="button" data-eyes-forget>Forget local samples</button></div></details><details><summary>Recent Agent Eyes activity</summary><ol data-eyes-history></ol></details><p>Participant frames and visual samples stay in this browser. TV Watching has separate controls for cropped-screen sharing and account history.</p></div>';
     document.body.append(panel);const q=s=>panel.querySelector(s),video=q('video'),status=q('[data-eyes-status]');
     const speakerStatus=document.createElement('p');speakerStatus.dataset.eyesSpeaker='';speakerStatus.setAttribute('role','status');q('.vp3-eyes-camera').after(speakerStatus);
     const legend=document.createElement('p');legend.textContent='Blue: tracked participant. Green: recent voice match (up to 3 seconds).';speakerStatus.after(legend);
@@ -48,7 +48,8 @@
       paintSpeaker();
       q('[data-eyes-people]').textContent=rows.length?rows.map(r=>r.display_name?`${r.display_name} (provisional)`:`Participant ${r.track_id.slice(-5)} · unidentified`).join(' · '):'No participants in view.';
     }
-    async function hear(text){
+    async function hear(text,context={}){
+      if(window.VP3TVWatching?.hear(text,context))return true;
       if(window.VP3ParticipantContinuity?.hear(text))return true;
       if(recognitionOffer&&stream&&!enrolling&&!savingIntroduction&&currentRows.length===1&&currentRows[0].track_id===recognitionOffer.track&&Date.now()<recognitionOffer.expires){
         const answer=String(text||'').trim().replace(/[.!]$/,'');
@@ -73,22 +74,29 @@
       finally{savingIntroduction=false;}
     }
     async function stop(reason='Camera is off.'){
+      void window.VP3TVWatching?.stop();
       introduction=null;recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');
       generation++;starting=false;enrolling=false;cameraIndicator(false);q('[data-eyes-consent]').checked=false;clearTimeout(timer);timer=0;
       if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}video.srcObject=null;observations=[];currentRows=[];core.clear().forEach(log);draw([]);say(reason);q('[data-eyes-start]').disabled=false;q('[data-eyes-stop]').disabled=true;
     }
+    async function detectFrame(){
+      const tv=window.VP3TVWatching,enabled=tv?.needsDetection()===true;
+      try{return await engine.detect(video,{object:{enabled}});}catch(error){if(!enabled)throw error;tv.detectorFailed();return engine.detect(video,{object:{enabled:false}});}
+    }
+    function roomFaces(result){const tv=window.VP3TVWatching,boxes=tv?.screenBoxes(result.object,video.videoWidth,video.videoHeight)||[];return (result.face||[]).filter(face=>!tv?.faceOnScreen(face,boxes,video.videoWidth,video.videoHeight));}
     async function scan(token){
       if(token!==generation||!stream)return;
       try{
         if(!await adapter.cameraAllowed())return void stop('Camera stopped by privacy or session settings.');
         await loadProfiles();if(token!==generation||!stream)return;
         if(enrolling){timer=setTimeout(()=>void scan(token),900);return;}
-        const result=await engine.detect(video);if(token!==generation||!stream)return;
+        const result=await detectFrame();if(token!==generation||!stream)return;
         // Re-read revocations after inference; stale matches cannot revive a profile.
         await loadProfiles();if(token!==generation||!stream)return;
         if(!await adapter.cameraAllowed())return void stop('Camera stopped by privacy settings.');
         if(token!==generation||!stream)return;
-        observations=(result.face||[]).slice(0,8).map(f=>({box:[f.box[0]/video.videoWidth,f.box[1]/video.videoHeight,f.box[2]/video.videoWidth,f.box[3]/video.videoHeight],embedding:f.embedding?Array.from(f.embedding):null}));
+        observations=roomFaces(result).slice(0,8).map(f=>({box:[f.box[0]/video.videoWidth,f.box[1]/video.videoHeight,f.box[2]/video.videoWidth,f.box[3]/video.videoHeight],embedding:f.embedding?Array.from(f.embedding):null}));
+        window.VP3TVWatching?.observe(result.object,video,()=>token===generation&&!!stream&&!document.hidden);
         const update=core.update(observations,profiles);currentRows=update.rows;draw(update.rows);update.events.forEach(log);
         if(introduction&&(currentRows.length!==1||currentRows[0].track_id!==introduction.track||currentRows[0].participant_id)){introduction=null;window.VP3AgentOrb?.setIntroductionMode?.('');}
         if(recognitionOffer&&(Date.now()>recognitionOffer.expires||currentRows.length!==1||currentRows[0].track_id!==recognitionOffer.track)){recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');}
@@ -137,9 +145,9 @@
         for(let i=0;i<3;i++){
           if(i)await new Promise(resolve=>setTimeout(resolve,700));
           if(token!==generation||!stream||!q('[data-eyes-consent]').checked||!await adapter.cameraAllowed())throw Error('Enrollment stopped.');
-          const result=await engine.detect(video);
-          if(token!==generation||!stream||!q('[data-eyes-consent]').checked||result.face?.length!==1||currentRows[0]?.track_id!==track||currentRows.length!==1)throw Error('Keep the same participant alone in view.');
-          const embedding=Array.from(result.face[0].embedding||[]);if(window.VP3EyesCore.similarity(embedding,reference)<.8)throw Error('Keep the same participant alone in view.');if(window.VP3EyesCore.similarity(embedding,embedding)<.99)throw Error('Visual sample unavailable.');if(samples.length&&window.VP3EyesCore.similarity(embedding,samples[0])<.8)throw Error('Keep the same participant alone in view.');samples.push(embedding);
+          const result=await detectFrame();
+          if(token!==generation||!stream||!q('[data-eyes-consent]').checked||roomFaces(result).length!==1||currentRows[0]?.track_id!==track||currentRows.length!==1)throw Error('Keep the same participant alone in view.');
+          const embedding=Array.from(roomFaces(result)[0].embedding||[]);if(window.VP3EyesCore.similarity(embedding,reference)<.8)throw Error('Keep the same participant alone in view.');if(window.VP3EyesCore.similarity(embedding,embedding)<.99)throw Error('Visual sample unavailable.');if(samples.length&&window.VP3EyesCore.similarity(embedding,samples[0])<.8)throw Error('Keep the same participant alone in view.');samples.push(embedding);
         }
         if(token!==generation||!q('[data-eyes-consent]').checked)throw Error('Enrollment stopped.');
         await adapter.enrollEyes({id,name,embeddings:samples,isCurrent:()=>token===generation&&!!stream&&q('[data-eyes-consent]').checked});await loadProfiles();q('[data-eyes-consent]').checked=false;q('[data-eyes-name]').value='';say('Local samples saved. Future visual matches remain provisional.');
@@ -152,7 +160,7 @@
     window.addEventListener('pagehide',()=>{void stop();clearInterval(retry);clearTimeout(speakerTimer);window.removeEventListener('vp3:active-speaker',paintSpeaker);document.removeEventListener('visibilitychange',hide);},{once:true});
     function rejectCurrent(){introduction=null;recognitionOffer=null;window.VP3AgentOrb?.setIntroductionMode?.('');if(!stream||currentRows.length!==1)return;const track=currentRows[0].track_id;core.reject(track);currentRows=currentRows.map(row=>({...row,participant_id:'',display_name:'',identity_source:'unidentified'}));draw(currentRows);introduction={track,expires:Date.now()+90000};window.VP3AgentOrb?.setIntroductionMode?.('name');window.VP3AgentOrb?.bubble('Thanks for correcting me. What is your name?');}
     async function refreshProfiles(){await loadProfiles();currentRows=currentRows.map(row=>{const p=profiles.find(p=>String(p.id)===String(row.participant_id));return p?{...row,display_name:p.name}:{...row,participant_id:'',display_name:'',identity_source:'unidentified'};});draw(currentRows);}
-    window.VP3AgentEyes={rejectCurrent,refreshProfiles,toggle:()=>{panel.hidden=!panel.hidden;if(!panel.hidden)void loadProfiles().catch(()=>say('Participant list unavailable.'));},stop,hear,expectingIntroduction:()=>!!stream&&!!introduction&&Date.now()<introduction.expires&&currentRows.length===1&&currentRows[0].track_id===introduction.track,isActive:()=>!!stream};
+    window.VP3AgentEyes={start,rejectCurrent,refreshProfiles,toggle:()=>{panel.hidden=!panel.hidden;if(!panel.hidden)void loadProfiles().catch(()=>say('Participant list unavailable.'));},stop,hear,expectingIntroduction:()=>!!stream&&!!introduction&&Date.now()<introduction.expires&&currentRows.length===1&&currentRows[0].track_id===introduction.track,isActive:()=>!!stream};
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>void boot(),{once:true});else void boot();
 })();

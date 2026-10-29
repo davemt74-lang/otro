@@ -9,7 +9,7 @@
   memory.catch(()=>{});
   const recording=()=>window.HomeServerDictation?.isTranscribing?.()===true;
   const state=()=>{let value=audible?'speaking':$('voiceInputButton')?.dataset.voiceState||voiceState;if(value==='speaking'&&!audible)value='thinking';if(!audible&&window.HomeServerChatTurn?.isBusy?.())value='thinking';return {state:value,recording:recording()};};
-  const adapter={ownerKey:'homeserver-local-owner',chatUrl:'/#chat',alwaysBar:true,state,voiceFeatureUrl:'/assets/tracky/src/voice-profile-core.js',
+  const adapter={tvRequest:async(body,{keepalive=false}={})=>{const r=await fetch('/api/v1/control/tv-watching',{method:'POST',credentials:'same-origin',cache:'no-store',keepalive,headers:{'Content-Type':'application/json','X-HomeServer-UI':'1'},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.detail||'TV Watching unavailable.');return data;},ownerKey:'homeserver-local-owner',chatUrl:'/#chat',alwaysBar:true,state,voiceFeatureUrl:'/assets/tracky/src/voice-profile-core.js',
     trainedVoiceUrl:'/assets/voice-trained-client.js?v=v1346',trainedVoiceSource:'homeserver',
     installTrainedVoice:async({signal}={})=>{const r=await fetch('/api/v1/control/voice/profile-model/install',{method:'POST',credentials:'same-origin',signal,headers:{'X-Requested-With':'XMLHttpRequest'}});const data=await r.json();if(!r.ok)throw Error(data.detail||'The voice component could not install.');return data;},
     conversationRef:()=>window.HomeServerChatTurn?.isReady?.()===false?null:({id:window.HomeServerChatTurn?.conversationId?.()||''}),
