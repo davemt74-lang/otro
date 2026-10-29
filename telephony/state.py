@@ -203,6 +203,8 @@ class PhoneState:
             raise ValueError("Outbound route or agent is not authorized")
         if (operation == "sms" and not route["allow_sms"]) or (operation == "call" and not route["allow_voice"]):
             raise ValueError("Outbound channel is disabled")
+        if operation == "call" and not route["sip_uri"]:
+            raise ValueError("A LiveKit SIP destination is required before approving calls")
         if not self.has_consent(from_number, to_number, operation):
             raise ValueError("The recipient has no documented channel consent")
         if not approved_by.strip() or not 60 <= lifetime <= 3600:

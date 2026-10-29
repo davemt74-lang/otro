@@ -210,6 +210,15 @@ class PhoneGatewayTests(unittest.TestCase):
                                     responder=lambda event, cfg: "See our menu"))
         self.assertEqual(len(self.carrier.sent), 1)
 
+    def test_unprovisioned_sip_does_not_allow_outbound_call(self):
+        self.bind(voice=True, sip="")
+        self.consent(channel="call")
+        body = {"operation": "call", "from_number": "+16025550100", "to_number": "+16025550101",
+                "agent_id": "public-restaurant-agent", "approved_by": "owner:7"}
+        response = self.client.post("/v1/admin/approvals", headers=self.owner, json=body)
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.carrier.calls, [])
+
     def test_ambiguous_carrier_send_not_retried(self):
         self.bind()
         form = {"AccountSid": "AC_test", "MessageSid": "SM_uncertain", "From": "+16025550101",

@@ -55,6 +55,10 @@ def process_one(state: PhoneState, config: Settings, carrier: Carrier,
     event = state.take_sms()
     if not event:
         return False
+    if int(time.time()) - int(event["created_at"]) > 900:
+        # No surprise outbound response to a very old incoming text.
+        state.fail_sms(event["event_id"])
+        return True
     route = state.route(event["number"])
     if (not route or not route["allow_sms"] or route["platform"] != event["platform"]
             or route["agent_id"] != event["agent_id"]):

@@ -180,7 +180,7 @@ def create_app(config: Settings | None = None, *, state: PhoneState | None = Non
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         route = db.route(frm)
-        if not route or (payload.operation == "sms" and not route["allow_sms"]) or (payload.operation == "call" and not route["allow_voice"]):
+        if not route or (payload.operation == "sms" and not route["allow_sms"]) or (payload.operation == "call" and (not route["allow_voice"] or not route["sip_uri"])):
             raise HTTPException(403, "This phone route or channel is not active")
         if payload.operation not in {"sms", "call"} or (payload.operation == "sms" and not payload.payload.strip()) or (payload.operation == "call" and payload.payload):
             raise HTTPException(422, "Invalid outbound operation")
