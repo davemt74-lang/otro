@@ -104,17 +104,26 @@ class PhoneState:
                 consent_source=excluded.consent_source,updated_at=excluded.updated_at""",
                 (number, recipient, channel, int(granted), source, int(time.time())))
 
+    def resubscribe_sms_replies(self, number: str, recipient: str) -> None:
+        """START removes STOP for solicited replies; it is NOT outbound consent."""
+        number, recipient = phone_number(number), phone_number(recipient)
+        with self.connect() as db:
+            db.execute("""INSERT INTO phone_consents VALUES (?,?,?,?,?,?)
+                ON CONFLICT(number,recipient,channel) DO UPDATE SET granted=excluded.granted,
+                consent_source=excluded.consent_source,updated_at=excluded.updated_at""",
+                (number, recipient, "sms", 2, "inbound START: session replies only", int(time.time())))
+
     def has_consent(self, number: str, recipient: str, channel: str) -> bool:
         with self.connect() as db:
             row = db.execute("SELECT granted FROM phone_consents WHERE number=? AND recipient=? AND channel=?",
                              (number, recipient, channel)).fetchone()
-        return bool(row and row["granted"])
+        return bool(row and row["granted"] == 1)
 
     def explicitly_opted_out(self, number: str, recipient: str) -> bool:
         with self.connect() as db:
             row = db.execute("SELECT granted FROM phone_consents WHERE number=? AND recipient=? AND channel='sms'",
                              (number, recipient)).fetchone()
-        return bool(row and not row["granted"])
+        return bool(row and row["granted"] == 0)
 
     def inbound(self, event_id: str, channel: str, route: dict, sender: str, body: str = "") -> bool:
         if not event_id or len(event_id) > 100 or channel not in {"sms", "voice"}:

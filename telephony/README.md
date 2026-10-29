@@ -19,6 +19,8 @@ the provider-neutral port for a future Telnyx or other driver.
   are flagged for review, never automatically retried.
 - Per-owned-number and recipient consent receipts for each channel; inbound
   STOP/START keywords update SMS opt-out and block pending replies after STOP.
+  START resumes solicited replies but never constitutes approval for proactive
+  outbound messages.
 - Voice callbacks bridge to an owner-configured LiveKit SIP destination.
 - HomeServer inbound adapter under `/api/v1/phone/agent` invokes the existing
   `context_chat.chat` read-only and only for an explicitly granted, secondary

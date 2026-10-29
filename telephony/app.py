@@ -210,9 +210,7 @@ def create_app(config: Settings | None = None, *, state: PhoneState | None = Non
                 if keyword in {"STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"}:
                     db.consent(route["number"], sender, "sms", False, "inbound opt-out")
                 elif keyword in {"START", "UNSTOP"}:
-                    # Re-enable only conversational service replies. Any
-                    # separate proactive campaign still requires recorded consent.
-                    db.consent(route["number"], sender, "sms", True, "inbound resubscribe keyword")
+                    db.resubscribe_sms_replies(route["number"], sender)
                 else:
                     db.inbound(form["MessageSid"], "sms", route, sender, body)
             except ValueError:

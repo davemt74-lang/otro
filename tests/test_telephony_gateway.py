@@ -196,6 +196,20 @@ class PhoneGatewayTests(unittest.TestCase):
         self.assertFalse(process_one(self.state, self.config, self.carrier,
                                      responder=lambda event, cfg: "must never run"))
 
+    def test_start_restores_inbound_replies_but_not_proactive_consent(self):
+        self.bind()
+        self.consent(granted=False)
+        start = {"AccountSid": "AC_test", "MessageSid": "SM_start", "From": "+16025550101",
+                 "To": "+16025550100", "Body": "START"}
+        self.assertEqual(self.twilio("/v1/twilio/sms", start).status_code, 200)
+        self.assertFalse(self.state.explicitly_opted_out("+16025550100", "+16025550101"))
+        self.assertFalse(self.state.has_consent("+16025550100", "+16025550101", "sms"))
+        text = dict(start, MessageSid="SM_followup", Body="What's on the menu?")
+        self.twilio("/v1/twilio/sms", text)
+        self.assertTrue(process_one(self.state, self.config, self.carrier,
+                                    responder=lambda event, cfg: "See our menu"))
+        self.assertEqual(len(self.carrier.sent), 1)
+
     def test_ambiguous_carrier_send_not_retried(self):
         self.bind()
         form = {"AccountSid": "AC_test", "MessageSid": "SM_uncertain", "From": "+16025550101",
