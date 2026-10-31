@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import hashlib
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,6 +33,8 @@ class PhoneAgentMessage(BaseModel):
     conversation_id: str = ""
     caller_verified: bool = False
     allow_actions: bool = False
+    call_sid: str = ""
+    turn_index: int = Field(default=0, ge=0, le=500)
 
 
 @router.post("/agent")
@@ -46,8 +49,21 @@ async def phone_agent_message(request: Request,
         payload = PhoneAgentMessage.model_validate_json(raw)
     except Exception as exc:
         raise HTTPException(422, "Invalid phone event") from exc
-    if payload.channel != "sms" or payload.caller_verified or payload.allow_actions or not EVENT_ID.fullmatch(payload.event_id):
+    if payload.channel not in {"sms", "voice"} or payload.caller_verified or payload.allow_actions or not EVENT_ID.fullmatch(payload.event_id):
         raise HTTPException(403, "Unsupported phone authorization")
+    if payload.channel == "voice":
+        # The worker is authenticated by its platform callback secret, and the
+        # call itself must first be resolved through the carrier-verified edge.
+        if (not re.fullmatch(r"CA[a-fA-F0-9]{32}", payload.call_sid)
+                or payload.turn_index < 1
+                or payload.event_id != f"{payload.call_sid}_t{payload.turn_index}"):
+            raise HTTPException(403, "Invalid voice turn binding")
+    elif payload.call_sid or payload.turn_index:
+        raise HTTPException(403, "Unexpected voice turn binding")
+
+    # Voice retransmissions can reuse an event ID only for the exact same turn.
+    # Store the fingerprint inside the existing receipt without a new migration.
+    fingerprint = hashlib.sha256(raw).hexdigest() if payload.channel == "voice" else ""
 
     # Do not let a phone call select the private owner persona. Secondary Agent
     # access additionally requires the existing paired-app Agent grant.
@@ -65,7 +81,10 @@ async def phone_agent_message(request: Request,
             if int(row["agent_id"]) != payload.agent_id:
                 raise HTTPException(409, "Phone event is bound to another Agent")
             if row["state"] == "complete" and row["response_json"]:
-                return json.loads(row["response_json"])
+                saved = json.loads(row["response_json"])
+                if payload.channel == "voice" and saved.get("_request_fingerprint") != fingerprint:
+                    raise HTTPException(409, "Voice event ID already used for another transcript")
+                return {key: value for key, value in saved.items() if not key.startswith("_")}
             raise HTTPException(409, "Phone event requires review; it will not be replayed")
         conn.execute("INSERT INTO agent_phone_receipts(event_id,agent_id,state) VALUES (?,?,'processing')",
                      (payload.event_id, payload.agent_id))
@@ -85,6 +104,7 @@ async def phone_agent_message(request: Request,
             conn.execute("UPDATE agent_phone_receipts SET state='needs_review' WHERE event_id=?", (payload.event_id,))
         raise HTTPException(503, "Phone Agent turn unavailable; manual review required") from exc
     with db() as conn:
+        receipt = {**response, "_request_fingerprint": fingerprint} if payload.channel == "voice" else response
         conn.execute("UPDATE agent_phone_receipts SET state='complete',response_json=? WHERE event_id=?",
-                     (json.dumps(response, separators=(",", ":")), payload.event_id))
+                     (json.dumps(receipt, separators=(",", ":")), payload.event_id))
     return response
