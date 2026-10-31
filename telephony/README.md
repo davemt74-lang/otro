@@ -37,18 +37,26 @@ the provider-neutral port for a future Telnyx or other driver.
   the **same canonical `context_chat.chat`**, keeping per-call conversation IDs
   and forbidding private owner access, tool actions, and automatically retried
   uncertain turns. Speech engines are intentionally not modified here.
+- PH3D-B: optional `telephony.livekit_agent` is a LiveKit audio worker.
+  It accepts only verified Twilio SIP participants, resolves their exact call
+  via the PH3D-A carrier-signed gateway, uses VAD/STT/TTS with interruptible
+  playback, and feeds **every recognized utterance to the existing VP3 Main
+  Chat**. Its LiveKit `LLM` interface is only a signed Main Chat bridge: there
+  is no additional AI model, persona, knowledge store, or tool executor.
+  Interrupted requests finish in order; duplicate STT message IDs are not
+  submitted again, and uncertain HomeServer outcomes block subsequent turns.
 
 ## What is **not** live yet
 
 - No Twilio credentials, telephone number, SIP trunk, LiveKit dispatch rule or
-  real-time Agent worker is provisioned by code. Voice calls are only bridged
-  when these are configured and verified. Barge-in comes from the LiveKit Agent
-  worker, not this HTTP service.
-- PH3D-A is a signed *turn-level contract*, **not** a working live phone agent
-  yet. It does not capture SIP audio, transcribe, synthesize, provision LiveKit,
-  or implement barge-in. That worker must use the configured HomeServer voice
-  engine (including ElevenLabs when installed) and send recognized turns through
-  this contract, without a separate conversation model or a duplicate Agent.
+  or deployed real-time Agent worker is provisioned by code. PH3D-B implements
+  the **optional worker**, but it is not a verified live calling deployment.
+  Twilio/LiveKit provisioning, provider credentials, SIP metadata validation and
+  actual audio/barge-in testing are still required before enabling calls.
+- PH3D-B initially uses explicitly selected **LiveKit Inference** STT/TTS.
+  The separate HomeServer ElevenLabs/FISH work is **not** replaced or silently
+  used by this worker; connecting those local/provider adapters and per-user
+  voice preferences requires an explicit later integration.
 - Public SMS can be sent to Gelato's existing `/api/public-agent.php` as its
   callback, provided its public Agent and provider are enabled. This gives
   callers **published public knowledge only**; no employee/private data or
@@ -99,6 +107,66 @@ Point each provisioned Twilio number's `A MESSAGE COMES IN` webhook to
 `https://phone.example.com/v1/twilio/sms` and voice webhook to
 `https://phone.example.com/v1/twilio/voice` (POST). A configured LiveKit SIP
 destination and dispatch rule are required before enabling voice on a route.
+
+## PH3D-B optional real-time worker (HomeServer Main Chat)
+
+Install this in **its own Python 3.11+ environment/process**. The main
+HomeServer pins a different LiveKit SDK and must not be upgraded or have its
+ElevenLabs/FISH integrations overwritten to deploy this optional worker.
+
+```bash
+python -m venv .venv-phone-worker
+. .venv-phone-worker/bin/activate
+python -m pip install -r telephony/requirements-livekit-worker.txt
+```
+
+Provide the following environment variables using your private service manager
+(do **not** commit or package actual values):
+
+| Variable | Purpose |
+| --- | --- |
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Authenticated LiveKit room and inference access |
+| `VP3_PHONE_PUBLIC_BASE` | Fixed HTTPS gateway origin with verified Twilio ingress |
+| `VP3_PHONE_VOICE_WORKER_SECRET` | Separate HMAC key for `/v1/voice/resolve` |
+| `VP3_PHONE_ACCOUNT_SID` | Expected Twilio account SID (`AC...`) |
+| `VP3_PHONE_LIVEKIT_TRUNK_ID` | Exact trusted SIP trunk ID; do not accept arbitrary callers |
+| `VP3_PHONE_AGENT_NAME` | LiveKit dispatch name (default `vp3-phone`) |
+| `VP3_PHONE_VP3_CALLBACK` | Signed private HomeServer `/api/v1/phone/agent` URL |
+| `VP3_PHONE_VP3_CALLBACK_SECRET` | Independent HomeServer Main Chat callback HMAC |
+| `VP3_PHONE_SPEECH_BACKEND` | Currently must be `livekit-inference` |
+| `VP3_PHONE_STT_MODEL`, `VP3_PHONE_TTS_MODEL`, `VP3_PHONE_TTS_VOICE` | Explicit LiveKit Inference speech choices; voice can be blank |
+
+Set the `VP3_PHONE_VP3_CALLBACK` to
+`http://127.0.0.1:4377/api/v1/phone/agent` only if this worker runs on the
+same host as VP3. Otherwise use the authenticated, **outbound-paired Remote
+Relay**, not a public HomeServer port. `VP3_PHONE_VOICE_WORKER_SECRET` and
+`VP3_PHONE_VP3_CALLBACK_SECRET` must be distinct; the worker refuses to start
+without them or without model selection. Start it under supervision:
+
+```bash
+python -m telephony.livekit_agent start
+```
+
+LiveKit dispatch must target the configured agent name; only a LiveKit SIP
+participant with matching **carrier account, SIP trunk, CallSid, and from/to
+numbers** will be accepted. The gateway independently verifies this binding
+against the original Twilio-signed voice webhook, current DID/Agent assignment,
+and allowed call state. Some carrier/trunk setups do not expose every required
+SIP attribute. Those calls are intentionally refused rather than treated as
+authenticated; verify the metadata on a **staging call** before enabling users.
+
+No phone caller receives owner permissions merely by caller ID or voice match.
+Only a separately granted public/secondary VP3 agent is available, in read-only
+mode, with **no tool actions**. This worker does not start recordings; a spoken
+AI disclosure is sent at the beginning. Validate local consent/disclosure
+requirements before live deployment. Inbound calls only are supported by this
+worker's current carrier binding; outbound media routing needs separate tests.
+
+The telephone conversation uses the same `context_chat.chat` engine and
+conversation continuity as browser Main Chat, with a different (restricted)
+caller authorization. LiveKit handles speech and interruption, and the signed
+HomeServer endpoint handles Agent reasoning. This worker does not invoke a
+second LLM or create a separate Agent brain.
 
 ## Administrative contract
 
@@ -157,8 +225,8 @@ HTTPS service endpoint routed through the already paired outbound Remote Relay;
 turn IDs are `CA<32 hex>_t1`, `..._t2`, etc.; the first reply supplies a
 canonical conversation ID which subsequent recognized turns reuse. An
 unconfirmed response *blocks* further turns; it must not trigger a second LLM
-execution or an automatic retry. A LiveKit worker is still needed to attach
-this to actual audio and phone session lifecycle.
+execution or an automatic retry. The optional PH3D-B LiveKit worker attaches
+this contract to the audio lifecycle once a trusted SIP route is provisioned.
 
 The gateway-to-platform callback uses the same signing algorithm, but **not the
 same secret**. Each connected platform receives a different configured
@@ -173,10 +241,12 @@ identity or an authorization to access a private Agent.
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -p test_telephony_gateway.py -v
+python -m pip install fastapi==0.115.6 httpx==0.28.1 -r telephony/requirements-livekit-worker.txt
+python -m unittest discover -s tests -p 'test_telephony_*.py' -v
 ```
 
-Source tests use a fake carrier and never make billable calls or send texts.
+The 35 source tests use a fake carrier and canonical Chat, with no billable
+calls, texts, recordings, or speech-provider network access.
 Run live Twilio signature, SIP, consent, send-failure and Agent permission tests
 in a controlled staging environment before enabling actual phone numbers.
 

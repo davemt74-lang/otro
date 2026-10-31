@@ -32,9 +32,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install minimal phone test dependencies
-        run: python -m pip install fastapi==0.115.6 httpx==0.28.1
+        run: python -m pip install fastapi==0.115.6 httpx==0.28.1 -r telephony/requirements-livekit-worker.txt
       - name: Check Python syntax
-        run: python -B -c "import ast,pathlib; [ast.parse(p.read_text()) for p in list(pathlib.Path('telephony').glob('*.py'))+[pathlib.Path('app/phone_api.py')]]"
+        run: python -B -c "import ast,pathlib; [ast.parse(p.read_text()) for p in list(pathlib.Path('telephony').glob('*.py'))+list(pathlib.Path('tests').glob('test_telephony_*.py'))+[pathlib.Path('app/phone_api.py')]]"
       - name: Phone security and adapter tests
         env:
           VP3_PHONE_DATABASE: /tmp/vp3_phone_ci.sqlite3
