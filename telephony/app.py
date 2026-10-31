@@ -27,6 +27,7 @@ class Settings:
     auth_token: str = ""
     owner_token: str = ""
     service_secret: str = ""
+    voice_worker_secret: str = ""
     vp3_callback_secret: str = ""
     stonefellow_callback_secret: str = ""
     gelato_callback_secret: str = ""
@@ -39,7 +40,7 @@ class Settings:
     def from_environment(cls) -> "Settings":
         values = {field: os.getenv("VP3_PHONE_" + field.upper(), "")
                   for field in ("public_base", "account_sid", "auth_token", "owner_token",
-                                "service_secret", "vp3_callback_secret", "stonefellow_callback_secret",
+                                "service_secret", "voice_worker_secret", "vp3_callback_secret", "stonefellow_callback_secret",
                                 "gelato_callback_secret", "vp3_callback", "stonefellow_callback", "gelato_callback")}
         values["database"] = os.getenv("VP3_PHONE_DATABASE", "./phone-data/phone.sqlite3")
         return cls(**values)
@@ -99,6 +100,14 @@ class OutboundRequest(BaseModel):
     payload: str = Field(default="", max_length=1200)
 
 
+class VoiceResolveRequest(BaseModel):
+    """Call identity from the SIP worker, verified against signed Twilio ingress."""
+    model_config = ConfigDict(extra="forbid")
+    call_sid: str = Field(pattern=r"^CA[a-fA-F0-9]{32}$")
+    to_number: str
+    from_number: str
+
+
 def create_app(config: Settings | None = None, *, state: PhoneState | None = None,
                carrier: Carrier | None = None) -> FastAPI:
     cfg = config or Settings.from_environment()
@@ -117,6 +126,11 @@ def create_app(config: Settings | None = None, *, state: PhoneState | None = Non
         body = await request.body()
         if len(body) > 8192 or not valid_envelope(cfg.service_secret, stamp, body, signature):
             raise HTTPException(401, "Invalid service signature")
+
+    async def trusted_voice_worker(request: Request, stamp: str, signature: str) -> None:
+        body = await request.body()
+        if len(body) > 4096 or not valid_envelope(cfg.voice_worker_secret, stamp, body, signature):
+            raise HTTPException(401, "Invalid voice worker signature")
 
     async def twilio_form(request: Request, path: str) -> dict[str, str]:
         body = await request.body()
@@ -205,6 +219,19 @@ def create_app(config: Settings | None = None, *, state: PhoneState | None = Non
             raise HTTPException(502, "The carrier could not confirm the outbound request; review before retrying") from exc
         db.mark_provider(payload.approval_id, provider_id)
         return {"ok": True, "provider_id": provider_id}
+
+    @app.post("/v1/voice/resolve")
+    async def voice_resolve(request: Request, payload: VoiceResolveRequest,
+                            x_vp3_timestamp: str = Header(default=""),
+                            x_vp3_signature: str = Header(default="")) -> dict:
+        await trusted_voice_worker(request, x_vp3_timestamp, x_vp3_signature)
+        try:
+            binding = db.verified_voice_call(payload.call_sid, payload.to_number, payload.from_number)
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid call number") from exc
+        if not binding:
+            raise HTTPException(403, "Call is not verified or no longer active")
+        return {"ok": True, "call_sid": payload.call_sid, **binding}
 
     @app.post("/v1/twilio/sms")
     async def inbound_sms(request: Request) -> Response:

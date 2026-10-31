@@ -23,6 +23,7 @@ _chat_stub.chat = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("
 with patch.dict(sys.modules, {"app.services.context_chat": _chat_stub}):
     from app import phone_api
 from telephony.security import signed_envelope
+from telephony.voice_turns import MainChatVoiceSession
 
 
 class PhoneAdapterTests(unittest.TestCase):
@@ -92,6 +93,81 @@ class PhoneAdapterTests(unittest.TestCase):
         with patch.object(phone_api.context_chat, "chat") as chat:
             self.assertEqual(self.post().status_code, 403)
             chat.assert_not_called()
+
+    def test_voice_transcripts_use_existing_read_only_chat_with_continuity(self):
+        sid = "CA" + "a" * 32
+        self.event.update({"event_id": sid + "_t1", "channel": "voice", "call_sid": sid,
+                           "turn_index": 1, "message": "How late are you open?"})
+        calls = []
+
+        def chat(source, text, conversation_id, **kwargs):
+            calls.append((source, text, conversation_id, kwargs))
+            return {"reply": "Until 9", "conversation_id": "existing-agent-conversation"}
+
+        with patch.object(phone_api.agent_routing, "resolve_agent", return_value={"id": 9, "is_primary": False}), \
+             patch.object(phone_api.context_chat, "chat", side_effect=chat):
+            first = self.post()
+            self.assertEqual(first.status_code, 200)
+            self.assertEqual(first.json()["reply"], "Until 9")
+            self.assertNotIn("_request_fingerprint", first.json())
+            self.assertEqual(self.post().status_code, 200)
+            self.event["message"] = "Send me my private schedule"
+            self.assertEqual(self.post().status_code, 409)
+            self.event.update({"event_id": sid + "_t2", "turn_index": 2,
+                               "conversation_id": "existing-agent-conversation"})
+            self.assertEqual(self.post().status_code, 200)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1][2], "existing-agent-conversation")
+        self.assertTrue(all(c[3]["read_only"] and not c[3]["owner_tools"] for c in calls))
+        self.assertTrue(all(c[3]["tool_permissions"] == set() for c in calls))
+
+    def test_voice_turn_needs_valid_call_binding_and_no_action_authority(self):
+        sid = "CA" + "b" * 32
+        self.event.update({"event_id": sid + "_t1", "channel": "voice", "call_sid": sid,
+                           "turn_index": 1})
+        with patch.object(phone_api.context_chat, "chat") as chat:
+            self.event["event_id"] = "unbound-event"
+            self.assertEqual(self.post().status_code, 403)
+            self.event["event_id"] = sid + "_t1"
+            self.event["caller_verified"] = True
+            self.assertEqual(self.post().status_code, 403)
+            self.event["caller_verified"] = False
+            self.event["allow_actions"] = True
+            self.assertEqual(self.post().status_code, 403)
+            chat.assert_not_called()
+
+    def test_ph3d_voice_bridge_delivers_turns_to_same_chat_http_adapter(self):
+        sid = "CA" + "c" * 32
+        session = MainChatVoiceSession.from_verified_call(
+            {"ok": True, "call_sid": sid, "platform": "vp3", "agent_id": 9,
+             "caller_verified": False, "allow_actions": False},
+            callback_url="http://127.0.0.1:4377/api/v1/phone/agent", callback_secret="test-secret")
+
+        def local_adapter(url, secret, payload, *, allow_local):
+            self.assertTrue(allow_local)
+            self.assertEqual(secret, "test-secret")
+            raw = json.dumps(payload, separators=(",", ":")).encode()
+            stamp = int(time.time())
+            response = self.client.post("/api/v1/phone/agent", content=raw, headers={
+                "Content-Type": "application/json", "X-VP3-Timestamp": str(stamp),
+                "X-VP3-Signature": signed_envelope(secret, stamp, raw),
+            })
+            self.assertEqual(response.status_code, 200)
+            return response.json()
+
+        calls = []
+
+        def chat(source, message, conversation_id, **kwargs):
+            calls.append((message, conversation_id, kwargs))
+            return {"reply": "We are open", "conversation_id": "canonical-voice-chat"}
+
+        with patch.object(phone_api.agent_routing, "resolve_agent", return_value={"id": 9, "is_primary": False}), \
+             patch.object(phone_api.context_chat, "chat", side_effect=chat):
+            self.assertEqual(session.turn("When do you close?", sender=local_adapter), "We are open")
+            self.assertEqual(session.turn("And tomorrow?", sender=local_adapter), "We are open")
+        self.assertEqual(calls[0][1], None)
+        self.assertEqual(calls[1][1], "canonical-voice-chat")
+        self.assertTrue(all(c[2]["tool_permissions"] == set() for c in calls))
 
 
 if __name__ == "__main__":

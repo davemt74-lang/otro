@@ -25,6 +25,18 @@ the provider-neutral port for a future Telnyx or other driver.
 - HomeServer inbound adapter under `/api/v1/phone/agent` invokes the existing
   `context_chat.chat` read-only and only for an explicitly granted, secondary
   Agent persona. It cannot promote an unknown caller to an owner.
+- PH3D-A: the dedicated signed `/v1/voice/resolve` contract binds a LiveKit
+  worker's call SID and from/to numbers to the **carrier-signed** Twilio ingress,
+  an active DID assignment, and its unchanged Agent persona. This uses a
+  separate `VP3_PHONE_VOICE_WORKER_SECRET`, not the public webhook signature or
+  the outbound approval secret. Unrecognized, stale, reassigned, and disabled
+  calls fail closed.
+- PH3D-A: `telephony.voice_turns` is the provider-independent transcript bridge.
+  For VP3 it delivers each recognized utterance through the existing signed
+  HomeServer `/api/v1/phone/agent` adapter. HomeServer routes voice and SMS to
+  the **same canonical `context_chat.chat`**, keeping per-call conversation IDs
+  and forbidding private owner access, tool actions, and automatically retried
+  uncertain turns. Speech engines are intentionally not modified here.
 
 ## What is **not** live yet
 
@@ -32,6 +44,11 @@ the provider-neutral port for a future Telnyx or other driver.
   real-time Agent worker is provisioned by code. Voice calls are only bridged
   when these are configured and verified. Barge-in comes from the LiveKit Agent
   worker, not this HTTP service.
+- PH3D-A is a signed *turn-level contract*, **not** a working live phone agent
+  yet. It does not capture SIP audio, transcribe, synthesize, provision LiveKit,
+  or implement barge-in. That worker must use the configured HomeServer voice
+  engine (including ElevenLabs when installed) and send recognized turns through
+  this contract, without a separate conversation model or a duplicate Agent.
 - Public SMS can be sent to Gelato's existing `/api/public-agent.php` as its
   callback, provided its public Agent and provider are enabled. This gives
   callers **published public knowledge only**; no employee/private data or
@@ -59,6 +76,7 @@ export VP3_PHONE_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 export VP3_PHONE_AUTH_TOKEN=your_twilio_auth_token
 export VP3_PHONE_OWNER_TOKEN=a_distinct_long_owner_token
 export VP3_PHONE_SERVICE_SECRET=a_distinct_long_outbound_request_hmac_secret
+export VP3_PHONE_VOICE_WORKER_SECRET=a_distinct_long_livekit_worker_hmac_secret
 export VP3_PHONE_VP3_CALLBACK_SECRET=a_distinct_vp3_callback_secret
 export VP3_PHONE_STONEFELLOW_CALLBACK_SECRET=a_distinct_stonefellow_callback_secret
 export VP3_PHONE_GELATO_CALLBACK_SECRET=a_distinct_gelato_callback_secret
@@ -110,6 +128,37 @@ HMAC over `<timestamp>.<raw HTTP body>` using `VP3_PHONE_SERVICE_SECRET`.
 The HMAC expires after five minutes. A signed request **does not** grant an
 approval by itself. An approval can only be consumed once. An unconfirmed
 carrier send must receive a fresh owner approval to retry.
+
+## PH3D-A signed live-call contract (worker integration)
+
+After receiving a SIP participant, the worker must obtain the Twilio CallSid,
+called number and caller number from **verified carrier/SIP metadata** (or a
+carrier-verified binding passed by trusted dispatch). Do not assume a default
+LiveKit SIP participant exposes every Twilio-specific attribute; if any binding
+is missing or cannot be authenticated, refuse the call instead of guessing. Then
+posts `{ "call_sid": "CA<32 hex>", "to_number": "+1...", "from_number": "+1..." }`
+to `POST /v1/voice/resolve`. The body is signed with
+`VP3_PHONE_VOICE_WORKER_SECRET` using the same timestamp/HMAC envelope format,
+but with an **independent** secret. The gateway looks up the exact call event
+stored after Twilio's verified voice webhook; it never trusts a SIP worker's
+assertion that a caller owns the destination or an Agent ID. The returned
+`platform`, `agent_id`, `call_sid`, `caller_verified:false`, and
+`allow_actions:false` are an *unprivileged* identity binding, not consent to
+record or execute tools. Calls without an E.164 caller number are denied by
+this PH3D-A path and require a future explicit anonymous-caller policy.
+
+For a VP3 binding, construct `telephony.voice_turns.MainChatVoiceSession` and
+send a recognized utterance using `session.turn(text)`. On a co-located
+HomeServer voice worker, the callback URL is
+`http://127.0.0.1:4377/api/v1/phone/agent` (loopback only), with the distinct
+`VP3_PHONE_VP3_CALLBACK_SECRET`. For remote placement, use an authenticated
+HTTPS service endpoint routed through the already paired outbound Remote Relay;
+**never** publish a HomeServer phone adapter directly to the internet. Voice
+turn IDs are `CA<32 hex>_t1`, `..._t2`, etc.; the first reply supplies a
+canonical conversation ID which subsequent recognized turns reuse. An
+unconfirmed response *blocks* further turns; it must not trigger a second LLM
+execution or an automatic retry. A LiveKit worker is still needed to attach
+this to actual audio and phone session lifecycle.
 
 The gateway-to-platform callback uses the same signing algorithm, but **not the
 same secret**. Each connected platform receives a different configured

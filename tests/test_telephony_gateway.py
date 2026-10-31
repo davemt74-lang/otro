@@ -44,7 +44,8 @@ class PhoneGatewayTests(unittest.TestCase):
         self.addCleanup(self.folder.cleanup)
         self.config = Settings(public_base="https://voice.example.test", account_sid="AC_test",
                                auth_token="twilio-secret", owner_token="owner-secret",
-                               service_secret="bridge-secret", database=str(Path(self.folder.name) / "phone.db"))
+                               service_secret="bridge-secret", voice_worker_secret="worker-secret",
+                               database=str(Path(self.folder.name) / "phone.db"))
         self.state = PhoneState(self.config.database)
         self.carrier = FakeCarrier()
         self.client = TestClient(create_app(self.config, state=self.state, carrier=self.carrier))
@@ -75,6 +76,52 @@ class PhoneGatewayTests(unittest.TestCase):
             "Content-Type": "application/json", "X-VP3-Timestamp": stamp,
             "X-VP3-Signature": signed_envelope(self.config.service_secret, int(stamp), raw) if sign else "bad",
         })
+
+    def resolve_voice(self, *, call_sid="CA" + "a" * 32, destination="+16025550100",
+                      sender="+16025550101", signed=True, secret="worker-secret"):
+        payload = {"call_sid": call_sid, "to_number": destination, "from_number": sender}
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        stamp = int(time.time())
+        return self.client.post("/v1/voice/resolve", content=raw, headers={
+            "Content-Type": "application/json", "X-VP3-Timestamp": str(stamp),
+            "X-VP3-Signature": signed_envelope(secret, stamp, raw) if signed else "invalid",
+        })
+
+    def test_voice_worker_must_resolve_verified_live_twilio_call(self):
+        self.bind(voice=True, sip="sip:agent.sip.livekit.cloud")
+        self.assertEqual(self.resolve_voice().status_code, 403)
+        sid = "CA" + "a" * 32
+        form = {"AccountSid": "AC_test", "CallSid": sid, "To": "+16025550100",
+                "From": "+16025550101", "Direction": "inbound"}
+        self.assertEqual(self.twilio("/v1/twilio/voice", form).status_code, 200)
+        self.assertEqual(self.resolve_voice(signed=False).status_code, 401)
+        self.assertEqual(self.resolve_voice(secret="bridge-secret").status_code, 401)
+        self.assertEqual(self.resolve_voice(sender="+16025550199").status_code, 403)
+        self.assertEqual(self.resolve_voice(call_sid="CA" + "b" * 32).status_code, 403)
+        allowed = self.resolve_voice()
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(allowed.json()["platform"], "gelato")
+        self.assertEqual(allowed.json()["agent_id"], "public-restaurant-agent")
+        self.assertFalse(allowed.json()["caller_verified"])
+        self.assertFalse(allowed.json()["allow_actions"])
+        # Reassignment cannot inherit a still-live caller's Agent session.
+        self.client.put("/v1/admin/routes", headers=self.owner, json={
+            "number": "+16025550100", "platform": "gelato", "agent_id": "new-agent",
+            "active": True, "allow_voice": True, "sip_uri": "sip:agent.sip.livekit.cloud"})
+        self.assertEqual(self.resolve_voice().status_code, 403)
+
+    def test_resolve_denies_disabled_or_expired_voice_call(self):
+        self.bind(voice=True, sip="sip:agent.sip.livekit.cloud")
+        sid = "CA" + "c" * 32
+        self.twilio("/v1/twilio/voice", {"AccountSid": "AC_test", "CallSid": sid,
+                    "To": "+16025550100", "From": "+16025550101", "Direction": "inbound"})
+        with self.state.connect() as db:
+            db.execute("UPDATE phone_events SET created_at=? WHERE event_id=?", (int(time.time()) - 7201, sid))
+        self.assertEqual(self.resolve_voice(call_sid=sid).status_code, 403)
+        with self.state.connect() as db:
+            db.execute("UPDATE phone_events SET created_at=? WHERE event_id=?", (int(time.time()), sid))
+        self.bind(voice=False)
+        self.assertEqual(self.resolve_voice(call_sid=sid).status_code, 403)
 
     def test_route_owner_required_and_sip_restricted(self):
         payload = {"number": "+16025550100", "platform": "gelato", "agent_id": "restaurant",

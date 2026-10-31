@@ -145,6 +145,27 @@ class PhoneState:
                  route["platform"], body, "queued" if channel == "sms" else "connected", int(time.time())))
             return cursor.rowcount == 1
 
+    def verified_voice_call(self, call_sid: str, number: str, sender: str, *, max_age: int = 7200) -> dict | None:
+        """Resolve a carrier-verified call, never an untrusted SIP metadata claim.
+
+        The current route must still agree with the route captured when Twilio's
+        signed webhook arrived. Reassignment or disabling immediately revokes it.
+        """
+        number, sender = phone_number(number), phone_number(sender)
+        with self.connect() as db:
+            row = db.execute("""SELECT e.platform,e.agent_id,e.number,e.sender,e.created_at,
+                       r.allow_voice,r.sip_uri,r.active
+                  FROM phone_events e JOIN phone_routes r ON r.number=e.number
+                 WHERE e.event_id=? AND e.channel='voice' AND e.number=? AND e.sender=?
+                   AND e.platform=r.platform AND e.agent_id=r.agent_id""",
+                 (call_sid, number, sender)).fetchone()
+        if (not row or not row["active"] or not row["allow_voice"] or not row["sip_uri"]
+                or not 0 <= int(time.time()) - int(row["created_at"]) <= max_age):
+            return None
+        return {"platform": row["platform"], "agent_id": row["agent_id"],
+                "number": row["number"], "caller_verified": False,
+                "allow_actions": False}
+
     def take_sms(self) -> dict | None:
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
