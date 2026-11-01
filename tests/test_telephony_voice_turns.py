@@ -2,7 +2,8 @@
 
 import unittest
 
-from telephony.voice_turns import MainChatVoiceSession, VoiceTurnError, resolve_livekit_call
+from telephony.voice_turns import (MainChatVoiceSession, VoiceTurnError,
+                                   authorize_cloud_live_call, resolve_livekit_call)
 
 
 SID = "CA" + "a" * 32
@@ -37,6 +38,30 @@ class VoiceTurnBridgeTests(unittest.TestCase):
             MainChatVoiceSession.from_verified_call({**BINDING, "platform": "stonefellow"},
                     callback_url="http://127.0.0.1:4377/api/v1/phone/agent", callback_secret="platform-secret")
 
+    def test_cloud_resolver_carries_parent_proof_without_promoting_caller(self):
+        calls = []
+        def sender(url, secret, payload, *, allow_local):
+            calls.append((url, secret, payload, allow_local))
+            return dict(BINDING)
+
+        result = resolve_livekit_call("https://vp3.example.test", "stream-secret", call_sid=SID,
+            to_number="+16025550100", from_number="+16025550101", backend="cloud",
+            parent_call_sid="CA"+"b"*32, issued="1793520000", proof="f"*64,
+            sender=sender)
+        self.assertEqual(result["agent_id"], "9")
+        self.assertEqual(calls[0][0],
+            "https://vp3.example.test/api/phone-voice-stream-resolve-v150.php")
+        self.assertEqual(calls[0][2]["parent_call_sid"], "CA"+"b"*32)
+        self.assertFalse(calls[0][3])
+        for kwargs in [{"parent_call_sid": "CAinvalid"}, {"proof": "0"*63},
+                       {"issued": "yesterday"}]:
+            with self.assertRaises(VoiceTurnError):
+                params={"call_sid": SID, "to_number": "+16025550100",
+                        "from_number": "+16025550101", "backend": "cloud",
+                        "parent_call_sid": "CA"+"b"*32, "issued": "1793520000",
+                        "proof": "f"*64, "sender": sender}
+                resolve_livekit_call("https://vp3.example.test", "stream-secret", **{**params, **kwargs})
+
     def test_transcripts_share_canonical_conversation_without_replay(self):
         session = MainChatVoiceSession.from_verified_call(BINDING,
                      callback_url="http://127.0.0.1:4377/api/v1/phone/agent", callback_secret="platform-secret")
@@ -65,6 +90,29 @@ class VoiceTurnBridgeTests(unittest.TestCase):
             session.turn("Hello", sender=timeout)
         with self.assertRaises(VoiceTurnError):
             session.turn("Again", sender=lambda *a, **k: {"ok": True})
+        self.assertEqual(session.turn_index, 1)
+
+    def test_every_cloud_turn_revalidates_did_and_revocation_blocks_chat(self):
+        received = []
+        allowed = [True, False]
+        def active_sender(url, secret, payload, *, allow_local):
+            self.assertTrue(url.endswith('/api/phone-voice-stream-active-v150.php'))
+            self.assertEqual(payload['parent_call_sid'], 'CA'+'b'*32)
+            return {'ok': True, 'call_sid': SID} if allowed.pop(0) else {'ok': False}
+        def authorize():
+            authorize_cloud_live_call('https://vp3.example.test', 'worker-secret',
+                call_sid=SID, parent_call_sid='CA'+'b'*32, sender=active_sender)
+        session = MainChatVoiceSession.from_verified_call(BINDING,
+            callback_url='http://127.0.0.1:4377/api/v1/phone/agent', callback_secret='callback-secret')
+        session.authorize = authorize
+        def chat_sender(url, secret, payload, **kwargs):
+            received.append(payload['message'])
+            return {'ok': True, 'reply': 'Hello', 'conversation_id': 'convo1'}
+        self.assertEqual(session.turn('Hello', sender=chat_sender), 'Hello')
+        with self.assertRaises(VoiceTurnError):
+            session.turn('Tell me private things', sender=chat_sender)
+        self.assertEqual(received, ['Hello'])
+        self.assertTrue(session.blocked)
         self.assertEqual(session.turn_index, 1)
 
     def test_no_arbitrary_public_http_platform_adapter(self):

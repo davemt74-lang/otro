@@ -18,7 +18,8 @@ from livekit.agents import Agent, AgentServer, AgentSession, TurnHandlingOptions
 from livekit.agents.types import APIConnectOptions, DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN
 
 from .livekit_voice import SerializedMainChat, WorkerSettings, wait_for_sip_caller
-from .voice_turns import MainChatVoiceSession, VoiceTurnError, resolve_livekit_call
+from .voice_turns import (MainChatVoiceSession, VoiceTurnError,
+                          authorize_cloud_live_call, resolve_livekit_call)
 
 
 def last_recognized_utterance(chat_ctx: llm.ChatContext) -> tuple[str, str]:
@@ -123,12 +124,18 @@ def build_server(settings: WorkerSettings) -> AgentServer:
             binding = await asyncio.to_thread(
                 resolve_livekit_call, settings.edge_url, settings.worker_secret,
                 call_sid=caller.call_sid, to_number=caller.to_number,
-                from_number=caller.from_number)
+                from_number=caller.from_number, backend=settings.resolve_backend,
+                parent_call_sid=caller.parent_call_sid,
+                issued=caller.issued, proof=caller.proof)
             if binding.get("platform") != "vp3":
                 raise VoiceTurnError("The assigned phone number does not belong to VP3")
             phone_session = MainChatVoiceSession.from_verified_call(
                 binding, callback_url=settings.callback_url,
                 callback_secret=settings.callback_secret)
+            if settings.resolve_backend == "cloud":
+                phone_session.authorize = lambda: authorize_cloud_live_call(
+                    settings.edge_url, settings.worker_secret,
+                    call_sid=caller.call_sid, parent_call_sid=caller.parent_call_sid)
         except (VoiceTurnError, OSError, TimeoutError):
             # Do not begin speech or process audio before carrier identity and
             # existing Agent grants are verified. Do not log caller PII.

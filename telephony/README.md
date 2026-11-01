@@ -45,6 +45,51 @@ the provider-neutral port for a future Telnyx or other driver.
   is no additional AI model, persona, knowledge store, or tool executor.
   Interrupted requests finish in order; duplicate STT message IDs are not
   submitted again, and uncertain HomeServer outcomes block subsequent turns.
+- PH3G: an optional Cloud-origin SIP resolver consumes Cloud PH3G's
+  carrier-signed parent call receipt and single-child SIP binding. It preserves
+  the existing read-only HomeServer Chat adapter and agent-grant checks.
+
+## PH3G Cloud-owned Twilio number → HomeServer real-time media
+
+If the number is registered with VP3 Cloud and Twilio calls Cloud's
+`api/phone-voice-inbound-v130.php`, keep that webhook. Cloud's PH3G opt-in
+produces a TLS SIP `<Dial>` with short-lived `X-VP3-Parent`, `X-VP3-Issued`,
+and `X-VP3-Proof` headers. Configure the LiveKit inbound trunk's
+`headers_to_attributes` mappings exactly:
+
+| SIP header | LiveKit participant attribute |
+| --- | --- |
+| `X-VP3-Parent` | `vp3.parent` |
+| `X-VP3-Issued` | `vp3.issued` |
+| `X-VP3-Proof` | `vp3.proof` |
+
+Configure the *separate* worker process:
+
+```bash
+VP3_PHONE_RESOLVE_BACKEND=cloud
+VP3_PHONE_PUBLIC_BASE=https://your-vp3-cloud.example
+VP3_PHONE_VOICE_WORKER_SECRET=identical_private_cloud_ph3g_worker_secret
+```
+
+In this mode the worker sends its signed POST to Cloud's
+`/api/phone-voice-stream-resolve-v150.php` instead of the standalone gateway's
+`/v1/voice/resolve`. It supplies the carrier-provided SIP child CallSid,
+trusted trunk caller and destination, and three mapped SIP invite headers.
+Cloud verifies its HMAC, parent Twilio receipt, live number assignment,
+short-lived proof, and single-child claim. Cloud returns a *separately
+configured HomeServer secondary Agent ID*, not the Cloud Agent integer ID.
+The worker then uses the existing signed `/api/v1/phone/agent` adapter,
+which independently enforces the paired-app Agent grant and read-only turns.
+Before **each** recognized utterance, the worker also calls Cloud's signed
+`/api/phone-voice-stream-active-v150.php`; disabling or reassigning a number
+then blocks subsequent Agent turns, including after SIP was connected.
+
+If the SIP headers are missing, trunk identity changes, proof expires, Cloud
+route changes, or HomeServer's grant is absent, the worker refuses audio.
+Cloud's signed `<Dial action>` offers voicemail after an unsuccessful SIP
+connection. This bridge is **not live** until trunk/worker provisioning and
+real staging-call checks for carrier attributes, transcription, interruptions,
+disclosure, and consent. Never expose HomeServer HTTP ports publicly.
 
 ## What is **not** live yet
 
@@ -135,6 +180,7 @@ Provide the following environment variables using your private service manager
 | `VP3_PHONE_VP3_CALLBACK_SECRET` | Independent HomeServer Main Chat callback HMAC |
 | `VP3_PHONE_SPEECH_BACKEND` | Currently must be `livekit-inference` |
 | `VP3_PHONE_STT_MODEL`, `VP3_PHONE_TTS_MODEL`, `VP3_PHONE_TTS_VOICE` | Explicit LiveKit Inference speech choices; voice can be blank |
+| `VP3_PHONE_RESOLVE_BACKEND` | `edge` by default; set `cloud` only for PH3G Cloud-owned numbers |
 
 Set the `VP3_PHONE_VP3_CALLBACK` to
 `http://127.0.0.1:4377/api/v1/phone/agent` only if this worker runs on the

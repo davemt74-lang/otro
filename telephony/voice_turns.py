@@ -56,12 +56,23 @@ def signed_json_post(url: str, secret: str, payload: dict, *, allow_local: bool 
 
 def resolve_livekit_call(edge_url: str, voice_worker_secret: str, *,
                          call_sid: str, to_number: str, from_number: str,
+                         backend: str = "edge", parent_call_sid: str = "",
+                         issued: str = "", proof: str = "",
                          sender: Callable[..., dict] = signed_json_post) -> dict:
     """Consult signed Twilio ingress before allowing a SIP participant to speak."""
     if not CALL_SID.fullmatch(call_sid):
         raise VoiceTurnError("A valid carrier call ID is required")
-    url = edge_url.rstrip("/") + "/v1/voice/resolve"
+    if backend not in {"edge", "cloud"}:
+        raise VoiceTurnError("Unknown live call resolver")
+    url = edge_url.rstrip("/") + (
+        "/api/phone-voice-stream-resolve-v150.php" if backend == "cloud" else "/v1/voice/resolve")
     payload = {"call_sid": call_sid, "to_number": to_number, "from_number": from_number}
+    if backend == "cloud":
+        if (not CALL_SID.fullmatch(parent_call_sid)
+                or not re.fullmatch(r"[0-9]{10}", issued)
+                or not re.fullmatch(r"[0-9a-f]{64}", proof)):
+            raise VoiceTurnError("Cloud SIP invite has no valid parent receipt proof")
+        payload.update({"parent_call_sid": parent_call_sid, "issued": issued, "proof": proof})
     result = sender(url, voice_worker_secret, payload, allow_local=False)
     if (result.get("call_sid") != call_sid or result.get("caller_verified") is not False
             or result.get("allow_actions") is not False
@@ -69,6 +80,19 @@ def resolve_livekit_call(edge_url: str, voice_worker_secret: str, *,
             or not result.get("agent_id")):
         raise VoiceTurnError("Carrier call binding is inconsistent")
     return result
+
+
+def authorize_cloud_live_call(cloud_url: str, voice_worker_secret: str, *,
+                              call_sid: str, parent_call_sid: str,
+                              sender: Callable[..., dict] = signed_json_post) -> None:
+    """Revalidate Cloud's current DID and Agent mapping before EVERY utterance."""
+    if not CALL_SID.fullmatch(call_sid) or not CALL_SID.fullmatch(parent_call_sid):
+        raise VoiceTurnError("Missing SIP leg binding")
+    url = cloud_url.rstrip("/") + "/api/phone-voice-stream-active-v150.php"
+    result = sender(url, voice_worker_secret,
+                    {"call_sid": call_sid, "parent_call_sid": parent_call_sid}, allow_local=False)
+    if result.get("call_sid") != call_sid:
+        raise VoiceTurnError("Cloud revoked this live phone call")
 
 
 @dataclass
@@ -86,6 +110,7 @@ class MainChatVoiceSession:
     conversation_id: str = ""
     turn_index: int = 0
     blocked: bool = False
+    authorize: Callable[[], None] | None = None
 
     @classmethod
     def from_verified_call(cls, binding: dict, *, callback_url: str,
@@ -109,6 +134,14 @@ class MainChatVoiceSession:
         utterance = str(transcript or "").strip()
         if not utterance or len(utterance) > 2000:
             raise VoiceTurnError("A nonempty, bounded transcription is required")
+        if self.authorize is not None:
+            try:
+                self.authorize()
+            except Exception:
+                # Missing Cloud confirmation could mean the owner disabled the
+                # route. Fail closed without delivering any more Chat turns.
+                self.blocked = True
+                raise VoiceTurnError("Cloud phone call authorization expired") from None
         self.turn_index += 1
         payload = {"event_id": f"{self.call_sid}_t{self.turn_index}",
                    "call_sid": self.call_sid, "turn_index": self.turn_index,
