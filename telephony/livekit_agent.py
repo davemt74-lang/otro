@@ -18,6 +18,7 @@ from livekit.agents import Agent, AgentServer, AgentSession, TurnHandlingOptions
 from livekit.agents.types import APIConnectOptions, DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN
 
 from .livekit_voice import SerializedMainChat, WorkerSettings, wait_for_sip_caller
+from .worker_health import start_worker_health
 from .voice_turns import (MainChatVoiceSession, VoiceTurnError,
                           authorize_cloud_live_call, resolve_livekit_call)
 
@@ -164,7 +165,13 @@ def main() -> None:
     # telephony health endpoints, logs or browser-side voice settings.
     if not all(os.getenv(k) for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")):
         raise VoiceTurnError("LiveKit server credentials are required")
-    agents.cli.run_app(build_server(settings))
+    heartbeat = start_worker_health(settings, os.environ)
+    try:
+        agents.cli.run_app(build_server(settings))
+    finally:
+        if heartbeat is not None:
+            heartbeat[0].set()
+            heartbeat[1].join(timeout=2)
 
 
 if __name__ == "__main__":

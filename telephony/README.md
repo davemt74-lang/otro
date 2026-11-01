@@ -113,6 +113,30 @@ outside the preflight; **`live_certified` remains false** until actual calls
 have been performed and reviewed. Do not enable production real-time calls
 based on a static readiness score alone.
 
+### PH3I-B optional worker health check-in
+
+The separate LiveKit launcher can make a low-volume, signed **outbound** health
+check-in to Cloud, every 30 seconds. It uses the already configured PH3G
+`VP3_PHONE_VOICE_WORKER_SECRET` and the fixed `VP3_PHONE_PUBLIC_BASE`; no
+additional credentials, inbound HomeServer port, phone number or caller audio
+is exposed. Enable it in the worker's private service environment only after
+the Cloud PH3I-B upgrade is deployed:
+
+```bash
+VP3_PHONE_RESOLVE_BACKEND=cloud
+VP3_PHONE_WORKER_HEALTH_ENABLED=1
+VP3_PHONE_WORKER_ID=vp3-phone
+```
+
+The Cloud **Admin → Phone → PH3I-B worker health** panel shows the last
+authenticated check-in and the worker's local preflight result. A check-in
+expires from **reporting** to **stale/offline** after 90 seconds without new
+heartbeats. This only proves the launcher is alive and could reach Cloud;
+it cannot prove that LiveKit rooms, carrier trunks, voice recognition or
+playback work. Those require the PH3H supervised staging-call gates. Check-in
+is **off by default**, and the launcher reports nothing until all required
+worker credentials are supplied. No third-party provisioning is performed.
+
 ## What is **not** live yet
 
 - No Twilio credentials, telephone number, SIP trunk, LiveKit dispatch rule or
