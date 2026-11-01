@@ -91,6 +91,28 @@ connection. This bridge is **not live** until trunk/worker provisioning and
 real staging-call checks for carrier attributes, transcription, interruptions,
 disclosure, and consent. Never expose HomeServer HTTP ports publicly.
 
+### PH3H non-billable readiness check
+
+In the worker's isolated Python environment, with service variables configured,
+run `python -m telephony.preflight`. It produces a JSON checklist and returns
+zero only when local settings are ready for a supervised staging call. It makes
+**no provider requests, purchases, calls, model requests or recordings** and
+never displays credential values. Nonzero exit means fix the failed checks.
+
+From VP3 Cloud **Admin → Phone**, click **Check PH3H streaming readiness** on
+the intended registered number. The Cloud performs a read-only Twilio number
+GET to confirm its inbound Voice URL and POST method; this is not a call. Only
+an administrator can run this check. Confirm both preflight reports before
+arranging a controlled live staging call.
+
+The staging operator must independently confirm: LiveKit dispatch and mapped
+SIP headers, Cloud's signed parent/child resolution, the HomeServer secondary
+Agent grant and per-turn revocation, speech disclosure and intelligibility,
+barge-in, failed trunk attempts and voicemail fallback. Record these results
+outside the preflight; **`live_certified` remains false** until actual calls
+have been performed and reviewed. Do not enable production real-time calls
+based on a static readiness score alone.
+
 ## What is **not** live yet
 
 - No Twilio credentials, telephone number, SIP trunk, LiveKit dispatch rule or
