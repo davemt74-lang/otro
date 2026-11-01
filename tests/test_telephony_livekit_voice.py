@@ -61,6 +61,22 @@ class LiveKitVoiceContractTests(unittest.TestCase):
         with self.assertRaises(VoiceTurnError):
             verified_sip_caller(participant(), settings(), sip_kind=2)
 
+    def test_cloud_streaming_requires_signed_parent_headers_on_trusted_sip_trunk(self):
+        cloud = replace(settings(), resolve_backend="cloud")
+        cloud.validate()
+        attrs = {"vp3.parent": "CA" + "b"*32, "vp3.issued": "1793520000",
+                 "vp3.proof": "f"*64}
+        caller = verified_sip_caller(participant(**attrs), cloud, sip_kind=1)
+        self.assertEqual(caller.parent_call_sid, "CA" + "b"*32)
+        self.assertEqual(caller.issued, "1793520000")
+        self.assertEqual(caller.proof, "f"*64)
+        for bad in [{"vp3.parent": ""}, {"vp3.proof": "forged"},
+                    {"vp3.issued": "yesterday"}, {"sip.trunkID": "ST_untrusted"}]:
+            with self.assertRaises(VoiceTurnError):
+                verified_sip_caller(participant(**{**attrs, **bad}), cloud, sip_kind=1)
+        with self.assertRaises(VoiceTurnError):
+            replace(cloud, resolve_backend="unknown").validate()
+
     def test_waits_for_attributes_but_never_guesses_identity(self):
         async def scenario():
             member = participant(**{"sip.twilio.callSid": ""})

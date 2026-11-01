@@ -34,6 +34,7 @@ class WorkerSettings:
     stt_model: str = ""
     tts_model: str = ""
     tts_voice: str = ""
+    resolve_backend: str = "edge"
     disclosure: str = "Hello. You are speaking with the VP3 AI assistant. How can I help?"
 
     @classmethod
@@ -50,6 +51,7 @@ class WorkerSettings:
             stt_model=os.getenv("VP3_PHONE_STT_MODEL", ""),
             tts_model=os.getenv("VP3_PHONE_TTS_MODEL", ""),
             tts_voice=os.getenv("VP3_PHONE_TTS_VOICE", ""),
+            resolve_backend=os.getenv("VP3_PHONE_RESOLVE_BACKEND", "edge"),
         )
 
     def validate(self) -> None:
@@ -74,6 +76,8 @@ class WorkerSettings:
             raise VoiceTurnError("Speech adapter not installed; select livekit-inference or deploy the HomeServer adapter")
         if not _MODEL.fullmatch(self.stt_model) or not _MODEL.fullmatch(self.tts_model):
             raise VoiceTurnError("Explicit STT and TTS model selections are required")
+        if self.resolve_backend not in {"edge", "cloud"}:
+            raise VoiceTurnError("Select edge or cloud for the signed inbound call resolver")
         if self.tts_voice and not _MODEL.fullmatch(self.tts_voice):
             raise VoiceTurnError("Invalid voice selection")
 
@@ -84,6 +88,9 @@ class SIPCaller:
     call_sid: str
     from_number: str
     to_number: str
+    parent_call_sid: str = ""
+    issued: str = ""
+    proof: str = ""
 
 
 def verified_sip_caller(participant: object, settings: WorkerSettings, *, sip_kind: int) -> SIPCaller:
@@ -108,6 +115,18 @@ def verified_sip_caller(participant: object, settings: WorkerSettings, *, sip_ki
     identity = getattr(participant, "identity", "")
     if not isinstance(identity, str) or not identity or len(identity) > 200:
         raise VoiceTurnError("Missing LiveKit SIP participant identity")
+    if settings.resolve_backend == "cloud":
+        # LiveKit trunk: headers_to_attributes X-VP3-Parent/Issued/Proof ->
+        # vp3.parent/vp3.issued/vp3.proof. These are NOT independently trusted:
+        # Cloud verifies an HMAC minted by its carrier-signed inbound webhook.
+        parent = attrs.get("vp3.parent", "")
+        issued = attrs.get("vp3.issued", "")
+        proof = attrs.get("vp3.proof", "")
+        if (not isinstance(parent, str) or not CALL_SID.fullmatch(parent)
+                or not isinstance(issued, str) or not re.fullmatch(r"[0-9]{10}", issued)
+                or not isinstance(proof, str) or not re.fullmatch(r"[0-9a-f]{64}", proof)):
+            raise VoiceTurnError("Signed Cloud SIP parent headers are missing")
+        return SIPCaller(identity, call_sid, source, destination, parent, issued, proof)
     return SIPCaller(identity, call_sid, source, destination)
 
 
