@@ -75,6 +75,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HomeServer-Core-Update-Windows
+          include-hidden-files: true
           path: component-packages/core-update/**
           if-no-files-found: error
           retention-days: 30
@@ -83,6 +84,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HomeServer-Browser-Runtime
+          include-hidden-files: true
           path: component-packages/browser/**
           include-hidden-files: true
           if-no-files-found: error
@@ -92,6 +94,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: HomeServer-Media-Runtime
+          include-hidden-files: true
           path: component-packages/media/**
           include-hidden-files: true
           if-no-files-found: error
