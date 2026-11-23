@@ -210,6 +210,34 @@ if(cloud){
   assert.equal(b.window.HomeServerChatTurn.usePreparedConversation(other),false);assert.equal(b.window.HomeServerChatTurn.conversationId(),id);
   reply.resolve(response({conversation_id:id,reply:'Fixture complete'}));await pending;
  });
+ await test('completed prepared sends stay cleared across reload and delayed history without erasing a new draft',async()=>{
+  for(const nextDraft of ['', 'Unsent follow-up fixture']){
+   const storage=new Map(),b=browser({storage}),id='f'.repeat(32),reply=deferred(),history=deferred();clock(b);
+   const persist=target=>{target.window.localStorage=target.context.localStorage;target.window.sessionStorage=target.context.localStorage;target.context.sessionStorage=target.context.localStorage;};persist(b);
+   b.window.HomeServerAgentRouting={getSelectedAgentId:()=>1};
+   b.window.fetch=async(url,init)=>url==='/api/v1/control/chat'?reply.promise:url==='/api/v1/control/conversations/'+id?history.promise:response({items:[]});
+   const owner=brain(b);b.element('chatInput').value='Completed prepared fixture';for(const listener of b.element('chatInput').listeners.input||[])listener({});
+   assert.equal(b.window.HomeServerChatTurn.usePreparedConversation(id),true);
+   const send=owner.submitChatTurn(submitEvent(b));assert.equal(JSON.parse(storage.get('homeserver:chat:drafts-v1'))[id].state,'pending');
+   reply.resolve(response({conversation_id:id,reply:'Saved fixture reply'}));await send;
+   assert.equal(JSON.parse(storage.get('homeserver:chat:drafts-v1'))[id],undefined,'Only completion clears the sent draft');
+   if(nextDraft){b.element('chatInput').value=nextDraft;for(const listener of b.element('chatInput').listeners.input||[])listener({});}
+   const fresh=browser({storage});clock(fresh);persist(fresh);
+   fresh.window.fetch=async url=>url.startsWith('/api/v1/control/conversations?')?response({items:[{id,title:'Prepared fixture'}]}):url==='/api/v1/control/conversations/'+id?response({conversation:{id,title:'Prepared fixture'},messages:[]}):response({});
+   brain(fresh);await fresh.window.HomeServerChatTurn.prepare();assert.equal(fresh.element('chatInput').value,nextDraft);
+   history.resolve(response({conversation:{id,title:'Late fixture history'},messages:[]}));await flush();
+   assert.equal(fresh.element('chatInput').value,nextDraft,'Late history cannot resurrect sent text or replace a new draft');
+  }
+ });
+ await test('a prepared but unsent route draft survives reload without replay',async()=>{
+  const storage=new Map(),id='9'.repeat(32),b=browser({storage});clock(b);
+  const persist=target=>{target.window.localStorage=target.context.localStorage;target.window.sessionStorage=target.context.localStorage;target.context.sessionStorage=target.context.localStorage;};persist(b);
+  b.window.fetch=async()=>response({items:[]});brain(b);b.element('chatInput').value='Unfinished routed fixture';for(const listener of b.element('chatInput').listeners.input||[])listener({});
+  assert.equal(b.window.HomeServerChatTurn.usePreparedConversation(id),true);
+  const fresh=browser({storage});clock(fresh);persist(fresh);let sends=0;
+  fresh.window.fetch=async(url,init)=>{if(url==='/api/v1/control/chat')sends++;return url.startsWith('/api/v1/control/conversations?')?response({items:[{id,title:'Unfinished fixture'}]}):response({conversation:{id,title:'Unfinished fixture'},messages:[]});};
+  brain(fresh);await fresh.window.HomeServerChatTurn.prepare();assert.equal(fresh.element('chatInput').value,'Unfinished routed fixture');assert.equal(sends,0);
+ });
  await test('identical replies on distinct turns speak; duplicate completion is ignored',async()=>{
   const b=browser(),timer=clock(b),spoken=[];b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);api.seed();
   standaloneTurn(b,api,1);emitTurn(b,1,'completed','same reply');emitTurn(b,1,'completed','same reply');assert.equal(spoken.length,1);spoken[0].onend();

@@ -260,9 +260,14 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('.vp3-orb-bar input').inputValue(),'An offline footer draft');
   assert.equal(await page.locator('#chatInput').inputValue(),'','A rejected transfer must not leave a duplicate canonical draft');
   await context.setOffline(false);
+  await page.evaluate(()=>{window.footerRetryTurns=[];window.addEventListener('homeserver:chat-turn',event=>window.footerRetryTurns.push({requestId:event.detail?.requestId,status:event.detail?.status,reply:event.detail?.reply}));});
+  const retryResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/control/chat'&&response.request().method()==='POST'&&response.request().postDataJSON()?.message==='An offline footer draft');
   await page.locator('.vp3-orb-bar button[type=submit]').click();
-  await page.waitForFunction(() => document.querySelector('.vp3-orb-bar input').value==='');
-  await page.waitForFunction(() => !window.HomeServerChatTurn.isBusy());
+  const completedRetry=await retryResponse;assert.equal(completedRetry.ok(),true,'The explicit retry reaches the canonical chat endpoint');
+  await page.waitForFunction(() => window.footerRetryTurns.some(turn=>Number.isInteger(turn.requestId)&&turn.status==='completed'&&turn.reply==='Browser acceptance reply.')&&!window.HomeServerChatTurn.isBusy());
+  assert.equal(await page.locator('.vp3-orb-bar input').inputValue(),'');
+  assert.equal(await page.locator('#chatInput').inputValue(),'','A completed canonical send clears its accepted draft');
+  assert.equal(await page.evaluate(()=>Boolean(JSON.parse(sessionStorage.getItem('homeserver:chat:drafts-v1')||'{}')[window.HomeServerChatTurn.conversationId()])),false,'Completed chat has no recovery draft');
   await page.locator('#vp3AgentChatPopup header button').click();
   console.log('PASS: initial footer Chat readiness, Cloud footer controls, responsive layout, draft retention and explicit retry');
   // First Listen after launch must restore the saved conversation without
@@ -271,6 +276,8 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.waitForFunction(() => window.VP3AgentOrb && window.HomeServerChatTurn && window.HomeServerChatOptions);
   assert.equal(await page.evaluate(()=>window.HomeServerChatTurn.isReady()),false);
   const footerVoiceConversation=await page.evaluate(()=>JSON.parse(localStorage.getItem('homeserver:chat:active-v1')).id);
+  assert.equal(await page.locator('#chatInput').inputValue(),'');
+  assert.equal(await page.evaluate(id=>Boolean(JSON.parse(sessionStorage.getItem('homeserver:chat:drafts-v1')||'{}')[id]),footerVoiceConversation),false,'Reload keeps completed messages out of recovery drafts');
   await page.locator('.vp3-orb-bar').getByRole('button',{name:'Listen',exact:true}).click();
   await page.waitForFunction(()=>window.HomeServerConversationVoice?.isEnabled()&&window.voiceFixture.recognizers.some(item=>item.active)).catch(async error=>{
     throw Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({ready:window.HomeServerChatTurn?.isReady(),conversation:window.HomeServerChatTurn?.conversationId(),input:document.getElementById('chatInput')?.value,voice:document.getElementById('voiceInputButton')?.outerHTML,enabled:window.HomeServerConversationVoice?.isEnabled(),strict:document.getElementById('strictLocalVoice')?.checked,settings:window.HomeServerVoiceSettings?.getPreferences(),states:window.voiceFixture.states,notices:window.voiceFixture.notices,recognizers:window.voiceFixture.recognizers.map(x=>({active:x.active})),lease:window.STONEFELLOW_VOICE_LEASE_V122?{owner:window.STONEFELLOW_VOICE_LEASE_V122.owner,claims:window.STONEFELLOW_VOICE_LEASE_V122.claims,denials:window.STONEFELLOW_VOICE_LEASE_V122.denials,preemptions:window.STONEFELLOW_VOICE_LEASE_V122.preemptions}:null,captureIntents:window.voiceFixture.captureIntents})))+' browserErrors='+JSON.stringify(errors));
