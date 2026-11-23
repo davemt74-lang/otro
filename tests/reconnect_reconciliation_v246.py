@@ -266,6 +266,15 @@ with tempfile.TemporaryDirectory(prefix="homeserver-v246-reconcile-") as data_di
     except federated_data.FederatedDataError:
         pass
 
+    # Producer coverage is based on completeness, not only an empty query.
+    # Incomplete datasets must never authorize deletion; queries stay filtered.
+    from app.services import knowledge, shared_agent_context
+    knowledge.ensure_knowledge_index()
+    exported = shared_agent_context.local_snapshot()
+    assert exported["snapshot_mode"] == "full"
+    assert not set(exported["unavailable_datasets"]) & set(exported["covered_datasets"])
+    assert shared_agent_context.local_snapshot("no-matching-context")["snapshot_mode"] == "filtered"
+
 remote_bridge_source = (ROOT / "app" / "services" / "remote_bridge.py").read_text(encoding="utf-8")
 shared_source = (ROOT / "app" / "services" / "shared_agent_context.py").read_text(encoding="utf-8")
 capabilities = (ROOT / "app" / "bridge.py").read_text(encoding="utf-8")
@@ -275,7 +284,6 @@ assert '"vp3_cloud"' in remote_bridge_source
 assert 'federated_data.note_peer_connected("vp3_cloud")' in remote_bridge_source
 assert '"bridge.reconnected" if peer_state.get("reconnected") else "bridge.connected"' in remote_bridge_source
 assert '"reconciliation": federated_data.reconciliation_state("vp3_cloud")' in remote_bridge_source
-assert '"snapshot_mode": "full" if not text else "filtered"' in shared_source
 assert "federated_data.reconcile_snapshot(" in shared_source
 assert '"disconnect_reconnect_reconciliation"' in capabilities
 assert '"absence_tombstones_full_snapshots_only": True' in capabilities

@@ -1,6 +1,6 @@
 # Agent skills and tools — A5C11
 
-The source inventory contains **72 registered HomeServer tools**, **14 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **82 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
+The source inventory contains **74 registered HomeServer tools**, **15 named HomeServer skills**, **21 canonical Cloud Chat handler entrypoints**, and **82 Chrome runtime commands**. The companion JSON includes the full tool input schemas and Cognitive Domain Registry.
 
 This is a source audit of the matching build. User-enabled policies, installed custom plugins, active models, approved websites, and the currently deployed connection are checked by the live diagnostic, not inferred from repository code.
 
@@ -43,6 +43,7 @@ A request with a known website can prepare browser research directly. If a CRM r
 | relationship.context | Search private contacts and relationship notes through an explicit read capability. | contacts.search, contacts.create, contacts.update, contacts.delete | app/services/tools.py |
 | room.automation | Read local rooms/devices and propose governed physical device commands. | devices.list, devices.command | app/services/tools.py |
 | task.manager | Read tasks and notifications and create durable reminders through explicit capabilities. | tasks.list, notifications.list, tasks.create | app/services/tools.py |
+| tv.watching | Use saved TV history and confirmed interests even with Agent Eyes off. New recognition requires explicitly enabled camera, cropped-screen sharing and paired Cloud. TV dialogue never issues commands. | tv.history, tv.interests | app/services/tools.py |
 | vp3.booking-management | Find time and propose creating, rescheduling, or cancelling VP3 bookings through HomeServer approvals. | vp3.schedule.overview, vp3.schedule.availability, vp3.booking.create, vp3.booking.reschedule, vp3.booking.cancel | app/services/vp3_scheduling_tools.py |
 | vp3.calendar-review | Review upcoming personal and Team bookings and scheduling configuration. | vp3.schedule.overview | app/services/vp3_scheduling_tools.py |
 | vp3.commerce-operations | Review canonical VP3 orders and propose bounded fulfillment updates through local approval. | vp3.commerce.orders.list, vp3.commerce.order.get, vp3.commerce.fulfillment.update | app/services/vp3_commerce_agent_tools.py |
@@ -113,6 +114,8 @@ A request with a known website can prepare browser research directly. If a CRM r
 | tasks.delete | Delete HomeServer Task | write | No | tasks.write | app/services/tools.py |
 | tasks.list | Read Tasks | read | No | tasks.read | app/services/tools.py |
 | tasks.update | Update HomeServer Task | write | No | tasks.write | app/services/tools.py |
+| tv.history | Read TV Watching History | read | Yes | Owner authority | app/services/tools.py |
+| tv.interests | Read TV Patterns and Confirmed Preferences | read | Yes | Owner authority | app/services/tools.py |
 | vp3.booking.cancel | Cancel VP3 Booking | write | No | scheduling.write | app/services/vp3_scheduling_tools.py |
 | vp3.booking.create | Create VP3 Booking | write | No | scheduling.write | app/services/vp3_scheduling_tools.py |
 | vp3.booking.reschedule | Reschedule VP3 Booking | write | No | scheduling.write | app/services/vp3_scheduling_tools.py |

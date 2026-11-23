@@ -30,7 +30,7 @@ on:
       - '.github/workflows/agent-mission-owner-a5b4.yml'
 jobs:
   owner-takeover:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

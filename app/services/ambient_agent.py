@@ -210,6 +210,8 @@ def _save_delivered_ids(ids: list[int]) -> None:
 class AmbientAgentRuntime:
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        self._announcement_lock = threading.Lock()
+        self._announcement_generation = 0
         self._started = False
         self._state = "disabled"
         self._state_changed_at = _now_iso()
@@ -256,6 +258,7 @@ class AmbientAgentRuntime:
         with self._lock:
             wake_active = self._wake_active
             thread = self._thread
+            self._announcement_generation += 1
             self._wake_active = False
             self._wake_started_monotonic = 0.0
         if wake_active:
@@ -334,6 +337,7 @@ class AmbientAgentRuntime:
             if action == "engaged":
                 with self._lock:
                     self._privacy_blocked = True
+                    self._announcement_generation += 1
                     wake_active = self._wake_active
                     self._wake_active = False
                     self._wake_started_monotonic = 0.0
@@ -354,15 +358,8 @@ class AmbientAgentRuntime:
             with self._lock:
                 self._presence = presence
                 self._last_presence_at = _now_iso()
-            try:
-                automation_intelligence.record_context_event(
-                    "presence",
-                    presence,
-                    source_kind="ambient",
-                    metadata={"source": "presence_sensor"},
-                )
-            except Exception:
-                pass
+            # Presence coordinates this runtime only. It is not retained in
+            # automation history, even when automation intelligence is enabled.
             self._sync_state()
             return
 
@@ -441,31 +438,48 @@ class AmbientAgentRuntime:
             return item
         return None
 
-    def _can_announce(self, settings: dict[str, Any]) -> bool:
-        if self._privacy_engaged() or self._meeting_active():
-            return False
+    def _announcement_blocker(self, settings: dict[str, Any], *, reserved: bool = False) -> str:
+        if not settings["enabled"]:
+            return "Ambient Agent is disabled."
+        if self._privacy_engaged():
+            return "Physical microphone privacy is engaged."
+        if self._meeting_active():
+            return "A physical meeting is active. End the meeting before testing Ambient voice."
         with self._lock:
             if self._state == "privacy":
-                return False
+                return "Physical microphone privacy is engaged."
+        if not reserved and self._announcement_lock.locked():
+            return "Ambient voice is already preparing or playing. Wait for it to finish."
         agent_state = str(physical_agent.status().get("state") or "")
         if agent_state not in {"idle", "error"}:
-            return False
+            return "Physical Agent is " + (agent_state or "unavailable") + ". Stop its current turn before testing Ambient voice."
         audio = device_audio.device_audio.runtime_state()
-        if bool(audio.get("capturing")) or bool(audio.get("playing")):
-            return False
+        if bool(audio.get("capturing")):
+            return "The native microphone is in use. Stop its current capture before testing Ambient voice."
+        if bool(audio.get("playing")):
+            return "Native audio is playing. Wait for playback to finish before testing Ambient voice."
         speaker = vp3_os.hardware_inventory().get("speaker", {})
         if not bool(speaker.get("ready")):
-            return False
+            # Appliance inventory describes an external controller, not Windows
+            # audio. A desktop with no controller can use its explicitly probed
+            # configured/default PortAudio output without inventing hardware.
+            if vp3_os.configured_profile() == "custom" and not speaker.get("present"):
+                output = device_audio.output_status()
+                if not output["available"]:
+                    return str(output["message"])
+            else:
+                return "The reported speaker hardware is not ready. Check the hardware connection before testing Ambient voice."
         with self._lock:
             if self._wake_active:
-                return False
+                return "A wake-word conversation is active. Finish or stop it before testing Ambient voice."
             last_at = self._last_announcement_at
         if last_at:
             try:
                 previous = datetime.fromisoformat(last_at)
                 elapsed = (datetime.now(timezone.utc) - previous.astimezone(timezone.utc)).total_seconds()
                 if elapsed < int(settings["cooldown_seconds"]):
-                    return False
+                    remaining = max(1, int(settings["cooldown_seconds"] - elapsed) + 1)
+                    return f"Ambient voice cooldown is active. Try again in {remaining} seconds."
             except ValueError:
                 pass
 
@@ -474,8 +488,11 @@ class AmbientAgentRuntime:
             while self._announcement_times and (now - self._announcement_times[0]) >= 3600:
                 self._announcement_times.popleft()
             if len(self._announcement_times) >= int(settings["max_announcements_per_hour"]):
-                return False
-        return True
+                return "Ambient voice reached its hourly announcement limit. Wait or review the configured limit."
+        return ""
+
+    def _can_announce(self, settings: dict[str, Any]) -> bool:
+        return not self._announcement_blocker(settings)
 
     def _announcement_text(
         self,
@@ -489,6 +506,22 @@ class AmbientAgentRuntime:
         return f"{title}. {body}" if body else title
 
     def _announce(self, notification: dict[str, Any], settings: dict[str, Any]) -> None:
+        if not self._announcement_lock.acquire(blocking=False):
+            return
+        try:
+            if self._announcement_blocker(settings, reserved=True):
+                return
+            with self._lock:
+                generation = self._announcement_generation
+            self._announce_reserved(notification, settings, generation)
+        finally:
+            self._announcement_lock.release()
+
+    def _speech_current(self, generation: int) -> bool:
+        with self._lock:
+            return self._started and generation == self._announcement_generation
+
+    def _announce_reserved(self, notification: dict[str, Any], settings: dict[str, Any], generation: int) -> None:
         notification_id = int(notification["id"])
         try:
             agent_id = agent_voice_profiles.primary_agent_id()
@@ -505,6 +538,12 @@ class AmbientAgentRuntime:
                 speaking_rate=effective["speaking_rate"],
                 sentence_silence=effective["sentence_silence"],
             )
+            current_settings = self._settings()
+            if (not self._speech_current(generation)
+                or not self._presence_allowed(current_settings)
+                or self._announcement_blocker(current_settings, reserved=True)):
+                self._sync_state()
+                return
             self._set_state("speaking")
             try:
                 hardware_adapters.set_status_light("speaking")
@@ -512,7 +551,8 @@ class AmbientAgentRuntime:
                 pass
             device_audio.device_audio.play_wav(spoken)
         except Exception as exc:
-            self._set_state("error", error=str(exc))
+            if self._speech_current(generation):
+                self._set_state("error", error=str(exc))
             return
         finally:
             try:
@@ -611,6 +651,8 @@ class AmbientAgentRuntime:
 
     def update_settings(self, value: Any) -> dict[str, Any]:
         settings = save_settings(value)
+        with self._lock:
+            self._announcement_generation += 1
         if settings["enabled"]:
             self._sync_presence_from_hardware()
         if not settings["enabled"]:
@@ -638,8 +680,10 @@ class AmbientAgentRuntime:
                 "In Ambient Agent, choose 'Assume present (no sensor needed)' "
                 "and save, or connect a presence sensor that reports you present."
             )
-        if not self._can_announce(settings):
-            raise AmbientAgentError("Ambient Agent is currently busy or rate-limited.")
+        if not self._announcement_lock.acquire(blocking=False):
+            raise AmbientAgentError("Ambient voice is already preparing or playing. Wait for it to finish.")
+        with self._lock:
+            generation = self._announcement_generation
         fake = {
             "id": -1,
             "title": "VP3 Ambient Agent is ready.",
@@ -648,6 +692,9 @@ class AmbientAgentRuntime:
             "task_id": None,
         }
         try:
+            blocker = self._announcement_blocker(settings, reserved=True)
+            if blocker:
+                raise AmbientAgentError(blocker)
             agent_id = agent_voice_profiles.primary_agent_id()
             profile = agent_voice_profiles.resolve_effective(agent_id)
             effective = profile["effective"]
@@ -661,6 +708,14 @@ class AmbientAgentRuntime:
                 speaking_rate=effective["speaking_rate"],
                 sentence_silence=effective["sentence_silence"],
             )
+            current_settings = self._settings()
+            if not self._speech_current(generation):
+                raise AmbientAgentError("Ambient voice test was cancelled because its settings, privacy or runtime changed.")
+            if not self._presence_allowed(current_settings):
+                raise AmbientAgentError("Presence is no longer confirmed. Ambient voice test was cancelled.")
+            blocker = self._announcement_blocker(current_settings, reserved=True)
+            if blocker:
+                raise AmbientAgentError(blocker)
             self._set_state("speaking")
             device_audio.device_audio.play_wav(spoken)
         except AmbientAgentError:
@@ -668,6 +723,7 @@ class AmbientAgentRuntime:
         except Exception as exc:
             raise AmbientAgentError(f"Ambient local voice test failed: {str(exc)[:180]}") from exc
         finally:
+            self._announcement_lock.release()
             self._sync_state()
         return {"spoken": True}
 

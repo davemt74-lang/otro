@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+import asyncio
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from .services import agent_routing, agent_tools, brain, context_chat, context_engine, provider_secrets, providers, tracky_agent_eyes_context
 from .services.pairing import authenticate
+from .services.inference_cancellation import CancellationToken
 
 router = APIRouter()
 
@@ -158,7 +162,9 @@ def _chat_or_http(
     include_contacts: bool = False,
     tool_permissions: set[str] | None = None,
     owner_tools: bool = False,
+    cancellation_token: CancellationToken | None = None,
 ) -> dict:
+    cancellation = {"cancellation_token": cancellation_token} if cancellation_token is not None else {}
     try:
         if payload.read_only:
             return context_chat.chat(
@@ -173,6 +179,7 @@ def _chat_or_http(
                 tool_permissions=tool_permissions,
                 owner_tools=owner_tools,
                 read_only=True,
+                **cancellation,
                 **({"knowledge_revision": payload.knowledge_revision} if payload.knowledge_revision is not None else {}),
                 **({"project_knowledge_r6": payload.project_knowledge_r6} if payload.project_knowledge_r6 is not None else {}),
                 **({"speaker_context": payload.speaker_context} if source == "owner" and payload.speaker_context is not None else {}),
@@ -188,6 +195,7 @@ def _chat_or_http(
             context_options=_chat_context_options(payload),
             tool_permissions=tool_permissions,
             owner_tools=owner_tools,
+            **cancellation,
             **({"knowledge_revision": payload.knowledge_revision} if payload.knowledge_revision is not None else {}),
             **({"project_knowledge_r6": payload.project_knowledge_r6} if payload.project_knowledge_r6 is not None else {}),
             **({"speaker_context": payload.speaker_context} if source == "owner" and payload.speaker_context is not None else {}),
@@ -234,17 +242,49 @@ def client_conversation(conversation_id: str, identity: dict = Depends(_require_
     )
 
 
+async def _owner_chat_request(payload: ChatRequest, request: Request) -> dict:
+    # The native canvas explicitly declares that Stop/connection loss cancels
+    # this turn. Preserve historical request semantics for other API clients.
+    if request.headers.get("x-homeserver-chat-cancel") != "disconnect":
+        return await run_in_threadpool(_chat_or_http, "owner", payload,
+            include_memory=True, include_knowledge=True, include_contacts=True,
+            tool_permissions=set(), owner_tools=True)
+    token = CancellationToken(commit_is_terminal=True)
+    task = asyncio.create_task(asyncio.to_thread(_chat_or_http, "owner", payload,
+        include_memory=True, include_knowledge=True, include_contacts=True,
+        tool_permissions=set(), owner_tools=True, cancellation_token=token))
+    try:
+        while not task.done():
+            if await request.is_disconnected():
+                cancelled = token.cancel("client_disconnected")
+                if not cancelled and token.committed:
+                    # A completed durable turn wins a simultaneous disconnect;
+                    # do not report cancellation after retaining its reply.
+                    return await asyncio.shield(task)
+                # Keep the worker that owns cancellation cleanup alive. Its
+                # existing provider deadline remains the upper bound if a
+                # provider cannot be interrupted while closing its transport.
+                try:
+                    await asyncio.shield(task)
+                except HTTPException:
+                    pass
+                raise HTTPException(status_code=499, detail="Agent turn cancelled.")
+            await asyncio.wait({task}, timeout=0.05)
+        return await task
+    except asyncio.CancelledError:
+        token.cancel("request_cancelled")
+        raise
+    finally:
+        if not task.done():
+            token.cancel("request_cancelled")
+            # Cancelling the HTTP coroutine must not cancel the task that owns
+            # conversation/proposal cleanup or leave an unobserved exception.
+            task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+
+
 @router.post("/api/v1/control/chat")
-def control_chat(payload: ChatRequest) -> dict:
-    return _chat_or_http(
-        "owner",
-        payload,
-        include_memory=True,
-        include_knowledge=True,
-        include_contacts=True,
-        tool_permissions=set(),
-        owner_tools=True,
-    )
+async def control_chat(payload: ChatRequest, request: Request) -> dict:
+    return await _owner_chat_request(payload, request)
 
 
 @router.get("/api/v1/control/conversations")

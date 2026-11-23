@@ -8,6 +8,7 @@
   let restoreLoads = 0;
   let contextReady = false;
   let restoredDraftScope = null;
+  let chatViewLoad = null;
   const DRAFT_KEY = 'homeserver:chat:drafts-v1', ACTIVE_KEY = 'homeserver:chat:active-v1';
   const validId = id => typeof id === 'string' && /^[0-9a-f]{32}$/.test(id);
   const scopeKey = () => activeConversationId || 'new:' + Number(window.HomeServerAgentRouting?.getSelectedAgentId?.() || 0);
@@ -69,15 +70,21 @@
     if(input)input.disabled=false;if(submit)submit.disabled=false;
     return true;
   }
-  function leaveConversation(){
+  function leaveConversation({preserveVoiceSetup=false}={}){
     window.dispatchEvent(new Event('homeserver:chat-context-changing'));
     if(!pendingChatTurn)saveDraft(byId('chatInput')?.value);
     conversationRevision+=1;cancelChatTurn(null,false);
-    window.HomeServerConversationVoice?.stop?.();
+    if(!preserveVoiceSetup)window.HomeServerConversationVoice?.stop?.();
   }
-  window.HomeServerChatTurn=Object.freeze({isReady:()=>contextReady&&restoreLoads===0,isBusy:()=>Boolean(pendingChatTurn),conversationId:()=>activeConversationId,cancel:cancelChatTurn,usePreparedConversation:id=>{
-    if(pendingChatTurn||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return false;
-    const previous=scopeKey();activeConversationId=id;
+  window.HomeServerChatTurn=Object.freeze({isReady:()=>contextReady&&restoreLoads===0,isBusy:()=>Boolean(pendingChatTurn),conversationId:()=>activeConversationId,cancel:cancelChatTurn,prepare:async()=>{
+    if(!contextReady||restoreLoads)await loadChatView();
+    return contextReady&&restoreLoads===0;
+  },usePreparedConversation:id=>{
+    if(pendingChatTurn||restoreLoads||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return false;
+    // The authenticated routing endpoint has prepared this conversation. Adopt
+    // its context before the canonical submit guard sees the routed turn, and
+    // fence any older background history response without stopping voice.
+    const previous=scopeKey();conversationRevision++;activeConversationId=id;contextReady=true;
     const old=drafts()[previous];if(old&&previous!==id){saveDraft(old.text,id,old.state);saveDraft('',previous);}
     rememberConversation();setChatTitle();void loadConversations(false).catch(()=>{});return true;
   }});
@@ -219,10 +226,10 @@
     }
   }
 
-  async function loadConversation(id, revision = null, turnId = null) {
+  async function loadConversation(id, revision = null, turnId = null, initialRestore = false) {
     const switching=revision===null;if(switching)restoreLoads++;
     try {
-    if(revision === null){leaveConversation();revision=conversationRevision;}
+    if(revision === null){leaveConversation({preserveVoiceSetup:initialRestore&&!contextReady});revision=conversationRevision;}
     const data = await brainApi(`/api/v1/control/conversations/${encodeURIComponent(id)}`);
     if(revision !== conversationRevision || (turnId !== null && turnId !== chatTurnSequence))return;
     activeConversationId = id; contextReady=true;
@@ -256,8 +263,9 @@
     list.innerHTML = data.items.length ? data.items.map(conversationMarkup).join('') : '<div class="empty-state">No conversations yet.</div>';
     if (activeConversationId && data.items.some(item => item.id === activeConversationId)) return;
     if (selectFirst) {
+      const restore=id=>loadConversation(id,null,null,!contextReady);
       const requested=new URLSearchParams(location.search).get('conversation_id');
-      if(validId(requested)){try{await loadConversation(requested);return;}catch(error){if(error.status!==404)throw error;}finally{const url=new URL(location.href);url.searchParams.delete('conversation_id');history.replaceState(null,'',url.pathname+url.search+url.hash);}}
+      if(validId(requested)){try{await restore(requested);return;}catch(error){if(error.status!==404)throw error;}finally{const url=new URL(location.href);url.searchParams.delete('conversation_id');history.replaceState(null,'',url.pathname+url.search+url.hash);}}
       const saved=readStore('localStorage',ACTIVE_KEY,null);
       if(saved && Number.isFinite(saved.at) && saved.at<=Date.now() && Date.now()-saved.at<2592000000){
         if(saved.id === null){
@@ -265,9 +273,9 @@
           window.HomeServerAgentRouting?.adoptConversation?.(null,agent);
           contextReady=true;restoreDraft();return;
         }
-        if(validId(saved.id)){try{await loadConversation(saved.id);}catch(error){if(error.status!==404)throw error;activeConversationId=null;contextReady=true;rememberConversation();restoreDraft();}return;}
+        if(validId(saved.id)){try{await restore(saved.id);}catch(error){if(error.status!==404)throw error;activeConversationId=null;contextReady=true;rememberConversation();restoreDraft();}return;}
       }
-      if(data.items.length)await loadConversation(data.items[0].id);
+      if(data.items.length)await restore(data.items[0].id);
       else {contextReady=true;restoreDraft();}
     }
   }
@@ -402,18 +410,22 @@
   }
 
   async function loadChatView() {
-    restoreLoads++;
-    try {
-    await window.HomeServerAgentRouting?.refresh?.();
-    const calls = [loadConversations(true), loadProvider(), loadAgentTools()];
-    calls.push(loadInference().catch(() => null));
-    await Promise.all(calls);
-    if (!activeConversationId) {
-      setChatTitle();
-      renderMessages({messages: []});
-    }
-    } catch(error) { if(error.status!==401)recoveryStatus('Conversation history is unavailable. Open a conversation or start a new chat.'); throw error; }
-    finally {restoreLoads--;}
+    if(chatViewLoad)return chatViewLoad;
+    chatViewLoad=(async()=>{
+      restoreLoads++;
+      try {
+        await window.HomeServerAgentRouting?.refresh?.();
+        await loadConversations(true);
+        if (!activeConversationId) {
+          setChatTitle();
+          renderMessages({messages: []});
+        }
+      } catch(error) { if(error.status!==401)recoveryStatus('Conversation history is unavailable. Open a conversation or start a new chat.'); throw error; }
+      finally {restoreLoads--;}
+      // Optional settings panels must not hold the conversational readiness gate.
+      void Promise.allSettled([loadProvider(),loadAgentTools(),loadInference()]);
+    })();
+    try{return await chatViewLoad;}finally{chatViewLoad=null;}
   }
 
   document.addEventListener('click', async event => {
@@ -551,7 +563,7 @@
       const data = await new Promise((resolve,reject)=>{
         const abort=()=>reject(new DOMException('Chat turn cancelled or timed out.','AbortError'));
         turn.controller.signal.addEventListener('abort',abort,{once:true});
-        brainApi('/api/v1/control/chat', {method:'POST', signal:turn.controller.signal,body:JSON.stringify({message, speaker_context:window.VP3VoiceGuard?.takeContext(message)||(!window.VP3VoiceGuard?.wasVoiceTurn?.(message)?window.VP3ParticipantContinuity?.selectedContext():null),conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value(),knowledge_revision:window.VP3KnowledgeRevisionsR11?.value(message)})})
+        brainApi('/api/v1/control/chat', {method:'POST', headers:{'X-HomeServer-Chat-Cancel':'disconnect'}, signal:turn.controller.signal,body:JSON.stringify({message, speaker_context:window.VP3VoiceGuard?.takeContext(message)||(!window.VP3VoiceGuard?.wasVoiceTurn?.(message)?window.VP3ParticipantContinuity?.selectedContext():null),conversation_id:turn.conversationId, project_knowledge_r6:window.VP3ProjectKnowledgeR6?.value(),knowledge_revision:window.VP3KnowledgeRevisionsR11?.value(message)})})
           .then(resolve,reject).finally(()=>turn.controller.signal.removeEventListener('abort',abort));
       });
       if(pendingChatTurn !== turn || turn.revision !== conversationRevision || turn.controller.signal.aborted)return;

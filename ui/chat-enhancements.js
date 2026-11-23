@@ -107,7 +107,7 @@
       voice.setAttribute('aria-pressed', 'false');
       voice.setAttribute('aria-describedby', 'voicePrivacyNote');
       voice.title = 'Conversation mode';
-      voice.innerHTML = `${micIcon()}<span class="chat-control-label">Talk</span>`;
+      voice.innerHTML = `${micIcon()}<span class="chat-control-label">Listen</span>`;
       compose.insertBefore(voice, compose.querySelector('.chat-composer-actions') || compose.querySelector('button[type="submit"]'));
 
       const options = document.createElement('div');
@@ -306,7 +306,7 @@
     }
     if (!conversationMode) {
       button.setAttribute('aria-label', 'Start conversation mode');
-      if (label) label.textContent = 'Talk';
+      if (label) label.textContent = 'Listen';
       return;
     }
     button.setAttribute('aria-label', 'Stop conversation mode');
@@ -906,6 +906,13 @@
     // Unlock local audio synchronously inside the user's click gesture. This
     // prevents delayed Piper playback from being rejected by autoplay policy.
     unlockLocalAudio();
+    try {
+      if(window.HomeServerChatTurn?.prepare&&await window.HomeServerChatTurn.prepare()!==true)throw new Error('Conversation is not ready.');
+    } catch (_) {
+      if(conversationStarting&&setupGeneration===captureGeneration){stopConversationMode('Conversation could not be loaded. Try Listen again.');flash('Conversation could not be loaded. Try Listen again.',true);}
+      return;
+    }
+    if (!conversationStarting || setupGeneration!==captureGeneration) return;
     const settingsController = window.HomeServerVoiceSettings;
     if (settingsController?.load) {
       try { await settingsController.load(); } catch (_) {}

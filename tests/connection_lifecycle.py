@@ -35,14 +35,21 @@ with tempfile.TemporaryDirectory() as directory:
         def __init__(self, messages=None): self.messages = messages or []
         def json(self): return {'ok': True, 'requests': self.messages, 'poll_after_ms': 250}
     class Relay:
+        delivered = False
         def __init__(self, *args, **kwargs): pass
         def __enter__(self): return self
         def __exit__(self, *args): return False
         def post(self, *args, **kwargs):
             if kwargs['json']['results']:
                 receipts.extend(dict(item) for item in kwargs['json']['results'])
-                worker._stop.set()
+                # The production relay acknowledges each submitted outcome and
+                # remains available for the rest of its already accepted batch.
+                # Stop the fixture only after every command has a receipt.
+                if len(receipts) == 3:
+                    worker._stop.set()
                 return Response()
+            assert not self.delivered, 'An accepted batch must not be delivered twice'
+            self.delivered = True
             return Response([{'request_id': name, 'operation': 'system.ping', 'payload': {'nonce': name}, 'bearer_token': local_token} for name in ['first', 'interrupted', 'third']])
     def dispatch(operation, payload, authorization):
         if operation == 'capabilities': return {'ok': True, 'payload': {}}
@@ -53,6 +60,7 @@ with tempfile.TemporaryDirectory() as directory:
         worker._run_https(bridge.get_bridge_settings())
     assert calls == ['first', 'interrupted', 'third'], calls
     assert len(receipts) == 3 and receipts[0]['ok'] and not receipts[1]['ok'] and receipts[2]['ok'], receipts
+    assert [item['request_id'] for item in receipts] == calls, receipts
     assert 'private-secret' not in str(receipts)
     print('PASS interrupted command produces one failure receipt; completed batch commands never replay')
 
@@ -100,8 +108,15 @@ with tempfile.TemporaryDirectory() as directory:
     worker._run = run
     worker._run_guarded()
     assert len(runs) == 2 and 'private-value' not in str(bridge._STATE)
-    with patch.object(bridge.tracky_physical_context, 'sync_due', side_effect=ValueError('private-value')):
-        worker._sync_features()
+    # The stopped worker above must not perform supplementary work. Exercise
+    # the optional-feature fault using a live worker and its current session.
+    feature_worker = bridge.RemoteBridgeWorker()
+    bridge._RELOAD_EVENT.clear()
+    with patch.object(bridge.tracky_physical_context, 'sync_due', side_effect=ValueError('private-value')) as feature_due:
+        worker._sync_features(token)
+        feature_due.assert_not_called()
+        feature_worker._sync_features(token)
+        feature_due.assert_called_once_with()
     assert bridge._STATE['feature_sync_error'] and 'private-value' not in bridge._STATE['feature_sync_error']
     assert sessions.SESSION_LOCK is cloud_pairing._PAIR_LOCK
     print('PASS unexpected worker and optional feature faults recover with safe bounded backoff')

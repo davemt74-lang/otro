@@ -517,74 +517,80 @@ def chat(
         except workspace_sync.WorkspaceSyncError as exc:
             cancel_turn('knowledge_action_authority_changed')
             raise brain.BrainError(str(exc),exc.status_code) from exc
-    with db() as connection:
-        connection.execute(
-            """
-            INSERT INTO conversation_messages(conversation_id, role, content, source_app_key, model, metadata_json)
-            VALUES (?, 'assistant', ?, ?, ?, ?)
-            """,
-            (
-                conversation_id,
-                reply,
-                source_app_key,
-                generated["model"],
-                json.dumps(metadata, separators=(",", ":")),
-            ),
-        )
-        connection.execute(
-            "UPDATE conversations SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (conversation_id,)
-        )
-        connection.execute(
-            """
-            UPDATE agent_runs
-            SET status='completed', provider_key=?, model=?, duration_ms=?, tool_call_count=?,
-                metadata_json=?, completed_at=CURRENT_TIMESTAMP
-            WHERE id=?
-            """,
-            (
-                generated["provider"],
-                generated["model"],
-                duration_ms,
-                int(tool_state.get("call_count") or 0),
-                json.dumps(run_metadata, separators=(",", ":")),
-                run_id,
-            ),
-        )
-        connection.execute(
-            """
-            INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
-            VALUES (?, ?, 'agent.chat', 'conversation', ?, ?)
-            """,
-            (
-                "owner" if source_app_key == "owner" else "app",
-                source_app_key,
-                conversation_id,
-                json.dumps(
-                    {
-                        "provider": generated["provider"],
-                        "model": generated["model"],
-                        "memory_count": len(bundle.memory),
-                        "knowledge_count": len(bundle.knowledge),
-                        "contact_count": len(bundle.contacts),
-                        "awareness_count": len(canonical.awareness_items),
-                        "interactive_transcript_count": int(canonical.interactive.get("transcript_count") or 0),
-                        "interactive_meeting_count": int(canonical.interactive.get("meeting_count") or 0),
-                        "context_chars": canonical.total_context_chars,
-                        "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
-                        "context_event_id": context_event_id,
-                        "tool_call_count": int(tool_state.get("call_count") or 0),
-                        "action_request_count": len(tool_state.get("action_request_ids") or []),
-                        "duration_ms": duration_ms,
-                        "scope_enforced": not owner_tools,
-                        "read_only": bool(read_only),
-                        "agent_id": int(agent["id"]),
-                        "agent_name": str(agent.get("name") or "Agent"),
-                        "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
-                    },
-                    separators=(",", ":"),
+    try:
+        with db() as connection:
+            connection.execute(
+                """
+                INSERT INTO conversation_messages(conversation_id, role, content, source_app_key, model, metadata_json)
+                VALUES (?, 'assistant', ?, ?, ?, ?)
+                """,
+                (
+                    conversation_id,
+                    reply,
+                    source_app_key,
+                    generated["model"],
+                    json.dumps(metadata, separators=(",", ":")),
                 ),
-            ),
-        )
+            )
+            connection.execute(
+                "UPDATE conversations SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (conversation_id,)
+            )
+            connection.execute(
+                """
+                UPDATE agent_runs
+                SET status='completed', provider_key=?, model=?, duration_ms=?, tool_call_count=?,
+                    metadata_json=?, completed_at=CURRENT_TIMESTAMP
+                WHERE id=?
+                """,
+                (
+                    generated["provider"],
+                    generated["model"],
+                    duration_ms,
+                    int(tool_state.get("call_count") or 0),
+                    json.dumps(run_metadata, separators=(",", ":")),
+                    run_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO activity_log(actor_type, actor_key, action, resource_type, resource_key, metadata_json)
+                VALUES (?, ?, 'agent.chat', 'conversation', ?, ?)
+                """,
+                (
+                    "owner" if source_app_key == "owner" else "app",
+                    source_app_key,
+                    conversation_id,
+                    json.dumps(
+                        {
+                            "provider": generated["provider"],
+                            "model": generated["model"],
+                            "memory_count": len(bundle.memory),
+                            "knowledge_count": len(bundle.knowledge),
+                            "contact_count": len(bundle.contacts),
+                            "awareness_count": len(canonical.awareness_items),
+                            "interactive_transcript_count": int(canonical.interactive.get("transcript_count") or 0),
+                            "interactive_meeting_count": int(canonical.interactive.get("meeting_count") or 0),
+                            "context_chars": canonical.total_context_chars,
+                            "canonical_context_version": canonical_context.CANONICAL_CONTEXT_VERSION,
+                            "context_event_id": context_event_id,
+                            "tool_call_count": int(tool_state.get("call_count") or 0),
+                            "action_request_count": len(tool_state.get("action_request_ids") or []),
+                            "duration_ms": duration_ms,
+                            "scope_enforced": not owner_tools,
+                            "read_only": bool(read_only),
+                            "agent_id": int(agent["id"]),
+                            "agent_name": str(agent.get("name") or "Agent"),
+                            "agent_routing_version": agent_routing.AGENT_ROUTING_VERSION,
+                        },
+                        separators=(",", ":"),
+                    ),
+                ),
+            )
+            if cancellation_token is not None:
+                cancellation_token.commit(connection.commit)
+    except InferenceCancelled as exc:
+        cancel_turn(str(exc))
+        raise brain.BrainError("Agent turn cancelled.", 409) from exc
 
     actual_compute_source = "vp3_cloud" if (knowledge_draft or {}).get('execution') and knowledge_draft['execution'].get('source')=='vp3_cloud' else ("homeserver_local" if generated["provider"] == "ollama" else "user_provider")
     provider_usage = dict(tool_state.get("provider_usage") or {})

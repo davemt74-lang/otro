@@ -41,6 +41,45 @@ async function assertCanvasLayout(page, regionId) {
     `Canvas has no horizontal overflow: ${JSON.stringify(layout)}`);
 }
 
+async function completeCanonicalSend(page,message,send) {
+  await page.evaluate(()=>{
+    window.canonicalAcceptanceTurns=[];
+    if(!window.canonicalAcceptanceListener){
+      window.canonicalAcceptanceListener=event=>{const turn=event.detail||{};window.canonicalAcceptanceTurns.push({requestId:turn.requestId,status:turn.status,conversationId:turn.conversationId,runId:turn.runId,reply:turn.reply});window.canonicalAcceptanceTurns.splice(0,Math.max(0,window.canonicalAcceptanceTurns.length-20));};
+      window.addEventListener('homeserver:chat-turn',window.canonicalAcceptanceListener);
+    }
+  });
+  const completed=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/control/chat'&&response.request().method()==='POST'&&response.request().postDataJSON()?.message===message);
+  await send();const response=await completed;assert.equal(response.ok(),true,'The exact message reaches canonical Chat');
+  const data=await response.json();
+  await page.waitForFunction(({conversationId,runId,reply})=>window.canonicalAcceptanceTurns.some(turn=>Number.isInteger(turn.requestId)&&turn.status==='completed'&&turn.conversationId===conversationId&&turn.reply===reply&&(!runId||turn.runId===runId))&&!window.HomeServerChatTurn.isBusy(),{conversationId:data.conversation_id,runId:data.run_id,reply:data.reply});
+  return data;
+}
+
+async function assertPopupMessages(page) {
+  const result=await page.evaluate(()=>{
+    const popup=document.getElementById('vp3AgentChatPopup'),messages=document.getElementById('chatMessages'),composer=document.getElementById('chatForm');
+    const color=value=>value.match(/[\d.]+/g)?.map(Number)||[];
+    const luminance=rgb=>rgb.slice(0,3).map(x=>{const s=x/255;return s<=.04045?s/12.92:Math.pow((s+.055)/1.055,2.4);}).reduce((total,x,i)=>total+x*[.2126,.7152,.0722][i],0);
+    const rows=[...messages.querySelectorAll('.chat-message')].map(row=>{
+      const copy=row.querySelector('.hs-chat-copy'),body=row.querySelector('.hs-chat-message-body'),avatar=row.querySelector('.hs-chat-avatar');
+      const fg=color(getComputedStyle(copy).color);let bg=[255,255,255];
+      for(let n=copy;n;n=n.parentElement){const c=color(getComputedStyle(n).backgroundColor);if(c.length===3||c[3]>=.99){bg=c;break;}}
+      const a=luminance(fg),b=luminance(bg),bounds=row.getBoundingClientRect();
+      return {contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),height:bounds.height,contentHeight:Math.max(body.getBoundingClientRect().height,avatar.getBoundingClientRect().height),width:bounds.width,text:copy.textContent.trim()};
+    });
+    return {rows,overflow:getComputedStyle(messages).overflowY,messagesBottom:messages.getBoundingClientRect().bottom,composerTop:composer.getBoundingClientRect().top,composerBottom:composer.getBoundingClientRect().bottom,popupBottom:popup.getBoundingClientRect().bottom,messagesWidth:messages.clientWidth,messagesScrollWidth:messages.scrollWidth};
+  });
+  assert.ok(result.rows.length>=2,'Popup renders both owner and Agent messages');
+  for(const row of result.rows){
+    assert.ok(row.text&&row.contrast>=4.5,`Popup messages remain readable: ${JSON.stringify(row)}`);
+    assert.ok(row.height<=row.contentHeight+30,`Messages use their content height without legacy blank cards: ${JSON.stringify(row)}`);
+  }
+  assert.equal(result.overflow,'auto','The popup owns a single scrolling message region');
+  assert.ok(result.messagesBottom<=result.composerTop+1&&result.composerBottom<=result.popupBottom+1,'The composer remains visible below the message scroll');
+  assert.ok(result.messagesScrollWidth<=result.messagesWidth+1,'Popup messages have no horizontal overflow');
+}
+
 async function assertOnboardingLayout(page) {
   await assertCanvasLayout(page, 'chatOnboardingCanvas');
   assert.equal(await page.locator('#chatOnboardingCanvas .onboard-visual-consent:visible').count(), 0, 'Basic setup asks no camera/biometric questions');
@@ -65,7 +104,14 @@ async function assertOnboardingLayout(page) {
   await page.locator('#onboardOptional').evaluate(node=>{node.open=false;});
 }
 try {
-  browser = await chromium.launch({headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH} : {})});
+  // Explicitly supply synthetic microphone hardware and grant this isolated
+  // fixture access. Native voice startup must not wait on a headless permission
+  // prompt or depend on an actual CI host audio device.
+  const fakeAudio=path.join(dataDir,'synthetic-microphone.wav'),rate=16000,samples=rate*2,wav=Buffer.alloc(44+samples*2);
+  wav.write('RIFF',0);wav.writeUInt32LE(36+samples*2,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(rate,24);wav.writeUInt32LE(rate*2,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(samples*2,40);
+  for(let i=0;i<samples;i++)wav.writeInt16LE(Math.round(5000*Math.sin(2*Math.PI*220*i/rate)+2500*Math.sin(2*Math.PI*440*i/rate)),44+i*2);
+  await fs.writeFile(fakeAudio,wav);
+  browser = await chromium.launch({headless: true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-file-for-fake-audio-capture='+fakeAudio], ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH} : {})});
 
   // Cap the pre-fix runaway observer so this regression fails clearly rather
   // than hanging the entire test runner. Normal production code has no cap.
@@ -109,7 +155,7 @@ from app.runtime import app
 from app.security import OWNER_CONTROL_TOKEN
 from app.services import providers
 import uvicorn, json
-def fixture_generate(messages, model_override=None):
+def fixture_generate(messages, model_override=None, cancellation_token=None):
     routing = messages[0]['content'].startswith('You are the lead agent routing')
     content = json.dumps({'route':'chat','reason':'The fixture can answer directly','plan':None}) if routing else 'Browser acceptance reply.'
     return {'provider':'ollama', 'model':model_override or 'test-model', 'content':content}
@@ -139,7 +185,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     });
     child.once('exit', code => {clearTimeout(timer); reject(new Error(`HomeServer exited ${code}: ${stderr}`));});
   });
-  const context = await browser.newContext({viewport: {width: 1440, height: 900}});
+  const context = await browser.newContext({viewport: {width: 1440, height: 900},permissions:['microphone']});
   if (process.env.AGENT_VOICE_PROFILE_SOURCE) {
     const source = await fs.readFile(process.env.AGENT_VOICE_PROFILE_SOURCE, 'utf8');
     await context.route('**/assets/agent-voice-profile.js*', route => route.fulfill({contentType: 'text/javascript', body: source}));
@@ -159,7 +205,9 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   let microphoneCalls = 0;
   await page.exposeFunction('countMicrophoneCall', () => {microphoneCalls++;});
   await page.addInitScript(() => {
-    window.voiceFixture = {recognizers: [], spoken: [], inputWrites: [], captureIntents: []};
+    window.voiceFixture = {recognizers: [], spoken: [], inputWrites: [], captureIntents: [], streams: [], states: [], notices: []};
+    window.addEventListener('homeserver:voice-state',event=>{window.voiceFixture.states.push(String(event.detail?.state));window.voiceFixture.states.splice(0,Math.max(0,window.voiceFixture.states.length-20));});
+    document.addEventListener('DOMContentLoaded',()=>{const flash=document.getElementById('flash');if(flash)new MutationObserver(()=>{const text=flash.textContent.trim();if(text&&window.voiceFixture.notices.at(-1)!==text){window.voiceFixture.notices.push(text);window.voiceFixture.notices.splice(0,Math.max(0,window.voiceFixture.notices.length-10));}}).observe(flash,{childList:true,subtree:true,characterData:true});},{once:true});
     const value=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');
     Object.defineProperty(HTMLTextAreaElement.prototype,'value',{...value,set(text){
       if(this.id==='chatInput'){window.voiceFixture.inputWrites.push({text,stack:new Error().stack});window.voiceFixture.inputWrites.splice(0,Math.max(0,window.voiceFixture.inputWrites.length-12));}
@@ -177,16 +225,97 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
       speak(utterance) { window.voiceFixture.spoken.push(utterance.text); queueMicrotask(() => {utterance.onstart?.(); utterance.onend?.();}); },
     }});
     const original = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
-    if (original) navigator.mediaDevices.getUserMedia = (...args) => {window.voiceFixture.captureIntents.push({voiceActive:document.getElementById('voiceInputButton')?.getAttribute('aria-pressed')==='true',audio:args[0]?.audio,video:args[0]?.video===true});window.countMicrophoneCall(); return original(...args);};
+    if (original) navigator.mediaDevices.getUserMedia = (...args) => {window.voiceFixture.captureIntents.push({voiceActive:document.getElementById('voiceInputButton')?.getAttribute('aria-pressed')==='true',audio:args[0]?.audio,video:args[0]?.video===true});window.countMicrophoneCall(); return original(...args).then(stream=>{window.voiceFixture.streams.push(stream);return stream;});};
   });
+  // A first footer message from Overview must initialize the canonical Chat,
+  // retain its draft while restoration runs, and dispatch exactly once.
+  await page.goto(base + '/#dashboard');
+  await page.waitForFunction(() => window.VP3AgentOrb && window.HomeServerChatTurn && window.HomeServerChatOptions);
+  assert.equal(await page.evaluate(() => window.HomeServerChatTurn.isReady()), false);
+  assert.equal(await page.locator('.vp3-orb-bar [data-orb-chat]').count(), 0);
+  assert.equal(await page.locator('.vp3-orb-bar button').allTextContents().then(x=>x.join(',')), 'Listen,Send');
+  let releaseFooterRestore, footerRestoreStarted=false, footerSends=0;
+  const footerRestoreGate=new Promise(resolve=>{releaseFooterRestore=resolve;});
+  await page.route('**/api/v1/control/conversations?limit=50', async route=>{
+    footerRestoreStarted=true;await footerRestoreGate;await route.continue();
+  });
+  const countFooterSend=request=>{if(new URL(request.url()).pathname==='/api/v1/control/chat'&&request.method()==='POST')footerSends++;};
+  page.on('request',countFooterSend);
+  await page.locator('.vp3-orb-bar input').fill('First message from the HomeServer footer');
+  await page.locator('.vp3-orb-bar button[type=submit]').click();
+  await page.waitForFunction(() => document.querySelector('#vp3AgentChatPopup #chatForm'));
+  for(let attempt=0;!footerRestoreStarted;attempt++){if(attempt>100)throw Error('Footer did not initialize Chat');await delay(25);}
+  assert.equal(await page.locator('.vp3-orb-bar input').inputValue(),'First message from the HomeServer footer');
+  assert.equal(footerSends,0,'No chat is sent before conversation restoration');
+  releaseFooterRestore();
+  await page.waitForFunction(() => document.querySelector('#chatMessages')?.textContent.includes('Browser acceptance reply.'));
+  await page.waitForFunction(() => document.querySelector('.vp3-orb-bar input').value==='');
+  assert.equal(footerSends,1,'The initialized footer dispatches exactly once');
+  assert.equal(await page.locator('#chatForm #voiceInputButton').isVisible(),true);
+  assert.equal(await page.locator('.vp3-orb-bar').evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(255, 255, 255)');
+  await fs.mkdir(path.join(root,'tests/artifacts'),{recursive:true});
+  assert.equal(await page.locator('#vp3AgentChatPopup header button').evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true,'The floating Agent must not cover desktop Close');
+  await assertPopupMessages(page);
+  await page.screenshot({path:path.join(root,'tests/artifacts/native-chat-footer.png')});
+  await page.setViewportSize({width:390,height:844});
+  const footerBounds=await page.locator('.vp3-orb-bar').boundingBox();
+  assert.ok(footerBounds.x>=0&&footerBounds.x+footerBounds.width<=391,'Mobile footer fits the viewport');
+  assert.equal(await page.locator('#vp3AgentChatPopup header button').evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true,'The floating Agent must not cover mobile Close');
+  await assertPopupMessages(page);
+  await page.screenshot({path:path.join(root,'tests/artifacts/native-chat-footer-mobile.png')});
+  await page.setViewportSize({width:1440,height:900});
+  page.off('request',countFooterSend);await page.unroute('**/api/v1/control/conversations?limit=50');
+  await page.locator('#vp3AgentChatPopup header button').click();
+  // A rejected offline submission must keep only the footer draft and allow an
+  // explicit retry after connectivity returns, without an automatic replay.
+  await context.setOffline(true);
+  await page.locator('.vp3-orb-bar input').fill('An offline footer draft');
+  await page.locator('.vp3-orb-bar button[type=submit]').click();
+  await page.waitForFunction(() => document.querySelector('.vp3-orb-bubble')?.textContent.includes('Your message is kept'));
+  assert.equal(await page.locator('.vp3-orb-bar input').inputValue(),'An offline footer draft');
+  assert.equal(await page.locator('#chatInput').inputValue(),'','A rejected transfer must not leave a duplicate canonical draft');
+  await context.setOffline(false);
+  await page.evaluate(()=>{window.footerRetryTurns=[];window.addEventListener('homeserver:chat-turn',event=>window.footerRetryTurns.push({requestId:event.detail?.requestId,status:event.detail?.status,reply:event.detail?.reply}));});
+  const retryResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/control/chat'&&response.request().method()==='POST'&&response.request().postDataJSON()?.message==='An offline footer draft');
+  await page.locator('.vp3-orb-bar button[type=submit]').click();
+  const completedRetry=await retryResponse;assert.equal(completedRetry.ok(),true,'The explicit retry reaches the canonical chat endpoint');
+  await page.waitForFunction(() => window.footerRetryTurns.some(turn=>Number.isInteger(turn.requestId)&&turn.status==='completed'&&turn.reply==='Browser acceptance reply.')&&!window.HomeServerChatTurn.isBusy());
+  assert.equal(await page.locator('.vp3-orb-bar input').inputValue(),'');
+  assert.equal(await page.locator('#chatInput').inputValue(),'','A completed canonical send clears its accepted draft');
+  assert.equal(await page.evaluate(()=>Boolean(JSON.parse(sessionStorage.getItem('homeserver:chat:drafts-v1')||'{}')[window.HomeServerChatTurn.conversationId()])),false,'Completed chat has no recovery draft');
+  await page.locator('#vp3AgentChatPopup header button').click();
+  console.log('PASS: initial footer Chat readiness, Cloud footer controls, responsive layout, draft retention and explicit retry');
+  // First Listen after launch must restore the saved conversation without
+  // treating its own initial restoration as a navigation that cancels capture.
+  await page.reload();
+  await page.waitForFunction(() => window.VP3AgentOrb && window.HomeServerChatTurn && window.HomeServerChatOptions);
+  assert.equal(await page.evaluate(()=>window.HomeServerChatTurn.isReady()),false);
+  const footerVoiceConversation=await page.evaluate(()=>JSON.parse(localStorage.getItem('homeserver:chat:active-v1')).id);
+  assert.equal(await page.locator('#chatInput').inputValue(),'');
+  assert.equal(await page.evaluate(id=>Boolean(JSON.parse(sessionStorage.getItem('homeserver:chat:drafts-v1')||'{}')[id]),footerVoiceConversation),false,'Reload keeps completed messages out of recovery drafts');
+  await page.locator('.vp3-orb-bar').getByRole('button',{name:'Listen',exact:true}).click();
+  await page.waitForFunction(()=>window.HomeServerConversationVoice?.isEnabled()&&window.voiceFixture.recognizers.some(item=>item.active)).catch(async error=>{
+    throw Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({ready:window.HomeServerChatTurn?.isReady(),conversation:window.HomeServerChatTurn?.conversationId(),input:document.getElementById('chatInput')?.value,voice:document.getElementById('voiceInputButton')?.outerHTML,enabled:window.HomeServerConversationVoice?.isEnabled(),strict:document.getElementById('strictLocalVoice')?.checked,settings:window.HomeServerVoiceSettings?.getPreferences(),states:window.voiceFixture.states,notices:window.voiceFixture.notices,recognizers:window.voiceFixture.recognizers.map(x=>({active:x.active})),lease:window.STONEFELLOW_VOICE_LEASE_V122?{owner:window.STONEFELLOW_VOICE_LEASE_V122.owner,claims:window.STONEFELLOW_VOICE_LEASE_V122.claims,denials:window.STONEFELLOW_VOICE_LEASE_V122.denials,preemptions:window.STONEFELLOW_VOICE_LEASE_V122.preemptions}:null,captureIntents:window.voiceFixture.captureIntents})))+' browserErrors='+JSON.stringify(errors));
+  });
+  assert.equal(await page.evaluate(()=>window.HomeServerChatTurn.conversationId()),footerVoiceConversation,'First Listen uses the restored conversation');
+  await page.locator('.vp3-orb-root [data-orb-stop]').click();
+  await page.waitForFunction(()=>!window.HomeServerConversationVoice.isEnabled());
+  await page.waitForFunction(()=>window.voiceFixture.streams.every(stream=>stream.getTracks().every(track=>track.readyState==='ended')));
+  assert.ok(microphoneCalls>0,'The explicit first Listen acquires the synthetic microphone');
+  await page.locator('#vp3AgentChatPopup header button').click();
+  const idleMicrophoneCalls=microphoneCalls;
+  console.log('PASS: first footer Listen restores saved history and starts the canonical conversation voice');
   await page.goto(base + '/#chat');
   await page.waitForFunction(() => window.HomeServerChatOptions && document.querySelector('#chatOptionsVoice #dictateInputButton')).catch(error => {throw new Error(error.message + '\nBrowser errors: ' + JSON.stringify(errors));});
   console.log('PASS: complete owner page loaded');
   assert.equal(await page.locator('#view-chat .section-intro').count(), 0);
   assert.equal(await page.locator('.topbar').isVisible(), false);
   assert.equal(await page.locator('#chatContextControls').isVisible(), false);
-  assert.equal(await page.locator('#chatForm button:not([data-orb-chat]):visible').count(), 2);
-  assert.equal(await page.locator('#chatForm button[data-orb-chat]:visible').count(), 1, 'The requested chatbar button is present once');
+  assert.equal(await page.locator('#chatForm button:visible').count(), 3);
+  assert.equal(await page.locator('#chatForm #voiceInputButton').isVisible(), true, 'Listen stays visible beside Send');
+  assert.equal(await page.locator('#voiceInputButton .chat-control-label').textContent(), 'Listen');
+  assert.equal(await page.locator('#chatForm .chat-send').evaluate(n=>getComputedStyle(n,'::before').content), 'none', 'Send has no legacy arrow prefix');
+  assert.equal(await page.locator('#chatForm button[data-orb-chat]').count(), 0, 'The footer has no redundant Chat button');
   await page.waitForFunction(() => document.querySelectorAll('#chatKnowledgeControls>details').length === 4 && document.querySelector('#chatToolControls .vp3-agent-teams-a3'));
   assert.equal(await page.locator('#view-chat .chat-panel>.project-knowledge-r6,#view-chat .chat-panel>.knowledge-actions-r8,#view-chat .chat-panel>.vp3-chat-task-mode,#view-chat .chat-panel>.vp3-agent-teams-a3').count(), 0);
   assert.equal(await page.locator('.project-knowledge-r6').isVisible(), false);
@@ -211,7 +340,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('#voiceSettingsForm').count(), 1);
   assert.equal(await page.locator('#chatOptionsVoice #voiceSettingsForm').isVisible(), true);
   await page.waitForFunction(() => document.querySelector('#chatAgentVoicePanel #agentVoiceChoice')?.options.length > 1);
-  assert.equal(microphoneCalls, 0, 'Opening preferences must never start microphone capture');
+  assert.equal(microphoneCalls, idleMicrophoneCalls, 'Opening preferences must never start microphone capture');
   for (let i = 0; i < 12; i++) {
     await page.keyboard.press('Tab');
     assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.contains(document.activeElement)), true, 'Dialog traps keyboard focus');
@@ -229,16 +358,23 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.locator('#chatOptionsClose').click();
 
   assert.equal(await page.locator('#vp3ChatTaskMode').inputValue(), 'automatic');
-  await page.locator('#chatInput').fill('Browser acceptance message');
-  await page.locator('#chatForm [type="submit"]').click();
-  await page.waitForFunction(() => document.querySelector('#chatMessages')?.textContent.includes('Browser acceptance reply.'));
-  await page.waitForFunction(() => !document.querySelector('#chatForm [type="submit"]').disabled);
+  const acceptedMessage=await completeCanonicalSend(page,'Browser acceptance message',async()=>{
+    await page.locator('#chatInput').fill('Browser acceptance message');
+    await page.locator('#chatForm [type="submit"]').click();
+  });
   assert.equal(await page.locator('#chatForm [type="submit"]').isEnabled(), true);
-  await page.locator('.hs-chat-research-source').first().waitFor();
+  // Wait for this turn's committed history row, rather than an older identical
+  // fixture reply/source that may be replaced by the background refresh.
+  const currentHistory=await context.request.get(base+'/api/v1/control/conversations/'+acceptedMessage.conversation_id);
+  assert.equal(currentHistory.ok(),true);const historyPayload=await currentHistory.json();
+  const currentAssistant=[...historyPayload.messages].reverse().find(message=>message.role==='assistant');
+  assert.ok(Number(currentAssistant?.id)>0);
+  const currentCitation=page.locator('#chatMessages [data-chat-message-id="'+Number(currentAssistant.id)+'"] .hs-chat-research-source').first();
+  await currentCitation.waitFor();
   assert.equal(await page.locator('a.hs-chat-research-source[href^="javascript:"]').count(),0);
   assert.equal(await page.locator('img[src=unsafe]').count(),0);
-  await page.locator('.hs-chat-research-source').first().scrollIntoViewIfNeeded();
-  assert.match(await page.locator('.hs-chat-research-source').first().innerText(),/Captured studio findings/);
+  await currentCitation.scrollIntoViewIfNeeded();
+  assert.match(await currentCitation.innerText(),/Captured studio findings/);
   await page.locator('#chatOptionsButton').click();
   await page.waitForFunction(() => !document.querySelector('#contextUseMemory').disabled);
   assert.equal(await page.locator('#contextUseMemory').isEnabled(), true);
@@ -317,7 +453,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     await page.setViewportSize(viewport);
     await assertOnboardingLayout(page);
   }
-  assert.equal(microphoneCalls, 0, 'Inspecting consent controls never starts capture');
+  assert.equal(microphoneCalls, idleMicrophoneCalls, 'Inspecting consent controls never starts capture');
   await page.setViewportSize({width: 1440, height: 900});
   let setupState = {setup:{complete:true},cloud:{paired:true,connected:false},pairing:{state:'paired'},provision:{phase:'ready'}};
   await page.route('**/api/v1/control/onboarding/summary*', route => route.fulfill({json: setupState}));
@@ -372,8 +508,6 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     }, {text,final});
   }
   async function listening() { await page.waitForFunction(() => document.querySelector('#voiceInputButton.listening') && window.voiceFixture.recognizers.some(item => item.active)).catch(async error=>{throw new Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({input:document.querySelector('#chatInput').value,voice:document.querySelector('#voiceInputButton').outerHTML,flash:document.querySelector('#flash').textContent,active:window.voiceFixture.recognizers.map(x=>x.active),writes:window.voiceFixture.inputWrites}))));}); }
-  await page.locator('#chatOptionsButton').click();
-  await page.locator('#chatOptionsTabVoice').click();
   await page.locator('#voiceInputButton').click();
   await listening();
   assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.open), false);
@@ -401,8 +535,6 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('#chatInput').inputValue(), 'A failed native route', 'Recovery never starts capture over a failed draft');
   await page.locator('#chatInput').evaluate(input=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));});
   assert.equal(await page.locator('#chatInput').inputValue(),'','Clearing a failed draft must finish before enabling capture');
-  await page.locator('#chatOptionsButton').click();
-  await page.locator('#chatOptionsTabVoice').click();
   await page.locator('#voiceInputButton').click();
   await listening();
   failVoiceRoute = false;

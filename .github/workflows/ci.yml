@@ -33,6 +33,9 @@ on:
       - 'tests/chat_action_result_ownership_ui.mjs'
       - 'tests/memory_context_freshness.py'
       - 'scripts/stage_browser_runtime.py'
+      - 'scripts/stage_ffmpeg_windows.ps1'
+      - 'scripts/runtime_download.ps1'
+      - 'tests/stage_ffmpeg_download_retry.ps1'
       - 'installer/HomeServer.iss'
       - 'installer/**'
       - 'scripts/installer_space_budget.py'
@@ -156,6 +159,8 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Owner chat disconnect cancellation
+        run: python tests/owner_chat_disconnect_cancellation.py
       - name: Section 15 device command and hardware lifecycle
         run: python tests/hardware_automation_section15.py
       - name: Section 16 app control and plugin lifecycle
@@ -165,6 +170,8 @@ jobs:
           python tests/homeserver_app_control_v300.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/homeserver_app_agent_runtime_v380.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/homeserver_app_scheduler_recovery.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/cognitive_runtime.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -221,6 +228,8 @@ jobs:
           python tests/trained_voice_assets.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_v050.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/ambient_desktop_readiness.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_ui_contract_v050.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -474,6 +483,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/remote_bridge_feature_isolation.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/remote_bridge_receipt_latency.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/tracky_sync_session_fence.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/onboarding_accounts_section11.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/onboarding_lifecycle_section11.mjs
@@ -485,7 +498,13 @@ jobs:
       - name: Shared Agent fabric, ping and context regression
         run: python tests/shared_agent_context_v210.py
       - name: Saved and normal pairing reconciliation permissions
-        run: python tests/shared_context_pairing_permissions.py
+        run: |
+          python tests/shared_context_pairing_permissions.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/shared_context_scope_privacy.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/shared_context_snapshot_coverage.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Owner file permission control
         run: node tests/shared_context_permissions_ui.mjs
       - name: Federated data authority v2.4 regression
@@ -993,6 +1012,9 @@ jobs:
           }
           python tests/packaged_restore.py verify
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify bounded runtime download retries
+        shell: pwsh
+        run: ./tests/stage_ffmpeg_download_retry.ps1
       - name: Stage managed FFmpeg runtime
         shell: pwsh
         run: ./scripts/stage_ffmpeg_windows.ps1

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import Any, Callable
 
 
 class InferenceCancelled(RuntimeError):
@@ -15,13 +15,17 @@ class CancellationToken:
     Cancelling closes those clients so httpx wakes promptly instead of waiting
     for the provider timeout. Callers also check the token before tools and
     persistence so a late provider result cannot continue the cancelled turn.
+    Native HTTP turns may opt into a terminal commit; longer physical/voice
+    jobs keep their default ability to cancel after chat persistence.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, commit_is_terminal: bool = False) -> None:
         self._lock = threading.RLock()
         self._event = threading.Event()
         self._reason = ""
         self._clients: set[Any] = set()
+        self._committed = False
+        self._commit_is_terminal = commit_is_terminal
 
     @property
     def cancelled(self) -> bool:
@@ -32,10 +36,27 @@ class CancellationToken:
         with self._lock:
             return self._reason or "cancelled"
 
-    def cancel(self, reason: str = "cancelled") -> None:
+    @property
+    def committed(self) -> bool:
         with self._lock:
-            if self._event.is_set():
-                return
+            return self._committed
+
+    def commit(self, commit: Callable[[], None]) -> None:
+        """Order the final durable write against cancellation of this turn.
+
+        Callers prepare their transaction first, so provider/network work and
+        SQLite write-lock waits never hold this lock. If cancellation wins,
+        raising here lets the transaction roll back before turn cleanup.
+        """
+        with self._lock:
+            self.raise_if_cancelled()
+            commit()
+            self._committed = True
+
+    def cancel(self, reason: str = "cancelled") -> bool:
+        with self._lock:
+            if self._event.is_set() or (self._committed and self._commit_is_terminal):
+                return False
             self._reason = str(reason or "cancelled")[:120]
             self._event.set()
             clients = list(self._clients)
@@ -44,6 +65,7 @@ class CancellationToken:
                 client.close()
             except Exception:
                 pass
+        return True
 
     def raise_if_cancelled(self) -> None:
         if self.cancelled:
