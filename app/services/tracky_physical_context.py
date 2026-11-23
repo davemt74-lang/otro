@@ -14,7 +14,7 @@ import httpx
 
 from ..database import db
 from . import federated_data, room_device_automation, tracky_federated_agent_context, tracky_federated_automation, tracky_federated_query, tracky_federated_world, tracky_federation_agent_health, tracky_federation_fleet_health, tracky_federation_governed_operations, tracky_federation_policy, tracky_federation_reconciliation, tracky_federation_sync, tracky_forecast_calibration, tracky_governed_actions, tracky_identity_continuity, tracky_mobile_transition, tracky_model_lifecycle, tracky_release_hardening, tracky_site_topology, tracky_sync_visibility, tracky_visual_contact_link, vp3_os
-from .https_bridge_session import load_https_session
+from .https_bridge_session import SESSION_LOCK, load_https_session
 from .remote_identity import remote_identity_metadata
 
 
@@ -1181,7 +1181,7 @@ def _cloud_payload(limit: int = 100) -> dict[str, Any]:
     }
 
 
-def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
+def sync_cloud(*, timeout: float = 12.0, force: bool = False, active: Callable[[], bool] | None = None) -> dict[str, Any]:
     if not force and not sync_due():
         status = sync_status()
         return {
@@ -1195,16 +1195,29 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
     session = load_https_session()
     if not session:
         raise TrackyPhysicalError("VP3 Cloud is not paired.", 503)
+    def current() -> bool:
+        latest = load_https_session()
+        return bool(latest and latest.get("session_token") == session.get("session_token")
+                    and latest.get("endpoint") == session.get("endpoint")
+                    and (active is None or active()))
+
+    def superseded() -> dict[str, Any]:
+        return {"ok": True, "protocol": PHYSICAL_CONTEXT_PROTOCOL, "deferred": True,
+                "reason": "session_changed_or_stopped"}
+
     identity = remote_identity_metadata()
     device_id = _bounded_text(identity.get("device_id"), 100, required=True, label="HomeServer device identity")
     package = _cloud_payload()
     endpoint = _cloud_sync_url(str(session.get("endpoint") or ""))
     now = _now_iso()
-    with db() as connection:
-        connection.execute(
-            "UPDATE tracky_cloud_sync_state SET last_attempt_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=1",
-            (now,),
-        )
+    with SESSION_LOCK:
+        if not current():
+            return superseded()
+        with db() as connection:
+            connection.execute(
+                "UPDATE tracky_cloud_sync_state SET last_attempt_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=1",
+                (now,),
+            )
     try:
         with httpx.Client(timeout=max(2.0, min(float(timeout), 20.0)), follow_redirects=False, trust_env=True) as client:
             response = client.post(
@@ -1224,12 +1237,29 @@ def sync_cloud(*, timeout: float = 12.0, force: bool = False) -> dict[str, Any]:
             detail = str((body or {}).get("error") or (body or {}).get("detail") or f"HTTP {response.status_code}")[:300]
             raise TrackyPhysicalError(f"VP3 Tracky sync failed: {detail}", 503)
     except (httpx.HTTPError, OSError) as exc:
-        _record_sync_failure(f"{type(exc).__name__}: Cloud sync unavailable")
+        with SESSION_LOCK:
+            if not current():
+                return superseded()
+            _record_sync_failure(f"{type(exc).__name__}: Cloud sync unavailable")
         raise TrackyPhysicalError("VP3 Tracky sync is temporarily unavailable.", 503) from exc
     except TrackyPhysicalError as exc:
-        _record_sync_failure(str(exc))
+        with SESSION_LOCK:
+            if not current():
+                return superseded()
+            _record_sync_failure(str(exc))
         raise
 
+    # A response belongs to the exact saved pairing that sent it. Re-pairing,
+    # revocation or stopping the background worker while HTTP is in flight must
+    # not mark events delivered or ingest mirrors into a newer session. Hold
+    # the pairing lock only for local response application, never across HTTP.
+    with SESSION_LOCK:
+        if not current():
+            return superseded()
+        return _apply_cloud_sync_response(package, body, now, device_id)
+
+
+def _apply_cloud_sync_response(package: dict, body: dict, now: str, device_id: str) -> dict[str, Any]:
     with db() as connection:
         for event_id in package["event_ids"]:
             connection.execute(

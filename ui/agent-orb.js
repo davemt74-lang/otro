@@ -70,14 +70,14 @@
     sizeLabel();
     function button(){const b=document.createElement('button');b.type='button';b.dataset.orbChat='1';b.textContent='Chat';b.setAttribute('aria-controls',panel.id);b.setAttribute('aria-expanded','false');b.addEventListener('click',toggle);return b;}
     const composer=$('chatForm');
-    if(composer){const actions=composer.querySelector('.chat-composer-actions')||composer;actions.insertBefore(button(),actions.firstChild);}
+    if(composer&&adapter.hideChatButton!==true){const actions=composer.querySelector('.chat-composer-actions')||composer;actions.insertBefore(button(),actions.firstChild);}
     if(!composer||adapter.alwaysBar){
-      bar=document.createElement('form');bar.className='vp3-orb-bar';bar.setAttribute('aria-label','Agent chatbar');bar.append(button());
+      bar=document.createElement('form');bar.className='vp3-orb-bar';bar.setAttribute('aria-label','Agent chatbar');if(adapter.hideChatButton!==true)bar.append(button());
       const input=document.createElement('input');input.type='text';input.maxLength=6000;input.placeholder='Message your agent…';input.setAttribute('aria-label','Message your agent');try{input.value=sessionStorage.getItem(draftKey)||'';}catch(_){}bar.append(input);
       const listen=document.createElement('button');listen.type='button';listen.textContent='Listen';listen.addEventListener('click',()=>{open();if(!frame||ready)command('listen');else pendingListen=true;});bar.append(listen);
       const send=document.createElement('button');send.type='submit';send.textContent='Send';bar.append(send);
       input.addEventListener('input',()=>{try{sessionStorage.setItem(draftKey,input.value);}catch(_){}});
-      bar.addEventListener('submit',event=>{event.preventDefault();if(pendingText||!input.value.trim())return;pendingText=input.value;open();if(adapter.submitDraft){if(adapter.submitDraft(pendingText)){input.value='';try{sessionStorage.removeItem(draftKey);}catch(_){}}else bubble('Your message is kept in the chatbar. Finish the existing draft in Chat first.');pendingText='';return;}if(ready)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'compose',text:pendingText},origin);});
+      bar.addEventListener('submit',async event=>{event.preventDefault();if(pendingText||!input.value.trim())return;pendingText=input.value;const submitted=pendingText;open();if(adapter.submitDraft){try{if(await adapter.submitDraft(submitted)){if(input.value===submitted){input.value='';try{sessionStorage.removeItem(draftKey);}catch(_){}}}else bubble('Your message is kept. Finish the existing draft in Chat or wait for the conversation to load.');}catch(_){bubble('Chat could not be prepared. Your message is kept in the footer. Try again.');}finally{pendingText='';}return;}if(ready)frame.contentWindow.postMessage({channel:'vp3-orb',kind:'compose',text:pendingText},origin);});
       document.body.append(bar);document.body.classList.add('vp3-orb-has-bar');
     }
     function message(event){

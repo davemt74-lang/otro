@@ -19,7 +19,8 @@
   }
 
   function adoptControls() {
-    move('voiceInputButton', 'chatVoiceControls');
+    const voice=byId('voiceInputButton'),actions=form?.querySelector('.chat-composer-actions');
+    if(voice&&actions&&voice.parentNode!==actions)actions.insertBefore(voice,byId('chatOptionsButton'));
     const options = document.querySelector('.chat-voice-options');
     if (options && options.parentNode !== byId('chatVoiceControls')) byId('chatVoiceControls').appendChild(options);
     move('voicePrivacyNote', 'chatVoiceControls');

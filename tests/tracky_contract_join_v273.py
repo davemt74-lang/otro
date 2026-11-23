@@ -280,7 +280,7 @@ with tempfile.TemporaryDirectory(prefix="tracky-v273-") as data_dir:
     assert "remote_identity_metadata()" in service_source
     assert "tracky-sync-v270.php" in service_source
     assert '"semantic_projection": semantic_projection' in service_source
-    assert "tracky_physical_context.sync_cloud(timeout=8.0)" in relay_source
+    assert "tracky_physical_context.sync_cloud(timeout=8.0, active=current)" in relay_source
     assert "provider_unavailable" in service_source
     assert "privacy_engaged" in service_source
     assert "physical_actions" in service_source

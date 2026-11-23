@@ -8,8 +8,18 @@
   const memory=import('/assets/participant-memory-sync.js?v=v1345').then(async module=>module.createParticipantMemorySync(await store()));
   memory.catch(()=>{});
   const recording=()=>window.HomeServerDictation?.isTranscribing?.()===true;
+  const sidebar=document.querySelector('.sidebar');
+  function alignFooter(){
+    const box=sidebar?.getBoundingClientRect(),edge=innerWidth>900&&box&&box.left>=-1&&box.right<innerWidth?Math.max(0,Math.ceil(box.right)):0;
+    document.documentElement.style.setProperty('--vp3-chat-sidebar-edge',edge+'px');
+  }
+  alignFooter();window.addEventListener('resize',alignFooter);
+  const sidebarObserver=typeof ResizeObserver==='function'?new ResizeObserver(alignFooter):null;
+  if(sidebar)sidebarObserver?.observe(sidebar);
+  window.addEventListener('pagehide',()=>{window.removeEventListener('resize',alignFooter);sidebarObserver?.disconnect();},{once:true});
   const state=()=>{let value=audible?'speaking':$('voiceInputButton')?.dataset.voiceState||voiceState;if(value==='speaking'&&!audible)value='thinking';if(!audible&&window.HomeServerChatTurn?.isBusy?.())value='thinking';return {state:value,recording:recording()};};
   const adapter={tvRequest:async(body,{keepalive=false}={})=>{const r=await fetch('/api/v1/control/tv-watching',{method:'POST',credentials:'same-origin',cache:'no-store',keepalive,headers:{'Content-Type':'application/json','X-HomeServer-UI':'1'},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(data.detail||'TV Watching unavailable.');return data;},ownerKey:'homeserver-local-owner',chatUrl:'/#chat',alwaysBar:true,state,voiceFeatureUrl:'/assets/tracky/src/voice-profile-core.js',
+    hideChatButton:true,
     trainedVoiceUrl:'/assets/voice-trained-client.js?v=v1346',trainedVoiceSource:'homeserver',
     installTrainedVoice:async({signal}={})=>{const r=await fetch('/api/v1/control/voice/profile-model/install',{method:'POST',credentials:'same-origin',signal,headers:{'X-Requested-With':'XMLHttpRequest'}});const data=await r.json();if(!r.ok)throw Error(data.detail||'The voice component could not install.');return data;},
     conversationRef:()=>window.HomeServerChatTurn?.isReady?.()===false?null:({id:window.HomeServerChatTurn?.conversationId?.()||''}),
@@ -30,9 +40,20 @@
     attachChat:host=>{
       const panel=$('chatForm')?.closest('.chat-panel');if(!panel)return null;
       const marker=document.createComment('VP3 chat panel location');panel.before(marker);host.append(panel);
+      void window.HomeServerChatTurn?.prepare?.().catch(()=>{});
       return ()=>{marker.replaceWith(panel);};
     },
-    submitDraft:text=>{const input=$('chatInput');if(!input||input.value.trim()||adapter.busy())return false;input.value=text;input.dispatchEvent(new Event('input',{bubbles:true}));$('chatForm')?.requestSubmit();return true;},
+    submitDraft:async text=>{
+      const input=$('chatInput');if(!input||input.value.trim()||adapter.busy())return false;
+      if(await window.HomeServerChatTurn?.prepare?.()!==true||input.value.trim()||adapter.busy())return false;
+      input.value=text;input.dispatchEvent(new Event('input',{bubbles:true}));
+      let accepted=false;
+      const started=event=>{if(event.detail?.status==='started'||event.detail?.state==='started')accepted=true;};
+      window.addEventListener('homeserver:chat-turn',started);window.addEventListener('homeserver:chat-route',started);
+      try{$('chatForm')?.requestSubmit();}finally{window.removeEventListener('homeserver:chat-turn',started);window.removeEventListener('homeserver:chat-route',started);}
+      if(!accepted&&input.value===text){input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));}
+      return accepted;
+    },
     cameraAllowed:async()=>{
       if(document.hidden||window.HomeServerSpeakerFusion?.isCameraActive?.()||window.TrackyOwnerEyes?.isActive()||window.HomeServerVisualEnrollment?.isCapturing()||window.TrackyOwnerSelfCheck?.isActive())return false;
       const data=await api('/api/v1/control/onboarding/visual/status');

@@ -179,14 +179,80 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     const original = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
     if (original) navigator.mediaDevices.getUserMedia = (...args) => {window.voiceFixture.captureIntents.push({voiceActive:document.getElementById('voiceInputButton')?.getAttribute('aria-pressed')==='true',audio:args[0]?.audio,video:args[0]?.video===true});window.countMicrophoneCall(); return original(...args);};
   });
+  // A first footer message from Overview must initialize the canonical Chat,
+  // retain its draft while restoration runs, and dispatch exactly once.
+  await page.goto(base + '/#dashboard');
+  await page.waitForFunction(() => window.VP3AgentOrb && window.HomeServerChatTurn && window.HomeServerChatOptions);
+  assert.equal(await page.evaluate(() => window.HomeServerChatTurn.isReady()), false);
+  assert.equal(await page.locator('.vp3-orb-bar [data-orb-chat]').count(), 0);
+  assert.equal(await page.locator('.vp3-orb-bar button').allTextContents().then(x=>x.join(',')), 'Listen,Send');
+  let releaseFooterRestore, footerRestoreStarted=false, footerSends=0;
+  const footerRestoreGate=new Promise(resolve=>{releaseFooterRestore=resolve;});
+  await page.route('**/api/v1/control/conversations?limit=50', async route=>{
+    footerRestoreStarted=true;await footerRestoreGate;await route.continue();
+  });
+  const countFooterSend=request=>{if(new URL(request.url()).pathname==='/api/v1/control/chat'&&request.method()==='POST')footerSends++;};
+  page.on('request',countFooterSend);
+  await page.locator('.vp3-orb-bar input').fill('First message from the HomeServer footer');
+  await page.locator('.vp3-orb-bar button[type=submit]').click();
+  await page.waitForFunction(() => document.querySelector('#vp3AgentChatPopup #chatForm'));
+  for(let attempt=0;!footerRestoreStarted;attempt++){if(attempt>100)throw Error('Footer did not initialize Chat');await delay(25);}
+  assert.equal(await page.locator('.vp3-orb-bar input').inputValue(),'First message from the HomeServer footer');
+  assert.equal(footerSends,0,'No chat is sent before conversation restoration');
+  releaseFooterRestore();
+  await page.waitForFunction(() => document.querySelector('#chatMessages')?.textContent.includes('Browser acceptance reply.'));
+  await page.waitForFunction(() => document.querySelector('.vp3-orb-bar input').value==='');
+  assert.equal(footerSends,1,'The initialized footer dispatches exactly once');
+  assert.equal(await page.locator('#chatForm #voiceInputButton').isVisible(),true);
+  assert.equal(await page.locator('.vp3-orb-bar').evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(255, 255, 255)');
+  await fs.mkdir(path.join(root,'tests/artifacts'),{recursive:true});
+  await page.screenshot({path:path.join(root,'tests/artifacts/native-chat-footer.png')});
+  await page.setViewportSize({width:390,height:844});
+  const footerBounds=await page.locator('.vp3-orb-bar').boundingBox();
+  assert.ok(footerBounds.x>=0&&footerBounds.x+footerBounds.width<=391,'Mobile footer fits the viewport');
+  await page.screenshot({path:path.join(root,'tests/artifacts/native-chat-footer-mobile.png')});
+  await page.setViewportSize({width:1440,height:900});
+  page.off('request',countFooterSend);await page.unroute('**/api/v1/control/conversations?limit=50');
+  await page.locator('#vp3AgentChatPopup header button').click();
+  // A rejected offline submission must keep only the footer draft and allow an
+  // explicit retry after connectivity returns, without an automatic replay.
+  await context.setOffline(true);
+  await page.locator('.vp3-orb-bar input').fill('An offline footer draft');
+  await page.locator('.vp3-orb-bar button[type=submit]').click();
+  await page.waitForFunction(() => document.querySelector('.vp3-orb-bubble')?.textContent.includes('Your message is kept'));
+  assert.equal(await page.locator('.vp3-orb-bar input').inputValue(),'An offline footer draft');
+  assert.equal(await page.locator('#chatInput').inputValue(),'','A rejected transfer must not leave a duplicate canonical draft');
+  await context.setOffline(false);
+  await page.locator('.vp3-orb-bar button[type=submit]').click();
+  await page.waitForFunction(() => document.querySelector('.vp3-orb-bar input').value==='');
+  await page.waitForFunction(() => !window.HomeServerChatTurn.isBusy());
+  await page.locator('#vp3AgentChatPopup header button').click();
+  console.log('PASS: initial footer Chat readiness, Cloud footer controls, responsive layout, draft retention and explicit retry');
+  // First Listen after launch must restore the saved conversation without
+  // treating its own initial restoration as a navigation that cancels capture.
+  await page.reload();
+  await page.waitForFunction(() => window.VP3AgentOrb && window.HomeServerChatTurn && window.HomeServerChatOptions);
+  assert.equal(await page.evaluate(()=>window.HomeServerChatTurn.isReady()),false);
+  const footerVoiceConversation=await page.evaluate(()=>JSON.parse(localStorage.getItem('homeserver:chat:active-v1')).id);
+  await page.locator('.vp3-orb-bar').getByRole('button',{name:'Listen',exact:true}).click();
+  await page.waitForFunction(()=>window.HomeServerConversationVoice?.isEnabled()&&window.voiceFixture.recognizers.some(item=>item.active));
+  assert.equal(await page.evaluate(()=>window.HomeServerChatTurn.conversationId()),footerVoiceConversation,'First Listen uses the restored conversation');
+  await page.locator('.vp3-orb-root [data-orb-stop]').click();
+  await page.waitForFunction(()=>!window.HomeServerConversationVoice.isEnabled());
+  await page.locator('#vp3AgentChatPopup header button').click();
+  const idleMicrophoneCalls=microphoneCalls;
+  console.log('PASS: first footer Listen restores saved history and starts the canonical conversation voice');
   await page.goto(base + '/#chat');
   await page.waitForFunction(() => window.HomeServerChatOptions && document.querySelector('#chatOptionsVoice #dictateInputButton')).catch(error => {throw new Error(error.message + '\nBrowser errors: ' + JSON.stringify(errors));});
   console.log('PASS: complete owner page loaded');
   assert.equal(await page.locator('#view-chat .section-intro').count(), 0);
   assert.equal(await page.locator('.topbar').isVisible(), false);
   assert.equal(await page.locator('#chatContextControls').isVisible(), false);
-  assert.equal(await page.locator('#chatForm button:not([data-orb-chat]):visible').count(), 2);
-  assert.equal(await page.locator('#chatForm button[data-orb-chat]:visible').count(), 1, 'The requested chatbar button is present once');
+  assert.equal(await page.locator('#chatForm button:visible').count(), 3);
+  assert.equal(await page.locator('#chatForm #voiceInputButton').isVisible(), true, 'Listen stays visible beside Send');
+  assert.equal(await page.locator('#voiceInputButton .chat-control-label').textContent(), 'Listen');
+  assert.equal(await page.locator('#chatForm .chat-send').evaluate(n=>getComputedStyle(n,'::before').content), 'none', 'Send has no legacy arrow prefix');
+  assert.equal(await page.locator('#chatForm button[data-orb-chat]').count(), 0, 'The footer has no redundant Chat button');
   await page.waitForFunction(() => document.querySelectorAll('#chatKnowledgeControls>details').length === 4 && document.querySelector('#chatToolControls .vp3-agent-teams-a3'));
   assert.equal(await page.locator('#view-chat .chat-panel>.project-knowledge-r6,#view-chat .chat-panel>.knowledge-actions-r8,#view-chat .chat-panel>.vp3-chat-task-mode,#view-chat .chat-panel>.vp3-agent-teams-a3').count(), 0);
   assert.equal(await page.locator('.project-knowledge-r6').isVisible(), false);
@@ -211,7 +277,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('#voiceSettingsForm').count(), 1);
   assert.equal(await page.locator('#chatOptionsVoice #voiceSettingsForm').isVisible(), true);
   await page.waitForFunction(() => document.querySelector('#chatAgentVoicePanel #agentVoiceChoice')?.options.length > 1);
-  assert.equal(microphoneCalls, 0, 'Opening preferences must never start microphone capture');
+  assert.equal(microphoneCalls, idleMicrophoneCalls, 'Opening preferences must never start microphone capture');
   for (let i = 0; i < 12; i++) {
     await page.keyboard.press('Tab');
     assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.contains(document.activeElement)), true, 'Dialog traps keyboard focus');
@@ -317,7 +383,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     await page.setViewportSize(viewport);
     await assertOnboardingLayout(page);
   }
-  assert.equal(microphoneCalls, 0, 'Inspecting consent controls never starts capture');
+  assert.equal(microphoneCalls, idleMicrophoneCalls, 'Inspecting consent controls never starts capture');
   await page.setViewportSize({width: 1440, height: 900});
   let setupState = {setup:{complete:true},cloud:{paired:true,connected:false},pairing:{state:'paired'},provision:{phase:'ready'}};
   await page.route('**/api/v1/control/onboarding/summary*', route => route.fulfill({json: setupState}));
@@ -372,8 +438,6 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     }, {text,final});
   }
   async function listening() { await page.waitForFunction(() => document.querySelector('#voiceInputButton.listening') && window.voiceFixture.recognizers.some(item => item.active)).catch(async error=>{throw new Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({input:document.querySelector('#chatInput').value,voice:document.querySelector('#voiceInputButton').outerHTML,flash:document.querySelector('#flash').textContent,active:window.voiceFixture.recognizers.map(x=>x.active),writes:window.voiceFixture.inputWrites}))));}); }
-  await page.locator('#chatOptionsButton').click();
-  await page.locator('#chatOptionsTabVoice').click();
   await page.locator('#voiceInputButton').click();
   await listening();
   assert.equal(await page.locator('#chatOptionsDialog').evaluate(node => node.open), false);
@@ -401,8 +465,6 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('#chatInput').inputValue(), 'A failed native route', 'Recovery never starts capture over a failed draft');
   await page.locator('#chatInput').evaluate(input=>{input.value='';input.dispatchEvent(new Event('input',{bubbles:true}));});
   assert.equal(await page.locator('#chatInput').inputValue(),'','Clearing a failed draft must finish before enabling capture');
-  await page.locator('#chatOptionsButton').click();
-  await page.locator('#chatOptionsTabVoice').click();
   await page.locator('#voiceInputButton').click();
   await listening();
   failVoiceRoute = false;

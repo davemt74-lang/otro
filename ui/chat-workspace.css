@@ -9,17 +9,17 @@ body.shell-agent-first #view-chat .chat-head { display: none; }
 body.shell-agent-first #view-chat .chat-messages { flex: 1 0 auto; min-height: 0; max-height: none; overflow: visible; padding: 24px 0; scroll-behavior: auto; }
 body.shell-agent-first #view-chat .chat-message { width: min(1120px, 100%); max-width: 1120px; content-visibility: auto; contain-intrinsic-size: auto 100px; }
 body.shell-agent-first #view-chat .chat-message.user { width: min(1120px, 100%); }
-body.shell-agent-first #view-chat .chat-compose { position: sticky; left: auto; bottom: 14px; transform: none; flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: min(1120px, 100%); margin: 8px auto 0; padding: 12px 14px 8px; border-radius: 22px; box-shadow: 0 4px 18px rgba(15,23,42,.06), 0 18px 0 6px #fff; backdrop-filter: none; }
-body.shell-agent-first #view-chat .chat-compose textarea { width: 100%; min-height: 36px; padding: 6px 2px; }
+body.shell-agent-first #view-chat .chat-compose { position: sticky; left: auto; bottom: 14px; transform: none; flex: 0 0 auto; display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; width: min(1120px, 100%); margin: 8px auto 0; padding: 10px 10px 10px 15px; border-radius: 18px; box-shadow: 0 4px 18px rgba(15,23,42,.06), 0 18px 0 6px #fff; backdrop-filter: none; }
+body.shell-agent-first #view-chat .chat-compose textarea { flex: 1; width: 0; min-width: 80px; min-height: 38px; padding: 5px 0; }
 .chat-composer-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 #chatSessionStatus[hidden]{display:none!important}
-#chatSessionStatus{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--muted);padding:6px 0}
+#chatSessionStatus{flex-basis:100%;display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--muted);padding:6px 0}
 #chatSessionStatus button{background:transparent;border:0;text-decoration:underline;color:inherit;font:inherit;cursor:pointer;padding:4px}
 #chatSessionStatusText{flex:1;min-width:160px}
 .chat-composer-icon { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border, #d8dadd); border-radius: 50%; background: transparent; color: inherit; font: inherit; font-size: 25px; line-height: 1; cursor: pointer; }
 .chat-composer-icon:hover { background: #f1f1f3; }
-body.shell-agent-first #view-chat .chat-compose .chat-send { font-size: 23px; background: #171717; color: #fff; }
-body.shell-agent-first #view-chat .chat-compose .chat-send::after { content: none; }
+body.shell-agent-first #view-chat .chat-compose .chat-send { font-size: 13px; min-width: 50px; min-height: 38px; width: auto; border-radius: 10px; padding: 8px 11px; background: #111827; color: #fff; }
+body.shell-agent-first #view-chat .chat-compose .chat-send::before,body.shell-agent-first #view-chat .chat-compose .chat-send::after { content: none; }
 .chat-capture-stop { border: 1px solid #b91c1c; border-radius: 18px; color: #b91c1c; padding: 7px 12px; background: #fff; cursor: pointer; }
 #chatCaptureStatus { font-size: 12px; color: var(--muted); margin-right: auto; }
 body.shell-agent-first #view-chat #chatOnboardingCanvas:not([hidden]) { flex: 1 0 auto; min-width: 0; min-height: 0; width: 100%; max-width: 1120px; max-height: none; overflow: visible; margin: 0 auto; }
@@ -73,3 +73,13 @@ body.shell-agent-first #view-chat #agentWorkflowPanel:not(.hidden) { flex: 0 0 a
 body.shell-agent-first #view-chat .chat-brain-drawer[aria-hidden="true"]{display:none;transform:none}
 body.shell-agent-first #view-chat .chat-brain-drawer[aria-hidden="false"]{position:fixed;top:0;bottom:0;right:0;max-width:100vw;z-index:90}
 body.shell-agent-first #view-chat .chat-brain-backdrop{position:fixed;z-index:89}
+
+/* Match Cloud: a visible Listen control and Send beside the message field. */
+.chat-composer-actions #voiceInputButton{display:inline-flex;gap:6px;width:auto;min-width:66px;min-height:38px;border:1px solid #e5e7eb;border-radius:10px;padding:8px 11px;background:#fff;color:#475467;font:13px system-ui,sans-serif}
+.chat-composer-actions #voiceInputButton .chat-control-label{display:inline;font-weight:400}
+.chat-composer-actions #voiceInputButton .chat-mic-icon{display:none}
+.chat-composer-actions #voiceInputButton[aria-pressed=true]{background:#111827;border-color:#111827;color:#fff}
+.vp3-orb-chat-host .chat-compose{display:flex;flex-flow:row wrap;align-items:center;gap:8px}
+.vp3-orb-chat-host .chat-compose textarea{flex:1;width:0;min-width:80px}
+.vp3-orb-chat-host .chat-compose .chat-send{font:13px system-ui,sans-serif;min-width:50px;width:auto;height:38px;border-radius:10px;background:#111827;color:#fff}
+.vp3-orb-chat-host .chat-compose .chat-send::before,.vp3-orb-chat-host .chat-compose .chat-send::after{content:none}

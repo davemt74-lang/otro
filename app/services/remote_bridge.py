@@ -1496,6 +1496,7 @@ class RemoteBridgeWorker:
         self._https_pending_exchange: dict | None = None
         self._feature_sync_retry_at = 0.0
         self._feature_sync_backoff = 1.0
+        self._feature_sync_thread: threading.Thread | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -1511,8 +1512,11 @@ class RemoteBridgeWorker:
     def stop(self) -> None:
         self._stop.set()
         _RELOAD_EVENT.set()
+        deadline = time.monotonic() + 8.0
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=8)
+            self._thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        if self._feature_sync_thread and self._feature_sync_thread.is_alive():
+            self._feature_sync_thread.join(timeout=max(0.0, deadline - time.monotonic()))
         _set_state(running=False, stage="stopped", connected=False)
 
     def _run_guarded(self) -> None:
@@ -1598,7 +1602,13 @@ class RemoteBridgeWorker:
                 if not isinstance(capabilities, dict):
                     capabilities = {}
 
-                if self._https_pending_exchange is None:
+                if pending_results:
+                    # A previous upload may have failed after executing a
+                    # command. Acknowledge its outcome before dispatching any
+                    # remaining accepted commands, without replaying the action.
+                    if not self._flush_https_results(client, endpoint, headers, token, capabilities):
+                        return
+                elif self._https_pending_exchange is None:
                     self._receive_https_exchange(client, endpoint, headers, token, capabilities, pending_results)
                     if self._https_pending_exchange is None:
                         return
@@ -1667,12 +1677,20 @@ class RemoteBridgeWorker:
                         metadata={"http_status": int(result.get("status") or 500), "duration_ms": duration_ms, "transport": "vp3_https"},
                     )
                     pending_results.append({"request_id": request_id, **result})
+                    # Cloud's continuity/chat wait is shorter than supplementary
+                    # feature synchronization, or another command in this batch.
+                    # Publish each completed outcome immediately and retain the
+                    # accepted remainder if this network exchange is interrupted.
+                    if not self._flush_https_results(client, endpoint, headers, token, capabilities):
+                        return
+                    data = self._https_pending_exchange
+                    requests = data.get("requests") if isinstance(data.get("requests"), list) else []
                 self._https_pending_exchange = None
 
                 # Complete accepted commands before supplementary synchronization.
                 # A feature database fault must not strand their receipts or the
                 # next heartbeat on an already accepted relay response.
-                self._sync_features()
+                self._schedule_feature_sync(token)
 
                 poll_after = data.get("poll_after_ms", 900)
                 try:
@@ -1681,26 +1699,71 @@ class RemoteBridgeWorker:
                     wait_seconds = 0.9
                 self._stop.wait(wait_seconds)
 
-    def _sync_features(self) -> None:
+    def _flush_https_results(self, client, endpoint, headers, token, capabilities) -> bool:
+        accepted = self._https_pending_exchange
+        remaining = accepted.get("requests") if isinstance(accepted, dict) else []
+        if not isinstance(remaining, list):
+            remaining = []
+        self._receive_https_exchange(client, endpoint, headers, token, capabilities, self._https_pending_results)
+        if self._stop.is_set() or _RELOAD_EVENT.is_set() or not https_session_matches(token):
+            return False
+        received = self._https_pending_exchange
+        if received is None or received is accepted:
+            return False
+        # The receipt POST may itself accept another Cloud batch. Both batches
+        # are now delivered, so preserve their order and never discard either.
+        additional = received.get("requests")
+        received["requests"] = remaining + (additional if isinstance(additional, list) else [])
+        return True
+
+    def _feature_session_current(self, token: str) -> bool:
+        return not self._stop.is_set() and not _RELOAD_EVENT.is_set() and https_session_matches(token)
+
+    def _schedule_feature_sync(self, token: str) -> None:
+        # Supplementary network synchronization must never hold up the relay's
+        # heartbeat or acceptance of the next continuity/chat command. Retain
+        # one worker rather than creating a thread per poll or retry.
+        if self._feature_sync_thread and self._feature_sync_thread.is_alive():
+            return
+        if not self._feature_session_current(token) or time.monotonic() < self._feature_sync_retry_at:
+            return
+        self._feature_sync_thread = threading.Thread(
+            target=self._sync_features,
+            args=(token,),
+            name="homeserver-bridge-feature-sync",
+            daemon=True,
+        )
+        self._feature_sync_thread.start()
+
+    def _sync_features(self, token: str) -> None:
+        current = lambda: self._feature_session_current(token)
+        if not current():
+            return
         if time.monotonic() < self._feature_sync_retry_at:
             return
         try:
             if tracky_physical_context.sync_due():
-                tracky_physical_context.sync_cloud(timeout=8.0)
+                tracky_physical_context.sync_cloud(timeout=8.0, active=current)
             elif self._feature_sync_backoff > 1.0 and tracky_physical_context.sync_status().get("last_error"):
                 # An existing feature transport backoff is not a successful sync.
                 return
         except Exception as exc:
             details = _database_error_details(exc) if isinstance(exc, sqlite3.OperationalError) else {}
             message = str(details.get("message") or "Feature synchronization is temporarily unavailable.")
-            _set_state(feature_sync_error=message)
-            _event("bridge.feature-sync", "failed", metadata={"error_type": type(exc).__name__, **details})
-            self._feature_sync_retry_at = time.monotonic() + self._feature_sync_backoff
-            self._feature_sync_backoff = min(self._feature_sync_backoff * 2.0, 30.0)
+            with SESSION_LOCK:
+                if not current():
+                    return
+                _set_state(feature_sync_error=message)
+                _event("bridge.feature-sync", "failed", metadata={"error_type": type(exc).__name__, **details})
+                self._feature_sync_retry_at = time.monotonic() + self._feature_sync_backoff
+                self._feature_sync_backoff = min(self._feature_sync_backoff * 2.0, 30.0)
         else:
-            self._feature_sync_retry_at = 0.0
-            self._feature_sync_backoff = 1.0
-            _set_state(feature_sync_error=None)
+            with SESSION_LOCK:
+                if not current():
+                    return
+                self._feature_sync_retry_at = 0.0
+                self._feature_sync_backoff = 1.0
+                _set_state(feature_sync_error=None)
 
     def _receive_https_exchange(self, client, endpoint, headers, token, capabilities, pending_results) -> None:
         response = client.post(

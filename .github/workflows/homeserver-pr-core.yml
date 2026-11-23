@@ -140,6 +140,8 @@ jobs:
           python tests/connection_lifecycle.py
           python tests/remote_bridge_sqlite_recovery.py
           python tests/remote_bridge_feature_isolation.py
+          python tests/remote_bridge_receipt_latency.py
+          python tests/tracky_sync_session_fence.py
           python tests/homeserver_members_v400.py
           python tests/chat_onboarding_v2.py
           node --check ui/chat-onboarding.js

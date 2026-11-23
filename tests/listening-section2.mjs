@@ -128,11 +128,49 @@ if(cloud){
   const first=recognizers[0];first.onresult(result('中'));first.onresult(result('中'));await timer.advance(1800);assert.equal(heard[0],'中');await timer.advance(200);recognizers.at(-1).onresult(result('中'));await timer.advance(1800);assert.deepEqual(heard,['中','中']);owner.destroy();
  });
 }else{
- function voice(b){load('chat-enhancements.js',b,'window.Test={autoSubmitSpeech,speakAgentReply,stopConversationMode,startBrowserListening,recognition:()=>recognition,seed:(path="browser")=>{conversationMode=true;voicePath={stt:"browser",tts:path};},context:value=>{playbackContext=value;},state:()=>({awaitingAgent,waitingRequestId,speaking,conversationMode,outputGeneration})};');return b.window.Test;}
+ function voice(b){load('chat-enhancements.js',b,'window.Test={toggleConversationMode,autoSubmitSpeech,speakAgentReply,stopConversationMode,startBrowserListening,recognition:()=>recognition,seed:(path="browser")=>{conversationMode=true;voicePath={stt:"browser",tts:path};},context:value=>{playbackContext=value;},state:()=>({awaitingAgent,waitingRequestId,speaking,conversationMode,outputGeneration})};');return b.window.Test;}
  function brain(b){load('brain.js',b,'window.BrainTest={submitChatTurn,leaveConversation,state:()=>({pendingChatTurn,activeConversationId})};');return b.window.BrainTest;}
  const submitEvent=b=>({preventDefault(){},target:b.element('chatForm')});
+ await test('popup preparation shares one restoration and does not wait for optional settings panels',async()=>{
+  const b=browser(),history=deferred(),panels=deferred();clock(b);let historyReads=0;
+  b.window.fetch=url=>{if(url.startsWith('/api/v1/control/conversations?')){historyReads++;return history.promise;}return panels.promise;};
+  brain(b);assert.equal(b.window.HomeServerChatTurn.isReady(),false);
+  const first=b.window.HomeServerChatTurn.prepare(),second=b.window.HomeServerChatTurn.prepare();await flush();
+  assert.equal(historyReads,1,'Popup opening and Send share their conversation restore');assert.equal(b.window.HomeServerChatTurn.isReady(),false);
+  history.resolve(response({items:[]}));assert.equal(await first,true);assert.equal(await second,true);
+  assert.equal(b.window.HomeServerChatTurn.isReady(),true,'Provider/settings requests cannot block ordinary chat readiness');
+  assert.equal(await b.window.HomeServerChatTurn.prepare(),true);assert.equal(historyReads,1,'A ready conversation is not restored again');
+  panels.resolve(response({}));await flush();
+ });
+ await test('failed popup preparation keeps the composer and permits an explicit retry',async()=>{
+  const b=browser();clock(b);let reads=0;
+  b.window.fetch=async url=>url.startsWith('/api/v1/control/conversations?')?(++reads===1?{ok:false,status:503,json:async()=>({detail:'Temporary history outage'})}:response({items:[]})):response({});
+  brain(b);b.element('chatInput').value='Retained draft';
+  await assert.rejects(b.window.HomeServerChatTurn.prepare(),/Temporary history outage/);
+  assert.equal(b.window.HomeServerChatTurn.isReady(),false);assert.equal(b.element('chatInput').value,'Retained draft');
+  assert.equal(await b.window.HomeServerChatTurn.prepare(),true);assert.equal(reads,2);assert.equal(b.window.HomeServerChatTurn.isBusy(),false);
+ });
  const emitTurn=(b,requestId,status,reply='')=>b.emit('homeserver:chat-turn',{detail:{requestId,status,reply}});
  function standaloneTurn(b,api,id){b.element('chatForm').requestSubmit=()=>{b.element('chatInput').value='';emitTurn(b,id,'started');};api.autoSubmitSpeech('new speech');}
+ await test('first Listen restores a saved conversation without cancelling itself; Stop still cancels pending preparation',async()=>{
+  for(const cancel of [false,true]){
+   const b=browser(),timer=clock(b),history=deferred(),id='a'.repeat(32);let starts=0;
+   b.window.localStorage=b.context.localStorage;b.storage.set('homeserver:chat:active-v1',JSON.stringify({id,agentId:1,at:Date.now()}));
+   b.window.SpeechRecognition=class{start(){starts++;this.onstart?.();}stop(){}abort(){}};
+   b.window.fetch=async url=>{
+    if(url.startsWith('/api/v1/control/conversations?'))return history.promise;
+    if(url==='/api/v1/control/conversations/'+id)return response({conversation:{id,title:'Saved conversation'},messages:[]});
+    return response({});
+   };
+   brain(b);const api=voice(b),pending=api.toggleConversationMode();await flush();
+   if(cancel)api.stopConversationMode('');
+   history.resolve(response({items:[{id,title:'Saved conversation'}]}));await pending;await timer.advance(250);
+   assert.equal(b.window.HomeServerChatTurn.conversationId(),id);
+   assert.equal(api.state().conversationMode,!cancel,'Only an explicit Stop cancels the initial Listen');
+   assert.equal(starts,cancel?0:1,'A cancelled prepare must not open recognition later');
+   api.stopConversationMode('');
+  }
+ });
  await test('identical replies on distinct turns speak; duplicate completion is ignored',async()=>{
   const b=browser(),timer=clock(b),spoken=[];b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);api.seed();
   standaloneTurn(b,api,1);emitTurn(b,1,'completed','same reply');emitTurn(b,1,'completed','same reply');assert.equal(spoken.length,1);spoken[0].onend();
@@ -193,7 +231,7 @@ if(cloud){
   assert.equal(api.state().conversationMode,false);assert.equal(api.recognition(),null);
  });
  await test('canonical Chat attaches the selected note only to typed turns or a current matching voice',async()=>{
-  const selected={participant_id:'7',display_name:'David',source:'manual_selection',conversation_note:'Prefers brief replies',authentication_authority:false};
+  const selected={participant_id:'7',display_name:'Fixture Owner',source:'manual_selection',conversation_note:'Synthetic fixture note beta',authentication_authority:false};
   for(const [wasVoice,matched,expected] of [[false,null,selected],[true,{...selected,source:'local_voice_similarity',confidence:.95},{...selected,source:'local_voice_similarity',confidence:.95}],[true,null,null]]){const b=browser();clock(b);let payload;b.window.VP3ParticipantContinuity={selectedContext:()=>selected};b.window.VP3VoiceGuard={takeContext:()=>matched,wasVoiceTurn:()=>wasVoice};b.window.fetch=async(url,init)=>{if(url==='/api/v1/control/chat'){payload=JSON.parse(init.body);return response({reply:'Answer',conversation_id:'c1'});}throw Error('history offline');};const owner=brain(b);b.element('chatInput').value='hello';await owner.submitChatTurn(submitEvent(b));assert.deepEqual(payload.speaker_context,expected);assert.equal(payload.message,'hello');}
  });
  await test('canonical owner emits actual reply despite failed history refresh',async()=>{

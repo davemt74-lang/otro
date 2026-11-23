@@ -474,6 +474,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/remote_bridge_feature_isolation.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/remote_bridge_receipt_latency.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/tracky_sync_session_fence.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/onboarding_accounts_section11.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node tests/onboarding_lifecycle_section11.mjs

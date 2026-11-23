@@ -72,3 +72,11 @@ jobs:
           node tests/chat_workspace_browser.mjs
           node tests/project_knowledge_context_ui.mjs
           node tests/browser_captures_r4_ui.mjs
+      - name: Upload native chat footer screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HomeServer-Chat-Footer-Screenshots
+          path: tests/artifacts/native-chat-footer*.png
+          if-no-files-found: ignore
+          retention-days: 7
