@@ -1,6 +1,7 @@
 """Actual owner HTTP disconnect cancels inference, late replies and proposals."""
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -106,7 +107,7 @@ def verify_disconnect(runtime, phase):
                     assert success.json()["reply"] == "Synthetic owner reply"
                     assert success.json()["context"]["settings"]["cloud_allowed"] is False
                     assert success.json()["read_only"] is True
-                    with sqlite3.connect(data / "homeserver.db") as db:
+                    with closing(sqlite3.connect(data / "homeserver.db")) as db:
                         prior_messages = db.execute("SELECT id,role,content FROM conversation_messages ORDER BY id").fetchall()
 
                     body = json.dumps({"message": "cancel-ui-fixture", "conversation_id": conversation_id}).encode()
@@ -127,10 +128,10 @@ def verify_disconnect(runtime, phase):
                     (data / "release-provider").write_text("release")
 
                     def completed_run():
-                        with sqlite3.connect(data / "homeserver.db") as db:
+                        with closing(sqlite3.connect(data / "homeserver.db")) as db:
                             return db.execute("SELECT status FROM agent_runs ORDER BY id DESC LIMIT 1").fetchone() == ("failed",)
                     wait_until(completed_run)
-                    with sqlite3.connect(data / "homeserver.db") as db:
+                    with closing(sqlite3.connect(data / "homeserver.db")) as db:
                         messages = db.execute("SELECT id,role,content FROM conversation_messages ORDER BY id").fetchall()
                         run = db.execute("SELECT status,error,metadata_json FROM agent_runs ORDER BY id DESC LIMIT 1").fetchone()
                         proposal = db.execute("SELECT status,error FROM action_requests ORDER BY created_at DESC LIMIT 1").fetchone()
@@ -157,6 +158,8 @@ def verify_disconnect(runtime, phase):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
+                finally:
+                    process.stdout.close()
 
 
 # Hold a real final SQLite INSERT after the last cooperative token check.
