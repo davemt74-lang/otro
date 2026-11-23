@@ -166,6 +166,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/homeserver_app_agent_runtime_v380.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/homeserver_app_scheduler_recovery.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/cognitive_runtime.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Section 14 current permissions and deferred approval authority
@@ -221,6 +223,8 @@ jobs:
           python tests/trained_voice_assets.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_v050.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/ambient_desktop_readiness.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/ambient_agent_ui_contract_v050.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -450,6 +454,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/haiku55_provider.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Owner chat disconnect cancellation
+        run: python tests/owner_chat_disconnect_cancellation.py
       - name: Windows data bootstrap regression
         run: python tests/bootstrap.py
       - name: Single-instance primitive regression
@@ -489,7 +495,13 @@ jobs:
       - name: Shared Agent fabric, ping and context regression
         run: python tests/shared_agent_context_v210.py
       - name: Saved and normal pairing reconciliation permissions
-        run: python tests/shared_context_pairing_permissions.py
+        run: |
+          python tests/shared_context_pairing_permissions.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/shared_context_scope_privacy.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/shared_context_snapshot_coverage.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Owner file permission control
         run: node tests/shared_context_permissions_ui.mjs
       - name: Federated data authority v2.4 regression

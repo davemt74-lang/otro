@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..database import db
-from . import contacts, federated_data, file_continuity, knowledge, memory_continuity, task_calendar_continuity as continuity, tasks
+from . import app_scopes, contacts, federated_data, file_continuity, knowledge, knowledge_collection_policy, local_files, memory_continuity, task_calendar_continuity as continuity, tasks
 
 SHARED_AGENT_CONTEXT_VERSION = "2.2"
 MAX_SNAPSHOT_BYTES = 196_608
@@ -93,6 +93,24 @@ def _sanitize_snapshot(snapshot: dict[str, Any], source: str) -> dict[str, Any]:
         raise SharedAgentContextError("Shared Agent snapshot covered_datasets must be a list.")
     if not covered:
         raise SharedAgentContextError("Shared Agent snapshot coverage is empty.")
+    if mode == "full" and any(not isinstance(datasets.get(name), list) for name in covered):
+        # Filling a missing dataset with [] would turn a malformed remote
+        # response into authoritative evidence that its records were deleted.
+        raise SharedAgentContextError("Full Shared Agent snapshot is missing a covered dataset.")
+    if mode == "full" and any(not isinstance(row, dict) for name in covered for row in datasets[name]):
+        raise SharedAgentContextError("Full Shared Agent snapshot contains an invalid covered record.")
+    unavailable = {str(name): _text(reason, 120) for name, reason in (snapshot.get("unavailable_datasets") or {}).items()
+                   if name in _DATASETS} if isinstance(snapshot.get("unavailable_datasets"), dict) else {}
+    for name in covered:
+        if len(datasets.get(name) or []) > MAX_RECORDS_PER_DATASET:
+            unavailable.setdefault(name, "snapshot_limited:record_limit")
+    incomplete = set(covered) & set(unavailable)
+    if mode == "full" and incomplete:
+        complete = [name for name in covered if name not in incomplete]
+        if complete:
+            covered = complete
+        else:
+            mode = "filtered"
     return {
         "version": SHARED_AGENT_CONTEXT_VERSION,
         "revision": revision,
@@ -101,6 +119,7 @@ def _sanitize_snapshot(snapshot: dict[str, Any], source: str) -> dict[str, Any]:
         "federation_version": federated_data.FEDERATED_DATA_VERSION,
         "snapshot_mode": mode,
         "covered_datasets": covered,
+        "unavailable_datasets": unavailable,
         "datasets": clean,
     }
 
@@ -191,12 +210,12 @@ def cloud_candidates(dataset: str, query: str, limit: int = 8) -> list[dict[str,
     return [item[2] for item in scored[: max(1, min(int(limit), 20))]]
 
 
-def _local_memory(query: str, limit: int = 40) -> list[dict[str, Any]]:
+def _local_memory(query: str, limit: int = 40, *, identity: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     rows = memory_continuity.list_federated_memories(
         query,
         limit,
-        source_app_key="owner",
-        owner=True,
+        source_app_key=f"app:{identity['app_key']}" if identity is not None else "owner",
+        owner=identity is None,
     )
     return [
         _sanitize_record(
@@ -247,9 +266,28 @@ def _fit_datasets(datasets: dict[str, list[dict[str, Any]]], max_bytes: int = 17
             return datasets
 
 
-def local_snapshot(query: str = "", *, include_files: bool = True) -> dict[str, Any]:
+def local_snapshot(query: str = "", *, include_files: bool = True, identity: dict[str, Any] | None = None) -> dict[str, Any]:
     text = _text(query, 240)
-    memory_rows = _local_memory(text)
+    if identity is not None and (int(identity.get("id") or 0) < 1 or not identity.get("app_key")):
+        raise SharedAgentContextError("Shared Agent paired-app identity is unavailable.")
+    memory_rows = _local_memory(text, identity=identity)
+    knowledge_items = knowledge.list_knowledge(text, limit=40)[:40]
+    unavailable = {} if include_files else {"files": "permission_required:files.read"}
+    if identity is not None:
+        scope = app_scopes.normalize(identity.get("scope"))
+        knowledge_items = knowledge_collection_policy.filter_items_for_app(
+            int(identity["id"]), knowledge_items, scope=scope
+        )
+        if scope["memory_key_prefixes"]:
+            unavailable["memory"] = "scope_limited:memory_key_prefixes"
+        if scope["knowledge_kinds"]:
+            unavailable["knowledge"] = "scope_limited:knowledge_kinds"
+            if include_files:
+                unavailable["files"] = "scope_limited:knowledge_kinds"
+        if knowledge_collection_policy.allowed_collection_keys(int(identity["id"])) is not None:
+            unavailable["knowledge"] = "scope_limited:knowledge_collections"
+            if include_files:
+                unavailable["files"] = "scope_limited:knowledge_collections"
     knowledge_rows = [
         _sanitize_record(
             "homeserver",
@@ -262,7 +300,7 @@ def local_snapshot(query: str = "", *, include_files: bool = True) -> dict[str, 
             },
             index,
         )
-        for index, row in enumerate(knowledge.list_knowledge(text, limit=40)[:40])
+        for index, row in enumerate(knowledge_items)
         if isinstance(row, dict)
     ]
     contact_rows = [
@@ -374,7 +412,7 @@ def local_snapshot(query: str = "", *, include_files: bool = True) -> dict[str, 
             index,
         )
         for index, row in enumerate(
-            file_continuity.list_federated_files(None, text, limit=40, owner=True)[:40] if include_files else []
+            file_continuity.list_federated_files(identity, text, limit=40, owner=identity is None)[:40] if include_files else []
         )
         if isinstance(row, dict)
     ]
@@ -401,7 +439,7 @@ def local_snapshot(query: str = "", *, include_files: bool = True) -> dict[str, 
         for index, row in enumerate(tasks.list_notifications(unread_only=False, include_dismissed=False, limit=50)[:50])
         if isinstance(row, dict)
     ]
-    datasets = _fit_datasets({
+    datasets = {
         "memory": memory_rows,
         "knowledge": knowledge_rows,
         "contacts": contact_rows,
@@ -409,7 +447,33 @@ def local_snapshot(query: str = "", *, include_files: bool = True) -> dict[str, 
         "calendar": calendar_rows,
         "files": file_rows,
         "notifications": notification_rows,
-    })
+    }
+    if not text:
+        # Context exports are deliberately bounded. A bounded page must never
+        # authorize deletion of records that simply fell outside that page.
+        with db() as connection:
+            counts = {
+                "memory": connection.execute("SELECT COUNT(*) FROM agent_memory").fetchone()[0],
+                "knowledge": connection.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()[0],
+                "contacts": connection.execute("SELECT COUNT(*) FROM contacts").fetchone()[0],
+                "tasks": connection.execute("SELECT COUNT(*) FROM tasks").fetchone()[0],
+                "calendar": connection.execute("SELECT COUNT(*) FROM local_calendar_events WHERE status='active'").fetchone()[0],
+                "notifications": connection.execute("SELECT COUNT(*) FROM notifications WHERE dismissed_at IS NULL").fetchone()[0],
+            }
+        if include_files:
+            counts["files"] = local_files.count_files(identity, owner=identity is None)
+        for name, count in counts.items():
+            if name not in unavailable and count > len(datasets[name]):
+                unavailable[name] = "snapshot_limited:record_limit"
+    lengths = {name: len(rows) for name, rows in datasets.items()}
+    datasets = _fit_datasets(datasets)
+    for name, rows in datasets.items():
+        if len(rows) < lengths[name] and name not in unavailable:
+            unavailable[name] = "snapshot_limited:byte_limit"
+    covered = [name for name in _DATASETS if name not in unavailable]
+    mode = "filtered" if text or not covered else "full"
+    if not covered:
+        covered = [name for name in _DATASETS if include_files or name != "files"]
     canonical = json.dumps(datasets, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     snapshot = {
         "version": SHARED_AGENT_CONTEXT_VERSION,
@@ -417,20 +481,20 @@ def local_snapshot(query: str = "", *, include_files: bool = True) -> dict[str, 
         "generated_at": _iso_now(),
         "authoritative_source": "homeserver",
         "federation_version": federated_data.FEDERATED_DATA_VERSION,
-        "snapshot_mode": "full" if not text else "filtered",
+        "snapshot_mode": mode,
         # An unavailable dataset is outside coverage, not an empty native store.
         # Cloud must retain its previous file mirrors rather than tombstone them.
-        "covered_datasets": [name for name in _DATASETS if include_files or name != "files"],
-        "unavailable_datasets": {} if include_files else {"files": "permission_required:files.read"},
+        "covered_datasets": covered,
+        "unavailable_datasets": unavailable,
         "datasets": datasets,
     }
     federated_data.observe_snapshot(snapshot, observed_source="homeserver")
     return snapshot
 
 
-def exchange(cloud: dict[str, Any], query: str = "", *, include_files: bool = True) -> dict[str, Any]:
+def exchange(cloud: dict[str, Any], query: str = "", *, include_files: bool = True, identity: dict[str, Any] | None = None) -> dict[str, Any]:
     applied = apply_cloud_snapshot(cloud)
-    home = local_snapshot(query, include_files=include_files)
+    home = local_snapshot(query, include_files=include_files, identity=identity)
     return {
         "ok": True,
         "version": SHARED_AGENT_CONTEXT_VERSION,

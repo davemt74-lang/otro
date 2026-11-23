@@ -81,6 +81,20 @@ def status() -> dict[str, Any]:
         }
 
 
+def output_status() -> dict[str, Any]:
+    """Inspect the selected desktop output without opening audio or capture."""
+    try:
+        output = _sounddevice().query_devices(config().output_device, kind="output")
+        available = int(output.get("max_output_channels", 0)) > 0
+    except Exception:
+        available = False
+    return {
+        "available": available,
+        "backend": "sounddevice-portaudio",
+        "message": "" if available else "No usable native speaker output is available. Check the system sound output and HomeServer audio-device setting.",
+    }
+
+
 class DeviceAudio:
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -291,6 +305,7 @@ class DeviceAudio:
         self.stop_playback()
         sd = _sounddevice()
         cfg = config()
+        stream = None
         try:
             stream = sd.RawOutputStream(
                 samplerate=sample_rate,
@@ -309,12 +324,12 @@ class DeviceAudio:
             raise DeviceAudioError("VP3 OS could not play audio through the speaker device.") from exc
         finally:
             with self._lock:
-                current = self._playback_stream
-                self._playback_stream = None
-                self._playing = False
-            if current is not None:
+                if self._playback_stream is stream:
+                    self._playback_stream = None
+                    self._playing = False
+            if stream is not None:
                 try:
-                    current.close()
+                    stream.close()
                 except Exception:
                     pass
 

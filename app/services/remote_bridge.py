@@ -1189,13 +1189,18 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
                 # their authorized context live without granting file access.
                 optional_permissions={"files.read"},
             )
+            if str(identity.get("app_key") or "") != "vp3":
+                # This bidirectional operation writes the canonical VP3 Cloud
+                # mirror. Generic read grants cannot authorize impersonating
+                # that trusted peer, even when every dataset read is granted.
+                raise RemoteBridgeError("Shared Cloud context exchange requires the paired VP3 identity.")
             cloud_snapshot = body.get("cloud_snapshot")
             if not isinstance(cloud_snapshot, dict):
                 raise RemoteBridgeError("shared.context.exchange requires cloud_snapshot.")
             query = str(body.get("query") or "")[:240]
             try:
                 payload_out = shared_agent_context.exchange(
-                    cloud_snapshot, query, include_files="files.read" in identity["permissions"]
+                    cloud_snapshot, query, include_files="files.read" in identity["permissions"], identity=identity
                 )
             except shared_agent_context.SharedAgentContextError as exc:
                 raise RemoteBridgeError(str(exc)) from exc

@@ -41,6 +41,30 @@ async function assertCanvasLayout(page, regionId) {
     `Canvas has no horizontal overflow: ${JSON.stringify(layout)}`);
 }
 
+async function assertPopupMessages(page) {
+  const result=await page.evaluate(()=>{
+    const popup=document.getElementById('vp3AgentChatPopup'),messages=document.getElementById('chatMessages'),composer=document.getElementById('chatForm');
+    const color=value=>value.match(/[\d.]+/g)?.map(Number)||[];
+    const luminance=rgb=>rgb.slice(0,3).map(x=>{const s=x/255;return s<=.04045?s/12.92:Math.pow((s+.055)/1.055,2.4);}).reduce((total,x,i)=>total+x*[.2126,.7152,.0722][i],0);
+    const rows=[...messages.querySelectorAll('.chat-message')].map(row=>{
+      const copy=row.querySelector('.hs-chat-copy'),body=row.querySelector('.hs-chat-message-body'),avatar=row.querySelector('.hs-chat-avatar');
+      const fg=color(getComputedStyle(copy).color);let bg=[255,255,255];
+      for(let n=copy;n;n=n.parentElement){const c=color(getComputedStyle(n).backgroundColor);if(c.length===3||c[3]>=.99){bg=c;break;}}
+      const a=luminance(fg),b=luminance(bg),bounds=row.getBoundingClientRect();
+      return {contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),height:bounds.height,contentHeight:Math.max(body.getBoundingClientRect().height,avatar.getBoundingClientRect().height),width:bounds.width,text:copy.textContent.trim()};
+    });
+    return {rows,overflow:getComputedStyle(messages).overflowY,messagesBottom:messages.getBoundingClientRect().bottom,composerTop:composer.getBoundingClientRect().top,composerBottom:composer.getBoundingClientRect().bottom,popupBottom:popup.getBoundingClientRect().bottom,messagesWidth:messages.clientWidth,messagesScrollWidth:messages.scrollWidth};
+  });
+  assert.ok(result.rows.length>=2,'Popup renders both owner and Agent messages');
+  for(const row of result.rows){
+    assert.ok(row.text&&row.contrast>=4.5,`Popup messages remain readable: ${JSON.stringify(row)}`);
+    assert.ok(row.height<=row.contentHeight+30,`Messages use their content height without legacy blank cards: ${JSON.stringify(row)}`);
+  }
+  assert.equal(result.overflow,'auto','The popup owns a single scrolling message region');
+  assert.ok(result.messagesBottom<=result.composerTop+1&&result.composerBottom<=result.popupBottom+1,'The composer remains visible below the message scroll');
+  assert.ok(result.messagesScrollWidth<=result.messagesWidth+1,'Popup messages have no horizontal overflow');
+}
+
 async function assertOnboardingLayout(page) {
   await assertCanvasLayout(page, 'chatOnboardingCanvas');
   assert.equal(await page.locator('#chatOnboardingCanvas .onboard-visual-consent:visible').count(), 0, 'Basic setup asks no camera/biometric questions');
@@ -109,7 +133,7 @@ from app.runtime import app
 from app.security import OWNER_CONTROL_TOKEN
 from app.services import providers
 import uvicorn, json
-def fixture_generate(messages, model_override=None):
+def fixture_generate(messages, model_override=None, cancellation_token=None):
     routing = messages[0]['content'].startswith('You are the lead agent routing')
     content = json.dumps({'route':'chat','reason':'The fixture can answer directly','plan':None}) if routing else 'Browser acceptance reply.'
     return {'provider':'ollama', 'model':model_override or 'test-model', 'content':content}
@@ -206,10 +230,14 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.locator('#chatForm #voiceInputButton').isVisible(),true);
   assert.equal(await page.locator('.vp3-orb-bar').evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(255, 255, 255)');
   await fs.mkdir(path.join(root,'tests/artifacts'),{recursive:true});
+  assert.equal(await page.locator('#vp3AgentChatPopup header button').evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true,'The floating Agent must not cover desktop Close');
+  await assertPopupMessages(page);
   await page.screenshot({path:path.join(root,'tests/artifacts/native-chat-footer.png')});
   await page.setViewportSize({width:390,height:844});
   const footerBounds=await page.locator('.vp3-orb-bar').boundingBox();
   assert.ok(footerBounds.x>=0&&footerBounds.x+footerBounds.width<=391,'Mobile footer fits the viewport');
+  assert.equal(await page.locator('#vp3AgentChatPopup header button').evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),true,'The floating Agent must not cover mobile Close');
+  await assertPopupMessages(page);
   await page.screenshot({path:path.join(root,'tests/artifacts/native-chat-footer-mobile.png')});
   await page.setViewportSize({width:1440,height:900});
   page.off('request',countFooterSend);await page.unroute('**/api/v1/control/conversations?limit=50');

@@ -49,6 +49,8 @@ jobs:
       - name: Saved and normal pairing reconciliation permissions
         run: |
           python tests/shared_context_pairing_permissions.py
+          python tests/shared_context_scope_privacy.py
+          python tests/shared_context_snapshot_coverage.py
           node tests/shared_context_permissions_ui.mjs
       - name: Section 15 device command and hardware lifecycle
         run: python tests/hardware_automation_section15.py
@@ -57,6 +59,7 @@ jobs:
           python tests/apps_plugins_section16.py
           python tests/homeserver_app_control_v300.py
           python tests/homeserver_app_agent_runtime_v380.py
+          python tests/homeserver_app_scheduler_recovery.py
           python tests/cognitive_runtime.py
       - name: Section 14 current permissions and deferred approval authority
         run: |
@@ -87,6 +90,7 @@ jobs:
           python tests/workspace_actions.py
           python tests/workspace_sync_v1.py
           python tests/ambient_agent_v050.py
+          python tests/ambient_desktop_readiness.py
           python tests/ambient_agent_ui_contract_v050.py
           python tests/agent_brain_drawer_v451.py
           node tests/agent_brain_drawer_behavior_v452.cjs
@@ -144,6 +148,7 @@ jobs:
           python tests/tracky_sync_session_fence.py
           python tests/homeserver_members_v400.py
           python tests/chat_onboarding_v2.py
+          python tests/owner_chat_disconnect_cancellation.py
           node --check ui/chat-onboarding.js
           node --check ui/welcome.js
       - name: Integrated owner-only Tracky visual enrollment contracts

@@ -3,6 +3,7 @@ from __future__ import annotations
 from .homeserver_app_locks import serialized
 
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -32,6 +33,7 @@ _ALLOWED_METHODS={"GET","HEAD","POST"}
 _STOP=threading.Event()
 _THREAD:threading.Thread|None=None
 _LOCK=threading.RLock()
+_LOG=logging.getLogger(__name__)
 
 
 class AppRuntimeError(RuntimeError):
@@ -473,7 +475,14 @@ def run_due_jobs()->int:
 
 def _loop()->None:
     while not _STOP.wait(JOB_LOOP_SECONDS):
-        run_due_jobs()
+        try:
+            run_due_jobs()
+        except Exception as exc:
+            # The central database lookup precedes the per-app guards. A
+            # temporary SQLite failure must not permanently stop every app's
+            # scheduled work. Keep the regular interruptible polling interval
+            # and never log job contents or raw database/provider messages.
+            _LOG.warning("App job scheduler tick failed (%s); retrying automatically.",type(exc).__name__)
 
 
 def start()->None:
@@ -488,11 +497,17 @@ def start()->None:
 
 def stop()->None:
     global _THREAD
-    _STOP.set()
-    thread=_THREAD
-    if thread and thread.is_alive():
+    with _LOCK:
+        _STOP.set()
+        thread=_THREAD
+    if thread and thread is not threading.current_thread() and thread.is_alive():
         thread.join(timeout=2)
-    _THREAD=None
+    with _LOCK:
+        # A long-running job may outlive the bounded shutdown wait. Retain its
+        # handle so start() cannot clear its stop signal and create a duplicate
+        # worker. A subsequent start is allowed after that worker has exited.
+        if _THREAD is thread and (thread is None or not thread.is_alive()):
+            _THREAD=None
 
 
 def _resolve_target(app_key:str,request_path:str)->Path:
