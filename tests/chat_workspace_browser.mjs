@@ -41,6 +41,21 @@ async function assertCanvasLayout(page, regionId) {
     `Canvas has no horizontal overflow: ${JSON.stringify(layout)}`);
 }
 
+async function completeCanonicalSend(page,message,send) {
+  await page.evaluate(()=>{
+    window.canonicalAcceptanceTurns=[];
+    if(!window.canonicalAcceptanceListener){
+      window.canonicalAcceptanceListener=event=>{const turn=event.detail||{};window.canonicalAcceptanceTurns.push({requestId:turn.requestId,status:turn.status,conversationId:turn.conversationId,runId:turn.runId,reply:turn.reply});window.canonicalAcceptanceTurns.splice(0,Math.max(0,window.canonicalAcceptanceTurns.length-20));};
+      window.addEventListener('homeserver:chat-turn',window.canonicalAcceptanceListener);
+    }
+  });
+  const completed=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/v1/control/chat'&&response.request().method()==='POST'&&response.request().postDataJSON()?.message===message);
+  await send();const response=await completed;assert.equal(response.ok(),true,'The exact message reaches canonical Chat');
+  const data=await response.json();
+  await page.waitForFunction(({conversationId,runId,reply})=>window.canonicalAcceptanceTurns.some(turn=>Number.isInteger(turn.requestId)&&turn.status==='completed'&&turn.conversationId===conversationId&&turn.reply===reply&&(!runId||turn.runId===runId))&&!window.HomeServerChatTurn.isBusy(),{conversationId:data.conversation_id,runId:data.run_id,reply:data.reply});
+  return data;
+}
+
 async function assertPopupMessages(page) {
   const result=await page.evaluate(()=>{
     const popup=document.getElementById('vp3AgentChatPopup'),messages=document.getElementById('chatMessages'),composer=document.getElementById('chatForm');
@@ -343,16 +358,23 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   await page.locator('#chatOptionsClose').click();
 
   assert.equal(await page.locator('#vp3ChatTaskMode').inputValue(), 'automatic');
-  await page.locator('#chatInput').fill('Browser acceptance message');
-  await page.locator('#chatForm [type="submit"]').click();
-  await page.waitForFunction(() => document.querySelector('#chatMessages')?.textContent.includes('Browser acceptance reply.'));
-  await page.waitForFunction(() => !document.querySelector('#chatForm [type="submit"]').disabled);
+  const acceptedMessage=await completeCanonicalSend(page,'Browser acceptance message',async()=>{
+    await page.locator('#chatInput').fill('Browser acceptance message');
+    await page.locator('#chatForm [type="submit"]').click();
+  });
   assert.equal(await page.locator('#chatForm [type="submit"]').isEnabled(), true);
-  await page.locator('.hs-chat-research-source').first().waitFor();
+  // Wait for this turn's committed history row, rather than an older identical
+  // fixture reply/source that may be replaced by the background refresh.
+  const currentHistory=await context.request.get(base+'/api/v1/control/conversations/'+acceptedMessage.conversation_id);
+  assert.equal(currentHistory.ok(),true);const historyPayload=await currentHistory.json();
+  const currentAssistant=[...historyPayload.messages].reverse().find(message=>message.role==='assistant');
+  assert.ok(Number(currentAssistant?.id)>0);
+  const currentCitation=page.locator('#chatMessages [data-chat-message-id="'+Number(currentAssistant.id)+'"] .hs-chat-research-source').first();
+  await currentCitation.waitFor();
   assert.equal(await page.locator('a.hs-chat-research-source[href^="javascript:"]').count(),0);
   assert.equal(await page.locator('img[src=unsafe]').count(),0);
-  await page.locator('.hs-chat-research-source').first().scrollIntoViewIfNeeded();
-  assert.match(await page.locator('.hs-chat-research-source').first().innerText(),/Captured studio findings/);
+  await currentCitation.scrollIntoViewIfNeeded();
+  assert.match(await currentCitation.innerText(),/Captured studio findings/);
   await page.locator('#chatOptionsButton').click();
   await page.waitForFunction(() => !document.querySelector('#contextUseMemory').disabled);
   assert.equal(await page.locator('#contextUseMemory').isEnabled(), true);
