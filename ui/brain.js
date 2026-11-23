@@ -80,8 +80,11 @@
     if(!contextReady||restoreLoads)await loadChatView();
     return contextReady&&restoreLoads===0;
   },usePreparedConversation:id=>{
-    if(pendingChatTurn||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return false;
-    const previous=scopeKey();activeConversationId=id;
+    if(pendingChatTurn||restoreLoads||typeof id!=='string'||!/^[0-9a-f]{32}$/.test(id))return false;
+    // The authenticated routing endpoint has prepared this conversation. Adopt
+    // its context before the canonical submit guard sees the routed turn, and
+    // fence any older background history response without stopping voice.
+    const previous=scopeKey();conversationRevision++;activeConversationId=id;contextReady=true;
     const old=drafts()[previous];if(old&&previous!==id){saveDraft(old.text,id,old.state);saveDraft('',previous);}
     rememberConversation();setChatTitle();void loadConversations(false).catch(()=>{});return true;
   }});

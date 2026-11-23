@@ -13,6 +13,7 @@ chat engine or pairing path.
 | Completed continuity responses waited behind supplementary network sync and polling. | Upload each result promptly; preserve accepted batches and retry receipts without replaying actions. Run supplementary sync in one worker. | `remote_bridge_receipt_latency.py`, `remote_bridge_sqlite_recovery.py` |
 | Superseded background responses could alter a replacement pairing's sync state. | Fence response application and failure reporting to the current session; never hold the pairing lock across HTTP. | `tracky_sync_session_fence.py`, `vp3_https_session_race.py` |
 | Overview's floating footer submitted before the canonical conversation was initialized. | Share preparation, acknowledge actual turn acceptance, and retain rejected drafts for explicit retry. Optional settings do not hold readiness. | `chat_workspace_browser.mjs`, `listening-section2.mjs` |
+| Prepared conversation binding could leave the canonical submission guard unready. | Establish readiness for a prepared conversation, invalidate stale history, and refuse rebinding during restoration or an active turn. | `listening-section2.mjs`, `agent_mission_chat_routes_a5c7_browser.mjs` |
 | First Listen could cancel its own saved-conversation restoration. | Preserve only initial voice setup during restoration; manual switching, navigation and Stop still cancel. | `listening-section2.mjs`, `chat_workspace_browser.mjs` |
 | Windows footer hid Listen, added a separate Chat button, and differed from Cloud. | Match the white Cloud footer, show Listen and Send, preserve options and the floating orb. | Desktop/mobile browser screenshots and geometry assertions |
 | The floating orb covered popup Close, and moving the canonical panel lost its modern message styling. | Reserve visible space for the orb and share the existing message styles with the popup. | Normal pointer-hit, text contrast, content geometry, scrolling and composer assertions on desktop/mobile |
@@ -23,6 +24,7 @@ chat engine or pairing path.
 | Shared continuity exported records outside an application's narrower scopes or accepted a non-VP3 Cloud mirror. | Preserve paired identity and canonical scope checks; authorize the VP3 mirror source before applying it. | `shared_context_scope_privacy.py` |
 | Bounded snapshots claimed complete coverage and could tombstone omitted live records. | Exclude incomplete datasets from authoritative cleanup coverage, preserve explicit limited/unavailable reasons, and retain normal complete-snapshot deletion semantics. | `shared_context_snapshot_coverage.py` and companion Cloud snapshot/reconciliation checks |
 | Python Playwright installation failed after the moving Linux runner changed. | Pin the affected browser workflows to the supported Ubuntu 24.04 runner. | Hosted browser acceptance |
+| Transient media-supplier download failures interrupted installer certification. | Retry transient failures with bounded backoff, clear partial downloads, and retain checksum verification. | `stage_ffmpeg_download_retry.ps1` |
 
 ## Release verification
 

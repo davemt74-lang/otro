@@ -89,7 +89,14 @@ async function assertOnboardingLayout(page) {
   await page.locator('#onboardOptional').evaluate(node=>{node.open=false;});
 }
 try {
-  browser = await chromium.launch({headless: true, ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH} : {})});
+  // Explicitly supply synthetic microphone hardware and grant this isolated
+  // fixture access. Native voice startup must not wait on a headless permission
+  // prompt or depend on an actual CI host audio device.
+  const fakeAudio=path.join(dataDir,'synthetic-microphone.wav'),rate=16000,samples=rate*2,wav=Buffer.alloc(44+samples*2);
+  wav.write('RIFF',0);wav.writeUInt32LE(36+samples*2,4);wav.write('WAVEfmt ',8);wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);wav.writeUInt32LE(rate,24);wav.writeUInt32LE(rate*2,28);wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);wav.write('data',36);wav.writeUInt32LE(samples*2,40);
+  for(let i=0;i<samples;i++)wav.writeInt16LE(Math.round(5000*Math.sin(2*Math.PI*220*i/rate)+2500*Math.sin(2*Math.PI*440*i/rate)),44+i*2);
+  await fs.writeFile(fakeAudio,wav);
+  browser = await chromium.launch({headless: true,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--use-file-for-fake-audio-capture='+fakeAudio], ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? {executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH} : {})});
 
   // Cap the pre-fix runaway observer so this regression fails clearly rather
   // than hanging the entire test runner. Normal production code has no cap.
@@ -163,7 +170,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
     });
     child.once('exit', code => {clearTimeout(timer); reject(new Error(`HomeServer exited ${code}: ${stderr}`));});
   });
-  const context = await browser.newContext({viewport: {width: 1440, height: 900}});
+  const context = await browser.newContext({viewport: {width: 1440, height: 900},permissions:['microphone']});
   if (process.env.AGENT_VOICE_PROFILE_SOURCE) {
     const source = await fs.readFile(process.env.AGENT_VOICE_PROFILE_SOURCE, 'utf8');
     await context.route('**/assets/agent-voice-profile.js*', route => route.fulfill({contentType: 'text/javascript', body: source}));
@@ -183,7 +190,9 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   let microphoneCalls = 0;
   await page.exposeFunction('countMicrophoneCall', () => {microphoneCalls++;});
   await page.addInitScript(() => {
-    window.voiceFixture = {recognizers: [], spoken: [], inputWrites: [], captureIntents: []};
+    window.voiceFixture = {recognizers: [], spoken: [], inputWrites: [], captureIntents: [], streams: [], states: [], notices: []};
+    window.addEventListener('homeserver:voice-state',event=>{window.voiceFixture.states.push(String(event.detail?.state));window.voiceFixture.states.splice(0,Math.max(0,window.voiceFixture.states.length-20));});
+    document.addEventListener('DOMContentLoaded',()=>{const flash=document.getElementById('flash');if(flash)new MutationObserver(()=>{const text=flash.textContent.trim();if(text&&window.voiceFixture.notices.at(-1)!==text){window.voiceFixture.notices.push(text);window.voiceFixture.notices.splice(0,Math.max(0,window.voiceFixture.notices.length-10));}}).observe(flash,{childList:true,subtree:true,characterData:true});},{once:true});
     const value=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');
     Object.defineProperty(HTMLTextAreaElement.prototype,'value',{...value,set(text){
       if(this.id==='chatInput'){window.voiceFixture.inputWrites.push({text,stack:new Error().stack});window.voiceFixture.inputWrites.splice(0,Math.max(0,window.voiceFixture.inputWrites.length-12));}
@@ -201,7 +210,7 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
       speak(utterance) { window.voiceFixture.spoken.push(utterance.text); queueMicrotask(() => {utterance.onstart?.(); utterance.onend?.();}); },
     }});
     const original = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
-    if (original) navigator.mediaDevices.getUserMedia = (...args) => {window.voiceFixture.captureIntents.push({voiceActive:document.getElementById('voiceInputButton')?.getAttribute('aria-pressed')==='true',audio:args[0]?.audio,video:args[0]?.video===true});window.countMicrophoneCall(); return original(...args);};
+    if (original) navigator.mediaDevices.getUserMedia = (...args) => {window.voiceFixture.captureIntents.push({voiceActive:document.getElementById('voiceInputButton')?.getAttribute('aria-pressed')==='true',audio:args[0]?.audio,video:args[0]?.video===true});window.countMicrophoneCall(); return original(...args).then(stream=>{window.voiceFixture.streams.push(stream);return stream;});};
   });
   // A first footer message from Overview must initialize the canonical Chat,
   // retain its draft while restoration runs, and dispatch exactly once.
@@ -263,10 +272,14 @@ uvicorn.run(app, host='127.0.0.1', port=${port}, log_level='error')
   assert.equal(await page.evaluate(()=>window.HomeServerChatTurn.isReady()),false);
   const footerVoiceConversation=await page.evaluate(()=>JSON.parse(localStorage.getItem('homeserver:chat:active-v1')).id);
   await page.locator('.vp3-orb-bar').getByRole('button',{name:'Listen',exact:true}).click();
-  await page.waitForFunction(()=>window.HomeServerConversationVoice?.isEnabled()&&window.voiceFixture.recognizers.some(item=>item.active));
+  await page.waitForFunction(()=>window.HomeServerConversationVoice?.isEnabled()&&window.voiceFixture.recognizers.some(item=>item.active)).catch(async error=>{
+    throw Error(error.message+' '+JSON.stringify(await page.evaluate(()=>({ready:window.HomeServerChatTurn?.isReady(),conversation:window.HomeServerChatTurn?.conversationId(),input:document.getElementById('chatInput')?.value,voice:document.getElementById('voiceInputButton')?.outerHTML,enabled:window.HomeServerConversationVoice?.isEnabled(),strict:document.getElementById('strictLocalVoice')?.checked,settings:window.HomeServerVoiceSettings?.getPreferences(),states:window.voiceFixture.states,notices:window.voiceFixture.notices,recognizers:window.voiceFixture.recognizers.map(x=>({active:x.active})),lease:window.STONEFELLOW_VOICE_LEASE_V122?{owner:window.STONEFELLOW_VOICE_LEASE_V122.owner,claims:window.STONEFELLOW_VOICE_LEASE_V122.claims,denials:window.STONEFELLOW_VOICE_LEASE_V122.denials,preemptions:window.STONEFELLOW_VOICE_LEASE_V122.preemptions}:null,captureIntents:window.voiceFixture.captureIntents})))+' browserErrors='+JSON.stringify(errors));
+  });
   assert.equal(await page.evaluate(()=>window.HomeServerChatTurn.conversationId()),footerVoiceConversation,'First Listen uses the restored conversation');
   await page.locator('.vp3-orb-root [data-orb-stop]').click();
   await page.waitForFunction(()=>!window.HomeServerConversationVoice.isEnabled());
+  await page.waitForFunction(()=>window.voiceFixture.streams.every(stream=>stream.getTracks().every(track=>track.readyState==='ended')));
+  assert.ok(microphoneCalls>0,'The explicit first Listen acquires the synthetic microphone');
   await page.locator('#vp3AgentChatPopup header button').click();
   const idleMicrophoneCalls=microphoneCalls;
   console.log('PASS: first footer Listen restores saved history and starts the canonical conversation voice');

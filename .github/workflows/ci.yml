@@ -33,6 +33,9 @@ on:
       - 'tests/chat_action_result_ownership_ui.mjs'
       - 'tests/memory_context_freshness.py'
       - 'scripts/stage_browser_runtime.py'
+      - 'scripts/stage_ffmpeg_windows.ps1'
+      - 'scripts/runtime_download.ps1'
+      - 'tests/stage_ffmpeg_download_retry.ps1'
       - 'installer/HomeServer.iss'
       - 'installer/**'
       - 'scripts/installer_space_budget.py'
@@ -1009,6 +1012,9 @@ jobs:
           }
           python tests/packaged_restore.py verify
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify bounded runtime download retries
+        shell: pwsh
+        run: ./tests/stage_ffmpeg_download_retry.ps1
       - name: Stage managed FFmpeg runtime
         shell: pwsh
         run: ./scripts/stage_ffmpeg_windows.ps1

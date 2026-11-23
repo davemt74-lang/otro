@@ -171,6 +171,45 @@ if(cloud){
    api.stopConversationMode('');
   }
  });
+ await test('initial Listen restores history with the real settings loader and capture lease',async()=>{
+  const b=browser(),timer=clock(b),id='b'.repeat(32);let starts=0,settingsReads=0;
+  b.window.localStorage=b.context.localStorage;b.storage.set('homeserver:chat:active-v1',JSON.stringify({id,agentId:1,at:Date.now()}));
+  b.window.SpeechRecognition=class{start(){starts++;this.onstart?.();}stop(){this.onend?.({});}abort(){this.stop();}};
+  b.context.navigator.mediaDevices.getUserMedia=async()=>{throw new Error('Fixture has no microphone device');};
+  b.window.fetch=async url=>{
+   if(url.startsWith('/api/v1/control/conversations?'))return response({items:[{id,title:'Saved fixture conversation'}]});
+   if(url==='/api/v1/control/conversations/'+id)return response({conversation:{id,title:'Saved fixture conversation'},messages:[]});
+   if(url==='/api/v1/control/voice/settings'){settingsReads++;return response({preferences:{strict_local_default:false}});}
+   return response({});
+  };
+  brain(b);load('voice-settings.js',b);load('voice-lease-v122.js',b);const api=voice(b);
+  b.window.VP3VoiceGuard={isEnabled:()=>true,isKnownOnly:()=>false,detach(){}};
+  await api.toggleConversationMode();await timer.advance(250);await flush();
+  assert.equal(settingsReads,1);assert.equal(b.window.HomeServerChatTurn.conversationId(),id);assert.equal(api.state().conversationMode,true);assert.equal(starts,1);assert.equal(b.window.StonefellowVoiceLeaseV122.proof.denials,0);
+  api.stopConversationMode('');
+ });
+ await test('an authenticated prepared conversation enables one canonical send without interrupting voice',async()=>{
+  const b=browser();clock(b);const id='c'.repeat(32),listeners=[],payloads=[];let stops=0;
+  b.document.addEventListener=(name,fn,capture)=>{if(name==='submit'&&capture)listeners.push(fn);};
+  b.window.HomeServerConversationVoice={stop:()=>stops++};
+  b.window.fetch=async(url,init)=>{if(url==='/api/v1/control/chat'){payloads.push(JSON.parse(init.body));return response({conversation_id:id,reply:'Prepared fixture reply'});}return response({items:[]});};
+  const owner=brain(b);b.element('chatInput').value='Prepared fixture message';
+  assert.equal(b.window.HomeServerChatTurn.isReady(),false);assert.equal(b.window.HomeServerChatTurn.usePreparedConversation(id),true);assert.equal(b.window.HomeServerChatTurn.isReady(),true);
+  let blocked=false;const event={target:b.element('chatForm'),preventDefault(){},stopImmediatePropagation(){blocked=true;}};
+  for(const listener of listeners)listener(event);assert.equal(blocked,false,'The real submit guard accepts the prepared context');
+  await owner.submitChatTurn(event);assert.equal(payloads.length,1);assert.equal(payloads[0].conversation_id,id);assert.equal(stops,0);
+  assert.deepEqual(b.events.filter(e=>e.type==='homeserver:chat-turn').map(e=>e.detail.status),['started','completed']);
+ });
+ await test('prepared binding cannot replace in-flight restoration or an active turn',async()=>{
+  const b=browser(),history=deferred(),reply=deferred(),id='d'.repeat(32),other='e'.repeat(32);clock(b);
+  b.window.fetch=url=>url.startsWith('/api/v1/control/conversations?')?history.promise:url==='/api/v1/control/chat'?reply.promise:Promise.resolve(response({items:[]}));
+  const owner=brain(b),preparation=b.window.HomeServerChatTurn.prepare();await flush();
+  assert.equal(b.window.HomeServerChatTurn.usePreparedConversation(id),false);assert.equal(b.window.HomeServerChatTurn.conversationId(),null);
+  history.resolve(response({items:[]}));await preparation;assert.equal(b.window.HomeServerChatTurn.usePreparedConversation(id),true);
+  b.element('chatInput').value='In-flight fixture';const pending=owner.submitChatTurn(submitEvent(b));
+  assert.equal(b.window.HomeServerChatTurn.usePreparedConversation(other),false);assert.equal(b.window.HomeServerChatTurn.conversationId(),id);
+  reply.resolve(response({conversation_id:id,reply:'Fixture complete'}));await pending;
+ });
  await test('identical replies on distinct turns speak; duplicate completion is ignored',async()=>{
   const b=browser(),timer=clock(b),spoken=[];b.window.speechSynthesis.speak=u=>spoken.push(u);const api=voice(b);api.seed();
   standaloneTurn(b,api,1);emitTurn(b,1,'completed','same reply');emitTurn(b,1,'completed','same reply');assert.equal(spoken.length,1);spoken[0].onend();

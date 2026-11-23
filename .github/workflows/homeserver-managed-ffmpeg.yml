@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'scripts/stage_ffmpeg_windows.ps1'
+      - 'scripts/runtime_download.ps1'
+      - 'tests/stage_ffmpeg_download_retry.ps1'
       - 'installer/**'
       - 'scripts/installer_space_budget.py'
       - 'tests/installer_space_budget.py'
@@ -15,6 +17,8 @@ on:
     branches: [main]
     paths:
       - 'scripts/stage_ffmpeg_windows.ps1'
+      - 'scripts/runtime_download.ps1'
+      - 'tests/stage_ffmpeg_download_retry.ps1'
       - 'installer/**'
       - 'scripts/installer_space_budget.py'
       - 'tests/installer_space_budget.py'
@@ -38,6 +42,9 @@ jobs:
           python-version: '3.12'
       - name: Verify installer source contract
         run: python tests/installer_contract.py
+      - name: Verify bounded runtime download retries
+        shell: pwsh
+        run: ./tests/stage_ffmpeg_download_retry.ps1
       - name: Stage managed FFmpeg runtime
         shell: pwsh
         run: ./scripts/stage_ffmpeg_windows.ps1

@@ -9,7 +9,7 @@ permissions:
   contents: read
 concurrency:
   group: chat-workspace-browser-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   browser:
     runs-on: ubuntu-24.04
@@ -46,6 +46,7 @@ jobs:
           python tests/voice_speaker_context.py
       - name: Complete owner chat browser acceptance
         run: |
+          node tests/chat_workspace_browser.mjs
           python tests/social_feed_v1.py
           python tests/vrss_v1.py
           python tests/vrss_v1_hosting.py
@@ -69,7 +70,6 @@ jobs:
           node tests/vrss_v2g_browser.mjs
           node tests/social_feed_v1_browser.mjs
           node tests/chat_action_result_ownership_ui.mjs
-          node tests/chat_workspace_browser.mjs
           node tests/project_knowledge_context_ui.mjs
           node tests/browser_captures_r4_ui.mjs
       - name: Upload native chat footer screenshots

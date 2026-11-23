@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'runtime_download.ps1')
 $tmp = Join-Path $env:RUNNER_TEMP "vp3-ffmpeg"
 $zip = Join-Path $tmp "ffmpeg.zip"
 $checksumFile = Join-Path $tmp "ffmpeg.zip.sha256"
@@ -14,8 +15,8 @@ Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $Destination -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $tmp,$extract,$Destination | Out-Null
 
-Invoke-WebRequest -Uri $Url -OutFile $zip -UseBasicParsing
-Invoke-WebRequest -Uri ($Url + ".sha256") -OutFile $checksumFile -UseBasicParsing
+Invoke-RuntimeDownload -Uri $Url -OutFile $zip
+Invoke-RuntimeDownload -Uri ($Url + ".sha256") -OutFile $checksumFile
 
 $checksumText = (Get-Content $checksumFile -Raw).Trim()
 $checksumMatch = [regex]::Match($checksumText, "[0-9A-Fa-f]{64}")

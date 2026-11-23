@@ -39,6 +39,9 @@ async function boot(realBrain=false){
  await page.addScriptTag({content:source});
  if(realBrain){
   const brain=await fs.readFile(new URL('../ui/brain.js',import.meta.url),'utf8');await page.addScriptTag({content:brain});
+  // The minimal page has no navigation boot. Restore its authorized empty
+  // history through the production API before submitting through the router.
+  assert.equal(await page.evaluate(()=>window.HomeServerChatTurn.prepare()),true);
  }else await page.evaluate(()=>{window.ordinary=0;document.querySelector('#chatForm').addEventListener('submit',e=>{e.preventDefault();window.ordinary++;});});
 }
 function commandCalls(){return calls.filter(c=>['task.route','task.prepare','tools.configure','tools.start','actions.review','task.followup.decide','start','resume','retry'].includes(c.action)).length;}
