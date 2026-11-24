@@ -27,6 +27,46 @@ class RegistrationTransportError(WorkerRegistrationError):
     """Registration response is unavailable or not authoritative."""
 
 
+def cloud_registration_host(origin: str) -> str:
+    """Exact configured HTTPS DNS origin (no port, path, userinfo or redirects)."""
+    if (not isinstance(origin, str) or not origin.startswith("https://")
+            or not _DNS.fullmatch(origin[8:])):
+        raise RegistrationTransportError("Configure an exact HTTPS Cloud DNS origin")
+    return origin[8:]
+
+
+def single_response_header(headers: list[tuple[str, str]], key: str, *, required: bool = False) -> str | None:
+    values = [value for name, value in headers if name.lower() == key.lower()]
+    if len(values) > 1 or (required and not values):
+        raise RegistrationTransportError("Invalid registration response headers")
+    return values[0] if values else None
+
+
+def read_bounded_json_response(response, headers: list[tuple[str, str]]) -> bytes:
+    """Read an uncompressed, strictly bounded JSON body without trusting remote lengths."""
+    content_type = single_response_header(headers, "Content-Type", required=True)
+    content_length = single_response_header(headers, "Content-Length")
+    transfer = single_response_header(headers, "Transfer-Encoding")
+    encoding = single_response_header(headers, "Content-Encoding")
+    if (content_type not in ("application/json", "application/json; charset=utf-8")
+            or encoding not in (None, "identity")
+            or transfer not in (None, "chunked")
+            or (content_length is not None and transfer is not None)):
+        raise RegistrationTransportError("Invalid registration response format")
+    expected = None
+    if content_length is not None:
+        if not re.fullmatch(r"[0-9]{1,4}", content_length):
+            raise RegistrationTransportError("Invalid registration response length")
+        expected = int(content_length)
+        if not 2 <= expected <= MAX_FRAME_BYTES:
+            raise RegistrationTransportError("Registration response exceeds size limit")
+    raw = response.read(MAX_FRAME_BYTES + 1)
+    if (type(raw) is not bytes or not 2 <= len(raw) <= MAX_FRAME_BYTES
+            or (expected is not None and len(raw) != expected)):
+        raise RegistrationTransportError("Registration response length is invalid")
+    return raw
+
+
 class OperatorRegistrationHTTPS:
     """Send a signed registration frame to one configured HTTPS origin.
 
@@ -41,22 +81,13 @@ class OperatorRegistrationHTTPS:
         clock: Callable[[], int] | None = None,
         connection_factory: Callable | None = None,
     ):
-        if (not isinstance(origin, str) or not origin.startswith("https://")
-                or not _DNS.fullmatch(origin[8:])):
-            raise RegistrationTransportError("Configure an exact HTTPS Cloud DNS origin")
+        host = cloud_registration_host(origin)
         if not isinstance(client, OperatorWorkerClient):
             raise RegistrationTransportError("Authenticated worker client is required")
-        self._host = origin[8:]
+        self._host = host
         self._client = client
         self._clock = clock if clock is not None else lambda: int(time.time())
         self._factory = connection_factory or http.client.HTTPSConnection
-
-    @staticmethod
-    def _single(headers: list[tuple[str, str]], key: str, *, required: bool = False) -> str | None:
-        values = [value for name, value in headers if name.lower() == key.lower()]
-        if len(values) > 1 or (required and not values):
-            raise RegistrationTransportError("Invalid registration response headers")
-        return values[0] if values else None
 
     def _exchange(self, frame: SignedFrame) -> dict:
         if (not isinstance(frame, SignedFrame) or type(frame.body) is not bytes
@@ -81,28 +112,10 @@ class OperatorRegistrationHTTPS:
                 # Never follow redirects or retry a status/error automatically.
                 raise RegistrationTransportError("Cloud did not acknowledge registration")
             headers = response.getheaders()
-            signature = self._single(headers, SIGNATURE_HEADER, required=True)
-            content_type = self._single(headers, "Content-Type", required=True)
-            content_length = self._single(headers, "Content-Length")
-            transfer = self._single(headers, "Transfer-Encoding")
-            encoding = self._single(headers, "Content-Encoding")
-            if (signature is None or not _MAC.fullmatch(signature)
-                    or content_type not in ("application/json", "application/json; charset=utf-8")
-                    or encoding not in (None, "identity")
-                    or transfer not in (None, "chunked")
-                    or (content_length is not None and transfer is not None)):
-                raise RegistrationTransportError("Invalid registration response format")
-            expected = None
-            if content_length is not None:
-                if not re.fullmatch(r"[0-9]{1,4}", content_length):
-                    raise RegistrationTransportError("Invalid registration response length")
-                expected = int(content_length)
-                if not 2 <= expected <= MAX_FRAME_BYTES:
-                    raise RegistrationTransportError("Registration response exceeds size limit")
-            raw = response.read(MAX_FRAME_BYTES + 1)
-            if (type(raw) is not bytes or not 2 <= len(raw) <= MAX_FRAME_BYTES
-                    or (expected is not None and len(raw) != expected)):
-                raise RegistrationTransportError("Registration response length is invalid")
+            signature = single_response_header(headers, SIGNATURE_HEADER, required=True)
+            if signature is None or not _MAC.fullmatch(signature):
+                raise RegistrationTransportError("Invalid registration response signature")
+            raw = read_bounded_json_response(response, headers)
             return self._client.accept(SignedFrame(raw, signature), self._clock())
         except RegistrationTransportError:
             raise
