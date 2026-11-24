@@ -350,3 +350,23 @@ Completed/failed events and inactive conversation history are pruned after
 storage and access controls before accepting real users. Never treat caller ID
 or a caller's claimed name as authentication. No auto-call, bulk-messaging,
 recording or private-data retrieval is enabled by this section.
+
+
+## Operator Phase 8A.1 — local session lifecycle simulation
+
+This optional infrastructure is separate from the existing inbound SIP worker,
+standalone gateway, and live provider configuration. It does **not** connect
+to LiveKit, Twilio, VP3 Cloud, a model, or any real contact. It never starts
+automatically and does not require credentials.
+
+Run the synthetic lifecycle exercise in a Python environment from the repo root:
+
+```sh
+python -m telephony.operator_simulation --simulate
+python -m unittest discover -s tests -p 'test_telephony_operator_simulation.py' -v
+```
+
+See [Operator 8A.1 session contract](operator-session-8a1.md) for the persistent
+session, worker lease, dispatch, cancellation and reconciliation design, and
+for the mandatory live transport acceptance gates. All reports explicitly
+identify the transport as simulated; a successful test is not live certification.

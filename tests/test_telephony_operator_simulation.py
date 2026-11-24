@@ -253,6 +253,32 @@ class OperatorSimulationTests(unittest.TestCase):
             transport.start(lease, NOW + 3)
         self.assertEqual(self.store.confirm_start(lease, receipt, NOW + 4).state, "ringing")
 
+    def test_concurrent_dispatch_reservations_are_one_use(self):
+        lease = self.claim()
+        barrier = threading.Barrier(2)
+
+        def reserve(_):
+            store = OperatorSimulationStore(self.path)
+            barrier.wait(timeout=10)
+            try:
+                store.reserve_dispatch(lease, NOW + 2)
+                return True
+            except OperatorSessionError:
+                return False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(sum(pool.map(reserve, range(2))), 1)
+        self.assertEqual(self.row(lease.session_id)["dispatch_count"], 1)
+        self.assertIsNone(self.leg(lease.session_id))
+
+    def test_fake_effect_fences_earlier_clock(self):
+        lease = self.claim()
+        self.store.reserve_dispatch(lease, NOW + 2)
+        receipt = SimulatedTransport(self.store).start(lease, NOW + 10)
+        with self.assertRaises(OperatorSessionError):
+            self.store.confirm_start(lease, receipt, NOW + 9)
+        self.assertEqual(self.store.confirm_start(lease, receipt, NOW + 11).state, "ringing")
+
     def test_outcomes_are_not_fabricated(self):
         lease = self.claim()
         self.store.reserve_dispatch(lease, NOW + 2)

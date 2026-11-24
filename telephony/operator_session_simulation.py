@@ -69,7 +69,7 @@ class SessionBinding:
             raise OperatorSessionError("Invalid simulated session principal")
         if not _opaque(self.workspace_id) or not _opaque(self.occurrence_id):
             raise OperatorSessionError("Invalid simulated workspace or occurrence")
-        if self.source not in {"manual", "scheduled", "proactive"}:
+        if not isinstance(self.source, str) or self.source not in {"manual", "scheduled", "proactive"}:
             raise OperatorSessionError("Unsupported simulated call source")
 
     def values(self) -> tuple:
@@ -170,6 +170,9 @@ class OperatorSimulationStore:
             reason TEXT NOT NULL DEFAULT '', UNIQUE(owner_id, occurrence_id)
         )""")
         db.execute("CREATE INDEX operator_sim_owner_state ON operator_sim_sessions(owner_id,state)")
+        db.execute("""CREATE UNIQUE INDEX operator_sim_exclusive_owner
+            ON operator_sim_sessions(owner_id)
+            WHERE state IN ('leased','dispatch_reserved','ringing','active','needs_review')""")
         db.execute("""CREATE TABLE operator_sim_events(
             session_id TEXT NOT NULL REFERENCES operator_sim_sessions(id),
             sequence INTEGER NOT NULL, state TEXT NOT NULL, at INTEGER NOT NULL,
@@ -328,13 +331,18 @@ class OperatorSimulationStore:
                 raise OperatorSessionError("A simulated transport leg already exists")
             db.execute("INSERT INTO operator_sim_legs VALUES(?,?,'ringing',?,NULL)",
                        (lease.session_id, receipt, now))
+            # Fence out timestamps earlier than the fake effect, even if the
+            # worker crashes before confirming the resulting receipt.
+            db.execute("UPDATE operator_sim_sessions SET updated_at=? WHERE id=?",
+                       (now, lease.session_id))
             return receipt
 
     def confirm_start(self, lease: WorkerLease, receipt: str, now: int) -> SessionSnapshot:
         with self._transaction() as db:
             row = self._lease_row(db, lease, now, ("dispatch_reserved",))
             leg = db.execute("SELECT * FROM operator_sim_legs WHERE session_id=?", (lease.session_id,)).fetchone()
-            if leg is None or receipt != "sim-" + lease.session_id or leg["receipt"] != receipt or leg["state"] != "ringing":
+            if (leg is None or receipt != "sim-" + lease.session_id or leg["receipt"] != receipt
+                    or leg["state"] != "ringing" or leg["started_at"] > now):
                 raise OperatorSessionError("Simulated transport receipt not verified")
             return self._snapshot(self._transition(db, row, "ringing", now, "start_confirmed"))
 
