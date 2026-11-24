@@ -453,11 +453,24 @@ class TwilioMediaTests(unittest.TestCase):
 
     def test_malformed_dtmf_and_unknown_events_fail_closed(self):
         for msg in (frame("dtmf", 2, dtmf={"track": "inbound", "digit": "yes"}),
+                    frame("dtmf", 2, dtmf={"track": ["inbound"], "digit": "1"}),
                     frame("say", 2, text="test")):
             s = self.activate(FixtureMediaRegistry())
             with self.assertRaises(TwilioContractError):
                 self.send(s, msg)
             self.assertTrue(s.check_health(NOW)["close_required"])
+
+    def test_non_networked_native_twilio_exercise(self):
+        from telephony.operator_twilio_simulation import exercise
+        with patch("urllib.request.urlopen", side_effect=AssertionError("unexpected provider")), \
+                patch("socket.create_connection", side_effect=AssertionError("unexpected network")):
+            report = exercise()
+        self.assertFalse(report["execution_enabled"])
+        self.assertFalse(report["live_certified"])
+        self.assertEqual(report["playback"], "cleared_or_unconfirmed")
+        self.assertEqual(report["carrier"]["carrier_status"], "completed")
+        self.assertFalse(report["carrier"]["conversation_verified"])
+        self.assertTrue(report["media"]["close_required"])
 
 
 if __name__ == "__main__":

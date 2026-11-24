@@ -233,7 +233,7 @@ class FixtureMediaSession:
                     result = MediaEvent(event, audio=mulaw_to_pcm16le(data), timestamp_ms=stamp)
                 elif event == "dtmf":
                     dtmf = msg.get("dtmf")
-                    if (not isinstance(dtmf, dict) or dtmf.get("track") not in {"inbound", "inbound_track"}
+                    if (not isinstance(dtmf, dict) or dtmf.get("track") not in ("inbound", "inbound_track")
                             or not isinstance(dtmf.get("digit"), str) or dtmf["digit"] not in _DIGITS):
                         raise TwilioContractError("Invalid inbound keypad event")
                     # Keypad data is not authenticated consent or an instruction.
@@ -308,7 +308,7 @@ class FixtureMediaSession:
         The local result cannot prove the carrier call has ended. Owner takeover
         currently means stopping Agent media; joining a conference is later.
         """
-        if reason not in {"owner_stop", "owner_takeover", "consent_revoked",
+        if not isinstance(reason, str) or reason not in {"owner_stop", "owner_takeover", "consent_revoked",
                           "worker_lost", "transport_uncertain", "deadline", "stream_closed"}:
             raise TwilioContractError("Unknown revocation reason")
         with self._lock:

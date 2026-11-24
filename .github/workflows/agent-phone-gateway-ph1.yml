@@ -43,3 +43,5 @@ jobs:
         run: python -B -m telephony.operator_simulation --simulate
       - name: Run non-networked Operator worker registration exercise
         run: python -B -m telephony.operator_worker_simulation --simulate
+      - name: Run synthetic native Twilio transport exercise
+        run: python -B -m telephony.operator_twilio_simulation --simulate
