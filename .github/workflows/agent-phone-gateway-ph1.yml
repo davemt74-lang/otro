@@ -41,3 +41,5 @@ jobs:
         run: python -B -m unittest discover -s tests -p 'test_telephony_*.py' -v
       - name: Run explicitly non-billable Operator session exercise
         run: python -B -m telephony.operator_simulation --simulate
+      - name: Run non-networked Operator worker registration exercise
+        run: python -B -m telephony.operator_worker_simulation --simulate
