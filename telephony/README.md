@@ -384,3 +384,18 @@ authority is installed. See [the wire contract](operator-worker-8a2.md).
 python -m telephony.operator_worker_simulation --simulate
 python -m unittest discover -s tests -p 'test_telephony_operator_worker_registration.py' -v
 ```
+
+
+## Operator Phase 8A.3 — native Twilio transport
+
+New Operator calling will use Twilio Programmable Voice and bidirectional
+Media Streams without requiring LiveKit. This slice includes an offline
+call-plan and callback contract, mu-law media codec, exclusive synthetic
+stream binding, ordered frames, and generation-fenced interruption handling.
+There is no deployed socket service or live dial path. Existing inbound
+LiveKit code is unchanged. See [the transport contract](operator-twilio-8a3.md).
+
+```sh
+python -m telephony.operator_twilio_simulation --simulate
+python -m unittest discover -s tests -p 'test_telephony_operator_twilio_transport.py' -v
+```
