@@ -105,7 +105,7 @@ def canonical_body(payload: dict) -> bytes:
     try:
         raw = json.dumps(payload, sort_keys=True, separators=(",", ":"),
                          ensure_ascii=True, allow_nan=False).encode("ascii")
-    except (TypeError, ValueError, UnicodeError) as exc:
+    except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise WorkerRegistrationError("Invalid worker frame") from exc
     if not 2 <= len(raw) <= MAX_FRAME_BYTES:
         raise WorkerRegistrationError("Worker frame exceeds size limit")
@@ -294,6 +294,6 @@ class OperatorWorkerClient:
             state = "reporting"
         self._last_clock = now
         return {"state": state, "generation": self._generation, "sequence": self._sequence,
-                "lease_until": self._lease_until, "capabilities": list(self._caps),
+                "lease_until": self._lease_until, "capabilities": list(self._caps) if state == "reporting" else [],
                 "current": state == "reporting", "execution_enabled": False,
                 "live_certified": False}

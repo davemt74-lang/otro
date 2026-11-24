@@ -6,6 +6,8 @@ its caller. SQLite persists metadata and the exact last receipt, never keys.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -61,7 +63,8 @@ class ReferenceWorkerRegistry:
                 db.execute("CREATE TABLE operator_worker_schema(version TEXT NOT NULL)")
                 db.execute("INSERT INTO operator_worker_schema VALUES(?)", (_SCHEMA,))
                 db.execute("""CREATE TABLE operator_worker_registry(
-                    credential_id TEXT PRIMARY KEY, owner_id INTEGER NOT NULL,
+                    credential_id TEXT PRIMARY KEY, key_fingerprint TEXT NOT NULL,
+                    owner_id INTEGER NOT NULL,
                     device_id TEXT NOT NULL, worker_id TEXT NOT NULL, boot_id TEXT NOT NULL,
                     generation INTEGER NOT NULL, sequence INTEGER NOT NULL,
                     last_seen INTEGER NOT NULL, lease_until INTEGER NOT NULL,
@@ -91,7 +94,9 @@ class ReferenceWorkerRegistry:
 
     @staticmethod
     def _binding_matches(row: sqlite3.Row, credential: WorkerCredential) -> bool:
-        return all(row[key] == value for key, value in credential.binding().items())
+        return (all(row[key] == value for key, value in credential.binding().items())
+                and hmac.compare_digest(row["key_fingerprint"],
+                                        hashlib.sha256(credential.secret).hexdigest()))
 
     def process(self, frame: SignedFrame, now: int) -> SignedFrame:
         """Authenticate exact bytes, provisioned identity and ordered fresh request."""
@@ -160,14 +165,15 @@ class ReferenceWorkerRegistry:
                            execution_enabled=False, live_certified=False)
             receipt = sign_frame(payload, credential, "response")
             db.execute("""INSERT INTO operator_worker_registry(
-                    credential_id,owner_id,device_id,worker_id,boot_id,generation,sequence,
+                    credential_id,key_fingerprint,owner_id,device_id,worker_id,boot_id,generation,sequence,
                     last_seen,lease_until,state,request_hash,receipt)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                     ON CONFLICT(credential_id) DO UPDATE SET
                     boot_id=excluded.boot_id,generation=excluded.generation,sequence=excluded.sequence,
                     last_seen=excluded.last_seen,lease_until=excluded.lease_until,
                     state=excluded.state,request_hash=excluded.request_hash,receipt=excluded.receipt""",
-                       (key, credential.owner_id, credential.device_id, credential.worker_id, boot,
+                       (key, hashlib.sha256(credential.secret).hexdigest(), credential.owner_id,
+                        credential.device_id, credential.worker_id, boot,
                         generation, seq, now, lease_until,
                         "retired" if retired else "reporting", digest, receipt.body))
             return receipt
@@ -178,8 +184,13 @@ class ReferenceWorkerRegistry:
         if not integer(owner_id):
             raise WorkerRegistrationError("Invalid reference owner")
         with self._transaction() as db:
-            rows = db.execute("""SELECT * FROM operator_worker_registry WHERE owner_id=?
-                ORDER BY worker_id,credential_id""", (owner_id,)).fetchall()
+            allowed = tuple(key for key, item in self._credentials.items() if item.owner_id == owner_id)
+            if not allowed:
+                return []
+            marks = ",".join("?" for _ in allowed)
+            rows = db.execute(f"""SELECT * FROM operator_worker_registry WHERE owner_id=?
+                AND credential_id IN ({marks}) ORDER BY worker_id,credential_id""",
+                              (owner_id, *allowed)).fetchall()
             result = []
             for row in rows:
                 credential = self._credentials.get(row["credential_id"])
