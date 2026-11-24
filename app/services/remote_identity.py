@@ -63,6 +63,23 @@ def load_or_create_remote_identity() -> dict:
     }
 
 
+def read_existing_remote_device_id() -> str | None:
+    """Read-only identity check. Never repairs, rotates or creates a device secret."""
+    try:
+        path = settings.remote_bridge_secret_path
+        if not path.is_file():
+            return None
+        decoded = json.loads(_decode(path.read_bytes()).decode("utf-8"))
+        if not isinstance(decoded, dict):
+            return None
+        secret = decoded.get("secret")
+        if not isinstance(secret, str) or len(secret) < 40:
+            return None
+        return _device_id(secret)
+    except Exception:
+        return None
+
+
 def remote_identity_metadata() -> dict:
     identity = load_or_create_remote_identity()
     return {
