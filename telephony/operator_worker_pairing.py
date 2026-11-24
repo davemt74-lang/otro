@@ -191,6 +191,7 @@ def open_current_paired_worker(origin: str) -> PairedOperatorWorker:
     Uses the existing local session and read-only remote identity. No default
     origin discovery, new pairing, secret persistence or service activation.
     """
+    from app.database import db
     from app.services.https_bridge_session import SESSION_LOCK, load_https_session
     from app.services.remote_identity import read_existing_remote_device_id
 
@@ -199,6 +200,20 @@ def open_current_paired_worker(origin: str) -> PairedOperatorWorker:
             session = load_https_session()
             device = read_existing_remote_device_id()
             if session is None or device is None:
+                return None
+            # A saved token alone is insufficient after local approval is revoked
+            # or the bridge is disabled/replaced. Read only the canonical local
+            # account-pairing rows, without triggering remote identity repair.
+            with db() as connection:
+                bridge = connection.execute(
+                    "SELECT enabled,transport,https_endpoint FROM remote_bridge_settings WHERE id=1"
+                ).fetchone()
+                approved = connection.execute(
+                    "SELECT status FROM paired_apps WHERE app_key='vp3' LIMIT 1"
+                ).fetchone()
+            if (bridge is None or not bridge["enabled"] or bridge["transport"] != "vp3_https"
+                    or bridge["https_endpoint"] != session["endpoint"]
+                    or approved is None or approved["status"] != "active"):
                 return None
             return PairingSnapshot(session["endpoint"], device, session["session_token"])
 

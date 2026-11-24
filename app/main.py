@@ -67,9 +67,12 @@ async def lifespan(_: FastAPI):
     vrss.start()
     from .services import food_monster_auto_sync
     food_monster_auto_sync.scheduler.start()
+    from .services import operator_worker_runtime
     try:
+        operator_worker_runtime.start()
         yield
     finally:
+        operator_worker_runtime.stop()
         food_monster_auto_sync.scheduler.stop()
         vrss.stop()
         agent_mission_progress.stop()
@@ -256,6 +259,7 @@ def health() -> dict:
 
 @app.get("/api/v1/status")
 def status() -> dict:
+    from .services import operator_worker_runtime
     with db() as connection:
         apps = connection.execute("SELECT COUNT(*) AS total FROM paired_apps WHERE status='active'").fetchone()["total"]
         memories = connection.execute("SELECT COUNT(*) AS total FROM agent_memory").fetchone()["total"]
@@ -270,6 +274,7 @@ def status() -> dict:
         "memory_items": memories,
         "knowledge_items": knowledge,
         "unread_notifications": unread,
+        "operator_worker": operator_worker_runtime.report(),
     }
 
 
