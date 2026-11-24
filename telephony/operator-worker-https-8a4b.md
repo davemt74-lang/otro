@@ -1,0 +1,9 @@
+# Phase 8A.4B — worker registration HTTPS transport
+
+The explicit HomeServer registration transport implements one bounded signed frame exchange using verified TLS (minimum TLS 1.2) with the exact configured HTTPS DNS origin and fixed /api/operator-worker-registration-8a4.php path. No redirects, URL discovery, proxies, automatic retry, credentials from remote payloads, browser dependency, new worker process, live dialing, recording, media streaming or changes to LiveKit.
+
+The request/response body is the exact canonical JSON from 8A.2; X-VP3-Operator-Signature carries the directional HMAC. The response must be 200, application/json (optionally ; charset=utf-8), identity encoding, one signature header, and at most 4096 bytes. The protocol client validates the exact matching request and response signature, sequence, generation, time and simulation-only flags. Every connection closes; failure leaves an unresolved request. A caller can explicitly replay only the exact fresh frame, never guess a successful registration or send another sequence.
+
+No production caller or endpoint is installed. The Cloud handler, real paired-device credential issuance and revocation, private credential storage, account-authority and session claim checks, worker supervision, hard wall-clock network deadline and physical acceptance are separate requirements. The socket timeout is 5 seconds per operation; DNS/slow-peer total elapsed time is not yet supervised. Do not provide a URL from user content or remotely supplied fields. No carrier/model resources are used.
+
+The existing Phone Gateway workflow discovers the offline test_telephony_operator_worker_https.py tests automatically. Tests use a reference registry and fake HTTPS connections, never the public Internet. They exercise TLS context, exact endpoint, redirects, lost acknowledgement, byte-identical replay, header/body validation, timeout ambiguity, staleness, heartbeat and retirement.
