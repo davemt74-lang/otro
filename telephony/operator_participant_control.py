@@ -89,6 +89,8 @@ class FixtureParticipantController:
         self._turn: FixtureTurnPermit | None = None
         self._samples = 0
         self._closed = False
+        self._handoff_paused = False
+        self._stream_stop_seen = False
         self._reason = ""
         self._trace = deque(maxlen=256)
         self._output_count = 0
@@ -161,7 +163,10 @@ class FixtureParticipantController:
                 self._close("stream_closed")
                 raise
             if event.event == "stop":
+                self._stream_stop_seen = True
                 self._close("stream_closed")
+            if self._handoff_paused and event.event in ("media", "dtmf"):
+                return MediaEvent(event.event)
             # DTMF is only data. It cannot authorize speech, infer consent,
             # toggle a participant, or create a human media route.
             return event
@@ -182,7 +187,7 @@ class FixtureParticipantController:
         with self._lock:
             health = self._guard(now)
             if (health["state"] != "active" or health["playback_pending"]
-                    or self._caller_speaking or self._turn is not None
+                    or self._handoff_paused or self._caller_speaking or self._turn is not None
                     or type(duration_seconds) is not int or not 1 <= duration_seconds <= MAX_TURN_SECONDS):
                 raise TwilioContractError("Agent speech turn is unavailable")
             expires = min(now + duration_seconds, self._grant.expires_at)
@@ -195,7 +200,7 @@ class FixtureParticipantController:
     def _exact_turn(self, permit: FixtureTurnPermit) -> None:
         if (not isinstance(permit, FixtureTurnPermit) or self._turn is None
                 or permit != self._turn or permit.generation != self._media.generation
-                or self._caller_speaking):
+                or self._handoff_paused or self._caller_speaking):
             raise TwilioContractError("Stale or unauthorized speech turn")
 
     def publish_pcm(self, permit: FixtureTurnPermit, pcm: bytes, now: int) -> FixturePlaybackReceipt:
@@ -218,6 +223,27 @@ class FixtureParticipantController:
             self._exact_turn(permit)
             self._interrupt(now)
 
+    def matches_handoff(self, principal: SessionBinding, stream: StreamBinding) -> bool:
+        with self._lock:
+            return self._grant.principal == principal and self._grant.stream == stream
+
+    def pause_for_handoff(self, principal: SessionBinding, stream: StreamBinding, now: int) -> bool:
+        """Permanently fence this fixture's speech without closing its stream.
+
+        Closing a bidirectional Connect/Stream can end its call; a separately
+        verified carrier redirect must take over the existing caller leg.
+        """
+        with self._lock:
+            if not self.matches_handoff(principal, stream):
+                raise TwilioContractError("Handoff binding is invalid")
+            health = self._guard(now)
+            if health["state"] != "active":
+                raise TwilioContractError("Handoff stream is not active")
+            if not self._handoff_paused:
+                self._handoff_paused = True
+                self._interrupt(now)
+            return not self._media.check_health(now)["playback_pending"]
+
     def owner_takeover(self, owner_id: int) -> dict:
         """Stop Agent media. A real human join/transfer is NOT performed."""
         with self._lock:
@@ -235,11 +261,12 @@ class FixtureParticipantController:
 
     def _report(self) -> dict:
         return {"state": "closed" if self._closed else self._media.state,
-                "floor": "none" if self._closed else "caller" if self._caller_speaking else
+                "floor": "none" if self._closed or self._handoff_paused else "caller" if self._caller_speaking else
                          "agent" if self._turn is not None else "listening",
                 "generation": self._media.generation,
                 "reason": self._reason,
                 "output_count": self._output_count,
+                "handoff_paused": self._handoff_paused, "stream_stop_seen": self._stream_stop_seen,
                 "owner_joined": False, "carrier_terminal": False,
                 "execution_enabled": False, "live_certified": False, "reference_only": True}
 
