@@ -370,3 +370,17 @@ See [Operator 8A.1 session contract](operator-session-8a1.md) for the persistent
 session, worker lease, dispatch, cancellation and reconciliation design, and
 for the mandatory live transport acceptance gates. All reports explicitly
 identify the transport as simulated; a successful test is not live certification.
+
+
+## Operator Phase 8A.2 — signed registration contract
+
+The worker protocol and local reference authority authenticate an exact
+preprovisioned worker/device/owner identity, issue bounded boot-generation
+registration leases, fence stale or duplicate requests, and report only
+simulation capabilities. No production Cloud endpoint or real phone
+authority is installed. See [the wire contract](operator-worker-8a2.md).
+
+```sh
+python -m telephony.operator_worker_simulation --simulate
+python -m unittest discover -s tests -p 'test_telephony_operator_worker_registration.py' -v
+```
