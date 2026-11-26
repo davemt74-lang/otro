@@ -1405,7 +1405,31 @@ def dispatch_remote_request(operation: str, payload: dict | None, bearer_token: 
         if op == "memory.write":
             return _local_response(client.post("/api/v1/memory", json=body, headers=headers))
         if op == "inference.status":
-            return _local_response(client.get("/api/v1/inference/status", headers=headers))
+            # Inventory is opt-in and private to the approved VP3 pairing.
+            # Do not add it to public capabilities or periodic heartbeats.
+            if body.get("include_model_inventory") is not True:
+                return _local_response(client.get("/api/v1/inference/status", headers=headers))
+            if set(body) != {"include_model_inventory"}:
+                return {"status": 422, "ok": False, "payload": {"detail": "Invalid inventory request."}}
+            identity = _direct_identity(token, {"agent.chat"})
+            if identity.get("app_key") != "vp3":
+                raise RemoteBridgeError("Model inventory is restricted to the paired VP3 Cloud app.")
+            status = _local_response(client.get("/api/v1/inference/status", headers=headers))
+            if not status["ok"]:
+                return status
+            if not isinstance(status["payload"], dict):
+                return {"status": 503, "ok": False, "payload": {"detail": "Inference status is unavailable."}}
+            from . import adaptive_model_inventory_v1
+            try:
+                inventory = adaptive_model_inventory_v1.collect_inventory()
+            except providers.ProviderError:
+                return {"status": 503, "ok": False, "payload": {"detail": "Model inventory is unavailable."}}
+            # Discovery can take several seconds. Recheck the pairing and
+            # permission before releasing the private model metadata.
+            current = _direct_identity(token, {"agent.chat"})
+            if current.get("app_key") != "vp3" or current.get("id") != identity.get("id"):
+                raise RemoteBridgeError("Model inventory pairing changed.")
+            return {**status, "payload": {**status["payload"], "model_inventory": inventory}}
         if op == "events.emit":
             return _local_response(client.post("/api/v1/events", json=body, headers=headers))
         if op == "events.list":

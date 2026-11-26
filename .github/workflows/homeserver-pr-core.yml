@@ -144,6 +144,7 @@ jobs:
           python tests/connection_lifecycle.py
           python tests/remote_bridge_sqlite_recovery.py
           python tests/remote_bridge_feature_isolation.py
+          python tests/adaptive_model_inventory_transport_v1.py
           python tests/remote_bridge_receipt_latency.py
           python tests/tracky_sync_session_fence.py
           python tests/homeserver_members_v400.py
