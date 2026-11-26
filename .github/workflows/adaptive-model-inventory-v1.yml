@@ -1,0 +1,27 @@
+name: Adaptive model inventory v1
+on:
+  pull_request:
+    paths:
+      - 'app/services/adaptive_model_inventory_v1.py'
+      - 'app/services/providers.py'
+      - 'tests/adaptive_model_inventory_v1.py'
+      - '.github/workflows/adaptive-model-inventory-v1.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/services/adaptive_model_inventory_v1.py'
+      - 'app/services/providers.py'
+      - 'tests/adaptive_model_inventory_v1.py'
+      - '.github/workflows/adaptive-model-inventory-v1.yml'
+permissions:
+  contents: read
+jobs:
+  inventory-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tests/adaptive_model_inventory_v1.py
